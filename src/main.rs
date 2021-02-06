@@ -45,6 +45,32 @@ pub fn ing(input: &str) -> nom::IResult<&str, Ingredient> {
         )
     })
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nom::{
+        error::{ErrorKind, VerboseError, VerboseErrorKind},
+        Err as NomErr,
+    };
+
+    #[test]
+    fn test_uri() {
+        assert_eq!(
+            ing("12 cups flour"),
+            Ok((
+                " flour",
+                Ingredient {
+                    name: " flour".to_string(),
+                    amounts: vec![Amount {
+                        unit: "cups".to_string(),
+                        value: 12.0
+                    }],
+                    modifier: None,
+                }
+            ))
+        );
+    }
+}
 
 pub(self) mod parsers {
     use nom::{
@@ -78,17 +104,17 @@ pub(self) mod parsers {
         float(input)
     }
 
-    fn ip_num(input: &str) -> nom::IResult<&str, u8> {
-        context("ip number", n_to_m_digits(1, 3))(input).and_then(|(next_input, result)| {
-            match result.parse::<u8>() {
-                Ok(n) => Ok((next_input, n)),
-                Err(_) => Err(nom::Err::Error(nom::error::Error::new(
-                    " abcdefg",
-                    nom::error::ErrorKind::IsNot,
-                ))),
-            }
-        })
-    }
+    // fn ip_num(input: &str) -> nom::IResult<&str, u8> {
+    //     context("ip number", n_to_m_digits(1, 3))(input).and_then(|(next_input, result)| {
+    //         match result.parse::<u8>() {
+    //             Ok(n) => Ok((next_input, n)),
+    //             Err(_) => Err(nom::Err::Error(nom::error::Error::new(
+    //                 " abcdefg",
+    //                 nom::error::ErrorKind::IsNot,
+    //             ))),
+    //         }
+    //     })
+    // }
 
     // fn num(input: &str) -> nom::IResult<&str, u8> {
     //     context("ip number", n_to_m_digits(1, 3))(input).and_then(|(next_input, result)| {
@@ -99,28 +125,28 @@ pub(self) mod parsers {
     //     })
     // }
 
-    fn n_to_m_digits<'a>(n: usize, m: usize) -> impl FnMut(&'a str) -> nom::IResult<&str, String> {
-        move |input| {
-            many_m_n(n, m, one_of("0123456789"))(input)
-                .map(|(next_input, result)| (next_input, result.into_iter().collect()))
-        }
-    }
+    // fn n_to_m_digits<'a>(n: usize, m: usize) -> impl FnMut(&'a str) -> nom::IResult<&str, String> {
+    //     move |input| {
+    //         many_m_n(n, m, one_of("0123456789"))(input)
+    //             .map(|(next_input, result)| (next_input, result.into_iter().collect()))
+    //     }
+    // }
 
-    fn ip(input: &str) -> nom::IResult<&str, [u8; 4]> {
-        context(
-            "ip",
-            tuple((count(terminated(ip_num, tag(".")), 3), ip_num)),
-        )(input)
-        .map(|(next_input, res)| {
-            let mut result: [u8; 4] = [0, 0, 0, 0];
-            res.0
-                .into_iter()
-                .enumerate()
-                .for_each(|(i, v)| result[i] = v);
-            result[3] = res.1;
-            (next_input, result)
-        })
-    }
+    // fn ip(input: &str) -> nom::IResult<&str, [u8; 4]> {
+    //     context(
+    //         "ip",
+    //         tuple((count(terminated(ip_num, tag(".")), 3), ip_num)),
+    //     )(input)
+    //     .map(|(next_input, res)| {
+    //         let mut result: [u8; 4] = [0, 0, 0, 0];
+    //         res.0
+    //             .into_iter()
+    //             .enumerate()
+    //             .for_each(|(i, v)| result[i] = v);
+    //         result[3] = res.1;
+    //         (next_input, result)
+    //     })
+    // }
     // fn foo(input: &str) -> IResult<&str, &str> {
     // nom::sequence::separated_pair(num(str))
     // }
