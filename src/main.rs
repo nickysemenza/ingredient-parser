@@ -1,3 +1,10 @@
+use nom::{
+    character::complete::{alpha1, space0},
+    error::context,
+    number::complete::float,
+    sequence::tuple,
+};
+
 extern crate nom;
 
 fn hello_parser(i: &str) -> nom::IResult<&str, &str> {
@@ -8,6 +15,35 @@ fn main() {
     println!("{:?}", hello_parser("hello"));
     println!("{:?}", hello_parser("hello world"));
     println!("{:?}", hello_parser("goodbye hello again"));
+    println!("{:?}", ing("23 grams potatoes"));
+}
+#[derive(Debug, PartialEq)]
+pub struct Amount {
+    unit: String,
+    value: f32,
+}
+#[derive(Debug, PartialEq)]
+pub struct Ingredient {
+    name: String,
+    amounts: Vec<Amount>,
+    modifier: Option<String>,
+}
+
+pub fn ing(input: &str) -> nom::IResult<&str, Ingredient> {
+    context("ing", tuple((float, space0, alpha1)))(input).map(|(next_input, res)| {
+        let (value, _, unit) = res;
+        (
+            next_input,
+            Ingredient {
+                name: next_input.to_string(),
+                amounts: vec![Amount {
+                    unit: unit.to_string(),
+                    value,
+                }],
+                modifier: None,
+            },
+        )
+    })
 }
 
 pub(self) mod parsers {
