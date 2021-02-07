@@ -1,7 +1,10 @@
 use nom::{
+    branch::alt,
     bytes::complete::{is_not, tag},
-    character::complete::{alpha1, char, space0},
+    character::complete::{alpha1, char, space0, space1},
+    combinator::opt,
     error::context,
+    multi::{many0, many1},
     number::complete::float,
     sequence::{delimited, tuple},
 };
@@ -12,7 +15,7 @@ fn main() {
     // println!("{:?}", hello_parser("hello"));
     // println!("{:?}", hello_parser("hello world"));
     // println!("{:?}", hello_parser("goodbye hello again"));
-    println!("{:?}", ing("23 grams potatoes"));
+    println!("{:?}", ing("23 grams whole potatoes, foo"));
 }
 #[derive(Debug, PartialEq)]
 pub struct Amount {
@@ -33,25 +36,50 @@ pub struct Ingredient {
 // 1 g / 1 g name
 
 pub fn ing(input: &str) -> nom::IResult<&str, Ingredient> {
-    context("ing", nom::branch::alt((amount0, amount)))(input).map(|(next_input, res)| {
-        let a = res;
+    context(
+        "ing",
+        tuple((
+            alt((
+                amount0, // 1 g OR
+                amount,  // 1g / 1g
+            )),
+            space0,                       // space between amt and name
+            many1(alt((alpha1, space1))), // name, can be multiple words
+            opt(tag(", ")),
+            many0(alt((alpha1, space1))), // modifier, can be multiple words
+        )),
+    )(input)
+    .map(|(next_input, res)| {
+        let (amounts, _, name_chunks, _, modifier_chunks) = res;
+        let m = modifier_chunks.join("");
         (
             next_input,
             Ingredient {
-                name: next_input.to_string(),
-                amounts: a,
-                modifier: None,
+                name: name_chunks.join(""),
+                amounts: amounts,
+                modifier: match m.chars().count() {
+                    0 => None,
+                    _ => Some(m),
+                },
             },
         )
     })
 }
-fn parens(input: &str) -> nom::IResult<&str, &str> {
-    delimited(char('('), is_not(")"), char(')'))(input)
-}
+// fn words(input: &str) -> nom::IResult<&str, &str> {
+// context(
+// "words",
+// let (a, b, _) = many1(alt((alpha1, space1)))(input);
+// (a, b.join(""))
+// )
+// }
+
+// fn parens(input: &str) -> nom::IResult<&str, &str> {
+//     delimited(char('('), is_not(")"), char(')'))(input)
+// }
 fn amount0(input: &str) -> nom::IResult<&str, Vec<Amount>> {
     context(
         "amount0",
-        nom::sequence::separated_pair(amount, nom::branch::alt((tag("; "), tag(" / "))), amount),
+        nom::sequence::separated_pair(amount, alt((tag("; "), tag(" / "))), amount),
     )(input)
     .map(|(next_input, res)| {
         let (a, b) = res;
@@ -94,14 +122,28 @@ mod tests {
         assert_eq!(
             ing("12 cups flour"),
             Ok((
-                " flour",
+                "",
                 Ingredient {
-                    name: " flour".to_string(),
+                    name: "flour".to_string(),
                     amounts: vec![Amount {
                         unit: "cups".to_string(),
                         value: 12.0
                     }],
                     modifier: None,
+                }
+            ))
+        );
+        assert_eq!(
+            ing("12 cups flour, lightly sifted"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "flour".to_string(),
+                    amounts: vec![Amount {
+                        unit: "cups".to_string(),
+                        value: 12.0
+                    }],
+                    modifier: Some("lightly sifted".to_string()),
                 }
             ))
         );
@@ -112,9 +154,9 @@ mod tests {
         assert_eq!(
             ing("12 cups / 2.3 grams flour"),
             Ok((
-                " flour",
+                "",
                 Ingredient {
-                    name: " flour".to_string(),
+                    name: "flour".to_string(),
                     amounts: vec![
                         Amount {
                             unit: "cups".to_string(),
