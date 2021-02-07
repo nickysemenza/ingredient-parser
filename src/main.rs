@@ -1,8 +1,11 @@
+use std::borrow::Borrow;
+
 use nom::{
-    character::complete::{alpha1, space0},
+    bytes::complete::{is_not, tag},
+    character::complete::{alpha1, char, space0},
     error::context,
     number::complete::float,
-    sequence::tuple,
+    sequence::{delimited, tuple},
 };
 
 extern crate nom;
@@ -12,9 +15,9 @@ fn hello_parser(i: &str) -> nom::IResult<&str, &str> {
 }
 
 fn main() {
-    println!("{:?}", hello_parser("hello"));
-    println!("{:?}", hello_parser("hello world"));
-    println!("{:?}", hello_parser("goodbye hello again"));
+    // println!("{:?}", hello_parser("hello"));
+    // println!("{:?}", hello_parser("hello world"));
+    // println!("{:?}", hello_parser("goodbye hello again"));
     println!("{:?}", ing("23 grams potatoes"));
 }
 #[derive(Debug, PartialEq)]
@@ -29,22 +32,62 @@ pub struct Ingredient {
     modifier: Option<String>,
 }
 
+// 1 g name
+// 1 name
+// 1 g (1 g) name
+// 1 g name (about 1 g; 1 g)
+// 1 g / 1 g name
+
 pub fn ing(input: &str) -> nom::IResult<&str, Ingredient> {
-    context("ing", tuple((float, space0, alpha1)))(input).map(|(next_input, res)| {
-        let (value, _, unit) = res;
+    context("ing", nom::branch::alt((amount0, amount)))(input).map(|(next_input, res)| {
+        let (a) = res;
         (
             next_input,
             Ingredient {
                 name: next_input.to_string(),
-                amounts: vec![Amount {
-                    unit: unit.to_string(),
-                    value,
-                }],
+                amounts: a,
                 modifier: None,
             },
         )
     })
 }
+fn parens(input: &str) -> nom::IResult<&str, &str> {
+    delimited(char('('), is_not(")"), char(')'))(input)
+}
+fn amount0(input: &str) -> nom::IResult<&str, Vec<Amount>> {
+    context(
+        "amount0",
+        nom::sequence::separated_pair(amount, nom::branch::alt((tag("; "), tag(" / "))), amount),
+    )(input)
+    .map(|(next_input, res)| {
+        let (a, b) = res;
+        // println!("foo{:?}", res.clone());
+        // let mut path: Vec<&str> = res.1.iter().map(|p| p.to_owned()).collect();
+        // if let Some(last) = res.2 {
+        //     path.push(last);
+        // }
+        (next_input, a.into_iter().chain(b.into_iter()).collect())
+    })
+}
+
+fn amount(input: &str) -> nom::IResult<&str, Vec<Amount>> {
+    context("amount", tuple((float, space0, alpha1)))(input).map(|(next_input, res)| {
+        let (value, _, unit) = res;
+        println!("foo{:?}", res);
+        // let mut path: Vec<&str> = res.1.iter().map(|p| p.to_owned()).collect();
+        // if let Some(last) = res.2 {
+        //     path.push(last);
+        // }
+        (
+            next_input,
+            vec![Amount {
+                unit: unit.to_string(),
+                value,
+            }],
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,6 +108,30 @@ mod tests {
                         unit: "cups".to_string(),
                         value: 12.0
                     }],
+                    modifier: None,
+                }
+            ))
+        );
+        // assert_eq!(
+        //     ing("12 cups / 2.3 grams flour"),
+        //     ing("12 cups (2.3 grams) flour")
+        // );
+        assert_eq!(
+            ing("12 cups / 2.3 grams flour"),
+            Ok((
+                " flour",
+                Ingredient {
+                    name: " flour".to_string(),
+                    amounts: vec![
+                        Amount {
+                            unit: "cups".to_string(),
+                            value: 12.0
+                        },
+                        Amount {
+                            unit: "grams".to_string(),
+                            value: 2.3
+                        }
+                    ],
                     modifier: None,
                 }
             ))
