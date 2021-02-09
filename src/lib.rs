@@ -11,9 +11,6 @@ use nom::{
 
 extern crate nom;
 
-fn main() {
-    println!("{:?}", ingredient("23 grams / 1 large whole potatoes, diced"));
-}
 #[derive(Debug, PartialEq)]
 pub struct Amount {
     unit: String,
@@ -27,7 +24,7 @@ pub struct Ingredient {
 }
 
 /// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`
-/// and returnsthe name, amount(s), and oprtionally a modifier.
+/// into a `Ingredient`
 ///
 /// supported formats:
 /// 1 g name
@@ -107,7 +104,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_uri() {
+    fn test_ingredient_parse() {
         assert_eq!(
             ingredient("12 cups flour"),
             Ok((

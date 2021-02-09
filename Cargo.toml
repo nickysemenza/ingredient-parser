@@ -3,6 +3,8 @@ name = "ingredient"
 version = "0.1.0"
 authors = ["nickysemenza"]
 edition = "2018"
+description = "recipe ingredient parser"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
