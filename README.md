@@ -1,5 +1,8 @@
 # ingredient-parser
 
+[![codecov](https://codecov.io/gh/nickysemenza/ingredient-parser/branch/main/graph/badge.svg?token=5GJCVD15RH)](https://codecov.io/gh/nickysemenza/ingredient-parser)
+![build + test](https://github.com/nickysemenza/ingredient-parser/workflows/build%20+%20test/badge.svg)
+
 This leverages [nom](https://github.com/Geal/nom) to parse ingredient line items from recipes into a common format.
 
 *wip*
