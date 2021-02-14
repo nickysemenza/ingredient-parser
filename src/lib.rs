@@ -1,3 +1,5 @@
+use std::fmt;
+
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -16,11 +18,32 @@ pub struct Amount {
     unit: String,
     value: f32,
 }
+
+impl fmt::Display for Amount {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.value, self.unit)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Ingredient {
     name: String,
     amounts: Vec<Amount>,
     modifier: Option<String>,
+}
+
+impl fmt::Display for Ingredient {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let amounts: Vec<String> = self.amounts.iter().map(|id| id.to_string()).collect();
+        write!(f, "{} {}", amounts.join(" / "), self.name)
+    }
+}
+
+pub fn ingredient(input: &str) -> Result<Ingredient, String> {
+    return match parse_ingredient(input) {
+        Ok(r) => Ok(r.1),
+        Err(e) => Err(format!("failed to parse '{}': {}", input, e)),
+    };
 }
 
 /// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`
@@ -38,9 +61,7 @@ pub struct Ingredient {
 /// TODO (other):
 /// preparse: convert fractions to floats
 /// preparse: convert vulgar fractions to floats
-
-// full ingredient parser
-pub fn ingredient(input: &str) -> nom::IResult<&str, Ingredient> {
+fn parse_ingredient(input: &str) -> nom::IResult<&str, Ingredient> {
     context(
         "ing",
         tuple((
@@ -184,7 +205,7 @@ mod tests {
     #[test]
     fn test_ingredient_parse() {
         assert_eq!(
-            ingredient("12 cups flour"),
+            parse_ingredient("12 cups flour"),
             Ok((
                 "",
                 Ingredient {
@@ -198,7 +219,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            ingredient("12 cups all purpose flour, lightly sifted"),
+            parse_ingredient("12 cups all purpose flour, lightly sifted"),
             Ok((
                 "",
                 Ingredient {
@@ -213,7 +234,7 @@ mod tests {
         );
 
         assert_eq!(
-            ingredient("1¼  cups / 155.5 grams flour"),
+            parse_ingredient("1¼  cups / 155.5 grams flour"),
             Ok((
                 "",
                 Ingredient {
