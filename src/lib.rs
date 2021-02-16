@@ -53,14 +53,17 @@ pub fn ingredient(input: &str) -> Result<Ingredient, String> {
 /// 1 g name
 /// 1 g / 1g name, modifier
 /// 1 g; 1 g name
+/// ¼ g name
+/// 1/4 g name
+/// 1 ¼ g name
+/// 1 1/4 g name
+
 ///
 /// TODO (formats):
 /// 1 g name (about 1 g; 1 g)
 /// 1 g (1 g) name
+/// name
 ///
-/// TODO (other):
-/// preparse: convert fractions to floats
-/// preparse: convert vulgar fractions to floats
 fn parse_ingredient(input: &str) -> nom::IResult<&str, Ingredient> {
     context(
         "ing",
@@ -138,7 +141,7 @@ pub fn v_frac_to_num(input: &char) -> Result<f32, String> {
 }
 
 /// parses unicode vulgar fractions
-pub fn v_fraction(input: &str) -> nom::IResult<&str, char> {
+pub fn v_fraction(input: &str) -> nom::IResult<&str, f32> {
     context(
         "v_fraction",
         satisfy(|c|
@@ -146,19 +149,38 @@ pub fn v_fraction(input: &str) -> nom::IResult<&str, char> {
             // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
             (c <= '¾' && c >= '¼') || (c >= '⅐' && c <= '⅞')),
     )(input)
+    .map(|(next_input, res)| {
+        let num = match v_frac_to_num(&res) {
+            Ok(x) => x,
+            _ => 0.0,
+        };
+
+        (next_input, num)
+    })
+}
+
+pub fn n_fraction(input: &str) -> nom::IResult<&str, f32> {
+    context("n_fraction", tuple((float, tag("/"), float)))(input)
+        .map(|(next_input, res)| (next_input, res.0 / res.2))
 }
 
 /// handles vulgar fraction, or just a number
 pub fn num(input: &str) -> nom::IResult<&str, f32> {
     context("num", alt((fraction_number, float)))(input)
 }
-/// parses `1 ⅛` into 1.125
+/// parses `1 ⅛` or `1 1/8` into `1.125`
 pub fn fraction_number(input: &str) -> nom::IResult<&str, f32> {
     context(
         "fraction_number",
-        tuple((
-            opt(tuple((float, space0))), // optional number (and if number, optional space) before
-            v_fraction,                  // vulgar frac
+        alt((
+            tuple((
+                opt(tuple((float, space0))), // optional number (and if number, optional space) before
+                v_fraction,                  // vulgar frac
+            )),
+            tuple((
+                opt(tuple((float, space1))), // optional number (and if number, required space space) before
+                n_fraction,                  // regular frac
+            )),
         )),
     )(input)
     .map(|(next_input, res)| {
@@ -167,29 +189,26 @@ pub fn fraction_number(input: &str) -> nom::IResult<&str, f32> {
             Some(x) => x.0,
             None => 0.0,
         };
-        let num2 = match v_frac_to_num(&frac) {
-            Ok(x) => x,
-            _ => 0.0,
-        };
-        (next_input, num1 + num2)
+        (next_input, num1 + frac)
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_fraction() {
         assert_eq!(fraction_number("1 ⅛"), Ok(("", 1.125)));
+        assert_eq!(fraction_number("1 1/8"), Ok(("", 1.125)));
         assert_eq!(fraction_number("1⅓"), Ok(("", 1.3333334)));
         assert_eq!(fraction_number("¼"), Ok(("", 0.25)));
+        assert_eq!(fraction_number("1/4"), Ok(("", 0.25)));
         assert_eq!(fraction_number("⅐"), Ok(("", 0.0))); // unkown are dropped
         assert_eq!(
             fraction_number("1"),
             Err(nom::Err::Error(nom::error::Error::new(
                 "",
-                nom::error::ErrorKind::Satisfy
+                nom::error::ErrorKind::Tag
             )))
         );
         // assert_eq!(strip_frac("1 ⅛"), "a");
@@ -205,18 +224,26 @@ mod tests {
     #[test]
     fn test_ingredient_parse() {
         assert_eq!(
-            parse_ingredient("12 cups flour"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "flour".to_string(),
-                    amounts: vec![Amount {
-                        unit: "cups".to_string(),
-                        value: 12.0
-                    }],
-                    modifier: None,
-                }
-            ))
+            ingredient("12 cups flour"),
+            Ok(Ingredient {
+                name: "flour".to_string(),
+                amounts: vec![Amount {
+                    unit: "cups".to_string(),
+                    value: 12.0
+                }],
+                modifier: None,
+            })
+        );
+        assert_eq!(
+            ingredient("foo"),
+            Err(
+                "failed to parse \'foo\': Parsing Error: Error { input: \"foo\", code: Char }"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            format!("res: {}", ingredient("12 cups flour").unwrap()),
+            "res: 12 cups flour"
         );
         assert_eq!(
             parse_ingredient("12 cups all purpose flour, lightly sifted"),
