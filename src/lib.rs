@@ -5,10 +5,11 @@ use nom::{
     bytes::complete::tag,
     character::complete::{alpha1, satisfy, space0, space1},
     combinator::opt,
-    error::context,
+    error::{context, convert_error, VerboseError},
     multi::{many0, many1},
     number::complete::float,
     sequence::tuple,
+    Err as NomErr, IResult,
 };
 
 extern crate nom;
@@ -16,6 +17,8 @@ extern crate nom;
 #[cfg(feature = "serde")]
 #[macro_use]
 extern crate serde;
+
+type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq)]
@@ -44,10 +47,22 @@ impl fmt::Display for Ingredient {
     }
 }
 
-pub fn ingredient(input: &str) -> Result<Ingredient, String> {
+pub fn ingredient(input: &str, verbose_error: bool) -> Result<Ingredient, String> {
     return match parse_ingredient(input) {
         Ok(r) => Ok(r.1),
-        Err(e) => Err(format!("failed to parse '{}': {}", input, e)),
+        Err(e) => {
+            let msg = match e {
+                NomErr::Error(e) => {
+                    if verbose_error {
+                        convert_error(input, e)
+                    } else {
+                        format!("{}", e)
+                    }
+                }
+                _ => format!("{}", e),
+            };
+            return Err(format!("failed to parse '{}': {}", input, msg));
+        }
     };
 }
 
@@ -69,7 +84,7 @@ pub fn ingredient(input: &str) -> Result<Ingredient, String> {
 /// 1 g (1 g) name
 /// name
 ///
-fn parse_ingredient(input: &str) -> nom::IResult<&str, Ingredient> {
+fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     context(
         "ing",
         tuple((
@@ -102,7 +117,7 @@ fn parse_ingredient(input: &str) -> nom::IResult<&str, Ingredient> {
 }
 
 // parses 2 amounts, seperated by ; or /
-fn amount2(input: &str) -> nom::IResult<&str, Vec<Amount>> {
+fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amount2",
         nom::sequence::separated_pair(amount1, alt((tag("; "), tag(" / "))), amount1),
@@ -114,7 +129,7 @@ fn amount2(input: &str) -> nom::IResult<&str, Vec<Amount>> {
 }
 
 // parses a single amount
-fn amount1(input: &str) -> nom::IResult<&str, Vec<Amount>> {
+fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amount1",
         tuple(
@@ -146,7 +161,7 @@ pub fn v_frac_to_num(input: &char) -> Result<f32, String> {
 }
 
 /// parses unicode vulgar fractions
-pub fn v_fraction(input: &str) -> nom::IResult<&str, f32> {
+pub fn v_fraction(input: &str) -> Res<&str, f32> {
     context(
         "v_fraction",
         satisfy(|c|
@@ -164,17 +179,17 @@ pub fn v_fraction(input: &str) -> nom::IResult<&str, f32> {
     })
 }
 
-pub fn n_fraction(input: &str) -> nom::IResult<&str, f32> {
+pub fn n_fraction(input: &str) -> Res<&str, f32> {
     context("n_fraction", tuple((float, tag("/"), float)))(input)
         .map(|(next_input, res)| (next_input, res.0 / res.2))
 }
 
 /// handles vulgar fraction, or just a number
-pub fn num(input: &str) -> nom::IResult<&str, f32> {
+pub fn num(input: &str) -> Res<&str, f32> {
     context("num", alt((fraction_number, float)))(input)
 }
 /// parses `1 ⅛` or `1 1/8` into `1.125`
-pub fn fraction_number(input: &str) -> nom::IResult<&str, f32> {
+pub fn fraction_number(input: &str) -> Res<&str, f32> {
     context(
         "fraction_number",
         alt((
@@ -200,6 +215,8 @@ pub fn fraction_number(input: &str) -> nom::IResult<&str, f32> {
 
 #[cfg(test)]
 mod tests {
+    use nom::error::{ErrorKind, VerboseErrorKind};
+
     use super::*;
     #[test]
     fn test_fraction() {
@@ -211,25 +228,27 @@ mod tests {
         assert_eq!(fraction_number("⅐"), Ok(("", 0.0))); // unkown are dropped
         assert_eq!(
             fraction_number("1"),
-            Err(nom::Err::Error(nom::error::Error::new(
-                "",
-                nom::error::ErrorKind::Tag
-            )))
+            Err(NomErr::Error(VerboseError {
+                errors: vec![
+                    ("", VerboseErrorKind::Nom(ErrorKind::Tag)),
+                    ("1", VerboseErrorKind::Context("n_fraction")),
+                    ("1", VerboseErrorKind::Nom(ErrorKind::Alt)),
+                    ("1", VerboseErrorKind::Context("fraction_number")),
+                ]
+            }))
         );
-        // assert_eq!(strip_frac("1 ⅛"), "a");
     }
     #[test]
     fn test_v_fraction() {
         assert_eq!(v_frac_to_num(&'⅛'), Ok(0.125));
         assert_eq!(v_frac_to_num(&'¼'), Ok(0.25));
         assert_eq!(v_frac_to_num(&'½'), Ok(0.5));
-        // assert_eq!(strip_frac("1 ⅛"), "a");
     }
 
     #[test]
     fn test_ingredient_parse() {
         assert_eq!(
-            ingredient("12 cups flour"),
+            ingredient("12 cups flour", false),
             Ok(Ingredient {
                 name: "flour".to_string(),
                 amounts: vec![Amount {
@@ -240,14 +259,14 @@ mod tests {
             })
         );
         assert_eq!(
-            ingredient("foo"),
+            ingredient("foo",false),
             Err(
-                "failed to parse \'foo\': Parsing Error: Error { input: \"foo\", code: Char }"
+                "failed to parse \'foo\': Parse error:\nexpected \'.\' at: foo\nAlt at: foo\nAlt at: foo\nin section \'num\', at: foo\nin section \'amount1\', at: foo\nAlt at: foo\nin section \'ing\', at: foo\n"
                     .to_string()
             )
         );
         assert_eq!(
-            format!("res: {}", ingredient("12 cups flour").unwrap()),
+            format!("res: {}", ingredient("12 cups flour", false).unwrap()),
             "res: 12 cups flour"
         );
         assert_eq!(

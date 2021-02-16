@@ -19,7 +19,9 @@ pub fn main() {
     // occurrence
     if let Some(ref in_file) = matches.value_of("config") {
         println!("An config file: {}", in_file);
-        let i = ingredient(in_file);
-        println!("{}", i.unwrap());
+        match ingredient(in_file, true) {
+            Ok(i) => println!("{}", i),
+            Err(e) => println!("fail: {}", e),
+        }
     }
 }
