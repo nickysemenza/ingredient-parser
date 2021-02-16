@@ -9,4 +9,10 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nom = "6.1.0"
+clap = "2.33.3"
+serde = { version = "1.0", optional = true, features = ["derive"] }
+
+[dependencies.nom]
+version = "6.1.2"
+default-features = false
+features = ["alloc"]

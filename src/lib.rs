@@ -13,6 +13,11 @@ use nom::{
 
 extern crate nom;
 
+#[cfg(feature = "serde")]
+#[macro_use]
+extern crate serde;
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq)]
 pub struct Amount {
     unit: String,
@@ -24,12 +29,12 @@ impl fmt::Display for Amount {
         write!(f, "{} {}", self.value, self.unit)
     }
 }
-
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq)]
 pub struct Ingredient {
-    name: String,
-    amounts: Vec<Amount>,
-    modifier: Option<String>,
+    pub name: String,
+    pub amounts: Vec<Amount>,
+    pub modifier: Option<String>,
 }
 
 impl fmt::Display for Ingredient {
