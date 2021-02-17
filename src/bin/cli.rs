@@ -8,19 +8,14 @@ pub fn main() {
         ))
         .get_matches();
 
-    // We can find out whether or not "config" was used
-    if matches.is_present("config") {
-        println!("An config file was specified");
-    }
-
     // We can also get the value for "config"
     //
     // NOTE: If we specified multiple(), this will only return the _FIRST_
     // occurrence
     if let Some(ref in_file) = matches.value_of("config") {
-        println!("An config file: {}", in_file);
+        println!("IN: {}", in_file);
         match ingredient(in_file, true) {
-            Ok(i) => println!("{}", i),
+            Ok(i) => println!("OUT: {}", i),
             Err(e) => println!("fail: {}", e),
         }
     }

@@ -47,7 +47,11 @@ impl fmt::Display for Ingredient {
             Some(m) => format!(", {}", m),
             None => format!(""),
         };
-        write!(f, "{} {}{}", amounts.join(" / "), self.name, modifier)
+        let amount_list = match amounts.len() {
+            0 => format!(""),
+            _ => format!("{} ", amounts.join(" / ")),
+        };
+        write!(f, "{}{}{}", amount_list, self.name, modifier)
         // if self.modifier.is_some() {
         //     write!(f, ", {}", self.modifier.unwrap());
         // }
@@ -95,15 +99,16 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     context(
         "ing",
         tuple((
-            alt((
+            opt(alt((
+                // amounts might be totally optional
                 amount2, // 1g / 1 g
                 // OR
                 amount1, // 1g
-            )),
-            space0,                       // space between amt and name
-            many1(alt((alpha1, space1))), // name, can be multiple words
-            opt(tag(", ")),               // comma seperates the modifier
-            many0(alt((alpha1, space1))), // modifier, can be multiple words
+            ))),
+            space0,                                 // space between amt and name
+            many1(alt((alpha1, space1, tag("-")))), // name, can be multiple words
+            opt(tag(", ")),                         // comma seperates the modifier
+            many0(alt((alpha1, space1, tag("-")))), // modifier, can be multiple words
         )),
     )(input)
     .map(|(next_input, res)| {
@@ -113,7 +118,10 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
             next_input,
             Ingredient {
                 name: name_chunks.join(""),
-                amounts,
+                amounts: match amounts {
+                    Some(a) => a,
+                    None => vec![],
+                },
                 modifier: match m.chars().count() {
                     0 => None,
                     _ => Some(m),
@@ -159,7 +167,10 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
     })
 }
 fn amt_parens(input: &str) -> Res<&str, Vec<Amount>> {
-    context("amt_parens", delimited(char('('), amount1, char(')')))(input)
+    context(
+        "amt_parens",
+        delimited(char('('), alt((amount1, amount2)), char(')')),
+    )(input)
 }
 
 pub fn v_frac_to_num(input: &char) -> Result<f32, String> {
@@ -277,11 +288,15 @@ mod tests {
             })
         );
         assert_eq!(
-            ingredient("foo",false),
-            Err(
-                "failed to parse \'foo\': Parse error:\nexpected \'.\' at: foo\nAlt at: foo\nAlt at: foo\nin section \'num\', at: foo\nin section \'amount1\', at: foo\nAlt at: foo\nin section \'ing\', at: foo\n"
-                    .to_string()
-            )
+            parse_ingredient("foo"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "foo".to_string(),
+                    amounts: vec![],
+                    modifier: None,
+                }
+            ))
         );
         assert_eq!(
             format!("res: {}", ingredient("12 cups flour", false).unwrap()),
