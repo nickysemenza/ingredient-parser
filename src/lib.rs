@@ -3,12 +3,12 @@ use std::fmt;
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, satisfy, space0, space1},
+    character::complete::{alpha1, char, satisfy, space0, space1},
     combinator::opt,
     error::{context, convert_error, VerboseError},
     multi::{many0, many1},
     number::complete::float,
-    sequence::tuple,
+    sequence::{delimited, tuple},
     Err as NomErr, IResult,
 };
 
@@ -43,7 +43,14 @@ pub struct Ingredient {
 impl fmt::Display for Ingredient {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let amounts: Vec<String> = self.amounts.iter().map(|id| id.to_string()).collect();
-        write!(f, "{} {}", amounts.join(" / "), self.name)
+        let modifier = match self.modifier.clone() {
+            Some(m) => format!(", {}", m),
+            None => format!(""),
+        };
+        write!(f, "{} {}{}", amounts.join(" / "), self.name, modifier)
+        // if self.modifier.is_some() {
+        //     write!(f, ", {}", self.modifier.unwrap());
+        // }
     }
 }
 
@@ -81,7 +88,6 @@ pub fn ingredient(input: &str, verbose_error: bool) -> Result<Ingredient, String
 ///
 /// TODO (formats):
 /// 1 g name (about 1 g; 1 g)
-/// 1 g (1 g) name
 /// name
 ///
 fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
@@ -120,7 +126,11 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
 fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amount2",
-        nom::sequence::separated_pair(amount1, alt((tag("; "), tag(" / "))), amount1),
+        nom::sequence::separated_pair(
+            amount1,
+            alt((tag("; "), tag(" / "), tag(" "))),
+            alt((amount1, amt_parens)),
+        ),
     )(input)
     .map(|(next_input, res)| {
         let (a, b) = res;
@@ -146,6 +156,9 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
             }],
         )
     })
+}
+fn amt_parens(input: &str) -> Res<&str, Vec<Amount>> {
+    context("amt_parens", delimited(char('('), amount1, char(')')))(input)
 }
 
 pub fn v_frac_to_num(input: &char) -> Result<f32, String> {
@@ -268,6 +281,13 @@ mod tests {
         assert_eq!(
             format!("res: {}", ingredient("12 cups flour", false).unwrap()),
             "res: 12 cups flour"
+        );
+        assert_eq!(
+            format!(
+                "res: {}",
+                ingredient("1 cup (125.5 grams) AP flour, sifted", false).unwrap()
+            ),
+            "res: 1 cup / 125.5 grams AP flour, sifted"
         );
         assert_eq!(
             parse_ingredient("12 cups all purpose flour, lightly sifted"),
