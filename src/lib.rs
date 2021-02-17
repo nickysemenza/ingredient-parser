@@ -3,7 +3,7 @@ use std::fmt;
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, char, satisfy, space0, space1},
+    character::complete::{alpha1, char, not_line_ending, satisfy, space0, space1},
     combinator::opt,
     error::{context, convert_error, VerboseError},
     multi::{many0, many1},
@@ -52,9 +52,6 @@ impl fmt::Display for Ingredient {
             _ => format!("{} ", amounts.join(" / ")),
         };
         write!(f, "{}{}{}", amount_list, self.name, modifier)
-        // if self.modifier.is_some() {
-        //     write!(f, ", {}", self.modifier.unwrap());
-        // }
     }
 }
 
@@ -91,10 +88,8 @@ pub fn ingredient(input: &str, verbose_error: bool) -> Result<Ingredient, String
 /// 1 g (1 g) name
 /// 1 g name (about 1 g; 1 g)
 /// name
-
-///
-/// TODO (formats):
 /// 1 name
+
 fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     context(
         "ing",
@@ -105,16 +100,16 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
                 // OR
                 amount1, // 1g
             ))),
-            space0,           // space between amt and name
+            space0,           // space between amount(s) and name
             opt(many1(text)), // name, can be multiple words
-            opt(amt_parens),
-            opt(tag(", ")), // comma seperates the modifier
-            many0(text),    // modifier, can be multiple words
+            opt(amt_parens),  // can have some more amounts in parens after the name
+            opt(tag(", ")),   // comma seperates the modifier
+            not_line_ending, // modifier, can be multiple words and even include numbers, since once we've hit the comma everything is fair game.
         )),
     )(input)
     .map(|(next_input, res)| {
         let (amounts, _, name_chunks, amounts2, _, modifier_chunks) = res;
-        let m = modifier_chunks.join("");
+        let m = modifier_chunks;
 
         let mut name = match name_chunks {
             Some(n) => n.join("").trim_matches(' ').to_string(),
@@ -142,7 +137,7 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
                 amounts,
                 modifier: match m.chars().count() {
                     0 => None,
-                    _ => Some(m),
+                    _ => Some(m.to_string()),
                 },
             },
         )
