@@ -6,7 +6,7 @@ use nom::{
     character::complete::{alpha1, char, not_line_ending, satisfy, space0, space1},
     combinator::opt,
     error::{context, convert_error, VerboseError},
-    multi::{many0, many1},
+    multi::many1,
     number::complete::float,
     sequence::{delimited, tuple},
     Err as NomErr, IResult,
@@ -14,17 +14,18 @@ use nom::{
 
 extern crate nom;
 
-#[cfg(feature = "serde")]
+#[cfg(feature = "serde-derive")]
 #[macro_use]
 extern crate serde;
 
 type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq)]
+/// Holds a unit and value pair for an ingredient.
 pub struct Amount {
-    unit: String,
-    value: f32,
+    pub unit: String,
+    pub value: f32,
 }
 
 impl fmt::Display for Amount {
@@ -32,8 +33,9 @@ impl fmt::Display for Amount {
         write!(f, "{} {}", self.value, self.unit)
     }
 }
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq)]
+/// Holds a name, list of [Amount], and optional modifier string
 pub struct Ingredient {
     pub name: String,
     pub amounts: Vec<Amount>,
@@ -54,7 +56,11 @@ impl fmt::Display for Ingredient {
         write!(f, "{}{}{}", amount_list, self.name, modifier)
     }
 }
-
+/// wrapper for [parse_ingredient]
+/// ```
+/// use ingredient::{ingredient};
+/// assert_eq!(ingredient("one whole egg", true).unwrap().to_string(),"1 whole egg");
+/// ```
 pub fn ingredient(input: &str, verbose_error: bool) -> Result<Ingredient, String> {
     return match parse_ingredient(input) {
         Ok(r) => Ok(r.1),
@@ -75,22 +81,44 @@ pub fn ingredient(input: &str, verbose_error: bool) -> Result<Ingredient, String
 }
 
 /// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`
-/// into a `Ingredient`
+/// into a [Ingredient]. [ingredient] can be used as a wrapper to return verbose errors.
 ///
-/// supported formats:
-/// 1 g name
-/// 1 g / 1g name, modifier
-/// 1 g; 1 g name
-/// ¼ g name
-/// 1/4 g name
-/// 1 ¼ g name
-/// 1 1/4 g name
-/// 1 g (1 g) name
-/// 1 g name (about 1 g; 1 g)
-/// name
-/// 1 name
-
-fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
+/// supported formats include:
+/// * 1 g name
+/// * 1 g / 1g name, modifier
+/// * 1 g; 1 g name
+/// * ¼ g name
+/// * 1/4 g name
+/// * 1 ¼ g name
+/// * 1 1/4 g name
+/// * 1 g (1 g) name
+/// * 1 g name (about 1 g; 1 g)
+/// * name
+/// * 1 name
+/// ```
+/// use ingredient::{parse_ingredient, Ingredient, Amount};
+/// assert_eq!(
+///     parse_ingredient("1¼  cups / 155.5 grams flour"),
+///     Ok((
+///         "",
+///         Ingredient {
+///             name: "flour".to_string(),
+///             amounts: vec![
+///                 Amount {
+///                     unit: "cups".to_string(),
+///                     value: 1.25
+///                 },
+///                 Amount {
+///                     unit: "grams".to_string(),
+///                     value: 155.5
+///                 }
+///             ],
+///             modifier: None,
+///         }
+///     ))
+/// );
+/// ```
+pub fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     context(
         "ing",
         tuple((
@@ -144,7 +172,7 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     })
 }
 
-pub fn text(input: &str) -> Res<&str, &str> {
+fn text(input: &str) -> Res<&str, &str> {
     alt((alpha1, space1, tag("-")))(input)
 }
 
@@ -190,7 +218,7 @@ fn amt_parens(input: &str) -> Res<&str, Vec<Amount>> {
     )(input)
 }
 
-pub fn v_frac_to_num(input: &char) -> Result<f32, String> {
+fn v_frac_to_num(input: &char) -> Result<f32, String> {
     let (n, d): (i32, i32) = match input {
         '¾' => (3, 4),
         '⅛' => (1, 8),
@@ -211,7 +239,7 @@ fn is_frac_char(c: char) -> bool {
     }
 }
 /// parses unicode vulgar fractions
-pub fn v_fraction(input: &str) -> Res<&str, f32> {
+fn v_fraction(input: &str) -> Res<&str, f32> {
     context("v_fraction", satisfy(is_frac_char))(input).map(|(next_input, res)| {
         let num = match v_frac_to_num(&res) {
             Ok(x) => x,
@@ -222,20 +250,20 @@ pub fn v_fraction(input: &str) -> Res<&str, f32> {
     })
 }
 
-pub fn n_fraction(input: &str) -> Res<&str, f32> {
+fn n_fraction(input: &str) -> Res<&str, f32> {
     context("n_fraction", tuple((float, tag("/"), float)))(input)
         .map(|(next_input, res)| (next_input, res.0 / res.2))
 }
-pub fn text_number(input: &str) -> Res<&str, f32> {
+fn text_number(input: &str) -> Res<&str, f32> {
     context("text_number", tag("one"))(input).map(|(next_input, _)| (next_input, 1.0))
 }
 
 /// handles vulgar fraction, or just a number
-pub fn num(input: &str) -> Res<&str, f32> {
+fn num(input: &str) -> Res<&str, f32> {
     context("num", alt((fraction_number, text_number, float)))(input)
 }
 /// parses `1 ⅛` or `1 1/8` into `1.125`
-pub fn fraction_number(input: &str) -> Res<&str, f32> {
+fn fraction_number(input: &str) -> Res<&str, f32> {
     context(
         "fraction_number",
         alt((

@@ -7,6 +7,9 @@ description = "recipe ingredient parser"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["serde-derive"]
+serde-derive = ["serde/derive"]
 
 [dependencies]
 clap = "2.33.3"
