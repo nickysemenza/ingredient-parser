@@ -105,23 +105,36 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
                 // OR
                 amount1, // 1g
             ))),
-            space0,         // space between amt and name
-            many1(text),    // name, can be multiple words
-            opt(tag(", ")), // comma seperates the modifier
-            many0(text),    // modifier, can be multiple words
+            space0,           // space between amt and name
+            opt(many1(text)), // name, can be multiple words
+            opt(tag(", ")),   // comma seperates the modifier
+            many0(text),      // modifier, can be multiple words
         )),
     )(input)
     .map(|(next_input, res)| {
         let (amounts, _, name_chunks, _, modifier_chunks) = res;
         let m = modifier_chunks.join("");
+
+        let mut name = match name_chunks {
+            Some(n) => n.join(""),
+            None => "".to_string(),
+        };
+        let mut amounts = match amounts {
+            Some(a) => a,
+            None => vec![],
+        };
+
+        // if we have a unit but no name, e.g. `1 egg`,
+        // the unit is the name, so normalize it to `1 whole egg`,
+        if name.len() == 0 && amounts.len() == 1 {
+            name = amounts[0].unit.clone();
+            amounts[0].unit = "whole".to_string();
+        };
         (
             next_input,
             Ingredient {
-                name: name_chunks.join(""),
-                amounts: match amounts {
-                    Some(a) => a,
-                    None => vec![],
-                },
+                name,
+                amounts,
                 modifier: match m.chars().count() {
                     0 => None,
                     _ => Some(m),
@@ -302,20 +315,20 @@ mod tests {
                 }
             ))
         );
-        // assert_eq!(
-        //     parse_ingredient("1 egg"),
-        //     Ok((
-        //         "",
-        //         Ingredient {
-        //             name: "egg".to_string(),
-        //             amounts: vec![Amount {
-        //                 unit: "".to_string(),
-        //                 value: 1.0
-        //             }],
-        //             modifier: None,
-        //         }
-        //     ))
-        // );
+        assert_eq!(
+            parse_ingredient("1 egg"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "egg".to_string(),
+                    amounts: vec![Amount {
+                        unit: "whole".to_string(),
+                        value: 1.0
+                    }],
+                    modifier: None,
+                }
+            ))
+        );
         assert_eq!(
             format!("res: {}", ingredient("12 cups flour", false).unwrap()),
             "res: 12 cups flour"
