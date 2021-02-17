@@ -89,11 +89,11 @@ pub fn ingredient(input: &str, verbose_error: bool) -> Result<Ingredient, String
 /// 1 ¼ g name
 /// 1 1/4 g name
 /// 1 g (1 g) name
+/// 1 g name (about 1 g; 1 g)
+/// name
 
 ///
 /// TODO (formats):
-/// 1 g name (about 1 g; 1 g)
-/// name
 /// 1 name
 fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     context(
@@ -105,10 +105,10 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
                 // OR
                 amount1, // 1g
             ))),
-            space0,                                 // space between amt and name
-            many1(alt((alpha1, space1, tag("-")))), // name, can be multiple words
-            opt(tag(", ")),                         // comma seperates the modifier
-            many0(alt((alpha1, space1, tag("-")))), // modifier, can be multiple words
+            space0,         // space between amt and name
+            many1(text),    // name, can be multiple words
+            opt(tag(", ")), // comma seperates the modifier
+            many0(text),    // modifier, can be multiple words
         )),
     )(input)
     .map(|(next_input, res)| {
@@ -131,6 +131,10 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     })
 }
 
+pub fn text(input: &str) -> Res<&str, &str> {
+    alt((alpha1, space1, tag("-")))(input)
+}
+
 // parses 2 amounts, seperated by ; or /
 fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
     context(
@@ -138,7 +142,7 @@ fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
         nom::sequence::separated_pair(
             amount1,
             alt((tag("; "), tag(" / "), tag(" "), tag(", "))),
-            alt((amount1, amt_parens)),
+            alt((amt_parens, amount1)),
         ),
     )(input)
     .map(|(next_input, res)| {
@@ -169,7 +173,7 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
 fn amt_parens(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amt_parens",
-        delimited(char('('), alt((amount1, amount2)), char(')')),
+        delimited(char('('), alt((amount2, amount1)), char(')')),
     )(input)
 }
 
@@ -288,16 +292,30 @@ mod tests {
             })
         );
         assert_eq!(
-            parse_ingredient("foo"),
+            parse_ingredient("egg"),
             Ok((
                 "",
                 Ingredient {
-                    name: "foo".to_string(),
+                    name: "egg".to_string(),
                     amounts: vec![],
                     modifier: None,
                 }
             ))
         );
+        // assert_eq!(
+        //     parse_ingredient("1 egg"),
+        //     Ok((
+        //         "",
+        //         Ingredient {
+        //             name: "egg".to_string(),
+        //             amounts: vec![Amount {
+        //                 unit: "".to_string(),
+        //                 value: 1.0
+        //             }],
+        //             modifier: None,
+        //         }
+        //     ))
+        // );
         assert_eq!(
             format!("res: {}", ingredient("12 cups flour", false).unwrap()),
             "res: 12 cups flour"
@@ -344,6 +362,33 @@ mod tests {
                         }
                     ],
                     modifier: None,
+                }
+            ))
+        );
+
+        assert_eq!(
+            parse_ingredient(
+                "0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast"
+            ),
+            Ok((
+                "",
+                Ingredient {
+                    name: "instant or rapid rise yeast".to_string(),
+                    amounts: vec![
+                        Amount {
+                            unit: "ounces".to_string(),
+                            value: 0.25
+                        },
+                        Amount {
+                            unit: "packet".to_string(),
+                            value: 1.0
+                        },
+                        Amount {
+                            unit: "teaspoons".to_string(),
+                            value: 2.0
+                        }
+                    ],
+                    modifier: None
                 }
             ))
         );
