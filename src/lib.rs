@@ -84,12 +84,13 @@ pub fn ingredient(input: &str, verbose_error: bool) -> Result<Ingredient, String
 /// 1/4 g name
 /// 1 ¼ g name
 /// 1 1/4 g name
+/// 1 g (1 g) name
 
 ///
 /// TODO (formats):
 /// 1 g name (about 1 g; 1 g)
 /// name
-///
+/// 1 name
 fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     context(
         "ing",
@@ -128,7 +129,7 @@ fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
         "amount2",
         nom::sequence::separated_pair(
             amount1,
-            alt((tag("; "), tag(" / "), tag(" "))),
+            alt((tag("; "), tag(" / "), tag(" "), tag(", "))),
             alt((amount1, amt_parens)),
         ),
     )(input)
@@ -143,11 +144,11 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amount1",
         tuple(
-            (num, space0, alpha1), // 1 gram
+            (opt(tag("about ")), num, space0, alpha1), // 1 gram
         ),
     )(input)
     .map(|(next_input, res)| {
-        let (value, _, unit) = res;
+        let (_, value, _, unit) = res;
         (
             next_input,
             vec![Amount {
@@ -172,17 +173,18 @@ pub fn v_frac_to_num(input: &char) -> Result<f32, String> {
     };
     return Ok(n as f32 / d as f32);
 }
-
+// two ranges for unicode fractions
+// https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
+fn is_frac_char(c: char) -> bool {
+    match c {
+        '¼'..='¾' => true,
+        '⅐'..='⅞' => true,
+        _ => false,
+    }
+}
 /// parses unicode vulgar fractions
 pub fn v_fraction(input: &str) -> Res<&str, f32> {
-    context(
-        "v_fraction",
-        satisfy(|c|
-            // two ranges for unicode fractions
-            // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
-            (c <= '¾' && c >= '¼') || (c >= '⅐' && c <= '⅞')),
-    )(input)
-    .map(|(next_input, res)| {
+    context("v_fraction", satisfy(is_frac_char))(input).map(|(next_input, res)| {
         let num = match v_frac_to_num(&res) {
             Ok(x) => x,
             _ => 0.0,
@@ -196,10 +198,13 @@ pub fn n_fraction(input: &str) -> Res<&str, f32> {
     context("n_fraction", tuple((float, tag("/"), float)))(input)
         .map(|(next_input, res)| (next_input, res.0 / res.2))
 }
+pub fn text_number(input: &str) -> Res<&str, f32> {
+    context("text_number", tag("one"))(input).map(|(next_input, _)| (next_input, 1.0))
+}
 
 /// handles vulgar fraction, or just a number
 pub fn num(input: &str) -> Res<&str, f32> {
-    context("num", alt((fraction_number, float)))(input)
+    context("num", alt((fraction_number, text_number, float)))(input)
 }
 /// parses `1 ⅛` or `1 1/8` into `1.125`
 pub fn fraction_number(input: &str) -> Res<&str, f32> {
@@ -283,11 +288,14 @@ mod tests {
             "res: 12 cups flour"
         );
         assert_eq!(
-            format!(
-                "res: {}",
-                ingredient("1 cup (125.5 grams) AP flour, sifted", false).unwrap()
-            ),
-            "res: 1 cup / 125.5 grams AP flour, sifted"
+            ingredient("one whole egg", true).unwrap().to_string(),
+            "1 whole egg"
+        );
+        assert_eq!(
+            ingredient("1 cup (125.5 grams) AP flour, sifted", false)
+                .unwrap()
+                .to_string(),
+            "1 cup / 125.5 grams AP flour, sifted"
         );
         assert_eq!(
             parse_ingredient("12 cups all purpose flour, lightly sifted"),
