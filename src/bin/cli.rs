@@ -15,7 +15,7 @@ pub fn main() {
     if let Some(ref in_file) = matches.value_of("config") {
         println!("IN: {}", in_file);
         match ingredient(in_file, true) {
-            Ok(i) => println!("OUT: {} {:?}", i, i),
+            Ok(i) => println!("OUT: {}", i),
             Err(e) => println!("fail: {}", e),
         }
     }

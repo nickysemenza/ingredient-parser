@@ -107,21 +107,26 @@ fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
             ))),
             space0,           // space between amt and name
             opt(many1(text)), // name, can be multiple words
-            opt(tag(", ")),   // comma seperates the modifier
-            many0(text),      // modifier, can be multiple words
+            opt(amt_parens),
+            opt(tag(", ")), // comma seperates the modifier
+            many0(text),    // modifier, can be multiple words
         )),
     )(input)
     .map(|(next_input, res)| {
-        let (amounts, _, name_chunks, _, modifier_chunks) = res;
+        let (amounts, _, name_chunks, amounts2, _, modifier_chunks) = res;
         let m = modifier_chunks.join("");
 
         let mut name = match name_chunks {
-            Some(n) => n.join(""),
+            Some(n) => n.join("").trim_matches(' ').to_string(),
             None => "".to_string(),
         };
         let mut amounts = match amounts {
             Some(a) => a,
             None => vec![],
+        };
+        amounts = match amounts2 {
+            Some(a) => amounts.into_iter().chain(a.into_iter()).collect(),
+            None => amounts,
         };
 
         // if we have a unit but no name, e.g. `1 egg`,
@@ -399,6 +404,30 @@ mod tests {
                         Amount {
                             unit: "teaspoons".to_string(),
                             value: 2.0
+                        }
+                    ],
+                    modifier: None
+                }
+            ))
+        );
+        assert_eq!(
+            parse_ingredient("6 ounces unsalted butter (1½ sticks; 168.75g)"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "unsalted butter".to_string(),
+                    amounts: vec![
+                        Amount {
+                            unit: "ounces".to_string(),
+                            value: 6.0
+                        },
+                        Amount {
+                            unit: "sticks".to_string(),
+                            value: 1.5
+                        },
+                        Amount {
+                            unit: "g".to_string(),
+                            value: 168.75
                         }
                     ],
                     modifier: None
