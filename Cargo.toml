@@ -1,10 +1,13 @@
 [package]
 name = "ingredient"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["nickysemenza"]
 edition = "2018"
 description = "recipe ingredient parser"
 license = "MIT"
+repository = "https://github.com/nickysemenza/ingredient_parser"
+readme = "README.md"
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
