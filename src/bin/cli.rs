@@ -20,3 +20,23 @@ pub fn main() {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use assert_cmd::prelude::*; // Add methods on commands
+    use predicates::prelude::*; // Used for writing assertions
+
+    use std::process::Command; // Run programs
+    #[test]
+    fn test_cli() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cmd = Command::cargo_bin("cli")?;
+
+        cmd.arg("-c").arg("1g potato");
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::contains("IN: 1g potato\nOUT: 1 g potato"));
+
+        Ok(())
+    }
+}
