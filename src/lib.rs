@@ -18,6 +18,9 @@ extern crate nom;
 #[macro_use]
 extern crate serde;
 
+#[cfg(feature = "format-colors")]
+use colored::Colorize;
+
 type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
 #[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
@@ -30,6 +33,14 @@ pub struct Amount {
 
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        #[cfg(feature = "format-colors")]
+        return write!(
+            f,
+            "{} {}",
+            self.value.to_string().green(),
+            self.unit.yellow()
+        );
+        #[cfg(not(feature = "format-colors"))]
         write!(f, "{} {}", self.value, self.unit)
     }
 }
@@ -46,14 +57,25 @@ impl fmt::Display for Ingredient {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let amounts: Vec<String> = self.amounts.iter().map(|id| id.to_string()).collect();
         let modifier = match self.modifier.clone() {
-            Some(m) => format!(", {}", m),
-            None => format!(""),
+            #[cfg(feature = "format-colors")]
+            Some(m) => {
+                format!(", {}", m.italic().red())
+            }
+            #[cfg(not(feature = "format-colors"))]
+            Some(m) => {
+                format!(", {}", m)
+            }
+            None => "".to_string(),
         };
         let amount_list = match amounts.len() {
-            0 => format!(""),
+            0 => "n/a".to_string(),
             _ => format!("{} ", amounts.join(" / ")),
         };
-        write!(f, "{}{}{}", amount_list, self.name, modifier)
+        #[cfg(feature = "format-colors")]
+        let name = self.name.magenta().bold();
+        #[cfg(not(feature = "format-colors"))]
+        let name = self.name.clone();
+        return write!(f, "{}{}{}", amount_list, name, modifier);
     }
 }
 /// wrapper for [parse_ingredient]
