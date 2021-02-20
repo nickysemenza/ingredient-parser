@@ -83,7 +83,7 @@ impl fmt::Display for Ingredient {
 /// use ingredient::{ingredient};
 /// assert_eq!(ingredient("one whole egg", true).unwrap().to_string(),"1 whole egg");
 /// ```
-pub fn ingredient(input: &str, verbose_error: bool) -> Result<Ingredient, String> {
+pub fn from_str(input: &str, verbose_error: bool) -> Result<Ingredient, String> {
     return match parse_ingredient(input) {
         Ok(r) => Ok(r.1),
         Err(e) => {
@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn test_ingredient_parse() {
         assert_eq!(
-            ingredient("12 cups flour", false),
+            from_str("12 cups flour", false),
             Ok(Ingredient {
                 name: "flour".to_string(),
                 amounts: vec![Amount {
@@ -380,15 +380,15 @@ mod tests {
             ))
         );
         assert_eq!(
-            format!("res: {}", ingredient("12 cups flour", false).unwrap()),
+            format!("res: {}", from_str("12 cups flour", false).unwrap()),
             "res: 12 cups flour"
         );
         assert_eq!(
-            ingredient("one whole egg", true).unwrap().to_string(),
+            from_str("one whole egg", true).unwrap().to_string(),
             "1 whole egg"
         );
         assert_eq!(
-            ingredient("1 cup (125.5 grams) AP flour, sifted", false)
+            from_str("1 cup (125.5 grams) AP flour, sifted", false)
                 .unwrap()
                 .to_string(),
             "1 cup / 125.5 grams AP flour, sifted"

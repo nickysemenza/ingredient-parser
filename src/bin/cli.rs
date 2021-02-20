@@ -1,5 +1,5 @@
 use clap::{App, Arg};
-use ingredient::ingredient;
+use ingredient::from_str;
 
 pub fn main() {
     let matches = App::new("MyApp")
@@ -14,7 +14,7 @@ pub fn main() {
     // occurrence
     if let Some(ref in_file) = matches.value_of("config") {
         println!("IN: {}", in_file);
-        match ingredient(in_file, true) {
+        match from_str(in_file, true) {
             Ok(i) => println!("OUT: {}", i),
             Err(e) => println!("fail: {}", e),
         }
