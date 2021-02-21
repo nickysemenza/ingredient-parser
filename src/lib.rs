@@ -24,7 +24,7 @@ use colored::Colorize;
 type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
 #[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
-#[derive(Debug, PartialEq)]
+#[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
 /// Holds a unit and value pair for an ingredient.
 pub struct Amount {
     pub unit: String,
@@ -45,7 +45,7 @@ impl fmt::Display for Amount {
     }
 }
 #[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
-#[derive(Debug, PartialEq)]
+#[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
 /// Holds a name, list of [Amount], and optional modifier string
 pub struct Ingredient {
     pub name: String,
