@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{convert::TryFrom, fmt};
 
 use nom::{
     branch::alt,
@@ -51,6 +51,13 @@ pub struct Ingredient {
     pub name: String,
     pub amounts: Vec<Amount>,
     pub modifier: Option<String>,
+}
+
+impl TryFrom<&str> for Ingredient {
+    type Error = String;
+    fn try_from(value: &str) -> Result<Ingredient, Self::Error> {
+        from_str(value, true)
+    }
 }
 
 impl fmt::Display for Ingredient {
@@ -344,7 +351,7 @@ mod tests {
     #[test]
     fn test_ingredient_parse() {
         assert_eq!(
-            from_str("12 cups flour", false),
+            Ingredient::try_from("12 cups flour"),
             Ok(Ingredient {
                 name: "flour".to_string(),
                 amounts: vec![Amount {
