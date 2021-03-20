@@ -211,7 +211,7 @@ fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
         "amount2",
         nom::sequence::separated_pair(
             amount1,
-            alt((tag("; "), tag(" / "), tag(" "), tag(", "))),
+            alt((tag("; "), tag(" / "), tag(" "), tag(", "), tag("/"))),
             alt((amt_parens, amount1)),
         ),
     )(input)
@@ -485,6 +485,10 @@ mod tests {
                     modifier: None
                 }
             ))
+        );
+        assert_eq!(
+            parse_ingredient("1 ½ cups/192 grams all-purpose flour"),
+            parse_ingredient("1 1/2 cups / 192 grams all-purpose flour")
         );
     }
 }
