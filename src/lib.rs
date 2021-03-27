@@ -44,6 +44,16 @@ impl fmt::Display for Amount {
         write!(f, "{} {}", self.value, self.unit)
     }
 }
+
+impl Amount {
+    pub fn new(unit: &str, value: f32) -> Amount {
+        Amount {
+            unit: unit.to_string(),
+            value,
+        }
+    }
+}
+
 #[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
 #[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
 /// Holds a name, list of [Amount], and optional modifier string
@@ -108,9 +118,36 @@ pub fn from_str(input: &str, verbose_error: bool) -> Result<Ingredient, String> 
         }
     };
 }
+/// Parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`. Used by [parse_ingredient].
+/// ```
+/// use ingredient::{parse_amount,Amount};
+/// assert_eq!(
+///    parse_amount("120 grams").unwrap(),
+///    vec![Amount::new("grams",120.0)]
+///  );
+/// assert_eq!(
+///    parse_amount("120 grams / 1 cup").unwrap(),
+///    vec![Amount::new("grams",120.0),Amount::new("cup", 1.0)]
+///  );
+/// ```
+pub fn parse_amount(input: &str) -> Result<Vec<Amount>, String> {
+    return match parse_n_amount(input) {
+        Ok(r) => Ok(r.1),
+        Err(e) => {
+            let msg = match e {
+                NomErr::Error(e) => {
+                    format!("{}", e)
+                }
+                _ => format!("{}", e),
+            };
+            return Err(format!("failed to parse '{}': {}", input, msg));
+        }
+    };
+}
 
-/// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`
-/// into a [Ingredient]. [ingredient] can be used as a wrapper to return verbose errors.
+/// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`.
+///
+/// returns an [Ingredient], Can be used as a wrapper to return verbose errors.
 ///
 /// supported formats include:
 /// * 1 g name
@@ -151,12 +188,7 @@ pub fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     context(
         "ing",
         tuple((
-            opt(alt((
-                // amounts might be totally optional
-                amount2, // 1g / 1 g
-                // OR
-                amount1, // 1g
-            ))),
+            opt(parse_n_amount),
             space0,           // space between amount(s) and name
             opt(many1(text)), // name, can be multiple words
             opt(amt_parens),  // can have some more amounts in parens after the name
@@ -240,6 +272,20 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
         )
     })
 }
+
+// parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`
+fn parse_n_amount(input: &str) -> Res<&str, Vec<Amount>> {
+    context(
+        "amount",
+        alt((
+            // amounts might be totally optional
+            amount2, // 1g / 1 g
+            // OR
+            amount1, // 1g
+        )),
+    )(input)
+}
+
 fn amt_parens(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amt_parens",
