@@ -258,11 +258,17 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amount1",
         tuple(
-            (opt(tag("about ")), num, space0, alpha1), // 1 gram
+            (
+                opt(tag("about ")),
+                num,
+                space0,
+                opt(tuple((tag("-"), alpha1, space0))), // todo: support "1-2 x" and other ranges
+                alpha1,
+            ), // 1 gram
         ),
     )(input)
     .map(|(next_input, res)| {
-        let (_, value, _, unit) = res;
+        let (_, value, _, _, unit) = res;
         (
             next_input,
             vec![Amount {
@@ -289,7 +295,7 @@ fn parse_n_amount(input: &str) -> Res<&str, Vec<Amount>> {
 fn amt_parens(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amt_parens",
-        delimited(char('('), alt((amount2, amount1)), char(')')),
+        delimited(char('('), parse_n_amount, char(')')),
     )(input)
 }
 
@@ -405,6 +411,14 @@ mod tests {
                     value: 12.0
                 }],
                 modifier: None,
+            })
+        );
+        assert_eq!(
+            Ingredient::try_from("1-2 cups flour"),
+            Ok(Ingredient {
+                name: "".to_string(),
+                amounts: vec![],
+                modifier: Some("1-2 cups flour".to_string()), // todo
             })
         );
         assert_eq!(
