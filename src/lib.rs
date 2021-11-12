@@ -29,7 +29,7 @@ type Res<T, U> = IResult<T, U, VerboseError<T>>;
 pub struct Amount {
     pub unit: String,
     pub value: f32,
-    // pub upper_value: Option<f32>,
+    pub upper_value: Option<f32>,
 }
 
 impl fmt::Display for Amount {
@@ -51,6 +51,14 @@ impl Amount {
         Amount {
             unit: unit.to_string(),
             value,
+            upper_value: None,
+        }
+    }
+    pub fn new_with_upper(unit: &str, value: f32, upper: f32) -> Amount {
+        Amount {
+            unit: unit.to_string(),
+            value,
+            upper_value: Some(upper),
         }
     }
 }
@@ -172,10 +180,12 @@ pub fn parse_amount(input: &str) -> Result<Vec<Amount>, String> {
 ///             name: "flour".to_string(),
 ///             amounts: vec![
 ///                 Amount {
+///                     upper_value: None,
 ///                     unit: "cups".to_string(),
 ///                     value: 1.25
 ///                 },
 ///                 Amount {
+///                     upper_value: None,
 ///                     unit: "grams".to_string(),
 ///                     value: 155.5
 ///                 }
@@ -254,16 +264,23 @@ fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
     })
 }
 fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
-    context("num_or_range", tuple((num, opt(tuple((tag("-"), num))))))(input).map(
-        |(next_input, res)| {
-            let (a, b) = res;
-            let upper = match res.1 {
-                Some(u) => Some(u.1),
-                None => None,
-            };
-            (next_input, (a, upper))
-        },
-    )
+    context(
+        "num_or_range",
+        tuple((
+            num,
+            opt(tuple(
+                (space0, tag("-"), space0, num), // care about u.3
+            )),
+        )),
+    )(input)
+    .map(|(next_input, res)| {
+        let (val, upper_val) = res;
+        let upper = match upper_val {
+            Some(u) => Some(u.3),
+            None => None,
+        };
+        (next_input, (val, upper))
+    })
 }
 // parses a single amount
 fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
@@ -286,6 +303,7 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
             vec![Amount {
                 unit: unit.to_string(),
                 value: value.0,
+                upper_value: value.1,
             }],
         )
     })
@@ -413,23 +431,20 @@ mod tests {
     }
 
     #[test]
-    fn test_amount_range_todo() {
-        let res = parse_amount("1-2 cups").unwrap();
+    fn test_amount_range() {
         assert_eq!(
-            res,
-            vec![Amount {
-                unit: "cups".to_string(),
-                value: 1.0
-            }]
+            parse_amount("2¼-2.5 cups").unwrap(),
+            vec![Amount::new_with_upper("cups", 2.25, 2.5)]
+        );
+        assert_eq!(
+            parse_amount("2¼-2.5 cups").unwrap(),
+            parse_amount("2 ¼ - 2.5 cups").unwrap()
         );
         assert_eq!(
             Ingredient::try_from("1-2 cups flour"),
             Ok(Ingredient {
                 name: "flour".to_string(),
-                amounts: vec![Amount {
-                    unit: "cups".to_string(),
-                    value: 1.0
-                }],
+                amounts: vec![Amount::new_with_upper("cups", 1.0, 2.0)],
                 modifier: None,
             })
         );
@@ -440,10 +455,7 @@ mod tests {
             Ingredient::try_from("12 cups flour"),
             Ok(Ingredient {
                 name: "flour".to_string(),
-                amounts: vec![Amount {
-                    unit: "cups".to_string(),
-                    value: 12.0
-                }],
+                amounts: vec![Amount::new("cups", 12.0)],
                 modifier: None,
             })
         );
@@ -466,7 +478,8 @@ mod tests {
                     name: "egg".to_string(),
                     amounts: vec![Amount {
                         unit: "whole".to_string(),
-                        value: 1.0
+                        value: 1.0,
+                        upper_value: None,
                     }],
                     modifier: None,
                 }
@@ -493,6 +506,7 @@ mod tests {
                 Ingredient {
                     name: "all purpose flour".to_string(),
                     amounts: vec![Amount {
+                        upper_value: None,
                         unit: "cups".to_string(),
                         value: 12.0
                     }],
@@ -507,16 +521,7 @@ mod tests {
                 "",
                 Ingredient {
                     name: "flour".to_string(),
-                    amounts: vec![
-                        Amount {
-                            unit: "cups".to_string(),
-                            value: 1.25
-                        },
-                        Amount {
-                            unit: "grams".to_string(),
-                            value: 155.5
-                        }
-                    ],
+                    amounts: vec![Amount::new("cups", 1.25), Amount::new("grams", 155.5),],
                     modifier: None,
                 }
             ))
@@ -531,18 +536,9 @@ mod tests {
                 Ingredient {
                     name: "instant or rapid rise yeast".to_string(),
                     amounts: vec![
-                        Amount {
-                            unit: "ounces".to_string(),
-                            value: 0.25
-                        },
-                        Amount {
-                            unit: "packet".to_string(),
-                            value: 1.0
-                        },
-                        Amount {
-                            unit: "teaspoons".to_string(),
-                            value: 2.0
-                        }
+                        Amount::new("ounces", 0.25),
+                        Amount::new("packet", 1.0),
+                        Amount::new("teaspoons", 2.0),
                     ],
                     modifier: None
                 }
@@ -555,18 +551,9 @@ mod tests {
                 Ingredient {
                     name: "unsalted butter".to_string(),
                     amounts: vec![
-                        Amount {
-                            unit: "ounces".to_string(),
-                            value: 6.0
-                        },
-                        Amount {
-                            unit: "sticks".to_string(),
-                            value: 1.5
-                        },
-                        Amount {
-                            unit: "g".to_string(),
-                            value: 168.75
-                        }
+                        Amount::new("ounces", 6.0),
+                        Amount::new("sticks", 1.5),
+                        Amount::new("g", 168.75),
                     ],
                     modifier: None
                 }
