@@ -29,6 +29,7 @@ type Res<T, U> = IResult<T, U, VerboseError<T>>;
 pub struct Amount {
     pub unit: String,
     pub value: f32,
+    // pub upper_value: Option<f32>,
 }
 
 impl fmt::Display for Amount {
@@ -252,28 +253,39 @@ fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
         (next_input, a.into_iter().chain(b.into_iter()).collect())
     })
 }
-
+fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
+    context("num_or_range", tuple((num, opt(tuple((tag("-"), num))))))(input).map(
+        |(next_input, res)| {
+            let (a, b) = res;
+            let upper = match res.1 {
+                Some(u) => Some(u.1),
+                None => None,
+            };
+            (next_input, (a, upper))
+        },
+    )
+}
 // parses a single amount
 fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amount1",
         tuple(
             (
-                opt(tag("about ")),
-                num,
+                opt(tag("about ")), // todo: add flag for estimates
+                num_or_range,       // value
                 space0,
-                opt(tuple((tag("-"), alpha1, space0))), // todo: support "1-2 x" and other ranges
-                alpha1,
+                alpha1, // unit
             ), // 1 gram
         ),
     )(input)
     .map(|(next_input, res)| {
-        let (_, value, _, _, unit) = res;
+        let (_, value, _, unit) = res;
+
         (
             next_input,
             vec![Amount {
                 unit: unit.to_string(),
-                value,
+                value: value.0,
             }],
         )
     })
@@ -401,6 +413,28 @@ mod tests {
     }
 
     #[test]
+    fn test_amount_range_todo() {
+        let res = parse_amount("1-2 cups").unwrap();
+        assert_eq!(
+            res,
+            vec![Amount {
+                unit: "cups".to_string(),
+                value: 1.0
+            }]
+        );
+        assert_eq!(
+            Ingredient::try_from("1-2 cups flour"),
+            Ok(Ingredient {
+                name: "flour".to_string(),
+                amounts: vec![Amount {
+                    unit: "cups".to_string(),
+                    value: 1.0
+                }],
+                modifier: None,
+            })
+        );
+    }
+    #[test]
     fn test_ingredient_parse() {
         assert_eq!(
             Ingredient::try_from("12 cups flour"),
@@ -411,14 +445,6 @@ mod tests {
                     value: 12.0
                 }],
                 modifier: None,
-            })
-        );
-        assert_eq!(
-            Ingredient::try_from("1-2 cups flour"),
-            Ok(Ingredient {
-                name: "".to_string(),
-                amounts: vec![],
-                modifier: Some("1-2 cups flour".to_string()), // todo
             })
         );
         assert_eq!(
