@@ -14,7 +14,6 @@ default = ["serde-derive"]
 serde-derive = ["serde/derive"]
 
 [dependencies]
-clap = "2.33.3"
 serde = { version = "1.0", optional = true, features = ["derive"] }
 
 [dependencies.nom]
@@ -22,6 +21,3 @@ version = "7.1.0"
 default-features = false
 features = ["alloc"]
 
-[dev-dependencies]
-assert_cmd = "0.10"
-predicates = "1"
