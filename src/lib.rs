@@ -263,6 +263,7 @@ fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
         (next_input, (val, upper))
     })
 }
+
 // parses a single amount
 fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
     context(
@@ -278,7 +279,6 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
     )(input)
     .map(|(next_input, res)| {
         let (_, value, _, unit) = res;
-
         (
             next_input,
             vec![Amount {
@@ -440,6 +440,10 @@ mod tests {
                 modifier: None,
             })
         );
+    }
+
+    #[test]
+    fn test_ingredient_parse_no_amounts() {
         assert_eq!(
             parse_ingredient("egg"),
             Ok((
@@ -451,6 +455,9 @@ mod tests {
                 }
             ))
         );
+    }
+    #[test]
+    fn test_ingredient_parse_no_unit() {
         assert_eq!(
             parse_ingredient("1 egg"),
             Ok((
@@ -466,6 +473,9 @@ mod tests {
                 }
             ))
         );
+    }
+    #[test]
+    fn test_stringy() {
         assert_eq!(
             format!("res: {}", from_str("12 cups flour", false).unwrap()),
             "res: 12 cups flour"
@@ -474,12 +484,18 @@ mod tests {
             from_str("one whole egg", true).unwrap().to_string(),
             "1 whole egg"
         );
+    }
+    #[test]
+    fn test_with_parens() {
         assert_eq!(
             from_str("1 cup (125.5 grams) AP flour, sifted", false)
                 .unwrap()
                 .to_string(),
             "1 cup / 125.5 grams AP flour, sifted"
         );
+    }
+    #[test]
+    fn test_ingredient_parse_multi() {
         assert_eq!(
             parse_ingredient("12 cups all purpose flour, lightly sifted"),
             Ok((
