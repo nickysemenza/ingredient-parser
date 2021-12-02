@@ -4,7 +4,7 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alpha1, char, not_line_ending, satisfy, space0, space1},
-    combinator::opt,
+    combinator::{opt, verify},
     error::{context, convert_error, VerboseError},
     multi::many1,
     number::complete::float,
@@ -192,7 +192,7 @@ pub fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
         let (amounts, _, name_chunks, amounts2, _, modifier_chunks) = res;
         let m = modifier_chunks;
 
-        let mut name = match name_chunks {
+        let name = match name_chunks {
             Some(n) => n.join("").trim_matches(' ').to_string(),
             None => "".to_string(),
         };
@@ -205,12 +205,6 @@ pub fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
             None => amounts,
         };
 
-        // if we have a unit but no name, e.g. `1 egg`,
-        // the unit is the name, so normalize it to `1 whole egg`,
-        if name.len() == 0 && amounts.len() == 1 {
-            name = amounts[0].unit.clone();
-            amounts[0].unit = "whole".to_string();
-        };
         (
             next_input,
             Ingredient {
@@ -263,7 +257,49 @@ fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
         (next_input, (val, upper))
     })
 }
+fn is_valid_unit(s: &str) -> bool {
+    // todo: make these configurable by caller
+    return match s.as_ref() {
+        "oz" => true,
+        "ml" => true,
+        "ounces" => true,
+        "ounce" => true,
+        "grams" => true,
+        "gram" => true,
+        "whole" => true,
+        "cups" => true,
+        "cup" => true,
+        "teaspoons" => true,
+        "packet" => true,
+        "sticks" => true,
+        "stick" => true,
+        "cloves" => true,
+        "clove" => true, // todo: clove is also an ingredient name...
+        "g" => true,
+        "$" => true,
+        "bunch" => true,
+        "head" => true,
+        "large" => true,
+        "medium" => true,
+        "package" => true,
+        "pounds" => true,
+        "quarts" => true,
+        "recipe" => true,
+        "slice" => true,
+        "standard" => true,
+        "tablespoon" => true,
+        "tablespoons" => true,
+        "tbsp" => true,
+        "teaspoon" => true,
+        "tsp" => true,
 
+        _ => false,
+    };
+}
+fn unit(input: &str) -> Res<&str, &str> {
+    // these have to be sorted by length, longest first to prevent accidental partial match
+    context("unit", verify(alpha1, |s: &str| is_valid_unit(s)))(input)
+}
 // parses a single amount
 fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
     context(
@@ -273,7 +309,7 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
                 opt(tag("about ")), // todo: add flag for estimates
                 num_or_range,       // value
                 space0,
-                alpha1, // unit
+                opt(unit), // unit
             ), // 1 gram
         ),
     )(input)
@@ -282,7 +318,7 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
         (
             next_input,
             vec![Amount {
-                unit: unit.to_string(),
+                unit: dbg!(unit).unwrap_or("whole").to_string(),
                 value: value.0,
                 upper_value: value.1,
             }],
@@ -470,6 +506,46 @@ mod tests {
                         upper_value: None,
                     }],
                     modifier: None,
+                }
+            ))
+        );
+    }
+    #[test]
+    fn test_ingredient_parse_no_unit_multi_name() {
+        assert_eq!(
+            parse_ingredient("1 cinnamon stick"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "cinnamon stick".to_string(),
+                    amounts: vec![Amount {
+                        unit: "whole".to_string(),
+                        value: 1.0,
+                        upper_value: None,
+                    }],
+                    modifier: None,
+                }
+            ))
+        );
+        assert_eq!(
+            parse_ingredient("1 cinnamon stick"),
+            parse_ingredient("1 whole cinnamon stick"),
+        );
+    }
+    #[test]
+    fn test_ingredient_parse_no_unit_multi_name_adj() {
+        assert_eq!(
+            parse_ingredient("1 cinnamon stick, crushed"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "cinnamon stick".to_string(),
+                    amounts: vec![Amount {
+                        unit: "whole".to_string(),
+                        value: 1.0,
+                        upper_value: None,
+                    }],
+                    modifier: Some("crushed".to_string()),
                 }
             ))
         );
