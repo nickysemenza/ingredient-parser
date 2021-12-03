@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fmt};
+use std::{collections::HashSet, convert::TryFrom, fmt};
 
 use nom::{
     branch::alt,
@@ -11,6 +11,7 @@ use nom::{
     sequence::{delimited, tuple},
     Err as NomErr, IResult,
 };
+use std::iter::FromIterator;
 
 extern crate nom;
 
@@ -108,6 +109,7 @@ pub fn from_str(input: &str, verbose_error: bool) -> Result<Ingredient, String> 
         }
     };
 }
+
 /// Parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`. Used by [parse_ingredient].
 /// ```
 /// use ingredient::{parse_amount,Amount};
@@ -121,7 +123,7 @@ pub fn from_str(input: &str, verbose_error: bool) -> Result<Ingredient, String> 
 ///  );
 /// ```
 pub fn parse_amount(input: &str) -> Result<Vec<Amount>, String> {
-    return match parse_n_amount(input) {
+    return match many_amount(input) {
         Ok(r) => Ok(r.1),
         Err(e) => {
             let msg = match e {
@@ -180,7 +182,7 @@ pub fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
     context(
         "ing",
         tuple((
-            opt(parse_n_amount),
+            opt(many_amount),
             space0,           // space between amount(s) and name
             opt(many1(text)), // name, can be multiple words
             opt(amt_parens),  // can have some more amounts in parens after the name
@@ -257,53 +259,56 @@ fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
         (next_input, (val, upper))
     })
 }
-fn is_valid_unit(s: &str) -> bool {
-    // todo: make these configurable by caller
-    return match s.as_ref() {
-        "oz" => true,
-        "ml" => true,
-        "ounces" => true,
-        "ounce" => true,
-        "grams" => true,
-        "gram" => true,
-        "whole" => true,
-        "cups" => true,
-        "cup" => true,
-        "teaspoons" => true,
-        "packet" => true,
-        "sticks" => true,
-        "stick" => true,
-        "cloves" => true,
-        "clove" => true, // todo: clove is also an ingredient name...
-        "g" => true,
-        "$" => true,
-        "bunch" => true,
-        "head" => true,
-        "large" => true,
-        "medium" => true,
-        "package" => true,
-        "pounds" => true,
-        "quarts" => true,
-        "recipe" => true,
-        "slice" => true,
-        "standard" => true,
-        "tablespoon" => true,
-        "tablespoons" => true,
-        "tbsp" => true,
-        "teaspoon" => true,
-        "tsp" => true,
-        "kcal" => true,
-        "lb" => true,
-        "dollars" => true,
-        "dollar" => true,
-        "cent" => true,
-        "cents" => true,
 
-        _ => false,
-    };
+fn is_valid_unit(s: &str) -> bool {
+    let units: Vec<String> = [
+        "oz",
+        "ml",
+        "ounces",
+        "ounce",
+        "grams",
+        "gram",
+        "whole",
+        "cups",
+        "cup",
+        "teaspoons",
+        "packet",
+        "sticks",
+        "stick",
+        "cloves",
+        "clove",
+        "g",
+        "$",
+        "bunch",
+        "head",
+        "large",
+        "medium",
+        "package",
+        "pounds",
+        "quarts",
+        "recipe",
+        "slice",
+        "standard",
+        "tablespoon",
+        "tablespoons",
+        "tbsp",
+        "teaspoon",
+        "tsp",
+        "kcal",
+        "lb",
+        "dollars",
+        "dollar",
+        "cent",
+        "cents",
+    ]
+    .iter()
+    .map(|&s| s.into())
+    .collect();
+
+    let m: HashSet<String> = HashSet::from_iter(units.iter().cloned());
+    return m.contains(s);
 }
 fn unit(input: &str) -> Res<&str, &str> {
-    // these have to be sorted by length, longest first to prevent accidental partial match
     context("unit", verify(alpha1, |s: &str| is_valid_unit(s)))(input)
 }
 // parses a single amount
@@ -333,7 +338,7 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
 }
 
 // parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`
-fn parse_n_amount(input: &str) -> Res<&str, Vec<Amount>> {
+fn many_amount(input: &str) -> Res<&str, Vec<Amount>> {
     context(
         "amount",
         alt((
@@ -346,13 +351,12 @@ fn parse_n_amount(input: &str) -> Res<&str, Vec<Amount>> {
 }
 
 fn amt_parens(input: &str) -> Res<&str, Vec<Amount>> {
-    context(
-        "amt_parens",
-        delimited(char('('), parse_n_amount, char(')')),
-    )(input)
+    context("amt_parens", delimited(char('('), many_amount, char(')')))(input)
 }
 
-fn v_frac_to_num(input: &char) -> Result<f32, String> {
+fn v_frac_to_num(input: char) -> Result<f32, String> {
+    // two ranges for unicode fractions
+    // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
     let (n, d): (i32, i32) = match input {
         '¾' => (3, 4),
         '⅛' => (1, 8),
@@ -363,25 +367,14 @@ fn v_frac_to_num(input: &char) -> Result<f32, String> {
     };
     return Ok(n as f32 / d as f32);
 }
-// two ranges for unicode fractions
-// https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
+
 fn is_frac_char(c: char) -> bool {
-    match c {
-        '¼'..='¾' => true,
-        '⅐'..='⅞' => true,
-        _ => false,
-    }
+    v_frac_to_num(c).is_ok()
 }
 /// parses unicode vulgar fractions
 fn v_fraction(input: &str) -> Res<&str, f32> {
-    context("v_fraction", satisfy(is_frac_char))(input).map(|(next_input, res)| {
-        let num = match v_frac_to_num(&res) {
-            Ok(x) => x,
-            _ => 0.0,
-        };
-
-        (next_input, num)
-    })
+    context("v_fraction", satisfy(is_frac_char))(input)
+        .map(|(next_input, res)| (next_input, v_frac_to_num(res).unwrap()))
 }
 
 fn n_fraction(input: &str) -> Res<&str, f32> {
@@ -433,7 +426,6 @@ mod tests {
         assert_eq!(fraction_number("1⅓"), Ok(("", 1.3333334)));
         assert_eq!(fraction_number("¼"), Ok(("", 0.25)));
         assert_eq!(fraction_number("1/4"), Ok(("", 0.25)));
-        assert_eq!(fraction_number("⅐"), Ok(("", 0.0))); // unkown are dropped
         assert_eq!(
             fraction_number("1"),
             Err(NomErr::Error(VerboseError {
@@ -448,9 +440,9 @@ mod tests {
     }
     #[test]
     fn test_v_fraction() {
-        assert_eq!(v_frac_to_num(&'⅛'), Ok(0.125));
-        assert_eq!(v_frac_to_num(&'¼'), Ok(0.25));
-        assert_eq!(v_frac_to_num(&'½'), Ok(0.5));
+        assert_eq!(v_frac_to_num('⅛'), Ok(0.125));
+        assert_eq!(v_frac_to_num('¼'), Ok(0.25));
+        assert_eq!(v_frac_to_num('½'), Ok(0.5));
     }
 
     #[test]
@@ -642,5 +634,31 @@ mod tests {
             parse_ingredient("1 ½ cups/192 grams all-purpose flour"),
             parse_ingredient("1 1/2 cups / 192 grams all-purpose flour")
         );
+    }
+    #[test]
+    fn test_parse_ingredient_cloves() {
+        assert_eq!(
+            parse_ingredient("1 clove garlic, grated"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "garlic".to_string(),
+                    amounts: vec![Amount::new("clove", 1.0),],
+                    modifier: Some("grated".to_string())
+                }
+            ))
+        );
+        //todo: doesn't work
+        // assert_eq!(
+        //     parse_ingredient("1 clove, grated"),
+        //     Ok((
+        //         "",
+        //         Ingredient {
+        //             name: "clove".to_string(),
+        //             amounts: vec![Amount::new("whole", 1.0),],
+        //             modifier: Some("grated".to_string())
+        //         }
+        //     ))
+        // );
     }
 }
