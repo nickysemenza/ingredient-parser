@@ -292,6 +292,12 @@ fn is_valid_unit(s: &str) -> bool {
         "tbsp" => true,
         "teaspoon" => true,
         "tsp" => true,
+        "kcal" => true,
+        "lb" => true,
+        "dollars" => true,
+        "dollar" => true,
+        "cent" => true,
+        "cents" => true,
 
         _ => false,
     };
@@ -318,7 +324,7 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
         (
             next_input,
             vec![Amount {
-                unit: dbg!(unit).unwrap_or("whole").to_string(),
+                unit: unit.unwrap_or("whole").to_string(),
                 value: value.0,
                 upper_value: value.1,
             }],
