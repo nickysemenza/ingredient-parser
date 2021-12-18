@@ -19,6 +19,8 @@ extern crate nom;
 #[macro_use]
 extern crate serde;
 
+pub mod rich_text;
+
 type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
 #[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
