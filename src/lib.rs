@@ -1,17 +1,16 @@
-use std::{collections::HashSet, convert::TryFrom, fmt};
+use std::{convert::TryFrom, fmt};
 
 use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alpha1, char, not_line_ending, satisfy, space0, space1},
     combinator::{opt, verify},
-    error::{context, convert_error, VerboseError},
+    error::{context, VerboseError},
     multi::many1,
     number::complete::float,
     sequence::{delimited, tuple},
-    Err as NomErr, IResult,
+    IResult,
 };
-use std::iter::FromIterator;
 
 extern crate nom;
 
@@ -20,6 +19,7 @@ extern crate nom;
 extern crate serde;
 
 pub mod rich_text;
+mod unit;
 
 type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
@@ -67,7 +67,7 @@ pub struct Ingredient {
 impl TryFrom<&str> for Ingredient {
     type Error = String;
     fn try_from(value: &str) -> Result<Ingredient, Self::Error> {
-        from_str(value, true)
+        Ok(from_str(value))
     }
 }
 
@@ -91,52 +91,28 @@ impl fmt::Display for Ingredient {
 /// wrapper for [parse_ingredient]
 /// ```
 /// use ingredient::{from_str};
-/// assert_eq!(from_str("one whole egg", true).unwrap().to_string(),"1 whole egg");
+/// assert_eq!(from_str("one whole egg").to_string(),"1 whole egg");
 /// ```
-pub fn from_str(input: &str, verbose_error: bool) -> Result<Ingredient, String> {
-    return match parse_ingredient(input) {
-        Ok(r) => Ok(r.1),
-        Err(e) => {
-            let msg = match e {
-                NomErr::Error(e) => {
-                    if verbose_error {
-                        convert_error(input, e)
-                    } else {
-                        format!("{}", e)
-                    }
-                }
-                _ => format!("{}", e),
-            };
-            return Err(format!("failed to parse '{}': {}", input, msg));
-        }
-    };
+pub fn from_str(input: &str) -> Ingredient {
+    //todo: add back error handling? can't get this to ever fail since parser is pretty flexible
+    parse_ingredient(input).unwrap().1
 }
 
 /// Parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`. Used by [parse_ingredient].
 /// ```
 /// use ingredient::{parse_amount,Amount};
 /// assert_eq!(
-///    parse_amount("120 grams").unwrap(),
+///    parse_amount("120 grams"),
 ///    vec![Amount::new("grams",120.0)]
 ///  );
 /// assert_eq!(
-///    parse_amount("120 grams / 1 cup").unwrap(),
+///    parse_amount("120 grams / 1 cup"),
 ///    vec![Amount::new("grams",120.0),Amount::new("cup", 1.0)]
 ///  );
 /// ```
-pub fn parse_amount(input: &str) -> Result<Vec<Amount>, String> {
-    return match many_amount(input) {
-        Ok(r) => Ok(r.1),
-        Err(e) => {
-            let msg = match e {
-                NomErr::Error(e) => {
-                    format!("{}", e)
-                }
-                _ => format!("{}", e),
-            };
-            return Err(format!("failed to parse '{}': {}", input, msg));
-        }
-    };
+pub fn parse_amount(input: &str) -> Vec<Amount> {
+    // todo: also can't get this one to fail either
+    many_amount(input).unwrap().1
 }
 
 /// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`.
@@ -196,10 +172,12 @@ pub fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
         let (amounts, _, name_chunks, amounts2, _, modifier_chunks) = res;
         let m = modifier_chunks;
 
-        let name = match name_chunks {
-            Some(n) => n.join("").trim_matches(' ').to_string(),
-            None => "".to_string(),
-        };
+        let name = name_chunks
+            .unwrap_or(vec![])
+            .join("")
+            .trim_matches(' ')
+            .to_string();
+
         let mut amounts = match amounts {
             Some(a) => a,
             None => vec![],
@@ -267,56 +245,8 @@ fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
     })
 }
 
-fn is_valid_unit(s: &str) -> bool {
-    let units: Vec<String> = [
-        "oz",
-        "ml",
-        "ounces",
-        "ounce",
-        "grams",
-        "gram",
-        "whole",
-        "cups",
-        "cup",
-        "teaspoons",
-        "packet",
-        "sticks",
-        "stick",
-        "cloves",
-        "clove",
-        "g",
-        "$",
-        "bunch",
-        "head",
-        "large",
-        "medium",
-        "package",
-        "pounds",
-        "quarts",
-        "recipe",
-        "slice",
-        "standard",
-        "tablespoon",
-        "tablespoons",
-        "tbsp",
-        "teaspoon",
-        "tsp",
-        "kcal",
-        "lb",
-        "dollars",
-        "dollar",
-        "cent",
-        "cents",
-    ]
-    .iter()
-    .map(|&s| s.into())
-    .collect();
-
-    let m: HashSet<String> = HashSet::from_iter(units.iter().cloned());
-    return m.contains(&s.to_lowercase());
-}
 fn unit(input: &str) -> Res<&str, &str> {
-    context("unit", verify(alpha1, |s: &str| is_valid_unit(s)))(input)
+    context("unit", verify(alpha1, |s: &str| unit::is_valid(s)))(input)
 }
 // parses a single amount
 fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
@@ -425,6 +355,7 @@ fn fraction_number(input: &str) -> Res<&str, f32> {
 #[cfg(test)]
 mod tests {
     use nom::error::{ErrorKind, VerboseErrorKind};
+    use nom::Err as NomErr;
 
     use super::*;
     #[test]
@@ -456,13 +387,10 @@ mod tests {
     #[test]
     fn test_amount_range() {
         assert_eq!(
-            parse_amount("2¼-2.5 cups").unwrap(),
+            parse_amount("2¼-2.5 cups"),
             vec![Amount::new_with_upper("cups", 2.25, 2.5)]
         );
-        assert_eq!(
-            parse_amount("2¼-2.5 cups").unwrap(),
-            parse_amount("2 ¼ - 2.5 cups").unwrap()
-        );
+        assert_eq!(parse_amount("2¼-2.5 cups"), parse_amount("2 ¼ - 2.5 cups"));
         assert_eq!(
             Ingredient::try_from("1-2 cups flour"),
             Ok(Ingredient {
@@ -559,20 +487,15 @@ mod tests {
     #[test]
     fn test_stringy() {
         assert_eq!(
-            format!("res: {}", from_str("12 cups flour", false).unwrap()),
+            format!("res: {}", from_str("12 cups flour")),
             "res: 12 cups flour"
         );
-        assert_eq!(
-            from_str("one whole egg", true).unwrap().to_string(),
-            "1 whole egg"
-        );
+        assert_eq!(from_str("one whole egg").to_string(), "1 whole egg");
     }
     #[test]
     fn test_with_parens() {
         assert_eq!(
-            from_str("1 cup (125.5 grams) AP flour, sifted", false)
-                .unwrap()
-                .to_string(),
+            from_str("1 cup (125.5 grams) AP flour, sifted").to_string(),
             "1 cup / 125.5 grams AP flour, sifted"
         );
     }
