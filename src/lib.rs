@@ -246,7 +246,12 @@ fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
         tuple((
             num,
             opt(tuple(
-                (space0, tag("-"), space0, num), // care about u.3
+                (
+                    space0,
+                    alt((tag("-"), tag("–"))), // second dash is an unusual variant
+                    space0,
+                    num,
+                ), // care about u.3
             )),
         )),
     )(input)
