@@ -81,7 +81,7 @@ impl fmt::Display for Ingredient {
             None => "".to_string(),
         };
         let amount_list = match amounts.len() {
-            0 => "n/a".to_string(),
+            0 => "n/a ".to_string(),
             _ => format!("{} ", amounts.join(" / ")),
         };
         let name = self.name.clone();
@@ -497,6 +497,18 @@ mod tests {
         assert_eq!(
             from_str("1 cup (125.5 grams) AP flour, sifted").to_string(),
             "1 cup / 125.5 grams AP flour, sifted"
+        );
+    }
+    #[test]
+    fn test_no_ingredient_amounts() {
+        assert_eq!(
+            Ingredient {
+                name: "apples".to_string(),
+                amounts: vec![],
+                modifier: None,
+            }
+            .to_string(),
+            "n/a apples"
         );
     }
     #[test]
