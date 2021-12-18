@@ -222,7 +222,7 @@ pub fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
 }
 
 fn text(input: &str) -> Res<&str, &str> {
-    alt((alpha1, space1, tag("-")))(input)
+    alt((alpha1, space1, tag("-"), tag("'")))(input)
 }
 
 // parses 2 amounts, seperated by ; or /
@@ -306,7 +306,7 @@ fn is_valid_unit(s: &str) -> bool {
     .collect();
 
     let m: HashSet<String> = HashSet::from_iter(units.iter().cloned());
-    return m.contains(s);
+    return m.contains(&s.to_lowercase());
 }
 fn unit(input: &str) -> Res<&str, &str> {
     context("unit", verify(alpha1, |s: &str| is_valid_unit(s)))(input)
@@ -321,15 +321,16 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
                 num_or_range,       // value
                 space0,
                 opt(unit), // unit
+                opt(tag(".")),
             ), // 1 gram
         ),
     )(input)
     .map(|(next_input, res)| {
-        let (_, value, _, unit) = res;
+        let (_prefix, value, _space, unit, _period) = res;
         (
             next_input,
             vec![Amount {
-                unit: unit.unwrap_or("whole").to_string(),
+                unit: unit.unwrap_or("whole").to_string().to_lowercase(),
                 value: value.0,
                 upper_value: value.1,
             }],
@@ -633,6 +634,27 @@ mod tests {
         assert_eq!(
             parse_ingredient("1 ½ cups/192 grams all-purpose flour"),
             parse_ingredient("1 1/2 cups / 192 grams all-purpose flour")
+        );
+    }
+    #[test]
+    fn test_weird_chars() {
+        assert_eq!(
+            parse_ingredient("100g confectioner's sugar, sifted"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "confectioner's sugar".to_string(),
+                    amounts: vec![Amount::new("g", 100.0),],
+                    modifier: Some("sifted".to_string())
+                }
+            ))
+        );
+    }
+    #[test]
+    fn test_unit_period_mixed_case() {
+        assert_eq!(
+            parse_ingredient("1 Tbsp. flour"),
+            parse_ingredient("1 tbsp flour"),
         );
     }
     #[test]
