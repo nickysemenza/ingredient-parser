@@ -202,7 +202,7 @@ pub fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
 }
 
 fn text(input: &str) -> Res<&str, &str> {
-    alt((alpha1, space1, tag("-"), tag("'")))(input)
+    alt((alpha1, space1, tag("-"), tag("'"), tag(".")))(input)
 }
 
 // parses 2 amounts, seperated by ; or /

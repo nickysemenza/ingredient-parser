@@ -3,12 +3,15 @@ use itertools::Itertools;
 use nom::{branch::alt, error::context, multi::many1};
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
+#[serde(tag = "kind", content = "value")]
 pub enum Chunk {
     Amount(Vec<Amount>),
     Text(String),
 }
 pub type Rich = Vec<Chunk>;
 fn condense(r: Rich) -> Rich {
+    // https://www.reddit.com/r/rust/comments/e3mq41/combining_enum_values_with_itertools_coalesce/
     r.into_iter()
         .coalesce(
             |previous, current| match (previous.clone(), current.clone()) {
