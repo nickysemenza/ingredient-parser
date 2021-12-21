@@ -228,7 +228,7 @@ fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
             opt(tuple(
                 (
                     space0,
-                    alt((tag("-"), tag("–"))), // second dash is an unusual variant
+                    alt((tag("-"), tag("–"), tag("to"))), // second dash is an unusual variant
                     space0,
                     num,
                 ), // care about u.3
@@ -246,7 +246,10 @@ fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
 }
 
 fn unit(input: &str) -> Res<&str, &str> {
-    context("unit", verify(alpha1, |s: &str| unit::is_valid(s)))(input)
+    context(
+        "unit",
+        verify(alt((alpha1, tag("°"))), |s: &str| unit::is_valid(s)),
+    )(input)
 }
 // parses a single amount
 fn amount1(input: &str) -> Res<&str, Vec<Amount>> {

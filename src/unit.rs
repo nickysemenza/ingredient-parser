@@ -41,6 +41,20 @@ pub fn is_valid(s: &str) -> bool {
         "dollar",
         "cent",
         "cents",
+        "°c",
+        "°f",
+        "°F",
+        "°",
+        "degree",
+        "degrees",
+        "minute",
+        "minutes",
+        "hour",
+        "hours",
+        "second",
+        "seconds",
+        "day",
+        "days",
     ]
     .iter()
     .map(|&s| s.into())
