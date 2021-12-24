@@ -7,7 +7,7 @@ use nom::{
     combinator::{opt, verify},
     error::{context, VerboseError},
     multi::many1,
-    number::complete::float,
+    number::complete::double,
     sequence::{delimited, tuple},
     IResult,
 };
@@ -28,8 +28,8 @@ type Res<T, U> = IResult<T, U, VerboseError<T>>;
 /// Holds a unit and value pair for an ingredient.
 pub struct Amount {
     pub unit: String,
-    pub value: f32,
-    pub upper_value: Option<f32>,
+    pub value: f64,
+    pub upper_value: Option<f64>,
 }
 
 impl fmt::Display for Amount {
@@ -39,14 +39,14 @@ impl fmt::Display for Amount {
 }
 
 impl Amount {
-    pub fn new(unit: &str, value: f32) -> Amount {
+    pub fn new(unit: &str, value: f64) -> Amount {
         Amount {
             unit: unit.to_string(),
             value,
             upper_value: None,
         }
     }
-    pub fn new_with_upper(unit: &str, value: f32, upper: f32) -> Amount {
+    pub fn new_with_upper(unit: &str, value: f64, upper: f64) -> Amount {
         Amount {
             unit: unit.to_string(),
             value,
@@ -220,7 +220,7 @@ fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
         (next_input, a.into_iter().chain(b.into_iter()).collect())
     })
 }
-fn num_or_range(input: &str) -> Res<&str, (f32, Option<f32>)> {
+fn num_or_range(input: &str) -> Res<&str, (f64, Option<f64>)> {
     context(
         "num_or_range",
         tuple((
@@ -295,7 +295,7 @@ fn amt_parens(input: &str) -> Res<&str, Vec<Amount>> {
     context("amt_parens", delimited(char('('), many_amount, char(')')))(input)
 }
 
-fn v_frac_to_num(input: char) -> Result<f32, String> {
+fn v_frac_to_num(input: char) -> Result<f64, String> {
     // two ranges for unicode fractions
     // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
     let (n, d): (i32, i32) = match input {
@@ -306,42 +306,42 @@ fn v_frac_to_num(input: char) -> Result<f32, String> {
         '½' => (1, 2),
         _ => return Err(format!("unkown fraction: {}", input)),
     };
-    return Ok(n as f32 / d as f32);
+    return Ok(n as f64 / d as f64);
 }
 
 fn is_frac_char(c: char) -> bool {
     v_frac_to_num(c).is_ok()
 }
 /// parses unicode vulgar fractions
-fn v_fraction(input: &str) -> Res<&str, f32> {
+fn v_fraction(input: &str) -> Res<&str, f64> {
     context("v_fraction", satisfy(is_frac_char))(input)
         .map(|(next_input, res)| (next_input, v_frac_to_num(res).unwrap()))
 }
 
-fn n_fraction(input: &str) -> Res<&str, f32> {
-    context("n_fraction", tuple((float, tag("/"), float)))(input)
+fn n_fraction(input: &str) -> Res<&str, f64> {
+    context("n_fraction", tuple((double, tag("/"), double)))(input)
         .map(|(next_input, res)| (next_input, res.0 / res.2))
 }
-fn text_number(input: &str) -> Res<&str, f32> {
+fn text_number(input: &str) -> Res<&str, f64> {
     context("text_number", tag("one"))(input).map(|(next_input, _)| (next_input, 1.0))
 }
 
 /// handles vulgar fraction, or just a number
-fn num(input: &str) -> Res<&str, f32> {
-    context("num", alt((fraction_number, text_number, float)))(input)
+fn num(input: &str) -> Res<&str, f64> {
+    context("num", alt((fraction_number, text_number, double)))(input)
 }
 /// parses `1 ⅛` or `1 1/8` into `1.125`
-fn fraction_number(input: &str) -> Res<&str, f32> {
+fn fraction_number(input: &str) -> Res<&str, f64> {
     context(
         "fraction_number",
         alt((
             tuple((
-                opt(tuple((float, space0))), // optional number (and if number, optional space) before
-                v_fraction,                  // vulgar frac
+                opt(tuple((double, space0))), // optional number (and if number, optional space) before
+                v_fraction,                   // vulgar frac
             )),
             tuple((
-                opt(tuple((float, space1))), // optional number (and if number, required space space) before
-                n_fraction,                  // regular frac
+                opt(tuple((double, space1))), // optional number (and if number, required space space) before
+                n_fraction,                   // regular frac
             )),
         )),
     )(input)
@@ -365,7 +365,7 @@ mod tests {
     fn test_fraction() {
         assert_eq!(fraction_number("1 ⅛"), Ok(("", 1.125)));
         assert_eq!(fraction_number("1 1/8"), Ok(("", 1.125)));
-        assert_eq!(fraction_number("1⅓"), Ok(("", 1.3333334)));
+        assert_eq!(fraction_number("1⅓"), Ok(("", 1.3333333333333333)));
         assert_eq!(fraction_number("¼"), Ok(("", 0.25)));
         assert_eq!(fraction_number("1/4"), Ok(("", 0.25)));
         assert_eq!(

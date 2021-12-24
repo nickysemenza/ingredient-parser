@@ -125,7 +125,8 @@ impl fmt::Display for Unit {
 }
 
 pub fn singular(s: &str) -> String {
-    s.strip_suffix("s").unwrap_or(s).to_lowercase()
+    let s2 = s.to_lowercase();
+    s2.strip_suffix("s").unwrap_or(&s2).to_string()
 }
 
 #[cfg(test)]
