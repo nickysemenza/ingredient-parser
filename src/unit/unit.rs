@@ -2,8 +2,6 @@ use std::collections::HashSet;
 use std::fmt;
 use std::iter::FromIterator;
 
-use super::MeasureKind;
-
 pub fn is_valid(s: &str) -> bool {
     let units: Vec<String> = [
         // non standard units - these aren't really convertible for the most part.
@@ -50,6 +48,7 @@ pub enum Unit {
 
 impl Unit {
     pub fn normalize(self) -> Unit {
+        //todo
         match self {
             Unit::Other(x) => return Unit::Other(singular(&x)),
             _ => return self,
@@ -108,16 +107,7 @@ impl Unit {
         .to_string()
     }
 }
-pub fn unit_from_measurekind(m: MeasureKind) -> Unit {
-    return match m {
-        MeasureKind::Weight => Unit::Gram,
-        MeasureKind::Volume => Unit::Milliliter,
-        MeasureKind::Money => Unit::Cent,
-        MeasureKind::Calories => Unit::KCal,
-        MeasureKind::Time => Unit::Second,
-        MeasureKind::Other => Unit::Other("".to_string()),
-    };
-}
+
 impl fmt::Display for Unit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
@@ -140,5 +130,12 @@ mod tests {
         assert_eq!(is_valid("slice"), true);
         assert_eq!(is_valid("TABLESPOONS"), true);
         assert_eq!(is_valid("foo"), false);
+    }
+    #[test]
+    fn test_back_forth() {
+        assert_eq!(Unit::from_str("oz"), Unit::Ounce);
+        assert_eq!(Unit::from_str("gram").to_str(), "g");
+        assert_eq!(Unit::from_str("foo").to_str(), "foo");
+        assert_eq!(format!("{}", Unit::from_str("foo")), "Other(\"foo\")");
     }
 }
