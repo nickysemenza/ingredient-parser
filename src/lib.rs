@@ -19,7 +19,7 @@ extern crate nom;
 extern crate serde;
 
 pub mod rich_text;
-mod unit;
+pub mod unit;
 
 type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
