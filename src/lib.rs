@@ -12,6 +12,8 @@ use nom::{
     IResult,
 };
 
+use crate::util::num_without_zeroes;
+
 extern crate nom;
 
 #[cfg(feature = "serde-derive")]
@@ -20,6 +22,7 @@ extern crate serde;
 
 pub mod rich_text;
 pub mod unit;
+pub mod util;
 
 type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
@@ -34,7 +37,13 @@ pub struct Amount {
 
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.value, self.unit)
+        write!(f, "{}", num_without_zeroes(self.value)).unwrap();
+        if let Some(u) = self.upper_value {
+            if u != 0.0 {
+                write!(f, " - {}", num_without_zeroes(u)).unwrap();
+            }
+        }
+        write!(f, " {}", self.unit)
     }
 }
 
@@ -228,7 +237,7 @@ fn num_or_range(input: &str) -> Res<&str, (f64, Option<f64>)> {
             opt(tuple(
                 (
                     space0,
-                    alt((tag("-"), tag("–"), tag("to"))), // second dash is an unusual variant
+                    alt((tag("-"), tag("–"), tag("to"), tag("through"))), // second dash is an unusual variant
                     space0,
                     num,
                 ), // care about u.3
@@ -401,6 +410,10 @@ mod tests {
                 amounts: vec![Amount::new_with_upper("cups", 1.0, 2.0)],
                 modifier: None,
             })
+        );
+        assert_eq!(
+            format!("{}", parse_amount("2 ¼ - 2.5 cups").first().unwrap()),
+            "2.25 - 2.5 cups"
         );
     }
     #[test]
