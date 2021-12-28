@@ -253,13 +253,14 @@ fn num_or_range(input: &str) -> Res<&str, (f64, Option<f64>)> {
         (next_input, (val, upper))
     })
 }
-
-fn unit(units: Vec<String>, input: &str) -> Res<&str, &str> {
+fn unitamt(input: &str) -> Res<&str, String> {
+    nom::multi::many0(alt((alpha1, tag("°"))))(input)
+        .map(|(next_input, res)| (next_input, res.join("")))
+}
+fn unit(units: Vec<String>, input: &str) -> Res<&str, String> {
     context(
         "unit",
-        verify(alt((alpha1, tag("°"))), |s: &str| {
-            unit::is_valid(units.clone(), s)
-        }),
+        verify(unitamt, |s: &str| unit::is_valid(units.clone(), s)),
     )(input)
 }
 // parses a single amount
@@ -270,7 +271,7 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
         "whole", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large", "medium",
         "package", "recipe", "slice", "standard", "can", "leaf", "leaves",
         //todo: extract these into their own kind
-        "°c", "°f", "°F", "°", "degree", "degrees",
+        "°c", "°f", "°", "F", "C", "degree", "degrees",
     ]
     .iter()
     .map(|&s| s.into())
@@ -293,7 +294,10 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
         (
             next_input,
             vec![Amount {
-                unit: unit.unwrap_or("whole").to_string().to_lowercase(),
+                unit: unit
+                    .unwrap_or("whole".to_string())
+                    .to_string()
+                    .to_lowercase(),
                 value: value.0,
                 upper_value: value.1,
             }],
@@ -410,6 +414,11 @@ mod tests {
         assert_eq!(v_frac_to_num('⅛'), Ok(0.125));
         assert_eq!(v_frac_to_num('¼'), Ok(0.25));
         assert_eq!(v_frac_to_num('½'), Ok(0.5));
+    }
+    #[test]
+    fn test_amount() {
+        assert_eq!(parse_amount("350 °"), vec![Amount::new("°", 350.0)]);
+        assert_eq!(parse_amount("350 °F"), vec![Amount::new("°f", 350.0)]);
     }
 
     #[test]
