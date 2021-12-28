@@ -2,18 +2,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::iter::FromIterator;
 
-pub fn is_valid(s: &str) -> bool {
-    let units: Vec<String> = [
-        // non standard units - these aren't really convertible for the most part.
-        "whole", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large", "medium",
-        "package", "recipe", "slice", "standard", "can", "leaf", "leaves",
-        //todo: extract these into their own kind
-        "°c", "°f", "°F", "°", "degree", "degrees",
-    ]
-    .iter()
-    .map(|&s| s.into())
-    .collect();
-
+pub fn is_valid(units: Vec<String>, s: &str) -> bool {
     if !matches!(Unit::from_str(&singular(s)), Unit::Other(_)) {
         // anything other than `other`
         return true;
@@ -125,11 +114,12 @@ mod tests {
     use super::*;
     #[test]
     fn test_is_unit() {
-        assert_eq!(is_valid("oz"), true);
-        assert_eq!(is_valid("fl oz"), true);
-        assert_eq!(is_valid("slice"), true);
-        assert_eq!(is_valid("TABLESPOONS"), true);
-        assert_eq!(is_valid("foo"), false);
+        assert_eq!(is_valid(vec![], "oz"), true);
+        assert_eq!(is_valid(vec![], "fl oz"), true);
+        assert_eq!(is_valid(vec![], "slice"), false);
+        assert_eq!(is_valid(vec!["slice".to_string()], "slice"), true);
+        assert_eq!(is_valid(vec![], "TABLESPOONS"), true);
+        assert_eq!(is_valid(vec![], "foo"), false);
     }
     #[test]
     fn test_back_forth() {

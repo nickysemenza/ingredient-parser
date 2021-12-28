@@ -254,22 +254,36 @@ fn num_or_range(input: &str) -> Res<&str, (f64, Option<f64>)> {
     })
 }
 
-fn unit(input: &str) -> Res<&str, &str> {
+fn unit(units: Vec<String>, input: &str) -> Res<&str, &str> {
     context(
         "unit",
-        verify(alt((alpha1, tag("°"))), |s: &str| unit::is_valid(s)),
+        verify(alt((alpha1, tag("°"))), |s: &str| {
+            unit::is_valid(units.clone(), s)
+        }),
     )(input)
 }
 // parses a single amount
 fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
-    context(
+    let units: Vec<String> = vec![
+        // non standard units - these aren't really convertible for the most part.
+        // todo: allow these to be passed in by caller
+        "whole", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large", "medium",
+        "package", "recipe", "slice", "standard", "can", "leaf", "leaves",
+        //todo: extract these into their own kind
+        "°c", "°f", "°F", "°", "degree", "degrees",
+    ]
+    .iter()
+    .map(|&s| s.into())
+    .collect();
+
+    let res = context(
         "amount1",
         tuple(
             (
                 opt(tag("about ")), // todo: add flag for estimates
                 num_or_range,       // value
                 space0,
-                opt(unit), // unit
+                opt(|a| unit(units.clone(), a)), // unit
                 opt(tag(".")),
             ), // 1 gram
         ),
@@ -284,7 +298,8 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
                 upper_value: value.1,
             }],
         )
-    })
+    });
+    res
 }
 
 // parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`
@@ -332,7 +347,8 @@ fn n_fraction(input: &str) -> Res<&str, f64> {
         .map(|(next_input, res)| (next_input, res.0 / res.2))
 }
 fn text_number(input: &str) -> Res<&str, f64> {
-    context("text_number", tag("one"))(input).map(|(next_input, _)| (next_input, 1.0))
+    context("text_number", alt((tag("one"), tag("a "))))(input)
+        .map(|(next_input, _)| (next_input, 1.0))
 }
 
 /// handles vulgar fraction, or just a number
@@ -507,6 +523,7 @@ mod tests {
             "res: 12 cups flour"
         );
         assert_eq!(from_str("one whole egg").to_string(), "1 whole egg");
+        assert_eq!(from_str("a tsp flour").to_string(), "1 tsp flour");
     }
     #[test]
     fn test_with_parens() {
