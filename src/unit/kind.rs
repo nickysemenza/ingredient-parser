@@ -8,6 +8,7 @@ pub enum MeasureKind {
     Calories,
     Other, //todo: make this hold a string
     Time,
+    Temperature,
 }
 impl MeasureKind {
     pub fn unit(&self) -> Unit {
@@ -18,6 +19,7 @@ impl MeasureKind {
             MeasureKind::Calories => Unit::KCal,
             MeasureKind::Other => Unit::Other("".to_string()),
             MeasureKind::Time => Unit::Second,
+            MeasureKind::Temperature => Unit::Farhenheit,
         }
     }
     pub fn from_str(s: &str) -> Self {
@@ -27,6 +29,7 @@ impl MeasureKind {
             "money" => Self::Money,
             "calories" => Self::Calories,
             "time" => Self::Time,
+            "temperature" => Self::Temperature,
             _ => Self::Other,
         }
     }
@@ -52,6 +55,13 @@ mod tests {
             Unit::from_str("second"),
             MeasureKind::from_str("time").unit()
         );
-        assert_eq!(Unit::from_str("").normalize(), MeasureKind::from_str("foo").unit());
+        assert_eq!(
+            Unit::from_str("°"),
+            MeasureKind::from_str("temperature").unit()
+        );
+        assert_eq!(
+            Unit::from_str("").normalize(),
+            MeasureKind::from_str("foo").unit()
+        );
     }
 }

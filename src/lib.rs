@@ -6,7 +6,7 @@ use nom::{
     character::complete::{alpha1, char, not_line_ending, satisfy, space0, space1},
     combinator::{opt, verify},
     error::{context, VerboseError},
-    multi::many1,
+    multi::{many1, separated_list1},
     number::complete::double,
     sequence::{delimited, tuple},
     IResult,
@@ -118,6 +118,10 @@ pub fn from_str(input: &str) -> Ingredient {
 ///    parse_amount("120 grams / 1 cup"),
 ///    vec![Amount::new("grams",120.0),Amount::new("cup", 1.0)]
 ///  );
+/// assert_eq!(
+///    parse_amount("120 grams / 1 cup / 1 whole"),
+///    vec![Amount::new("grams",120.0),Amount::new("cup", 1.0),Amount::new("whole", 1.0)]
+///  );
 /// ```
 pub fn parse_amount(input: &str) -> Vec<Amount> {
     // todo: also can't get this one to fail either
@@ -214,21 +218,6 @@ fn text(input: &str) -> Res<&str, &str> {
     alt((alpha1, space1, tag("-"), tag("'"), tag(".")))(input)
 }
 
-// parses 2 amounts, seperated by ; or /
-fn amount2(input: &str) -> Res<&str, Vec<Amount>> {
-    context(
-        "amount2",
-        nom::sequence::separated_pair(
-            amount1,
-            alt((tag("; "), tag(" / "), tag(" "), tag(", "), tag("/"))),
-            alt((amt_parens, amount1)),
-        ),
-    )(input)
-    .map(|(next_input, res)| {
-        let (a, b) = res;
-        (next_input, a.into_iter().chain(b.into_iter()).collect())
-    })
-}
 fn num_or_range(input: &str) -> Res<&str, (f64, Option<f64>)> {
     context(
         "num_or_range",
@@ -270,8 +259,6 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
         // todo: allow these to be passed in by caller
         "whole", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large", "medium",
         "package", "recipe", "slice", "standard", "can", "leaf", "leaves",
-        //todo: extract these into their own kind
-        "°c", "°f", "°", "F", "C", "degree", "degrees",
     ]
     .iter()
     .map(|&s| s.into())
@@ -306,17 +293,19 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
     res
 }
 
-// parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`
+// parses 1-n amounts, e.g. `12 grams` or `120 grams / 1 cup`
 fn many_amount(input: &str) -> Res<&str, Vec<Amount>> {
     context(
-        "amount",
-        alt((
-            // amounts might be totally optional
-            amount2, // 1g / 1 g
-            // OR
-            amount1, // 1g
-        )),
+        "amount_multi",
+        separated_list1(
+            alt((tag("; "), tag(" / "), tag(" "), tag(", "), tag("/"))),
+            alt((amt_parens, amount1)),
+        ),
     )(input)
+    .map(|(next_input, res)| {
+        // let (a, b) = res;
+        (next_input, res.into_iter().flatten().collect())
+    })
 }
 
 fn amt_parens(input: &str) -> Res<&str, Vec<Amount>> {
@@ -612,6 +601,21 @@ mod tests {
                         Amount::new("g", 168.75),
                     ],
                     modifier: None
+                }
+            ))
+        );
+        assert_eq!(
+            parse_ingredient("½ pound 2 sticks; 227 g unsalted butter, room temperature"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "unsalted butter".to_string(),
+                    amounts: vec![
+                        Amount::new("pound", 0.5),
+                        Amount::new("sticks", 2.0),
+                        Amount::new("g", 227.0),
+                    ],
+                    modifier: Some("room temperature".to_string())
                 }
             ))
         );

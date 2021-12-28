@@ -28,10 +28,15 @@ pub enum Unit {
     Cent,
     Dollar,
     KCal,
+    // time
     Day,
     Hour,
     Minute,
     Second,
+    // temperature
+    Farhenheit,
+    Celcius,
+
     Other(String),
 }
 
@@ -68,6 +73,10 @@ impl Unit {
             "minute" | "min" => Self::Minute,
             "hour" | "hr" => Self::Hour,
             "day" => Self::Day,
+
+            "fahrenheit" | "f" | "°" | "°f" => Self::Farhenheit,
+            "celcius" | "°c" => Self::Celcius,
+
             _ => Self::Other(s.to_string()),
         }
     }
@@ -91,6 +100,8 @@ impl Unit {
             Unit::Hour => "hour",
             Unit::Minute => "minute",
             Unit::Second => "second",
+            Unit::Celcius => "°c",
+            Unit::Farhenheit => "°F",
             Unit::Other(s) => return singular(&s),
         }
         .to_string()
