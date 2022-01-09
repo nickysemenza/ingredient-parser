@@ -56,8 +56,8 @@ impl Unit {
             "oz" | "ounce" => Self::Ounce,
             "lb" | "pound" => Self::Pound,
 
-            "ml" => Self::Milliliter,
-            "l" => Self::Liter,
+            "ml" | "milliliter" => Self::Milliliter,
+            "l" | "liter" => Self::Liter,
 
             "tsp" | "teaspoon" => Self::Teaspoon,
             "tbsp" | "tablespoon" => Self::Tablespoon,

@@ -215,7 +215,16 @@ pub fn parse_ingredient(input: &str) -> Res<&str, Ingredient> {
 }
 
 fn text(input: &str) -> Res<&str, &str> {
-    alt((alpha1, space1, tag("-"), tag("'"), tag(".")))(input)
+    alt((
+        alpha1,
+        space1,
+        tag("-"),
+        tag("—"),
+        tag("-"),
+        tag("'"),
+        tag("’"),
+        tag("."),
+    ))(input)
 }
 
 fn num_or_range(input: &str) -> Res<&str, (f64, Option<f64>)> {
@@ -272,7 +281,7 @@ fn amount1(input: &str) -> Res<&str, Vec<Amount>> {
                 num_or_range,       // value
                 space0,
                 opt(|a| unit(units.clone(), a)), // unit
-                opt(tag(".")),
+                opt(alt((tag("."), tag(" of")))),
             ), // 1 gram
         ),
     )(input)
@@ -627,13 +636,24 @@ mod tests {
     #[test]
     fn test_weird_chars() {
         assert_eq!(
-            parse_ingredient("100g confectioner's sugar, sifted"),
+            parse_ingredient("2 cups/240 grams confectioners’ sugar, sifted"),
             Ok((
                 "",
                 Ingredient {
-                    name: "confectioner's sugar".to_string(),
-                    amounts: vec![Amount::new("g", 100.0),],
+                    name: "confectioners’ sugar".to_string(),
+                    amounts: vec![Amount::new("cups", 2.0), Amount::new("grams", 240.0)],
                     modifier: Some("sifted".to_string())
+                }
+            ))
+        );
+        assert_eq!(
+            parse_ingredient("2 cups/240 grams confectioners' sugar"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "confectioners' sugar".to_string(),
+                    amounts: vec![Amount::new("cups", 2.0), Amount::new("grams", 240.0)],
+                    modifier: None
                 }
             ))
         );
@@ -643,6 +663,17 @@ mod tests {
         assert_eq!(
             parse_ingredient("1 Tbsp. flour"),
             parse_ingredient("1 tbsp flour"),
+        );
+        assert_eq!(
+            parse_ingredient("12 cloves of garlic, peeled"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "garlic".to_string(),
+                    amounts: vec![Amount::new("cloves", 12.0),],
+                    modifier: Some("peeled".to_string())
+                }
+            ))
         );
     }
     #[test]
