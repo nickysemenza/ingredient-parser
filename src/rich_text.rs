@@ -1,4 +1,4 @@
-use crate::{many_amount, text, Amount, Res};
+use crate::{text, Amount, IngredientParser, Res};
 use itertools::Itertools;
 use nom::{branch::alt, bytes::complete::tag, error::context, multi::many0};
 
@@ -53,9 +53,10 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
         .collect()
 }
 
-fn amounts_chunk(input: &str) -> Res<&str, Chunk> {
-    context("amounts_chunk", many_amount)(input)
-        .map(|(next_input, res)| (next_input, Chunk::Amount(res)))
+fn amounts_chunk(ip: IngredientParser, input: &str) -> Res<&str, Chunk> {
+    let res = context("amounts_chunk", |a| ip.clone().many_amount(a))(input)
+        .map(|(next_input, res)| (next_input, Chunk::Amount(res)));
+    return res;
 }
 fn text_chunk(input: &str) -> Res<&str, Chunk> {
     context("text_chunk", text2)(input)
@@ -80,9 +81,12 @@ fn text2(input: &str) -> Res<&str, &str> {
 /// Parse some rich text that has some parsable [Amount] scattered around in it. Useful for displaying text with fancy formatting.
 /// returns [Rich]
 /// ```
-/// use ingredient::{Amount, rich_text::{parse, Chunk}};
+/// use ingredient::{Amount, IngredientParser, rich_text::{RichParser, Chunk}};
 /// assert_eq!(
-/// parse("hello 1 cups foo bar",vec![]).unwrap(),
+/// (RichParser {
+/// ingredient_names: vec![],
+/// ip: IngredientParser::new(),
+/// }).parse("hello 1 cups foo bar").unwrap(),
 /// vec![
 /// 	Chunk::Text("hello ".to_string()),
 /// 	Chunk::Amount(vec![Amount::new("cups", 1.0)]),
@@ -90,10 +94,24 @@ fn text2(input: &str) -> Res<&str, &str> {
 /// ]
 /// );
 /// ```
-pub fn parse(input: &str, ingredient_names: Vec<String>) -> Result<Rich, String> {
-    match context("amts", many0(alt((text_chunk, amounts_chunk))))(input) {
-        Ok((_, res)) => Ok(extract_ingredients(condense_text(res), ingredient_names)),
-        Err(e) => Err(format!("unable to parse '{}': {}", input, e)),
+#[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
+pub struct RichParser {
+    pub ingredient_names: Vec<String>,
+    pub ip: IngredientParser,
+}
+impl RichParser {
+    pub fn parse(self, input: &str) -> Result<Rich, String> {
+        match context(
+            "amts",
+            many0(alt((text_chunk, |a| amounts_chunk(self.ip.clone(), a)))),
+        )(input)
+        {
+            Ok((_, res)) => Ok(extract_ingredients(
+                condense_text(res),
+                self.ingredient_names.clone(),
+            )),
+            Err(e) => Err(format!("unable to parse '{}': {}", input, e)),
+        }
     }
 }
 
@@ -104,7 +122,12 @@ mod tests {
     #[test]
     fn test_rich_text() {
         assert_eq!(
-            parse("hello 1 cups foo bar", vec![]).unwrap(),
+            (RichParser {
+                ingredient_names: vec![],
+                ip: IngredientParser::new(),
+            })
+            .parse("hello 1 cups foo bar")
+            .unwrap(),
             vec![
                 Chunk::Text("hello ".to_string()),
                 Chunk::Amount(vec![Amount::new("cups", 1.0)]),
@@ -112,7 +135,12 @@ mod tests {
             ]
         );
         assert_eq!(
-            parse("hello 1 cups foo bar", vec!["bar".to_string()]).unwrap(),
+            (RichParser {
+                ingredient_names: vec!["bar".to_string()],
+                ip: IngredientParser::new(),
+            })
+            .parse("hello 1 cups foo bar")
+            .unwrap(),
             vec![
                 Chunk::Text("hello ".to_string()),
                 Chunk::Amount(vec![Amount::new("cups", 1.0)]),
@@ -122,7 +150,12 @@ mod tests {
             ]
         );
         assert_eq!(
-            parse("2-2 1/2 cups foo' bar", vec![]).unwrap(),
+            (RichParser {
+                ingredient_names: vec![],
+                ip: IngredientParser::new(),
+            })
+            .parse("2-2 1/2 cups foo' bar")
+            .unwrap(),
             vec![
                 Chunk::Amount(vec![Amount::new_with_upper("cups", 2.0, 2.5)]),
                 Chunk::Text(" foo' bar".to_string())
@@ -132,7 +165,12 @@ mod tests {
     #[test]
     fn test_rich_text_space() {
         assert_eq!(
-            parse("hello 1 cups foo bar", vec!["foo bar".to_string()]).unwrap(),
+            (RichParser {
+                ingredient_names: vec!["foo bar".to_string()],
+                ip: IngredientParser::new(),
+            })
+            .parse("hello 1 cups foo bar")
+            .unwrap(),
             vec![
                 Chunk::Text("hello ".to_string()),
                 Chunk::Amount(vec![Amount::new("cups", 1.0)]),
