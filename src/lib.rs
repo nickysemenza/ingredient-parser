@@ -153,16 +153,8 @@ pub fn parse_amount(input: &str) -> Vec<Amount> {
 ///         Ingredient {
 ///             name: "flour".to_string(),
 ///             amounts: vec![
-///                 Amount {
-///                     upper_value: None,
-///                     unit: "cups".to_string(),
-///                     value: 1.25
-///                 },
-///                 Amount {
-///                     upper_value: None,
-///                     unit: "grams".to_string(),
-///                     value: 155.5
-///                 }
+///                 Amount::new("cups", 1.25),
+///                 Amount::new("grams", 155.5),
 ///             ],
 ///             modifier: None,
 ///         }
@@ -473,11 +465,7 @@ mod tests {
                 "",
                 Ingredient {
                     name: "egg".to_string(),
-                    amounts: vec![Amount {
-                        unit: "whole".to_string(),
-                        value: 1.0,
-                        upper_value: None,
-                    }],
+                    amounts: vec![Amount::new("whole", 1.0)],
                     modifier: None,
                 }
             ))
@@ -491,11 +479,7 @@ mod tests {
                 "",
                 Ingredient {
                     name: "cinnamon stick".to_string(),
-                    amounts: vec![Amount {
-                        unit: "whole".to_string(),
-                        value: 1.0,
-                        upper_value: None,
-                    }],
+                    amounts: vec![Amount::new("whole", 1.0)],
                     modifier: None,
                 }
             ))
@@ -513,11 +497,7 @@ mod tests {
                 "",
                 Ingredient {
                     name: "cinnamon stick".to_string(),
-                    amounts: vec![Amount {
-                        unit: "whole".to_string(),
-                        value: 1.0,
-                        upper_value: None,
-                    }],
+                    amounts: vec![Amount::new("whole", 1.0)],
                     modifier: Some("crushed".to_string()),
                 }
             ))
@@ -559,11 +539,7 @@ mod tests {
                 "",
                 Ingredient {
                     name: "all purpose flour".to_string(),
-                    amounts: vec![Amount {
-                        upper_value: None,
-                        unit: "cups".to_string(),
-                        value: 12.0
-                    }],
+                    amounts: vec![Amount::new("cups", 12.0)],
                     modifier: Some("lightly sifted".to_string()),
                 }
             ))
