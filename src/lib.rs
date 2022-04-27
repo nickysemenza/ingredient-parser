@@ -645,29 +645,26 @@ mod tests {
     }
     #[test]
     fn test_weird_chars() {
-        assert_eq!(
-            (IngredientParser::new())
-                .parse_ingredient("2 cups/240 grams confectioners’ sugar, sifted"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "confectioners’ sugar".to_string(),
-                    amounts: vec![Amount::new("cups", 2.0), Amount::new("grams", 240.0)],
-                    modifier: Some("sifted".to_string())
-                }
-            ))
-        );
-        assert_eq!(
-            (IngredientParser::new()).parse_ingredient("2 cups/240 grams confectioners' sugar"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "confectioners' sugar".to_string(),
-                    amounts: vec![Amount::new("cups", 2.0), Amount::new("grams", 240.0)],
-                    modifier: None
-                }
-            ))
-        );
+        vec![
+            "confectioners’ sugar",
+            "confectioners' sugar",
+            // "gruyère", #29
+        ]
+        .into_iter()
+        .for_each(|n| {
+            assert_eq!(
+                (IngredientParser::new())
+                    .parse_ingredient(&format!("2 cups/240 grams {}, sifted", n)),
+                Ok((
+                    "",
+                    Ingredient {
+                        name: n.to_string(),
+                        amounts: vec![Amount::new("cups", 2.0), Amount::new("grams", 240.0)],
+                        modifier: Some("sifted".to_string())
+                    }
+                ))
+            );
+        });
     }
     #[test]
     fn test_unit_period_mixed_case() {
