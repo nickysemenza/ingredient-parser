@@ -103,7 +103,7 @@ impl RichParser {
     pub fn parse(self, input: &str) -> Result<Rich, String> {
         match context(
             "amts",
-            many0(alt((text_chunk, |a| amounts_chunk(self.ip.clone(), a)))),
+            many0(alt((|a| amounts_chunk(self.ip.clone(), a), text_chunk))),
         )(input)
         {
             Ok((_, res)) => Ok(extract_ingredients(
@@ -176,6 +176,38 @@ mod tests {
                 Chunk::Amount(vec![Amount::new("cups", 1.0)]),
                 Chunk::Text(" ".to_string()),
                 Chunk::Ing("foo bar".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_rich_upper_amount() {
+        assert_eq!(
+            (RichParser {
+                ingredient_names: vec![],
+                ip: IngredientParser::new(),
+            })
+            .parse("store for 1-2 days")
+            .unwrap(),
+            vec![
+                Chunk::Text("store for ".to_string()),
+                Chunk::Amount(vec![Amount::new_with_upper("days", 1.0, 2.0)]),
+            ]
+        );
+        assert_eq!(
+            (RichParser {
+                ingredient_names: vec!["water".to_string()],
+                ip: IngredientParser::new(),
+            })
+            .parse("add 1 cup water and store for at most 2 days")
+            .unwrap(),
+            vec![
+                Chunk::Text("add ".to_string()),
+                Chunk::Amount(vec![Amount::new("cup", 1.0)]),
+                Chunk::Text(" ".to_string()),
+                Chunk::Ing("water".to_string()),
+                Chunk::Text(" and store for".to_string()),
+                Chunk::Amount(vec![Amount::new_with_upper("days", 0.0, 2.0)]),
             ]
         );
     }

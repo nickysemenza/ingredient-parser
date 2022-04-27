@@ -229,7 +229,15 @@ impl IngredientParser {
             )
         })
     }
-
+    fn get_value(self, input: &str) -> Res<&str, (f64, Option<f64>)> {
+        context(
+            "get_value",
+            alt((
+                |a| self.clone().upper_range_only(a),
+                |a| self.clone().num_or_range(a),
+            )),
+        )(input)
+    }
     fn num_or_range(self, input: &str) -> Res<&str, (f64, Option<f64>)> {
         context(
             "num_or_range",
@@ -255,6 +263,19 @@ impl IngredientParser {
         })
     }
 
+    fn upper_range_only(self, input: &str) -> Res<&str, (f64, Option<f64>)> {
+        context(
+            "upper_range_only",
+            tuple((
+                opt(space0),
+                alt((tag("up to"), tag("at most"))),
+                space0,
+                num,
+            )),
+        )(input)
+        .map(|(next_input, res)| (next_input, (0.0, Some(res.3))))
+    }
+
     fn unit(self, input: &str) -> Res<&str, String> {
         context(
             "unit",
@@ -267,8 +288,8 @@ impl IngredientParser {
             "amount1",
             tuple(
                 (
-                    opt(tag("about ")),               // todo: add flag for estimates
-                    |a| self.clone().num_or_range(a), // value
+                    opt(tag("about ")),            // todo: add flag for estimates
+                    |a| self.clone().get_value(a), // value
                     space0,
                     opt(|a| self.clone().unit(a)), // unit
                     opt(alt((tag("."), tag(" of")))),
@@ -461,6 +482,16 @@ mod tests {
                     .unwrap()
             ),
             "2.25 - 2.5 cups"
+        );
+        assert_eq!(
+            (IngredientParser::new()).parse_amount("2 to 4 days"),
+            vec![Amount::new_with_upper("days", 2.0, 4.0)]
+        );
+
+        // #30
+        assert_eq!(
+            (IngredientParser::new()).parse_amount("up to 4 days"),
+            vec![Amount::new_with_upper("days", 0.0, 4.0)]
         );
     }
     #[test]
