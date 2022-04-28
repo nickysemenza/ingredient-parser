@@ -1,0 +1,10 @@
+name = "ingredient-demo"
+type = "webpack"
+route = 'ingredient.nickysemenza.com/*'
+zone_id = '067d2f19d28e812223236f1d146511f2'
+account_id = '9f10f078d35d86c78dedece2300a6b88'
+usage_model = ''
+compatibility_flags = []
+workers_dev = true
+site = {bucket = "demo-site/build",entry-point = "workers-site"}
+compatibility_date = "2022-04-28"

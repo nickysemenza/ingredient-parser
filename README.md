@@ -6,6 +6,8 @@
 
 This leverages [nom](https://github.com/Geal/nom) to parse ingredient line items from recipes into a common format.
 
+# demo
+[ingredient.nickysemenza.com](https://ingredient.nickysemenza.com)
 
 As an example, `1¼  cups / 155.5 grams all-purpose flour, lightly sifted`  becomes
 ```rust
