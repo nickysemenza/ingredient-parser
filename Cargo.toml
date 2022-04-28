@@ -16,6 +16,7 @@ serde-derive = ["serde/derive"]
 [dependencies]
 serde = { version = "1.0", optional = true, features = ["derive"] }
 itertools = "0.10.3"
+tracing = "0.1.28"
 
 [dependencies.nom]
 version = "7.1.1"

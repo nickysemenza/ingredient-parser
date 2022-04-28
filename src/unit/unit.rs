@@ -74,7 +74,7 @@ impl Unit {
             "hour" | "hr" => Self::Hour,
             "day" => Self::Day,
 
-            "fahrenheit" | "f" | "°" | "°f" => Self::Farhenheit,
+            "fahrenheit" | "f" | "°" | "°f" | "degrees" => Self::Farhenheit,
             "celcius" | "°c" => Self::Celcius,
 
             _ => Self::Other(s.to_string()),

@@ -100,6 +100,7 @@ pub struct RichParser {
     pub ip: IngredientParser,
 }
 impl RichParser {
+    #[tracing::instrument]
     pub fn parse(self, input: &str) -> Result<Rich, String> {
         match context(
             "amts",

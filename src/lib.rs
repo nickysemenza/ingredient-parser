@@ -146,6 +146,7 @@ impl IngredientParser {
     ///    vec![Amount::new("grams",120.0),Amount::new("cup", 1.0),Amount::new("whole", 1.0)]
     ///  );
     /// ```
+    #[tracing::instrument(name = "parse_amount")]
     pub fn parse_amount(&self, input: &str) -> Vec<Amount> {
         // todo: also can't get this one to fail either
         self.clone().many_amount(input).unwrap().1
@@ -185,6 +186,7 @@ impl IngredientParser {
     ///     ))
     /// );
     /// ```
+    #[tracing::instrument(name = "parse_ingredient")]
     pub fn parse_ingredient(self, input: &str) -> Res<&str, Ingredient> {
         context(
             "ing",
@@ -313,6 +315,7 @@ impl IngredientParser {
         res
     }
     // parses 1-n amounts, e.g. `12 grams` or `120 grams / 1 cup`
+    #[tracing::instrument(name = "many_amount")]
     fn many_amount(self, input: &str) -> Res<&str, Vec<Amount>> {
         context(
             "amount_multi",
