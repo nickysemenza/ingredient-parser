@@ -1,6 +1,6 @@
 import { createContext, useEffect, useState } from "react";
 
-// export type { RichItem, Amount } from "./wasm/";
+export type { RichItem } from "./wasm/";
 export type wasm = typeof import("./wasm/ingredient_wasm");
 
 export const WasmContext = createContext<wasm | undefined>(undefined);
