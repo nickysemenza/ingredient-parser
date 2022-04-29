@@ -272,13 +272,15 @@ impl IngredientParser {
             verify(unitamt, |s: &str| unit::is_valid(self.units.clone(), s)),
         )(input)
     }
+
     // parses a single amount
     fn amount1(self, input: &str) -> Res<&str, Vec<Amount>> {
         let res = context(
             "amount1",
             tuple(
                 (
-                    opt(tag("about ")),            // todo: add flag for estimates
+                    opt(tag("about ")), // todo: add flag for estimates
+                    opt(mult_prefix_1),
                     |a| self.clone().get_value(a), // value
                     space0,
                     opt(|a| self.clone().unit(a)), // unit
@@ -287,18 +289,22 @@ impl IngredientParser {
             ),
         )(input)
         .map(|(next_input, res)| {
-            let (_prefix, value, _space, unit, _period) = res;
-            (
+            let (_prefix, mult, value, _space, unit, _period) = res;
+            let mut v = value.0;
+            if mult.is_some() {
+                v = v * mult.unwrap();
+            }
+            return (
                 next_input,
                 vec![Amount {
                     unit: unit
                         .unwrap_or("whole".to_string())
                         .to_string()
                         .to_lowercase(),
-                    value: value.0,
+                    value: v,
                     upper_value: value.1,
                 }],
-            )
+            );
         });
         res
     }
@@ -311,7 +317,7 @@ impl IngredientParser {
                 |a| self.clone().get_value(a), // value
                 space0,
                 opt(|a| self.clone().unit(a)), // unit
-                opt(range_up_num),
+                range_up_num,
                 opt(|a| self.clone().unit(a)),
                 opt(alt((tag("."), tag(" of")))),
             )),
@@ -323,6 +329,15 @@ impl IngredientParser {
                 // panic!("unit mismatch: {:?} vs {:?}", unit, upper_unit)
                 return (next_input, vec![]);
             }
+            // let upper = match value.1 {
+            //     Some(u) => Some(u),
+            //     None => upper_val,
+            //      match upper_val {
+            //         Some(u) => Some(u),
+            //         None => None,
+            //     },
+            // };
+            let upper = Some(upper_val);
             return (
                 next_input,
                 vec![Amount {
@@ -331,13 +346,7 @@ impl IngredientParser {
                         .to_string()
                         .to_lowercase(),
                     value: value.0,
-                    upper_value: match value.1 {
-                        Some(u) => Some(u),
-                        None => match upper_val {
-                            Some(u) => Some(u),
-                            None => None,
-                        },
-                    },
+                    upper_value: upper,
                 }],
             );
         });
@@ -347,13 +356,13 @@ impl IngredientParser {
     #[tracing::instrument(name = "many_amount")]
     fn many_amount(self, input: &str) -> Res<&str, Vec<Amount>> {
         context(
-            "amount_multi",
+            "many_amount",
             separated_list1(
                 alt((tag("; "), tag(" / "), tag(" "), tag(", "), tag("/"))),
                 alt((
-                    |a| self.clone().amount_with_units_twice(a), // regular amount
-                    |a| self.clone().amt_parens(a),              // amoiunt with parens
-                    |a| self.clone().amount1(a),                 // regular amount
+                    |a| dbg!(self.clone().amount_with_units_twice(a)), // regular amount
+                    |a| dbg!(self.clone().amt_parens(a)),              // amoiunt with parens
+                    |a| dbg!(self.clone().amount1(a)),                 // regular amount
                 )),
             ),
         )(input)
@@ -369,6 +378,14 @@ impl IngredientParser {
             delimited(char('('), |a| self.clone().many_amount(a), char(')')),
         )(input)
     }
+}
+fn mult_prefix_1(input: &str) -> Res<&str, f64> {
+    context("mult_prefix_1", tuple((num, space1, tag("x"), space1)))(input).map(
+        |(next_input, res)| {
+            let (num, _, _, _) = res;
+            (next_input, num)
+        },
+    )
 }
 fn text(input: &str) -> Res<&str, &str> {
     alt((
@@ -793,6 +810,18 @@ mod tests {
                 }
             ))
         );
+    }
+    #[test]
+    fn test_multiply() {
+        assert_eq!(
+            (IngredientParser::new()).parse_ingredient("2 x 200g flour"),
+            (IngredientParser::new()).parse_ingredient("400g flour"),
+        );
+
+        // assert_eq!(
+        //     (IngredientParser::new()).parse_ingredient("2 x 200g flour"),
+        //     (IngredientParser::new()).parse_ingredient("2 200g flour"),
+        // );
     }
     #[test]
     fn test_parse_ingredient_cloves() {
