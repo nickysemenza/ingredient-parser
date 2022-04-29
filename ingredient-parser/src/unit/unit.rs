@@ -36,6 +36,8 @@ pub enum Unit {
     // temperature
     Farhenheit,
     Celcius,
+    //distance
+    Inch,
 
     Other(String),
 }
@@ -76,6 +78,7 @@ impl Unit {
 
             "fahrenheit" | "f" | "°" | "°f" | "degrees" => Self::Farhenheit,
             "celcius" | "°c" => Self::Celcius,
+            "\"" | "inch" => Self::Inch,
 
             _ => Self::Other(s.to_string()),
         }
@@ -102,6 +105,7 @@ impl Unit {
             Unit::Second => "second",
             Unit::Celcius => "°c",
             Unit::Farhenheit => "°F",
+            Unit::Inch => "inch",
             Unit::Other(s) => return singular(&s),
         }
         .to_string()

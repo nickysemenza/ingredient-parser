@@ -9,6 +9,7 @@ pub enum MeasureKind {
     Other, //todo: make this hold a string
     Time,
     Temperature,
+    Length,
 }
 impl MeasureKind {
     pub fn unit(&self) -> Unit {
@@ -20,6 +21,7 @@ impl MeasureKind {
             MeasureKind::Other => Unit::Other("".to_string()),
             MeasureKind::Time => Unit::Second,
             MeasureKind::Temperature => Unit::Farhenheit,
+            MeasureKind::Length => Unit::Inch,
         }
     }
     pub fn from_str(s: &str) -> Self {
@@ -30,6 +32,7 @@ impl MeasureKind {
             "calories" => Self::Calories,
             "time" => Self::Time,
             "temperature" => Self::Temperature,
+            "length" => Self::Length,
             _ => Self::Other,
         }
     }

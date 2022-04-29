@@ -11,6 +11,7 @@ use nom::{
     sequence::{delimited, tuple},
     IResult,
 };
+use tracing::info;
 
 use crate::util::num_without_zeroes;
 
@@ -240,25 +241,12 @@ impl IngredientParser {
             )),
         )(input)
     }
+
     fn num_or_range(self, input: &str) -> Res<&str, (f64, Option<f64>)> {
-        context(
-            "num_or_range",
-            tuple((
-                num,
-                opt(tuple(
-                    (
-                        space0,
-                        alt((tag("-"), tag("–"), tag("to"), tag("through"))), // second dash is an unusual variant
-                        space0,
-                        num,
-                    ), // care about u.3
-                )),
-            )),
-        )(input)
-        .map(|(next_input, res)| {
+        context("num_or_range", tuple((num, opt(range_up_num))))(input).map(|(next_input, res)| {
             let (val, upper_val) = res;
             let upper = match upper_val {
-                Some(u) => Some(u.3),
+                Some(u) => Some(u),
                 None => None,
             };
             (next_input, (val, upper))
@@ -314,6 +302,47 @@ impl IngredientParser {
         });
         res
     }
+    // parses an amount like `78g to 104g cornmeal`
+    fn amount_with_units_twice(self, input: &str) -> Res<&str, Vec<Amount>> {
+        let res = context(
+            "amount_with_units_twice",
+            tuple((
+                opt(tag("about ")),            // todo: add flag for estimates
+                |a| self.clone().get_value(a), // value
+                space0,
+                opt(|a| self.clone().unit(a)), // unit
+                opt(range_up_num),
+                opt(|a| self.clone().unit(a)),
+                opt(alt((tag("."), tag(" of")))),
+            )),
+        )(input)
+        .map(|(next_input, res)| {
+            let (_prefix, value, _space, unit, upper_val, upper_unit, _period) = res;
+            if upper_unit.is_some() && unit != upper_unit {
+                info!("unit mismatch: {:?} vs {:?}", unit, upper_unit);
+                // panic!("unit mismatch: {:?} vs {:?}", unit, upper_unit)
+                return (next_input, vec![]);
+            }
+            return (
+                next_input,
+                vec![Amount {
+                    unit: unit
+                        .unwrap_or("whole".to_string())
+                        .to_string()
+                        .to_lowercase(),
+                    value: value.0,
+                    upper_value: match value.1 {
+                        Some(u) => Some(u),
+                        None => match upper_val {
+                            Some(u) => Some(u),
+                            None => None,
+                        },
+                    },
+                }],
+            );
+        });
+        res
+    }
     // parses 1-n amounts, e.g. `12 grams` or `120 grams / 1 cup`
     #[tracing::instrument(name = "many_amount")]
     fn many_amount(self, input: &str) -> Res<&str, Vec<Amount>> {
@@ -321,7 +350,11 @@ impl IngredientParser {
             "amount_multi",
             separated_list1(
                 alt((tag("; "), tag(" / "), tag(" "), tag(", "), tag("/"))),
-                alt((|a| self.clone().amt_parens(a), |a| self.clone().amount1(a))),
+                alt((
+                    |a| self.clone().amount_with_units_twice(a), // regular amount
+                    |a| self.clone().amt_parens(a),              // amoiunt with parens
+                    |a| self.clone().amount1(a),                 // regular amount
+                )),
             ),
         )(input)
         .map(|(next_input, res)| {
@@ -347,10 +380,11 @@ fn text(input: &str) -> Res<&str, &str> {
         tag("'"),
         tag("’"),
         tag("."),
+        // tag("\""),
     ))(input)
 }
 fn unitamt(input: &str) -> Res<&str, String> {
-    nom::multi::many0(alt((alpha1, tag("°"))))(input)
+    nom::multi::many0(alt((alpha1, tag("°"), tag("\""))))(input)
         .map(|(next_input, res)| (next_input, res.join("")))
 }
 
@@ -389,6 +423,26 @@ fn text_number(input: &str) -> Res<&str, f64> {
 /// handles vulgar fraction, or just a number
 fn num(input: &str) -> Res<&str, f64> {
     context("num", alt((fraction_number, text_number, double)))(input)
+}
+fn range_up_num(input: &str) -> Res<&str, f64> {
+    context(
+        "range_up_num",
+        alt((
+            tuple((
+                space0,
+                alt((tag("-"), tag("–"))), // second dash is an unusual variant
+                space0,
+                num,
+            )),
+            tuple((
+                space1,
+                alt((tag("to"), tag("through"))), // second dash is an unusual variant
+                space1,
+                num,
+            )),
+        )),
+    )(input)
+    .map(|(next_input, (_space1, _, _space2, num))| (next_input, num))
 }
 /// parses `1 ⅛` or `1 1/8` into `1.125`
 fn fraction_number(input: &str) -> Res<&str, f64> {
@@ -495,6 +549,10 @@ mod tests {
         assert_eq!(
             (IngredientParser::new()).parse_amount("up to 4 days"),
             vec![Amount::new_with_upper("days", 0.0, 4.0)]
+        );
+        assert_eq!(
+            (IngredientParser::new()).parse_amount("78g to 104g"),
+            (IngredientParser::new()).parse_amount("78g - 104g"),
         );
     }
     #[test]
@@ -699,6 +757,24 @@ mod tests {
                 ))
             );
         });
+    }
+    #[test]
+    fn test_parse_ing_upepr_range() {
+        assert_eq!(
+            (IngredientParser::new()).parse_ingredient("78g to 104g cornmeal"),
+            Ok((
+                "",
+                Ingredient {
+                    name: "cornmeal".to_string(),
+                    amounts: vec![Amount::new_with_upper("g", 78.0, 104.0),],
+                    modifier: None
+                }
+            ))
+        );
+        assert_eq!(
+            (IngredientParser::new()).parse_ingredient("78g to 104g cornmeal"),
+            (IngredientParser::new()).parse_ingredient("78 to 104g cornmeal"),
+        )
     }
     #[test]
     fn test_unit_period_mixed_case() {

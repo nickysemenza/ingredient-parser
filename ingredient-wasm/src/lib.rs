@@ -32,8 +32,13 @@ pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> 
 #[wasm_bindgen]
 pub fn format_amount(amount: &IAmount) -> String {
     utils::set_panic_hook();
-    let r: Amount = amount.into_serde().unwrap();
-    format!("{}", r)
+    let a1: Result<Amount, _> = amount.into_serde();
+    match a1 {
+        Ok(a) => format!("{}", a),
+        Err(e) => {
+            format!("failed to format {:#?}: {:?}", amount, e)
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -41,6 +46,7 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "Ingredient")]
     pub type IIngredient;
     #[wasm_bindgen(typescript_type = "Amount")]
+    #[derive(Debug)]
     pub type IAmount;
     #[wasm_bindgen(typescript_type = "Amount[]")]
     pub type IAmounts;

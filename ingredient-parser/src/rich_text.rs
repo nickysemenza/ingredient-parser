@@ -212,4 +212,29 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn test_rich_dimensions() {
+        assert_eq!(
+            (RichParser {
+                ingredient_names: vec![],
+                ip: IngredientParser::new(),
+            })
+            .parse(r#"9" x 13""#)
+            .unwrap(),
+            vec![
+                Chunk::Amount(vec![Amount {
+                    unit: r#"""#.to_string(),
+                    value: 9.0,
+                    upper_value: None
+                }]),
+                Chunk::Text(" x ".to_string()),
+                Chunk::Amount(vec![Amount {
+                    unit: r#"""#.to_string(),
+                    value: 13.0,
+                    upper_value: None
+                }]),
+            ]
+        );
+    }
 }
