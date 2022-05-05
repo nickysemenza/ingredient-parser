@@ -85,7 +85,7 @@ fn text2(input: &str) -> Res<&str, &str> {
 /// assert_eq!(
 /// (RichParser {
 /// ingredient_names: vec![],
-/// ip: IngredientParser::new(),
+/// ip: IngredientParser::new(true),
 /// }).parse("hello 1 cups foo bar").unwrap(),
 /// vec![
 /// 	Chunk::Text("hello ".to_string()),
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(
             (RichParser {
                 ingredient_names: vec![],
-                ip: IngredientParser::new(),
+                ip: IngredientParser::new(true),
             })
             .parse("hello 1 cups foo bar")
             .unwrap(),
@@ -138,7 +138,7 @@ mod tests {
         assert_eq!(
             (RichParser {
                 ingredient_names: vec!["bar".to_string()],
-                ip: IngredientParser::new(),
+                ip: IngredientParser::new(true),
             })
             .parse("hello 1 cups foo bar")
             .unwrap(),
@@ -153,7 +153,7 @@ mod tests {
         assert_eq!(
             (RichParser {
                 ingredient_names: vec![],
-                ip: IngredientParser::new(),
+                ip: IngredientParser::new(true),
             })
             .parse("2-2 1/2 cups foo' bar")
             .unwrap(),
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(
             (RichParser {
                 ingredient_names: vec!["foo bar".to_string()],
-                ip: IngredientParser::new(),
+                ip: IngredientParser::new(true),
             })
             .parse("hello 1 cups foo bar")
             .unwrap(),
@@ -186,7 +186,7 @@ mod tests {
         assert_eq!(
             (RichParser {
                 ingredient_names: vec![],
-                ip: IngredientParser::new(),
+                ip: IngredientParser::new(true),
             })
             .parse("store for 1-2 days")
             .unwrap(),
@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(
             (RichParser {
                 ingredient_names: vec!["water".to_string()],
-                ip: IngredientParser::new(),
+                ip: IngredientParser::new(true),
             })
             .parse("add 1 cup water and store for at most 2 days")
             .unwrap(),
@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(
             (RichParser {
                 ingredient_names: vec![],
-                ip: IngredientParser::new(),
+                ip: IngredientParser::new(true),
             })
             .parse(r#"9" x 13""#)
             .unwrap(),
