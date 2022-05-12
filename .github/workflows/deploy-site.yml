@@ -1,22 +1,30 @@
-# # on:
-# #   push:
-# #     branches:
-# #       - main
-# on: [push]
-
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-#     name: Deploy
-#     steps:
-#       - uses: actions/checkout@master
-#       - uses: actions/setup-node@v3
-#         with:
-#           node-version: 18
-#       - uses: jetli/wasm-pack-action@v0.3.0
-#       - name: Build site
-#         run: make build-demo-site
-#       - name: Publish
-#         uses: cloudflare/wrangler-action@1.3.0
-#         with:
-#           apiToken: ${{ secrets.CF_API_TOKEN }}
+on: [push]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    name: Deploy to Cloudflare Pages
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - uses: jetli/wasm-pack-action@v0.3.0
+      # - run: wasm-pack build ingredient-wasm
+      # - run: mkdir -p demo-site/src/wasm && cp -r ingredient-wasm/pkg demo-site/src/wasm
+      #   working-directory: demo-site
+      # - run: yarn && yarn build
+      #   working-directory: demo-site
+      - name: Build site
+        run: make build-demo-site
+      - name: Publish
+        uses: cloudflare/pages-action@v1.0.0
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: 9f10f078d35d86c78dedece2300a6b88
+          projectName: ingredient
+          directory: demo-site/build/
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
