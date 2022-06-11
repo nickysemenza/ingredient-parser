@@ -26,5 +26,5 @@ jobs:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: 9f10f078d35d86c78dedece2300a6b88
           projectName: ingredient
-          directory: demo-site/build/
+          directory: demo-site/dist/
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}

@@ -2,7 +2,7 @@
 name = "ingredient-wasm"
 version = "0.1.0"
 authors = ["Nicky Semenza <nicky@nickysemenza.com>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

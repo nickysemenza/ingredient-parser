@@ -48,7 +48,7 @@ export const Demo: React.FC = () => {
           <h2 className="text-lg font-extrabold leading-none text-black sm:text-1xl md:text-3xl pt-4">
             rich text parser
           </h2>
-          <p className="text-xl text-gray-600 md:pr-16">
+          <div className="text-xl text-gray-600 md:pr-16">
             <span className="flex flex-row">
               It can also parse old ingredient names and amounts from freeform
               text. (In other words, recipe instructions). This functionality
@@ -59,7 +59,7 @@ export const Demo: React.FC = () => {
                 <Debug data={{ ingredientNames: ingredientNames }} compact />
               </div>
             </span>
-          </p>
+          </div>
           <div className="flex flex-col items-center md:flex-row">
             {/* <div className="w-full space-y-5 md:w-3/5 md:pr-16">
               <Debug data={parsedRich} compact />
@@ -73,7 +73,7 @@ export const Demo: React.FC = () => {
                   value={richText}
                   onChange={(e) => setRichText(e.target.value)}
                 />
-                <p>{w && parsedRich && formatRichText(w, parsedRich)}</p>
+                <div>{w && parsedRich && formatRichText(w, parsedRich)}</div>
               </div>
             </div>
           </div>

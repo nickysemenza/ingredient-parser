@@ -2,7 +2,7 @@
 name = "ingredient"
 version = "0.2.0"
 authors = ["nickysemenza"]
-edition = "2018"
+edition = "2021"
 description = "recipe ingredient parser"
 license = "MIT"
 repository = "https://github.com/nickysemenza/ingredient-parser"
