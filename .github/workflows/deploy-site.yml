@@ -21,7 +21,7 @@ jobs:
       - name: Build site
         run: make build-demo-site
       - name: Publish
-        uses: cloudflare/pages-action@v1.0.0
+        uses: cloudflare/pages-action@v1.1.0
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: 9f10f078d35d86c78dedece2300a6b88
