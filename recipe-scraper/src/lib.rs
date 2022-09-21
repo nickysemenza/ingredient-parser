@@ -47,12 +47,18 @@ impl Scraper {
     pub fn scrape(&self, body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
         let dom = Html::parse_document(body);
         let ld_schema = parse(dom)?;
-        Ok(normalize_ld_json(ld_schema, url))
+        normalize_ld_json(ld_schema, url)
     }
     #[tracing::instrument]
     async fn fetch_html(&self, url: &str) -> Result<String, ScrapeError> {
-        let body = match self.client.get(url).send().await {
-            Ok(r) => r.text().await?,
+        let r = match self
+            .client
+            .get(url)
+            .header("user-agent", "recipe")
+            .send()
+            .await
+        {
+            Ok(r) => r,
             Err(e) => {
                 return Err(match e {
                     reqwest_middleware::Error::Middleware(e) => panic!("{}", e),
@@ -60,12 +66,16 @@ impl Scraper {
                 })
             }
         };
-        Ok(body)
+        if !r.status().is_success() {
+            let e = Err(ScrapeError::Http(r.error_for_status_ref().unwrap_err()));
+            dbg!(r.text().await?);
+            return e;
+        }
+        Ok(r.text().await?)
     }
 }
 
-#[tracing::instrument]
-fn normalize_ld_json(ld_schema: ld_schema::LDJSONRoot, url: &str) -> ScrapedRecipe {
+fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> ScrapedRecipe {
     ScrapedRecipe {
         ingredients: ld_schema.recipe_ingredient,
         instructions: ld_schema
@@ -73,7 +83,9 @@ fn normalize_ld_json(ld_schema: ld_schema::LDJSONRoot, url: &str) -> ScrapedReci
             .iter()
             .map(|i| match i {
                 ld_schema::RecipeInstruction::A(a) => a.text.clone(),
-                ld_schema::RecipeInstruction::B(b) => b.item_list_element[0].text.clone(),
+                ld_schema::RecipeInstruction::B(b) => {
+                    b.item_list_element[0].text.as_ref().unwrap().clone()
+                }
             })
             .collect(),
         name: ld_schema.name,
@@ -88,7 +100,28 @@ fn normalize_ld_json(ld_schema: ld_schema::LDJSONRoot, url: &str) -> ScrapedReci
         },
     }
 }
-fn parse(dom: Html) -> Result<ld_schema::LDJSONRoot, ScrapeError> {
+#[tracing::instrument]
+fn normalize_ld_json(
+    ld_schema_a: ld_schema::Root,
+    url: &str,
+) -> Result<ScrapedRecipe, ScrapeError> {
+    match ld_schema_a {
+        ld_schema::Root::Recipe(ld_schema) => Ok(normalize_root_recipe(ld_schema, url)),
+        ld_schema::Root::Graph(g) => {
+            let recipe = g.graph.iter().find_map(|d| match d {
+                ld_schema::Graph::Recipe(a) => Some(a.to_owned()),
+                _ => None,
+            });
+            match recipe {
+                Some(r) => Ok(normalize_root_recipe(r, url)),
+                None => Err(ScrapeError::NoLDJSON(
+                    "failed to find recipe in ld json".to_string(),
+                )),
+            }
+        }
+    }
+}
+fn parse(dom: Html) -> Result<ld_schema::Root, ScrapeError> {
     let selector = match Selector::parse("script[type='application/ld+json']") {
         Ok(s) => s,
         Err(e) => return Err(ScrapeError::Parse(format!("{:?}", e))),
@@ -96,17 +129,22 @@ fn parse(dom: Html) -> Result<ld_schema::LDJSONRoot, ScrapeError> {
 
     let element = match dom.select(&selector).next() {
         Some(e) => e,
-        None => return Err(ScrapeError::NoLDJSON(dom.root_element().html())),
+        None => {
+            return Err(ScrapeError::NoLDJSON(
+                dom.root_element().html().chars().take(40).collect(),
+            ))
+        }
     };
 
     let json = element.inner_html();
     parse_ld_json(json)
 }
-fn parse_ld_json(json: String) -> Result<ld_schema::LDJSONRoot, ScrapeError> {
+fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
     let json = json.as_str();
     let _raw = serde_json::from_str::<Value>(json)?;
+    dbg!(_raw);
     // tracing::info!("raw json: {:#?}", raw);
-    let v: ld_schema::LDJSONRoot = match serde_json::from_str(json) {
+    let v: ld_schema::Root = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => return Err(ScrapeError::Deserialize(e)),
     };
@@ -157,17 +195,34 @@ mod tests {
     fn json() {
         assert_eq!(
             crate::parse_ld_json(include_str!("../test_data/empty.json").to_string()).unwrap(),
-            crate::ld_schema::LDJSONRoot::default()
+            crate::ld_schema::Root::Recipe(crate::ld_schema::RootRecipe::default())
         );
         assert_eq!(
-            crate::parse_ld_json(
+            match crate::parse_ld_json(
                 include_str!("../test_data/diningwithskyler_carbone-spicy-rigatoni-vodka.json")
                     .to_string()
             )
             .unwrap()
-            .recipe_ingredient
-            .len(),
+            {
+                crate::ld_schema::Root::Recipe(r) => r.recipe_ingredient.len(),
+                crate::ld_schema::Root::Graph(_) => 0,
+            },
             11
+        );
+
+        assert_eq!(
+            match crate::parse_ld_json(
+                include_str!(
+                    "../test_data/thewoksoflife_vietnamese-rice-noodle-salad-chicken.json"
+                )
+                .to_string()
+            )
+            .unwrap()
+            {
+                crate::ld_schema::Root::Recipe(_) => 0,
+                crate::ld_schema::Root::Graph(g) => g.graph.len(),
+            },
+            8
         );
     }
 

@@ -439,6 +439,8 @@ fn text(input: &str) -> Res<&str, &str> {
         tag("'"),
         tag("’"),
         tag("."),
+        tag("è"),
+        tag("î"),
         // tag("\""),
     ))(input)
 }
