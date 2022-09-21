@@ -1,0 +1,220 @@
+{
+  "@context": "http://schema.org",
+
+  "@type": ["Recipe"],
+  "headline": "Grilled Naan Recipe",
+  "datePublished": "2011-08-04T10:30:00.000-04:00",
+  "dateModified": "2018-08-30T05:47:14.000-04:00",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "J. Kenji López-Alt",
+      "description": "Kenji is the former culinary director for Serious Eats and a current culinary consultant for the site. He is also a New York Times food columnist and the author of The Food Lab: Better Home Cooking Through Science.",
+      "jobTitle": "Culinary Consultant",
+      "url": "https://www.seriouseats.com/j-kenji-lopez-alt-5118720",
+      "sameAs": [
+        "https://www.instagram.com/kenjilopezalt/",
+        "http://www.kenjilopezalt.com/"
+      ],
+      "knowsAbout": [
+        "Food science, Recipe development, Equipment reviews, Restaurant reviews , General food features"
+      ]
+    }
+  ],
+  "description": "You could go out and buy yourself a tandoor oven (small ones run about $200 or so), but here&#39;s a better suggestion: Just grill it. It works so well for pizza, why shouldn&#39;t it do just as well for naan?",
+  "image": [
+    {
+      "@type": "ImageObject",
+      "url": "https://www.seriouseats.com/thmb/jaMDGa3IIP21zIPlyJPL8EHIXQw=/458x458/smart/filters:no_upscale()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__recipes__images__2011__08__20110803-grilled-naan-primary-b045cce91af242eaa0eaf57d86670351.jpg",
+      "height": 458,
+      "width": 458
+    },
+    {
+      "@type": "ImageObject",
+      "url": "https://www.seriouseats.com/thmb/fYDNQtkBpptS1ohtliEniOKbaf8=/610x458/smart/filters:no_upscale()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__recipes__images__2011__08__20110803-grilled-naan-primary-b045cce91af242eaa0eaf57d86670351.jpg",
+      "height": 458,
+      "width": 610
+    },
+    {
+      "@type": "ImageObject",
+      "url": "https://www.seriouseats.com/thmb/ZGb2IODnuTHv6ieBnA-T5-UQlkQ=/610x343/smart/filters:no_upscale()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__recipes__images__2011__08__20110803-grilled-naan-primary-b045cce91af242eaa0eaf57d86670351.jpg",
+      "height": 343,
+      "width": 610
+    }
+  ],
+  "publisher": {
+    "@type": "Organization",
+    "name": "Serious Eats",
+    "url": "https://www.seriouseats.com",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://www.seriouseats.com/thmb/O7qOTYhS4IAKSKnr4JmNDURwjhw=/320x320/filters:no_upscale():max_bytes(150000):strip_icc()/Serious_Eats_Schema_Logo-033d1e058bdb4c8d9e0ada84a4485482.png",
+      "width": 320,
+      "height": 320
+    },
+    "brand": "Serious Eats",
+    "publishingPrinciples": "https://www.seriouseats.com/about-us-5120006#toc-editorial-guidelines",
+    "sameAs": [
+      "https://www.facebook.com/seriouseats",
+      "https://www.instagram.com/seriouseats",
+      "https://www.pinterest.com/seriouseats"
+    ]
+  },
+  "name": "Grilled Naan Recipe",
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "5",
+    "ratingCount": "9"
+  },
+  "cookTime": "PT20M",
+  "keywords": "bread, The Food Lab",
+  "nutrition": {
+    "@type": "NutritionInformation",
+    "calories": "287 kcal",
+    "carbohydrateContent": "42 g",
+    "cholesterolContent": "24 mg",
+    "fiberContent": "1 g",
+    "proteinContent": "8 g",
+    "saturatedFatContent": "6 g",
+    "sodiumContent": "562 mg",
+    "sugarContent": "4 g",
+    "fatContent": "10 g",
+    "servingSize": "makes 12 pieces",
+    "unsaturatedFatContent": "0 g"
+  },
+  "prepTime": "PT25M",
+  "recipeCategory": ["Bread"],
+  "recipeCuisine": ["Indian"],
+  "recipeIngredient": [
+    "22 ounces (about 4 cups) bread flour",
+    "0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast",
+    "0.44 ounces salt (about 2 1/2 teaspoons) salt",
+    "0.8 ounces (about 2 tablespoons) sugar",
+    "14 ounces (about 1 3/4 cups) full fat yogurt or whole milk",
+    "1 stick butter, melted"
+  ],
+  "recipeInstructions": [
+    {
+      "@type": "HowToStep",
+      "image": {
+        "@type": "ImageObject",
+        "url": "https://www.seriouseats.com/thmb/0gbZJIADam3GVI6mndy87PgI8IY=/500x334/filters:no_upscale()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__recipes__20110803-grilled-naan-2-6a087066175c4035871612c3e8cc3076.jpg",
+        "height": 334,
+        "width": 500
+      },
+      "text": "Combine flour, yeast, salt, and sugar in the bowl of a stand mixer and whisk until combined. Add yogurt and knead with dough hook on low speed until dough comes together into a smooth ball. Dough should stick slightly to bottom of bowl as it kneads (add slightly more yogurt or milk as necessary). Continue to knead for 5 minutes. Cover tightly with plastic wrap and allow to rise at room temperature until roughly doubled in volume, about 2 hours."
+    },
+    {
+      "@type": "HowToStep",
+      "image": {
+        "@type": "ImageObject",
+        "url": "https://www.seriouseats.com/thmb/JC6mmmUvH6mVdtYzaLpUCXzjkdU=/500x333/filters:no_upscale()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__recipes__20110803-grilled-naan-3-98d8913b50194ec995ab8b59fe644931.jpg",
+        "height": 333,
+        "width": 500
+      },
+      "text": "Turn dough out onto floured work surface. Using a bench scraper or a knife, cut the dough into 12 even pieces. Roll each piece into a ball, then place on a well-floured surface (leaving a few inches of space between each one) and cover with a floured cloth. Alternatively, place each ball of dough in an individual covered pint-sized deli container. Allow dough to rise at room temperature until doubled in volume, about 2 hours."
+    },
+    {
+      "@type": "HowToStep",
+      "image": {
+        "@type": "ImageObject",
+        "url": "https://www.seriouseats.com/thmb/6EE4rs3pSfTZMyjQoj5tJcuqu_Y=/500x333/filters:no_upscale()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__recipes__20110803-grilled-naan-6-cbb3b2fe8a174f2ba5e141aa604bb608.jpg",
+        "height": 333,
+        "width": 500
+      },
+      "text": "Ignite a large chimney full of coals (about 5 quarts of coals) and spread evenly over half of the grill. Set grill grates in place, cover, and allow to preheat for 5 minutes. Scrape grill grates clean with a brush."
+    },
+    {
+      "@type": "HowToStep",
+      "image": {
+        "@type": "ImageObject",
+        "url": "https://www.seriouseats.com/thmb/ByaPK-GkTPiAXYC7BerveNTOf0g=/500x375/filters:no_upscale()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__recipes__20110803-grilled-naan-8-ff8edfb81568404b901827e7ecaa2a93.jpg",
+        "height": 375,
+        "width": 500
+      },
+      "text": "Working with two to three balls of dough at a time, stretch with your hands into an oblong roughly 10-inches long and 6-inches across (you can use a rolling pin for this as well). Once you have two or three pieces stretched, lay them out on the grill above the coals. Cook without moving until bottom side is charred in spots and light golden brown. Flip with a large spatula, pizza peel, or with tongs and cook until second side is charred and browned. Remove naan from the grill and immediately brush with melted butter. Transfer the naan to a large plate and cover it with a clean dish towel while you cook the remaining bread."
+    }
+  ],
+  "recipeYield": "12",
+  "totalTime": "PT285M",
+  "review": [
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "brainalive"
+      },
+      "reviewBody": "@Dptdpt I'm guessing greek yogurt is the culprit. As you probably know, greek yogurt is strained for a longer time than non-greek yogurt, so it loses more water. In any dough, water is needed for gluten to form which is what's going to provide structure and consistency. Thus, with less water per volume, you'd need to use a greater volume of greek yogurt to achieve similar dough hydration / gluten."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Dusty T"
+      },
+      "reviewBody": "I'm just chiming in again to say that this recipe worked great incorporating sourdough discard. Super delicious, perfect naan."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "midiprincess"
+      },
+      "reviewBody": "The first time I made this, I used only some homemade \"greek\" yogurt that, admittedly, was practically labneh. It must have been far too thick because I had to add a huge amount of milk to get the dough even close to being sticky. The second time, I thinned my yogurt significantly with whole milk until it was the consistency of buttermilk, and of course used a scale for all measurements. This is such a stiff dough! My artisan model stand mixer can't handle it! I can't figure out what I'm doing wrong here. I did scale the recipe down by 1/2 both times, so it's 11 oz flour to 7 oz yogurt/milk mixture. I'm using the central milling 'high mountain' flour which is 13.5% protein content. \n\nKneading it for 15 minutes or so in the mixer does create a cohesive ball, but it doesn't look anything like Kenji's images of a sticky batter-like dough. Last time I kept adding liquid until it looked similar and it turned out okay (though it did burn really quickly in the ooni), so maybe this time I'll try not adding liquid and see how it compares."
+    },
+    {
+      "@type": "Review",
+      "reviewRating": {
+        "@type": "Rating",
+        "ratingValue": "5"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "Laura K"
+      },
+      "reviewBody": "I've been trying a bunch of flatbread recipes, and this maybe be the most successful one yet. Used whole milk yogurt (not greek) and 1/3 white whole wheat plus 2/3 AP. Got beautiful bubbles/puff. Cooked on baking steel under broiler after 550 degree preheat. Didn't have time to double at each rise. Rolled thin - about 1/8\"."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Dusty T"
+      },
+      "reviewBody": "I used Greek yogurt and had to add some milk to get the dough to come together but it still worked great. I cooked the naan on my pizza steel at 550 degrees for a minute on each side. Beautiful!"
+    }
+  ],
+  "mainEntityOfPage": {
+    "@type": ["WebPage"],
+    "@id": "https://www.seriouseats.com/grilled-naan-recipe",
+    "breadcrumb": {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "item": {
+            "@id": "https://www.seriouseats.com/asian-recipes-5117262",
+            "name": "Asian"
+          }
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "item": {
+            "@id": "https://www.seriouseats.com/south-asian-recipes-5117251",
+            "name": "South Asian"
+          }
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "item": {
+            "@id": "https://www.seriouseats.com/grilled-naan-recipe",
+            "name": "Grilled Naan Recipe"
+          }
+        }
+      ]
+    }
+  },
+  "about": []
+}

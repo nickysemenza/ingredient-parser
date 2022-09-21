@@ -2,15 +2,15 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct LDJSONRoot {
     #[serde(rename = "@context")]
     pub context: String,
     // #[serde(rename = "@type")]
     // pub type_field: String,
-    // pub name: String,
+    pub name: String,
     // pub description: String,
     // pub author: Author,
-    // pub image: String,
+    pub image: Option<ImageOrList>,
     // pub total_time: String,
     // pub recipe_yield: String,
     // pub recipe_cuisine: String,
@@ -43,12 +43,31 @@ pub struct AggregateRating {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RecipeInstruction {
+pub struct RecipeInstructionA {
     #[serde(rename = "@context")]
     pub context: Option<String>,
     #[serde(rename = "@type")]
     pub type_field: String,
     pub text: String,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecipeInstructionB {
+    #[serde(rename = "@type")]
+    pub type_field: String,
+    pub name: String,
+    pub item_list_element: Vec<ItemListElement>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemListElement {
+    #[serde(rename = "@type")]
+    pub type_field: String,
+    pub text: String,
+    pub name: String,
+    pub url: String,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,4 +103,19 @@ pub struct Image {
     pub context: Option<String>,
     #[serde(rename = "@type")]
     pub type_field: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RecipeInstruction {
+    A(RecipeInstructionA),
+    B(RecipeInstructionB),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ImageOrList {
+    URL(String),
+    List(Vec<Image>),
+    URLList(Vec<String>),
 }

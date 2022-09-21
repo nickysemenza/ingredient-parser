@@ -1,0 +1,102 @@
+{
+  "@context": "http://schema.org/",
+  "@type": "Recipe",
+  "name": "Spicy Rigatoni Vodka",
+  "author": {
+    "@type": "Person",
+    "name": "Skyler Bouchard"
+  },
+  "description": "This is my homemade version of Carbone&#039;s staple dish, spicy rigatoni vodka. It can be made at home for under $10 and it&#039;s perfect for dinner guests with its distinguished mix of flavors. I also include a vegan version as well!",
+  "datePublished": "2021-04-16T14:16:48+00:00",
+  "image": [
+    "https://diningwithskyler.com/wp-content/uploads/2021/04/IMG_2684-2-min.jpg",
+    "https://diningwithskyler.com/wp-content/uploads/2021/04/IMG_2684-2-min-500x500.jpg",
+    "https://diningwithskyler.com/wp-content/uploads/2021/04/IMG_2684-2-min-500x375.jpg",
+    "https://diningwithskyler.com/wp-content/uploads/2021/04/IMG_2684-2-min-480x270.jpg"
+  ],
+  "recipeYield": ["4"],
+  "totalTime": "PT40M",
+  "recipeIngredient": [
+    "2 tbsp olive oil (for pan)",
+    "1/2  white onion (finely chopped)",
+    "Kosher salt (to taste)",
+    "3 cloves garlic (grated into a paste)",
+    "1 tsp Calabrian chili peppers (finely chopped)",
+    "1/2 cup tomato paste",
+    "1 tbsp unsalted butter",
+    "1 lb conchiglie (or a pasta of your choice)",
+    "1/4 cup vodka",
+    "2/3 cup heavy cream",
+    "2/3 cup parmesan cheese"
+  ],
+  "recipeInstructions": [
+    {
+      "@type": "HowToSection",
+      "name": "Spicy Rigatoni Vodka",
+      "itemListElement": [
+        {
+          "@type": "HowToStep",
+          "text": "Season a large pot or skillet with olive oil and heat on medium heat.",
+          "name": "Season a large pot or skillet with olive oil and heat on medium heat.",
+          "url": "https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/#wprm-recipe-8290-step-0-0"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Add the onion. Season with a generous pinch of salt and cook for 5 minutes, tossing every 1 minute or so until the onions are softened and translucent.",
+          "name": "Add the onion. Season with a generous pinch of salt and cook for 5 minutes, tossing every 1 minute or so until the onions are softened and translucent.",
+          "url": "https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/#wprm-recipe-8290-step-0-1"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Add the Calabrian chili peppers and garlic and cook for 2 minutes, until fragrant.",
+          "name": "Add the Calabrian chili peppers and garlic and cook for 2 minutes, until fragrant.",
+          "url": "https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/#wprm-recipe-8290-step-0-2"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Adjust the heat to medium high and add the tomato paste to the pan. Mix to combine with the other ingredients, then add 1 tbsp of butter into the tomato paste mixture. Let it melt, add a generous pinch of salt and stir together. Cook the tomato paste for approximately 7-9 minutes, letting the tomato paste brown on the bottom of the pan. If the pan is drying up, add a little more olive oil. Toss every 1-2 minutes or so to prevent uneven cooking.",
+          "name": "Adjust the heat to medium high and add the tomato paste to the pan. Mix to combine with the other ingredients, then add 1 tbsp of butter into the tomato paste mixture. Let it melt, add a generous pinch of salt and stir together. Cook the tomato paste for approximately 7-9 minutes, letting the tomato paste brown on the bottom of the pan. If the pan is drying up, add a little more olive oil. Toss every 1-2 minutes or so to prevent uneven cooking.",
+          "url": "https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/#wprm-recipe-8290-step-0-3"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "While the tomato paste is cooking, fill a large stockpot with water and season with 3 tablespoons of kosher salt. Bring to a boil.",
+          "name": "While the tomato paste is cooking, fill a large stockpot with water and season with 3 tablespoons of kosher salt. Bring to a boil.",
+          "url": "https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/#wprm-recipe-8290-step-0-4"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Pour the vodka into the pan, over top of the tomato paste and scrape up all golden brown bits from the bottom. Mix all of the ingredients together. Adjust the heat to low and add the heavy cream. Stir until combined and let it simmer on low heat.",
+          "name": "Pour the vodka into the pan, over top of the tomato paste and scrape up all golden brown bits from the bottom. Mix all of the ingredients together. Adjust the heat to low and add the heavy cream. Stir until combined and let it simmer on low heat.",
+          "url": "https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/#wprm-recipe-8290-step-0-5"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Add the pasta to the pot and cook until al dente according to the package instructions (should be about 8 minutes.)",
+          "name": "Add the pasta to the pot and cook until al dente according to the package instructions (should be about 8 minutes.)",
+          "url": "https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/#wprm-recipe-8290-step-0-6"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Adjust the heat on the sauce to medium-low, then transfer 2/3 cup of pasta water and shredded Parmesan to the sauce and stir together. Taste to make sure the levels are salt are to your liking. If you would like more salt, feel free to add a light pinch or more cheese.",
+          "name": "Adjust the heat on the sauce to medium-low, then transfer 2/3 cup of pasta water and shredded Parmesan to the sauce and stir together. Taste to make sure the levels are salt are to your liking. If you would like more salt, feel free to add a light pinch or more cheese.",
+          "url": "https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/#wprm-recipe-8290-step-0-7"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Transfer the al dente pasta to the sauce and toss until fully coated. Feel free to shred more Parmesan onto the pasta as you toss it to develop a stickier texture. If you want the sauce to be more &quot;saucy,&quot; add more pasta water. Remove the pasta from the heat when you reach a consistency you like! Enjoy immediately.",
+          "name": "Transfer the al dente pasta to the sauce and toss until fully coated. Feel free to shred more Parmesan onto the pasta as you toss it to develop a stickier texture. If you want the sauce to be more &quot;saucy,&quot; add more pasta water. Remove the pasta from the heat when you reach a consistency you like! Enjoy immediately.",
+          "url": "https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/#wprm-recipe-8290-step-0-8"
+        }
+      ]
+    }
+  ],
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "5",
+    "ratingCount": "10"
+  },
+  "recipeCategory": ["Appetizer", "Main Course", "Side Dish"],
+  "recipeCuisine": ["American", "Italian"],
+  "keywords": "butter, chiles, garlic, heavy cream, kosher salt, olive oil, Parmesan, pasta, tomato paste, vodka, white onion"
+}
