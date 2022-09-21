@@ -3,4 +3,5 @@
 members = [
     "ingredient-wasm",
     "ingredient-parser",
+    "recipe-scraper",
 ]
