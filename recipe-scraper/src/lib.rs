@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use scraper::{Html, Selector};
 
 use serde::{Deserialize, Serialize};
@@ -33,11 +35,19 @@ pub struct ScrapedRecipe {
 #[derive(Debug)]
 pub struct Scraper {
     client: reqwest_middleware::ClientWithMiddleware,
+    cache: Option<HashMap<String, String>>,
 }
 impl Scraper {
     pub fn new() -> Self {
         return Scraper {
             client: http_utils::http_client(),
+            cache: None,
+        };
+    }
+    pub fn new_with_cache(m: HashMap<String, String>) -> Self {
+        return Scraper {
+            client: http_utils::http_client(),
+            cache: Some(m),
         };
     }
     #[tracing::instrument(name = "scrape_url")]
@@ -48,6 +58,12 @@ impl Scraper {
 
     #[tracing::instrument]
     async fn fetch_html(&self, url: &str) -> Result<String, ScrapeError> {
+        if let Some(cache) = &self.cache {
+            if let Some(cached) = cache.get(url) {
+                return Ok(cached.to_string());
+            }
+        }
+
         let r = match self
             .client
             .get(url)
@@ -162,6 +178,8 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::{ld_schema::RecipeInstructionFOO, Scraper};
 
     macro_rules! include_testdata {
@@ -170,39 +188,40 @@ mod tests {
         };
     }
 
-    #[tokio::test]
-    async fn it_works() {
-        let res = Scraper::new()
-            .scrape_url("https://cooking.nytimes.com/recipes/1015819-chocolate-chip-cookies")
-            .await
-            .unwrap();
-        assert_eq!(res.ingredients.len(), 12);
+    fn get_scraper() -> Scraper {
+        Scraper::new_with_cache(HashMap::from([
+            (
+                "https://cooking.nytimes.com/recipes/1015819-chocolate-chip-cookies".to_string(),
+                include_testdata!("nytimes_chocolate_chip_cookies.html").to_string(),
+            ),
+            (
+                "http://www.seriouseats.com/recipes/2011/08/grilled-naan-recipe.html".to_string(),
+                include_testdata!("seriouseats_grilled_naan.html").to_string(),
+            ),
+        ]))
     }
+
     #[tokio::test]
-    async fn it_works_live() {
-        let res = Scraper::new()
+    async fn scrape_from_live() {
+        let res = get_scraper()
             .scrape_url("https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/")
             .await
             .unwrap();
         assert_eq!(res.ingredients.len(), 11);
     }
 
-    #[test]
-    fn it_works_file() {
-        let res = crate::scrape(
-            include_testdata!("nytimes_chocolate_chip_cookies.html"),
-            "https://cooking.nytimes.com/recipes/1015819-chocolate-chip-cookies",
-        )
-        .unwrap();
+    #[tokio::test]
+    async fn scrape_from_cache() {
+        let res = get_scraper()
+            .scrape_url("https://cooking.nytimes.com/recipes/1015819-chocolate-chip-cookies")
+            .await
+            .unwrap();
         assert_eq!(res.ingredients.len(), 12);
-    }
-    #[test]
-    fn it_works_file_se() {
-        let res = crate::scrape(
-            include_testdata!("seriouseats_grilled_naan.html"),
-            "http://www.seriouseats.com/recipes/2011/08/grilled-naan-recipe.html",
-        )
-        .unwrap();
+
+        let res = get_scraper()
+            .scrape_url("http://www.seriouseats.com/recipes/2011/08/grilled-naan-recipe.html")
+            .await
+            .unwrap();
         assert_eq!(res.ingredients.len(), 6);
     }
     #[test]
@@ -245,6 +264,16 @@ mod tests {
             crate::scrape(include_testdata!("malformed.html"), "https://malformed.com",)
                 .unwrap_err(),
             crate::ScrapeError::NoLDJSON(_)
+        ));
+    }
+    #[tokio::test]
+    async fn scrape_errors() {
+        assert!(matches!(
+            get_scraper()
+                .scrape_url("https://doesnotresolve.com")
+                .await
+                .unwrap_err(),
+            crate::ScrapeError::Http(_)
         ));
     }
 }
