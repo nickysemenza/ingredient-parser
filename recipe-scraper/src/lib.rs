@@ -1,5 +1,6 @@
 use scraper::{Html, Selector};
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 mod http_utils;
 mod ld_schema;
@@ -17,7 +18,7 @@ pub enum ScrapeError {
     #[error("could not parse `{0}`")]
     Parse(String),
 }
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ScrapedRecipe {
     pub ingredients: Vec<String>,
     pub instructions: Vec<String>,
@@ -149,7 +150,7 @@ fn extract_ld(dom: Html) -> Result<String, ScrapeError> {
 fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
     let json = json.as_str();
     let _raw = serde_json::from_str::<Value>(json)?;
-    dbg!(_raw);
+    // dbg!(_raw);
     // tracing::info!("raw json: {:#?}", raw);
     let v: ld_schema::Root = match serde_json::from_str(json) {
         Ok(v) => v,
