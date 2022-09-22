@@ -163,6 +163,12 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
 mod tests {
     use crate::{ld_schema::RecipeInstructionFOO, Scraper};
 
+    macro_rules! include_testdata {
+        ($x:expr) => {
+            include_str!(concat!("../test_data/", $x))
+        };
+    }
+
     #[tokio::test]
     async fn it_works() {
         let res = Scraper::new()
@@ -183,7 +189,7 @@ mod tests {
     #[test]
     fn it_works_file() {
         let res = crate::scrape(
-            include_str!("../test_data/nytimes_chocolate_chip_cookies.html"),
+            include_testdata!("nytimes_chocolate_chip_cookies.html"),
             "https://cooking.nytimes.com/recipes/1015819-chocolate-chip-cookies",
         )
         .unwrap();
@@ -192,7 +198,7 @@ mod tests {
     #[test]
     fn it_works_file_se() {
         let res = crate::scrape(
-            include_str!("../test_data/seriouseats_grilled_naan.html"),
+            include_testdata!("seriouseats_grilled_naan.html"),
             "http://www.seriouseats.com/recipes/2011/08/grilled-naan-recipe.html",
         )
         .unwrap();
@@ -201,7 +207,7 @@ mod tests {
     #[test]
     fn json() {
         assert_eq!(
-            crate::parse_ld_json(include_str!("../test_data/empty.json").to_string()).unwrap(),
+            crate::parse_ld_json(include_testdata!("empty.json").to_string()).unwrap(),
             crate::ld_schema::Root::Recipe(crate::ld_schema::RootRecipe {
                 context: "".to_string(),
                 name: "".to_string(),
@@ -211,7 +217,7 @@ mod tests {
             })
         );
         let r = crate::scrape_from_json(
-            include_str!("../test_data/diningwithskyler_carbone-spicy-rigatoni-vodka.json"),
+            include_testdata!("diningwithskyler_carbone-spicy-rigatoni-vodka.json"),
             "a".as_ref(),
         )
         .unwrap();
@@ -219,7 +225,7 @@ mod tests {
         assert_eq!(r.instructions.len(), 9); // todo
 
         let r = crate::scrape_from_json(
-            include_str!("../test_data/thewoksoflife_vietnamese-rice-noodle-salad-chicken.json"),
+            include_testdata!("thewoksoflife_vietnamese-rice-noodle-salad-chicken.json"),
             "a".as_ref(),
         )
         .unwrap();
@@ -230,20 +236,13 @@ mod tests {
     #[test]
     fn handle_no_ldjson() {
         assert!(matches!(
-            crate::scrape(
-                include_str!("../test_data/missing.html"),
-                "https://missing.com",
-            )
-            .unwrap_err(),
+            crate::scrape(include_testdata!("missing.html"), "https://missing.com",).unwrap_err(),
             crate::ScrapeError::NoLDJSON(_)
         ));
 
         assert!(matches!(
-            crate::scrape(
-                include_str!("../test_data/malformed.html"),
-                "https://malformed.com",
-            )
-            .unwrap_err(),
+            crate::scrape(include_testdata!("malformed.html"), "https://malformed.com",)
+                .unwrap_err(),
             crate::ScrapeError::NoLDJSON(_)
         ));
     }
