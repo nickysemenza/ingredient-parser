@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RootRecipe {
     #[serde(rename = "@context")]
@@ -19,7 +19,7 @@ pub struct RootRecipe {
     // pub keywords: String,
     // pub aggregate_rating: AggregateRating,
     pub recipe_ingredient: Vec<String>,
-    pub recipe_instructions: Vec<RecipeInstruction>,
+    pub recipe_instructions: RecipeInstructionFOO,
     // pub is_accessible_for_free: String,
     // pub has_part: HasPart,
     // pub publisher: Publisher,
@@ -70,6 +70,13 @@ pub struct Image {
 pub enum RecipeInstruction {
     A(RecipeInstructionA),
     B(RecipeInstructionB),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RecipeInstructionFOO {
+    A(Vec<RecipeInstructionA>),
+    B(Vec<RecipeInstructionB>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
