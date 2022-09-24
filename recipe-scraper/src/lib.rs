@@ -111,6 +111,16 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
                 .iter()
                 .map(|i| i.text.clone().unwrap())
                 .collect(),
+            ld_schema::RecipeInstructionFOO::C(c) => {
+                let selector = Selector::parse("p").unwrap();
+
+                let foo = Html::parse_fragment(c.as_ref())
+                    .select(&selector)
+                    .map(|i| i.text().collect::<Vec<_>>().join(""))
+                    .collect::<Vec<_>>();
+                foo
+                // c.split("</p>\n, <p>").map(|s| s.into()).collect()
+            }
         },
 
         name: ld_schema.name,
@@ -120,6 +130,7 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
                 ld_schema::ImageOrList::URL(i) => Some(i),
                 ld_schema::ImageOrList::List(l) => Some(l[0].url.clone()),
                 ld_schema::ImageOrList::URLList(i) => Some(i[0].clone()),
+                ld_schema::ImageOrList::Image(i) => Some(i.url),
             },
             None => None,
         },
@@ -198,16 +209,20 @@ mod tests {
                 "http://www.seriouseats.com/recipes/2011/08/grilled-naan-recipe.html".to_string(),
                 include_testdata!("seriouseats_grilled_naan.html").to_string(),
             ),
+            (
+                "https://www.kingarthurbaking.com/recipes/pretzel-focaccia-recipe".to_string(),
+                include_testdata!("kingarthurbaking_pretzel-focaccia-recipe.html").to_string(),
+            ),
         ]))
     }
 
     #[tokio::test]
     async fn scrape_from_live() {
         let res = get_scraper()
-            .scrape_url("https://diningwithskyler.com/carbone-spicy-rigatoni-vodka/")
+            .scrape_url("http://cooking.nytimes.com/recipes/1017060-doughnuts")
             .await
             .unwrap();
-        assert_eq!(res.ingredients.len(), 11);
+        assert_eq!(res.ingredients.len(), 8);
     }
 
     #[tokio::test]
@@ -223,13 +238,20 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.ingredients.len(), 6);
+
+        let res = get_scraper()
+            .scrape_url("https://www.kingarthurbaking.com/recipes/pretzel-focaccia-recipe")
+            .await
+            .unwrap();
+        assert_eq!(res.ingredients.len(), 14);
+        assert_eq!(res.instructions[0], "To make the starter: Mix the water and yeast. Weigh your flour; or measure it by gently spooning it into a cup, then sweeping off any excess. Add the flour, stirring until the flour is incorporated. The starter will be paste-like; it won't form a ball.");
     }
     #[test]
     fn json() {
         assert_eq!(
             crate::parse_ld_json(include_testdata!("empty.json").to_string()).unwrap(),
             crate::ld_schema::Root::Recipe(crate::ld_schema::RootRecipe {
-                context: "".to_string(),
+                context: None,
                 name: "".to_string(),
                 image: None,
                 recipe_ingredient: vec![],

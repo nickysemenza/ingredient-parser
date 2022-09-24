@@ -5,7 +5,7 @@ use serde_json::Value;
 #[serde(rename_all = "camelCase")]
 pub struct RootRecipe {
     #[serde(rename = "@context")]
-    pub context: String,
+    pub context: Option<String>,
     // #[serde(rename = "@type")]
     // pub type_field: String,
     pub name: String,
@@ -57,8 +57,8 @@ pub struct HasPart {
 #[serde(rename_all = "camelCase")]
 pub struct Image {
     pub url: String,
-    pub height: i64,
-    pub width: i64,
+    pub height: Option<i64>,
+    pub width: Option<i64>,
     #[serde(rename = "@context")]
     pub context: Option<String>,
     #[serde(rename = "@type")]
@@ -77,6 +77,7 @@ pub enum RecipeInstruction {
 pub enum RecipeInstructionFOO {
     A(Vec<RecipeInstructionA>),
     B(Vec<RecipeInstructionB>),
+    C(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -85,6 +86,7 @@ pub enum ImageOrList {
     URL(String),
     List(Vec<Image>),
     URLList(Vec<String>),
+    Image(Image),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -271,6 +273,11 @@ mod tests {
     fn it_works_file() {
         let _v: RootGraph = serde_json::from_str(include_str!(
             "../test_data/thewoksoflife_vietnamese-rice-noodle-salad-chicken.partial.json"
+        ))
+        .unwrap();
+
+        let _v: RootGraph = serde_json::from_str(include_str!(
+            "../test_data/kingarthurbaking_pretzel-focaccia-recipe.json"
         ))
         .unwrap();
     }
