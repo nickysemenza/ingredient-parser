@@ -76,6 +76,8 @@ fn text2(input: &str) -> Res<&str, &str> {
         tag("/"),
         tag(":"),
         tag("!"),
+        tag("è"),
+        tag("î"),
     ))(input)
 }
 /// Parse some rich text that has some parsable [Amount] scattered around in it. Useful for displaying text with fancy formatting.

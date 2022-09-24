@@ -1,0 +1,273 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Article",
+      "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#article",
+      "isPartOf": {
+        "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/"
+      },
+      "author": {
+        "name": "Sarah",
+        "@id": "https://thewoksoflife.com/#/schema/person/2304b8e4d4c4cd42259d7d3c033182fa"
+      },
+      "headline": "Vietnamese Rice Noodle Salad with Chicken",
+      "datePublished": "2022-08-06T10:45:00+00:00",
+      "dateModified": "2022-08-06T11:05:44+00:00",
+      "wordCount": 745,
+      "commentCount": 126,
+      "publisher": { "@id": "https://thewoksoflife.com/#organization" },
+      "image": {
+        "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#primaryimage"
+      },
+      "thumbnailUrl": "https://thewoksoflife.com/wp-content/uploads/2018/07/vietnamese-rice-noodle-salad-chicken-6-1.jpg",
+      "articleSection": [
+        "Chicken &amp; Poultry",
+        "Gluten-Free",
+        "Noodles &amp; Pasta",
+        "Recipes",
+        "Salads"
+      ],
+      "inLanguage": "en-US",
+      "potentialAction": [
+        {
+          "@type": "CommentAction",
+          "name": "Comment",
+          "target": [
+            "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#respond"
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/",
+      "url": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/",
+      "name": "Vietnamese Rice Noodle Salad with Chicken - The Woks of Life",
+      "isPartOf": { "@id": "https://thewoksoflife.com/#website" },
+      "primaryImageOfPage": {
+        "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#primaryimage"
+      },
+      "image": {
+        "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#primaryimage"
+      },
+      "thumbnailUrl": "https://thewoksoflife.com/wp-content/uploads/2018/07/vietnamese-rice-noodle-salad-chicken-6-1.jpg",
+      "datePublished": "2022-08-06T10:45:00+00:00",
+      "dateModified": "2022-08-06T11:05:44+00:00",
+      "description": "This Vietnamese rice noodle salad is perfect for a hot summer day, with lots of raw crunchy vegetables, seared chicken, and nuoc cham sauce.",
+      "breadcrumb": {
+        "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#breadcrumb"
+      },
+      "inLanguage": "en-US",
+      "potentialAction": [
+        {
+          "@type": "ReadAction",
+          "target": [
+            "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/"
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "ImageObject",
+      "inLanguage": "en-US",
+      "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#primaryimage",
+      "url": "https://thewoksoflife.com/wp-content/uploads/2018/07/vietnamese-rice-noodle-salad-chicken-6-1.jpg",
+      "contentUrl": "https://thewoksoflife.com/wp-content/uploads/2018/07/vietnamese-rice-noodle-salad-chicken-6-1.jpg",
+      "width": 1300,
+      "height": 1849,
+      "caption": "Vietnamese Rice Noodle Salad with Chicken"
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://thewoksoflife.com/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Recipes",
+          "item": "https://thewoksoflife.com/category/recipes/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "Salads",
+          "item": "https://thewoksoflife.com/category/recipes/salads/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 4,
+          "name": "Vietnamese Rice Noodle Salad with Chicken"
+        }
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://thewoksoflife.com/#website",
+      "url": "https://thewoksoflife.com/",
+      "name": "The Woks of Life",
+      "description": "a culinary genealogy",
+      "publisher": { "@id": "https://thewoksoflife.com/#organization" },
+      "potentialAction": [
+        {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://thewoksoflife.com/?s={search_term_string}"
+          },
+          "query-input": "required name=search_term_string"
+        }
+      ],
+      "inLanguage": "en-US"
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://thewoksoflife.com/#organization",
+      "name": "The Woks of Life",
+      "url": "https://thewoksoflife.com/",
+      "sameAs": [
+        "https://www.facebook.com/thewoksoflife",
+        "https://twitter.com/thewoksoflife"
+      ],
+      "logo": {
+        "@type": "ImageObject",
+        "inLanguage": "en-US",
+        "@id": "https://thewoksoflife.com/#/schema/logo/image/",
+        "url": "https://thewoksoflife.com/wp-content/uploads/2019/05/Temporary-Logo-e1556728319201.png",
+        "contentUrl": "https://thewoksoflife.com/wp-content/uploads/2019/05/Temporary-Logo-e1556728319201.png",
+        "width": 365,
+        "height": 364,
+        "caption": "The Woks of Life"
+      },
+      "image": { "@id": "https://thewoksoflife.com/#/schema/logo/image/" }
+    },
+    {
+      "@type": "Person",
+      "@id": "https://thewoksoflife.com/#/schema/person/2304b8e4d4c4cd42259d7d3c033182fa",
+      "name": "Sarah",
+      "image": {
+        "@type": "ImageObject",
+        "inLanguage": "en-US",
+        "@id": "https://thewoksoflife.com/#/schema/person/image/",
+        "url": "https://thewoksoflife.com/wp-content/uploads/2020/10/sarah-110x110.jpg",
+        "contentUrl": "https://thewoksoflife.com/wp-content/uploads/2020/10/sarah-110x110.jpg",
+        "caption": "Sarah"
+      },
+      "description": "Sarah is the older daughter/sister in The Woks of Life family. Creator of quick and easy recipes for harried home cooks and official Woks of Life photographer, she grew up on episodes of Ready Set Cook and Good Eats. She loves the outdoors (and of course, *cooking* outside), and her obsession with food continues to this day.",
+      "sameAs": [
+        "https://www.thewoksoflife.com",
+        "facebook.com/thewoksoflife",
+        "https://twitter.com/thewoksoflife"
+      ],
+      "url": "https://thewoksoflife.com/author/sleung/"
+    },
+    {
+      "@context": "http://schema.org/",
+      "@type": "Recipe",
+      "name": "Vietnamese Rice Noodle Salad with Chicken",
+      "author": { "@type": "Person", "name": "Sarah" },
+      "description": "This refreshing, tasty rice noodle salad is perfect for a hot summer day, served with lots of raw crunchy vegetables, seared chicken, and nuoc cham sauce.",
+      "datePublished": "2022-08-06T06:45:00+00:00",
+      "image": [
+        "https://thewoksoflife.com/wp-content/uploads/2018/07/vietnamese-rice-noodle-salad-chicken-10-1.jpg",
+        "https://thewoksoflife.com/wp-content/uploads/2018/07/vietnamese-rice-noodle-salad-chicken-10-1-500x500.jpg",
+        "https://thewoksoflife.com/wp-content/uploads/2018/07/vietnamese-rice-noodle-salad-chicken-10-1-500x375.jpg",
+        "https://thewoksoflife.com/wp-content/uploads/2018/07/vietnamese-rice-noodle-salad-chicken-10-1-480x270.jpg"
+      ],
+      "recipeYield": ["4"],
+      "prepTime": "PT60M",
+      "cookTime": "PT10M",
+      "totalTime": "PT70M",
+      "recipeIngredient": [
+        "1 pound boneless, skinless chicken thighs",
+        "2 cloves garlic ((minced))",
+        "1  lime ((juiced))",
+        "2 tablespoons fish sauce",
+        "1 tablespoon soy sauce",
+        "2 tablespoons brown sugar",
+        "1 tablespoon vegetable oil",
+        "3 cloves garlic ((minced))",
+        "1  lime ((juiced))",
+        "2 tablespoons rice vinegar or white vinegar",
+        "1/4 cup fish sauce",
+        "3 tablespoons sugar",
+        "1  red chili ((de-seeded and sliced, or substitute 2 teaspoons chili garlic sauce or Sriracha))",
+        "1/2 cup cold water",
+        "7 ounces dried rice vermicelli noodles",
+        "Vegetable oil",
+        "2 cups bean sprouts",
+        "1  large carrot ((julienned))",
+        "1  seedless cucumber ((julienned))",
+        "6 leaves romaine lettuce ((finely julienned))",
+        "Mint",
+        "Cilantro"
+      ],
+      "recipeInstructions": [
+        {
+          "@type": "HowToStep",
+          "text": "In a medium bowl, combine the chicken thighs with your marinade ingredients, and set aside at room temperature for 30 mins to 1 hour while you prepare the other salad ingredients.",
+          "name": "In a medium bowl, combine the chicken thighs with your marinade ingredients, and set aside at room temperature for 30 mins to 1 hour while you prepare the other salad ingredients.",
+          "url": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#wprm-recipe-26837-step-0-0"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Combine all the nuoc cham ingredients and stir until the sugar has completely dissolved into the sauce. Taste and adjust any of the ingredients if desired.",
+          "name": "Combine all the nuoc cham ingredients and stir until the sugar has completely dissolved into the sauce. Taste and adjust any of the ingredients if desired.",
+          "url": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#wprm-recipe-26837-step-0-1"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Boil the rice vermicelli noodles according to the package instructions. Drain and rinse under cold running water. Set aside in a colander.",
+          "name": "Boil the rice vermicelli noodles according to the package instructions. Drain and rinse under cold running water. Set aside in a colander.",
+          "url": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#wprm-recipe-26837-step-0-2"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Heat 2 tablespoons of vegetable oil in a cast iron skillet, grill pan, or frying pan over medium high heat. Sear the chicken for about 4 minutes per side, or until cooked through. Set aside on a plate.",
+          "name": "Heat 2 tablespoons of vegetable oil in a cast iron skillet, grill pan, or frying pan over medium high heat. Sear the chicken for about 4 minutes per side, or until cooked through. Set aside on a plate.",
+          "url": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#wprm-recipe-26837-step-0-3"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "To assemble the salad, combine the rice noodles with bean sprouts, julienned carrots and cucumber, romaine lettuce, mint, and cilantro. Slice the chicken thighs and add to the salad. Serve with your nuoc cham sauce.",
+          "name": "To assemble the salad, combine the rice noodles with bean sprouts, julienned carrots and cucumber, romaine lettuce, mint, and cilantro. Slice the chicken thighs and add to the salad. Serve with your nuoc cham sauce.",
+          "url": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#wprm-recipe-26837-step-0-4"
+        }
+      ],
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "4.98",
+        "ratingCount": "47"
+      },
+      "recipeCategory": ["Salad"],
+      "recipeCuisine": ["Vietnamese"],
+      "keywords": "vietnamese noodle salad",
+      "nutrition": {
+        "@type": "NutritionInformation",
+        "calories": "466 kcal",
+        "carbohydrateContent": "68 g",
+        "proteinContent": "28 g",
+        "fatContent": "9 g",
+        "saturatedFatContent": "2 g",
+        "cholesterolContent": "108 mg",
+        "sodiumContent": "2204 mg",
+        "fiberContent": "4 g",
+        "sugarContent": "21 g",
+        "transFatContent": "0.04 g",
+        "unsaturatedFatContent": "6 g",
+        "servingSize": "1 serving"
+      },
+      "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#recipe",
+      "isPartOf": {
+        "@id": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/#article"
+      },
+      "mainEntityOfPage": "https://thewoksoflife.com/vietnamese-rice-noodle-salad-chicken/"
+    }
+  ]
+}

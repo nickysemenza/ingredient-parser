@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 mod utils;
 
 use ingredient::{self, rich_text::RichParser, Amount, IngredientParser};
@@ -8,7 +10,6 @@ use wasm_bindgen::prelude::*;
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
 #[wasm_bindgen]
 pub fn parse_ingredient(input: &str) -> IIngredient {
     utils::set_panic_hook();

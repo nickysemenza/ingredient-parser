@@ -1,0 +1,65 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Recipe",
+      "keywords": "Flatbread, Overnight, Party Snacks",
+      "name": "Pretzel Focaccia",
+      "description": "\u003Cp\u003EBoth pretzel and focaccia fans will rejoice at this recipe mashup! Thick and chewy (while also light and crispy), this flatbread — part pretzel, part focaccia — features the rich flavor of olive oil. After being brushed with a baking soda/water mixture for deep-dark color, the bread is baked and finished with coarse salt and brushed with melted butter. Serve it with your favorite dipping sauce. (I see you, honey mustard! Or maybe a \u003Ca href=\u0022https://www.kingarthurbaking.com/recipes/rye-pretzels-with-cheesy-beer-sauce-recipe\u0022\u003Echeesy beer sauce\u003C/a\u003E is more your speed.) Slice the bread for sandwiches, or snack on it plain — the choice is yours.\u003C/p\u003E",
+      "recipeYield": ["16", "one 9” x 13” focaccia"],
+      "datePublished": "December 6, 2021 at 7:44pm",
+      "prepTime": "PT30M",
+      "cookTime": "PT30M",
+      "totalTime": "PT14H0M",
+      "recipeIngredient": [
+        "1/2 cup (113g) water cool",
+        "1/16 teaspoon instant yeast",
+        "1 cup (120g) King Arthur Unbleached Bread Flour",
+        "all of the starter (above)",
+        "2/3 cup (151g) water lukewarm",
+        "2 tablespoons (25g) olive oil plus 1 tablespoon for the pan",
+        "1 1/4 teaspoons salt",
+        "2 teaspoons instant yeast or active dry yeast",
+        "2 cups (240g) King Arthur Unbleached Bread Flour",
+        "1 1/4 teaspoons baking soda",
+        "3 tablespoons (43g) water hot",
+        "1 large egg beaten with 1 tablespoon water (egg wash)",
+        "1 to 2 teaspoons coarse salt or pretzel salt to taste",
+        "1 tablespoon (14g) butter melted"
+      ],
+      "recipeInstructions": "\u003Cp\u003E\u003Cstrong\u003ETo make the starter: \u003C/strong\u003EMix the water and yeast. Weigh your flour; or measure it by gently spooning it into a cup, then sweeping off any excess. Add the flour, stirring until the flour is incorporated. The starter will be paste-like; it won\u0027t form a ball.\u003C/p\u003E\n, \u003Cp\u003ECover and let rest at room temperature for 10 to 14 hours; overnight works well.\u003C/p\u003E\n, \u003Cp\u003E\u003Cstrong\u003ETo make the dough:\u003C/strong\u003E Combine the starter with the remaining dough ingredients. Mix and knead — by hand, mixer, or bread machine set on the dough cycle — to make a dough that’s soft, smooth, elastic, and sticky. If you\u0027re kneading in a stand mixer, it should take about 6 to 8 minutes at medium speed. Stop the mixer and scrape down the sides of the bowl as needed; the dough won’t completely clean the sides of the bowl, but remain sticky throughout kneading.\u003C/p\u003E\n, \u003Cp\u003EPlace the dough in a greased bowl, cover, and let rise until doubled in bulk, about 1 hour.\u003C/p\u003E\n, \u003Cp\u003EUse \u003Ca href=\u0022https://shop.kingarthurbaking.com/items/vegalene-food-release-spray\u0022\u003Enon-stick vegetable oil spray\u003C/a\u003E to grease a \u003Ca href=\u0022https://shop.kingarthurbaking.com/items/cake-and-brownie-pan\u0022\u003E9” x 13” pan\u003C/a\u003E. Drizzle 1 tablespoon olive oil atop the spray; the spray keeps the bread from sticking, while the olive oil gives the bottom crust great crunch and flavor.\u003C/p\u003E\n, \u003Cp\u003E\u003Cstrong\u003ETo shape the focaccia:\u003C/strong\u003E Transfer the dough to the prepared pan and gently stretch it into the corners. If the dough doesn’t reach the edges of the pan, cover and let rest for 15 minutes before continuing to stretch it to fill the entire pan.\u003C/p\u003E\n, \u003Cp\u003ECover the pan and allow the dough to rise for 30 minutes.\u003C/p\u003E\n, \u003Cp\u003EIn a small bowl, combine the baking soda and hot water to make the wash, stirring to dissolve. Brush all of the wash over the surface of the dough. Be generous with your application; it’s fine if some of the wash drips down the edges into the pan.\u003C/p\u003E\n, \u003Cp\u003EUse your fingers to make irregularly spaced dimples in the dough, pressing down firmly; your fingers should reach the bottom of the pan without actually breaking through the dough.\u003C/p\u003E\n, \u003Cp\u003ERe-cover the dough and let it rise until it\u0027s noticeably puffy, about 45 to 60 minutes. The dough should have expanded, but shouldn\u0027t seem fragile nor look like it might collapse.\u003C/p\u003E\n, \u003Cp\u003EToward the end of the rising time, preheat the oven to 425°F.\u003C/p\u003E\n, \u003Cp\u003E\u003Cstrong\u003ETo top the focaccia:\u003C/strong\u003E Before baking, brush the focaccia with the egg wash, then sprinkle with salt. The top of the dough will be quite wet but don’t worry – any excess moisture will bake off in the oven.\u003C/p\u003E\n, \u003Cp\u003E\u003Cstrong\u003ETo bake the focaccia:\u003C/strong\u003E Bake the focaccia until the top is dark brown and the bottom is golden (you can use an \u003Ca href=\u0022https://shop.kingarthurbaking.com/items/small-offset-spatula\u0022\u003Eoffset spatula\u003C/a\u003E or fork to lift the bread to peek at the bottom), about 24 to 30 minutes.\u003C/p\u003E\n, \u003Cp\u003ERemove the focaccia from the oven and immediately transfer it from the pan to a cooling rack. Brush the top of the warm focaccia with the melted butter.\u003C/p\u003E\n, \u003Cp\u003E\u003Cstrong\u003EServing and storage information: \u003C/strong\u003EEnjoy focaccia warm from the oven. It’s best the same day it\u0027s made, but leftovers can be successfully reheated, either as slices in the toaster or in a 350°F oven just until warmed through.\u003C/p\u003E",
+      "author": {
+        "@type": "Organization",
+        "name": "King Arthur Baking",
+        "url": "https://www.kingarthurbaking.com/",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://www.kingarthurbaking.com/themes/custom/kaf_nextgenweb/images/KA_Logo_Small.svg"
+        }
+      },
+      "image": {
+        "@type": "ImageObject",
+        "url": "https://www.kingarthurbaking.com/sites/default/files/2022-05/Pretzel-Focaccia_0082_hero.jpg"
+      },
+      "nutrition": {
+        "@type": "NutritionInformation",
+        "servingSize": "1 piece (47g)",
+        "calories": "110 calories",
+        "carbohydrateContent": "17g",
+        "cholesterolContent": "0mg",
+        "fiberContent": "1g",
+        "proteinContent": "3g",
+        "sodiumContent": "510mg",
+        "sugarContent": "0g",
+        "fatContent": "3.5g",
+        "saturatedFatContent": "1g",
+        "transFatContent": "0g"
+      },
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "4.20",
+        "ratingCount": "17"
+      }
+    }
+  ]
+}

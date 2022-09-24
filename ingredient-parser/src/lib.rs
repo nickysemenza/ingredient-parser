@@ -371,9 +371,9 @@ impl IngredientParser {
             separated_list1(
                 alt((tag("; "), tag(" / "), tag(" "), tag(", "), tag("/"))),
                 alt((
-                    |a| dbg!(self.clone().amount_with_units_twice(a)), // regular amount
-                    |a| dbg!(self.clone().amt_parens(a)),              // amoiunt with parens
-                    |a| dbg!(self.clone().amount1(a)),                 // regular amount
+                    |a| self.clone().amount_with_units_twice(a), // regular amount
+                    |a| self.clone().amt_parens(a),              // amoiunt with parens
+                    |a| self.clone().amount1(a),                 // regular amount
                 )),
             ),
         )(input)
@@ -439,6 +439,8 @@ fn text(input: &str) -> Res<&str, &str> {
         tag("'"),
         tag("’"),
         tag("."),
+        tag("è"),
+        tag("î"),
         // tag("\""),
     ))(input)
 }
