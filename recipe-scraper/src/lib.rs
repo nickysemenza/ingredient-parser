@@ -15,6 +15,8 @@ pub enum ScrapeError {
     Http(#[from] reqwest::Error),
     #[error("could not find ld+json for `{0}`")]
     NoLDJSON(String),
+    #[error("could not find recipe in ld ld+json for `{0}`")]
+    LDJSONMissingRecipe(String),
     #[error("could not deserialize `{0}`")]
     Deserialize(#[from] serde_json::Error),
     #[error("could not parse `{0}`")]
@@ -89,8 +91,13 @@ impl Scraper {
 }
 pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     let dom = Html::parse_document(body);
-    let ld_schema = extract_ld(dom)?;
-    scrape_from_json(ld_schema.as_str(), url)
+    match extract_ld(dom.clone()) {
+        Ok(ld_schema) => scrape_from_json(ld_schema.as_str(), url),
+        Err(e) => match e {
+            ScrapeError::NoLDJSON(_) => scrape_from_html(dom),
+            _ => Err(e),
+        },
+    }
 }
 
 fn scrape_from_json(json: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
@@ -150,12 +157,44 @@ fn normalize_ld_json(
             });
             match recipe {
                 Some(r) => Ok(normalize_root_recipe(r, url)),
-                None => Err(ScrapeError::NoLDJSON(
+                None => Err(ScrapeError::LDJSONMissingRecipe(
                     "failed to find recipe in ld json".to_string(),
                 )),
             }
         }
     }
+}
+fn scrape_from_html(dom: Html) -> Result<ScrapedRecipe, ScrapeError> {
+    // smitten kitchen
+    let ingredient_selector = Selector::parse("li.jetpack-recipe-ingredient").unwrap();
+    let ingredients = dom
+        .select(&ingredient_selector)
+        .map(|i| i.text().collect::<Vec<_>>().join(""))
+        .collect::<Vec<String>>();
+
+    let ul_selector = Selector::parse(r#"div.jetpack-recipe-directions"#).unwrap();
+
+    let foo = match dom.select(&ul_selector).next() {
+        Some(x) => x,
+        None => return Err(ScrapeError::Parse("no ld json or parsed html".to_string())),
+    };
+
+    let instructions = foo
+        .text()
+        .collect::<Vec<_>>()
+        .join("")
+        .split("\n")
+        .map(|s| s.into())
+        .collect::<Vec<String>>();
+
+    Ok(dbg!(ScrapedRecipe {
+        ingredients,
+        instructions,
+        name: "".to_string(),
+        url: "".to_string(),
+        image: None,
+    }))
+    // Err(ScrapeError::Parse("foo".to_string()))
 }
 fn extract_ld(dom: Html) -> Result<String, ScrapeError> {
     let selector = match Selector::parse("script[type='application/ld+json']") {
@@ -213,6 +252,10 @@ mod tests {
                 "https://www.kingarthurbaking.com/recipes/pretzel-focaccia-recipe".to_string(),
                 include_testdata!("kingarthurbaking_pretzel-focaccia-recipe.html").to_string(),
             ),
+            (
+                "https://smittenkitchen.com/2018/04/crispy-tofu-pad-thai/".to_string(),
+                include_testdata!("smittenkitchen_crispy-tofu-pad-thai.html").to_string(),
+            ),
         ]))
     }
 
@@ -245,6 +288,15 @@ mod tests {
             .unwrap();
         assert_eq!(res.ingredients.len(), 14);
         assert_eq!(res.instructions[0], "To make the starter: Mix the water and yeast. Weigh your flour; or measure it by gently spooning it into a cup, then sweeping off any excess. Add the flour, stirring until the flour is incorporated. The starter will be paste-like; it won't form a ball.");
+    }
+    #[tokio::test]
+    async fn scrape_from_cache_html() {
+        let res = get_scraper()
+            .scrape_url("https://smittenkitchen.com/2018/04/crispy-tofu-pad-thai/")
+            .await
+            .unwrap();
+        assert_eq!(res.ingredients.len(), 17);
+        assert_eq!(res.instructions.len(), 16);
     }
     #[test]
     fn json() {
@@ -279,13 +331,13 @@ mod tests {
     fn handle_no_ldjson() {
         assert!(matches!(
             crate::scrape(include_testdata!("missing.html"), "https://missing.com",).unwrap_err(),
-            crate::ScrapeError::NoLDJSON(_)
+            crate::ScrapeError::Parse(_)
         ));
 
         assert!(matches!(
             crate::scrape(include_testdata!("malformed.html"), "https://malformed.com",)
                 .unwrap_err(),
-            crate::ScrapeError::NoLDJSON(_)
+            crate::ScrapeError::Parse(_)
         ));
     }
     #[tokio::test]
