@@ -19,7 +19,7 @@ pub struct RootRecipe {
     // pub keywords: String,
     // pub aggregate_rating: AggregateRating,
     pub recipe_ingredient: Vec<String>,
-    pub recipe_instructions: RecipeInstructionFOO,
+    pub recipe_instructions: InstructionWrapper,
     // pub is_accessible_for_free: String,
     // pub has_part: HasPart,
     // pub publisher: Publisher,
@@ -74,10 +74,11 @@ pub enum RecipeInstruction {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum RecipeInstructionFOO {
+pub enum InstructionWrapper {
     A(Vec<RecipeInstructionA>),
     B(Vec<RecipeInstructionB>),
     C(String),
+    D(Vec<Vec<RecipeInstructionA>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -267,7 +268,7 @@ pub struct Nutrition {
 
 #[cfg(test)]
 mod tests {
-    use super::RootGraph;
+    use super::{RootGraph, RootRecipe};
 
     #[test]
     fn it_works_file() {
@@ -278,6 +279,11 @@ mod tests {
 
         let _v: RootGraph = serde_json::from_str(include_str!(
             "../test_data/kingarthurbaking_pretzel-focaccia-recipe.json"
+        ))
+        .unwrap();
+
+        let _v: RootRecipe = serde_json::from_str(include_str!(
+            "../test_data/food52_85952-nectarine-crumble-recipe.json"
         ))
         .unwrap();
     }

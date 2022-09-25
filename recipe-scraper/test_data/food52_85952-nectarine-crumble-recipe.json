@@ -1,0 +1,75 @@
+{
+  "@context": "http://schema.org/",
+  "@type": "Recipe",
+  "mainEntityOfPage": "https://food52.com/recipes/85952-nectarine-crumble-recipe",
+  "name": "Nectarine &amp;amp; Pistachio Crumble",
+  "image": [
+    "https://images.food52.com/64WeiAqTvQdUHb9He5W077CiwGc=/1200x1200/051f27ef-8557-4c1e-9814-f6cb917243b9--2021-0518_nectarine-crisp_3x2_james-ransom-330_1-.jpg",
+    "https://images.food52.com/r0cCuBkPAjgcvWq_5YPEGpysm-w=/1200x900/051f27ef-8557-4c1e-9814-f6cb917243b9--2021-0518_nectarine-crisp_3x2_james-ransom-330_1-.jpg",
+    "https://images.food52.com/iK5TvYrfDxAoMYmjK-A7tq_WDIY=/1200x675/051f27ef-8557-4c1e-9814-f6cb917243b9--2021-0518_nectarine-crisp_3x2_james-ransom-330_1-.jpg"
+  ],
+  "recipeCategory": "Dessert",
+  "recipeCuisine": "American",
+  "author": {
+    "@type": "Person",
+    "name": "Sohla El-Waylly",
+    "url": "https://food52.com/users/2110239-sohla-el-waylly"
+  },
+  "dateModified": "2021-07-09 20:53:49 -0400",
+  "datePublished": "2021-06-28 09:19:05 -0400",
+  "description": "Lemony nectarines topped with earthy and sweet pistachio crumble and baked to perfection.",
+  "recipeYield": "Serves 6",
+  "prepTime": "PT0H15M",
+  "cookTime": "PT1H30M",
+  "recipeInstructions": [
+    [
+      {
+        "@type": "HowToStep",
+        "text": "Adjust an oven rack to the lower-middle position and heat to 350°F. \n"
+      },
+      {
+        "@type": "HowToStep",
+        "text": "In a large bowl, using a stiff rubber spatula, toss the nectarines, sugar, starch, lemon juice, lemon zest, and salt until well combined. Taste and add more sugar or lemon juice if desired. Scrape into a 10-inch cast-iron skillet or 2- to 3-quart baking dish. \n"
+      },
+      {
+        "@type": "HowToStep",
+        "text": "On to the crumble: In a medium bowl, whisk together the flour, sugar, pistachios, salt, and baking powder until well combined, about 1 minute. Add the butter and use your fingers to rub the butter into the flour mixture until it holds together in large clumps when squeezed in your palm. (Alternatively, pulse together in a food processor or use the paddle attachment on a stand mixer to mix the butter into the flour mixture until it holds together in large clumps, about 1 minute.)\n"
+      },
+      {
+        "@type": "HowToStep",
+        "text": "Clump and scatter the pistachio crumble over the nectarine mixture. Place the baking dish on a sheet pan and transfer to the oven. Bake the crumble until you see the fruit mixture bubbling along the edges of the dish (or in the center of the dish if you used cornstarch), 50 to 60 minutes. \n"
+      },
+      {
+        "@type": "HowToStep",
+        "text": "Let rest for 15 minutes before serving with heavy cream, whipped cream, crème fraîche, or ice cream, if desired.\n"
+      }
+    ]
+  ],
+  "recipeIngredient": [
+    "1,000 grams (about 6 cups) quartered and pitted nectarines (peeled if desired, from 6 or 7 nectarines)",
+    "100 grams (½ cup) granulated sugar, plus more if needed",
+    "20 grams (2 tablespoons plus 2 teaspoons) tapioca starch or cornstarch",
+    "1 tablespoon freshly squeezed lemon juice, plus more if needed",
+    "1/2 teaspoon finely grated lemon zest",
+    "1/4 teaspoon kosher salt",
+    "1 1/2 cups (190 grams) all-purpose flour",
+    "2/3 cup (130 grams) packed light or dark brown sugar",
+    "2/3 cup (85 grams) finely chopped, raw pistachios",
+    "1/2 teaspoon kosher salt",
+    "1/2 teaspoon baking powder",
+    "10 tablespoons (140 grams) room-temperature unsalted butter, cut into ½-inch cubes",
+    " Heavy cream, whipped cream, crème fraîche, or ice cream, to serve (optional)"
+  ],
+  "commentCount": 5,
+  "aggregateRating": {
+    "ratingCount": "10",
+    "ratingValue": "4.7"
+  },
+  "keywords": "Nectarine, Pistachio, Cobbler/Crumble, Bake",
+  "isAccessibleForFree": "False",
+  "hasPart": {
+    "@type": "WebPageElement",
+    "isAccessibleForFree": "False",
+    "cssSelector": ".recipe-gate"
+  }
+}

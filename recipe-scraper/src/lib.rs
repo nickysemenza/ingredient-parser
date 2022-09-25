@@ -109,8 +109,8 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
     ScrapedRecipe {
         ingredients: ld_schema.recipe_ingredient,
         instructions: match ld_schema.recipe_instructions {
-            ld_schema::RecipeInstructionFOO::A(a) => a.into_iter().map(|i| i.text).collect(),
-            ld_schema::RecipeInstructionFOO::B(b) => b
+            ld_schema::InstructionWrapper::A(a) => a.into_iter().map(|i| i.text).collect(),
+            ld_schema::InstructionWrapper::B(b) => b
                 .clone()
                 .pop()
                 .unwrap()
@@ -118,7 +118,7 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
                 .iter()
                 .map(|i| i.text.clone().unwrap())
                 .collect(),
-            ld_schema::RecipeInstructionFOO::C(c) => {
+            ld_schema::InstructionWrapper::C(c) => {
                 let selector = Selector::parse("p").unwrap();
 
                 let foo = Html::parse_fragment(c.as_ref())
@@ -127,6 +127,9 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
                     .collect::<Vec<_>>();
                 foo
                 // c.split("</p>\n, <p>").map(|s| s.into()).collect()
+            }
+            ld_schema::InstructionWrapper::D(d) => {
+                d[0].clone().into_iter().map(|i| i.text).collect()
             }
         },
 
@@ -230,7 +233,7 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{ld_schema::RecipeInstructionFOO, Scraper};
+    use crate::{ld_schema::InstructionWrapper, Scraper};
 
     macro_rules! include_testdata {
         ($x:expr) => {
@@ -307,7 +310,7 @@ mod tests {
                 name: "".to_string(),
                 image: None,
                 recipe_ingredient: vec![],
-                recipe_instructions: RecipeInstructionFOO::A(vec![]),
+                recipe_instructions: InstructionWrapper::A(vec![]),
             })
         );
         let r = crate::scrape_from_json(
