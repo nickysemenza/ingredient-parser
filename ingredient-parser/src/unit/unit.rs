@@ -1,15 +1,13 @@
 use std::collections::HashSet;
 use std::fmt;
-use std::iter::FromIterator;
 
-pub fn is_valid(units: Vec<String>, s: &str) -> bool {
+pub fn is_valid(units: HashSet<String>, s: &str) -> bool {
     if !matches!(Unit::from_str(&singular(s)), Unit::Other(_)) {
         // anything other than `other`
         return true;
     }
 
-    let m: HashSet<String> = HashSet::from_iter(units.iter().cloned());
-    return m.contains(&s.to_lowercase());
+    return units.contains(&s.to_lowercase());
 }
 
 #[derive(Clone, PartialEq, PartialOrd, Debug, Eq, Hash, Serialize, Deserialize)]
@@ -129,12 +127,15 @@ mod tests {
     use super::*;
     #[test]
     fn test_is_unit() {
-        assert_eq!(is_valid(vec![], "oz"), true);
-        assert_eq!(is_valid(vec![], "fl oz"), true);
-        assert_eq!(is_valid(vec![], "slice"), false);
-        assert_eq!(is_valid(vec!["slice".to_string()], "slice"), true);
-        assert_eq!(is_valid(vec![], "TABLESPOONS"), true);
-        assert_eq!(is_valid(vec![], "foo"), false);
+        assert_eq!(is_valid(HashSet::from([]), "oz"), true);
+        assert_eq!(is_valid(HashSet::from([]), "fl oz"), true);
+        assert_eq!(is_valid(HashSet::from([]), "slice"), false);
+        assert_eq!(
+            is_valid(HashSet::from(["slice".to_string()]), "slice"),
+            true
+        );
+        assert_eq!(is_valid(HashSet::from([]), "TABLESPOONS"), true);
+        assert_eq!(is_valid(HashSet::from([]), "foo"), false);
     }
     #[test]
     fn test_back_forth() {

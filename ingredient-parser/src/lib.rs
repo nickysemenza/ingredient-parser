@@ -1,4 +1,5 @@
-use std::{convert::TryFrom, fmt};
+use std::iter::FromIterator;
+use std::{collections::HashSet, convert::TryFrom, fmt};
 
 use nom::{
     branch::alt,
@@ -103,9 +104,10 @@ pub fn from_str(input: &str) -> Ingredient {
     (IngredientParser::new(false)).from_str(input)
 }
 
-#[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct IngredientParser {
-    pub units: Vec<String>,
+    pub units: HashSet<String>,
+    pub adjectives: HashSet<String>,
     pub is_rich_text: bool,
 }
 impl IngredientParser {
@@ -119,8 +121,10 @@ impl IngredientParser {
         .iter()
         .map(|&s| s.into())
         .collect();
+        let adjectives: Vec<String> = vec!["chopped"].iter().map(|&s| s.into()).collect();
         IngredientParser {
-            units,
+            units: HashSet::from_iter(units.iter().cloned()),
+            adjectives: HashSet::from_iter(adjectives.iter().cloned()),
             is_rich_text,
         }
     }
@@ -197,16 +201,21 @@ impl IngredientParser {
             "ing",
             tuple((
                 opt(|a| self.clone().many_amount(a)),
-                space0,                              // space between amount(s) and name
-                opt(many1(text)),                    // name, can be multiple words
+                space0, // space between amount(s) and name
+                opt(tuple((|a| self.clone().adjective(a), space1))), // optional modifier
+                opt(many1(text)), // name, can be multiple words
                 opt(|a| self.clone().amt_parens(a)), // can have some more amounts in parens after the name
                 opt(tag(", ")),                      // comma seperates the modifier
                 not_line_ending, // modifier, can be multiple words and even include numbers, since once we've hit the comma everything is fair game.
             )),
         )(input)
         .map(|(next_input, res)| {
-            let (amounts, _, name_chunks, amounts2, _, modifier_chunks) = res;
-            let m = modifier_chunks;
+            let (amounts, _, adjective, name_chunks, amounts2, _, modifier_chunks) = dbg!(res);
+            let mut m: String = modifier_chunks.to_owned();
+            if let Some((adjective, _)) = adjective {
+                m.push_str(&adjective);
+            }
+            // println!("adj{:#?}", adjective);
 
             let name = name_chunks
                 .unwrap_or(vec![])
@@ -281,6 +290,14 @@ impl IngredientParser {
         context(
             "unit",
             verify(unitamt, |s: &str| unit::is_valid(self.units.clone(), s)),
+        )(input)
+    }
+    fn adjective(self, input: &str) -> Res<&str, String> {
+        context(
+            "adjective",
+            verify(unitamt, |s: &str| {
+                self.adjectives.contains(&s.to_lowercase())
+            }),
         )(input)
     }
 
@@ -458,6 +475,7 @@ fn v_frac_to_num(input: char) -> Result<f64, String> {
         '¼' => (1, 4),
         '⅓' => (1, 3),
         '½' => (1, 2),
+        '⅔' => (2, 3),
         _ => return Err(format!("unkown fraction: {}", input)),
     };
     return Ok(n as f64 / d as f64);

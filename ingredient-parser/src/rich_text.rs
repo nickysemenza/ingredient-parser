@@ -96,7 +96,7 @@ fn text2(input: &str) -> Res<&str, &str> {
 /// ]
 /// );
 /// ```
-#[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct RichParser {
     pub ingredient_names: Vec<String>,
     pub ip: IngredientParser,

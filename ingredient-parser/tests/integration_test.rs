@@ -49,6 +49,30 @@ fn test_many() {
                 modifier: None,
             },
         ),
+        (
+            "⅔ cup (167ml) cold water",
+            Ingredient {
+                name: "cold water".to_string(),
+                amounts: vec![Amount::new("cup", 2.0 / 3.0), Amount::new("ml", 167.0)],
+                modifier: None,
+            },
+        ),
+        // (
+        //     "1 tsp freshly ground black pepper",
+        //     Ingredient {
+        //         name: "black pepper".to_string(),
+        //         amounts: vec![Amount::new("tsp", 1.0)],
+        //         modifier: Some("freshly ground".to_string()),
+        //     },
+        // ),
+        (
+            "1 tsp chopped pepper",
+            Ingredient {
+                name: "pepper".to_string(),
+                amounts: vec![Amount::new("tsp", 1.0)],
+                modifier: Some("chopped".to_string()),
+            },
+        ),
     ];
 
     for x in &tests {
