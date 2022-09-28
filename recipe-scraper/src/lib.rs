@@ -91,12 +91,23 @@ impl Scraper {
 }
 pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     let dom = Html::parse_document(body);
-    match extract_ld(dom.clone()) {
+    let res = match extract_ld(dom.clone()) {
         Ok(ld_schema) => scrape_from_json(ld_schema.as_str(), url),
         Err(e) => match e {
             ScrapeError::NoLDJSON(_) => scrape_from_html(dom),
             _ => Err(e),
         },
+    };
+    match res {
+        Ok(mut r) => {
+            r.ingredients = r
+                .ingredients
+                .into_iter()
+                .map(|i| i.replace("&nbsp;", " "))
+                .collect();
+            Ok(r)
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -278,6 +289,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.ingredients.len(), 12);
+
+        let res = get_scraper()
+            .scrape_url(
+                "https://cooking.nytimes.com/recipes/1019232-toll-house-chocolate-chip-cookies",
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.ingredients[0], "2 1/4 cups all-purpose flour");
 
         let res = get_scraper()
             .scrape_url("http://www.seriouseats.com/recipes/2011/08/grilled-naan-recipe.html")
