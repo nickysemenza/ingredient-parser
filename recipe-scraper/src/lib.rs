@@ -100,17 +100,16 @@ pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     };
     match res {
         Ok(mut r) => {
-            r.ingredients = r
-                .ingredients
-                .into_iter()
-                .map(|i| i.replace("&nbsp;", " "))
-                .collect();
+            r.ingredients = r.ingredients.into_iter().map(clean_string).collect();
+            r.instructions = r.instructions.into_iter().map(clean_string).collect();
             Ok(r)
         }
         Err(e) => Err(e),
     }
 }
-
+fn clean_string(i: String) -> String {
+    i.replace("&nbsp;", " ").replace("\n", " ")
+}
 fn scrape_from_json(json: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     normalize_ld_json(parse_ld_json(json.to_owned())?, url)
 }

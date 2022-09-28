@@ -5,4 +5,5 @@ members = [
     "ingredient-parser",
     "recipe-scraper",
     "food_cli",
+    "food_ui",
 ]
