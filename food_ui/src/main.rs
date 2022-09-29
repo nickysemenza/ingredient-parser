@@ -1,9 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use eframe::egui;
+use eframe::{
+    egui::{self, RichText},
+    epaint::Color32,
+};
 use egui_extras::RetainedImage;
 use poll_promise::Promise;
-use recipe_scraper::ScrapedRecipe;
+use rand::Rng;
+use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
 
 fn main() {
     let options = eframe::NativeOptions::default();
@@ -16,6 +20,7 @@ fn main() {
 
 struct Wrapper {
     recipe: ScrapedRecipe,
+    parsed: ParsedRecipe,
     image: Option<RetainedImage>,
 }
 
@@ -44,8 +49,64 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String) -> bool {
             .add(egui::TextEdit::singleline(url).desired_width(f32::INFINITY))
             .lost_focus();
     });
+    if ui.button("Random NYT").clicked() {
+        let mut rng = rand::thread_rng();
+        *url = format!(
+            "https://cooking.nytimes.com/recipes/{}",
+            rng.gen_range(10..15000)
+        );
+        trigger_fetch = true;
+    }
 
     trigger_fetch
+}
+
+fn show_parsed(ui: &mut egui::Ui, parsed: &ParsedRecipe) {
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            parsed.ingredients.iter().for_each(|x| {
+                // ui.label(x.to_string());
+                ui.collapsing(x.to_string(), |ui| {
+                    ui.label(serde_json::to_string_pretty(&x).unwrap())
+                });
+            });
+        });
+        ui.vertical(|ui| {
+            parsed.instructions.iter().for_each(|x| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.group(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        x.iter().for_each(|x| match x {
+                            ingredient::rich_text::Chunk::Amount(x) => x.iter().for_each(|x| {
+                                ui.label(RichText::new(x.to_string()).color(Color32::GOLD));
+                            }),
+                            ingredient::rich_text::Chunk::Text(t) => {
+                                ui.label(t);
+                            }
+                            ingredient::rich_text::Chunk::Ing(i) => {
+                                ui.label(RichText::new(i).color(Color32::LIGHT_BLUE));
+                            }
+                        });
+                    });
+                });
+            });
+        });
+    });
+}
+
+fn show_raw(ui: &mut egui::Ui, recipe: &ScrapedRecipe) {
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            recipe.ingredients.iter().for_each(|x| {
+                ui.label(x);
+            });
+        });
+        ui.vertical(|ui| {
+            recipe.instructions.iter().for_each(|x| {
+                ui.label(x);
+            });
+        });
+    });
 }
 
 impl eframe::App for MyApp {
@@ -72,7 +133,8 @@ impl eframe::App for MyApp {
                             ehttp::fetch(request, move |response| {
                                 let image = response.and_then(parse_response_image).unwrap();
                                 sender.send(Ok(Wrapper {
-                                    recipe,
+                                    recipe: recipe.clone(),
+                                    parsed: recipe.parse(),
                                     image: Some(image),
                                 }));
                             });
@@ -108,19 +170,11 @@ impl eframe::App for MyApp {
                                 .show_max_size(ui, ui.available_size());
                         });
 
-                        ui.horizontal(|ui| {
-                            ui.vertical(|ui| {
-                                // ui.label(format!("{:#?}", recipe.recipe.ingredients));
-                                w.recipe.ingredients.iter().for_each(|x| {
-                                    ui.label(x);
-                                });
-                            });
-                            ui.vertical(|ui| {
-                                // ui.label(format!("{:#?}", recipe.recipe.instructions));
-                                w.recipe.instructions.iter().for_each(|x| {
-                                    ui.label(x);
-                                });
-                            });
+                        ui.separator();
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            show_parsed(ui, &w.parsed);
+                            ui.separator();
+                            show_raw(ui, &w.recipe);
                         });
                     }
                 }

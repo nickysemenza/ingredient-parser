@@ -27,26 +27,26 @@ fn condense_text(r: Rich) -> Rich {
 fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
     r.into_iter()
         .flat_map(|s| match s {
-            Chunk::Text(mut a) => {
+            Chunk::Text(mut text) => {
                 // let mut a = s;
-                let mut r = vec![];
+                let mut text_or_ing_res = vec![];
 
-                for i in ingredient_names.iter().filter(|x| x.len() > 0) {
-                    match a.split_once(i) {
+                for candidate in ingredient_names.iter().filter(|x| x.len() > 0) {
+                    match text.split_once(candidate) {
                         Some((prefix, suffix)) => {
-                            r.push(Chunk::Text(prefix.to_string()));
-                            r.push(Chunk::Ing(i.to_string()));
-                            a = suffix.to_string();
+                            text_or_ing_res.push(Chunk::Text(prefix.to_string()));
+                            text_or_ing_res.push(Chunk::Ing(candidate.to_string()));
+                            text = suffix.to_string();
                         }
                         None => {}
                     }
                 }
-                if a.len() > 0 {
+                if text.len() > 0 {
                     // ignore empty
-                    r.push(Chunk::Text(a));
+                    text_or_ing_res.push(Chunk::Text(text));
                 }
 
-                r
+                text_or_ing_res
             }
             _ => vec![s.clone()],
         })
@@ -71,13 +71,9 @@ fn text2(input: &str) -> Res<&str, &str> {
         tag(")"),
         tag(";"),
         tag("#"),
-        tag("’"),
-        tag("ó"),
         tag("/"),
         tag(":"),
         tag("!"),
-        tag("è"),
-        tag("î"),
     ))(input)
 }
 /// Parse some rich text that has some parsable [Amount] scattered around in it. Useful for displaying text with fancy formatting.

@@ -29,6 +29,7 @@ async fn main() {
             let s = recipe_scraper::Scraper::new();
             let res = s.scrape_url(url).await.unwrap();
             println!("{}", serde_json::to_string_pretty(&res).unwrap());
+            println!("{:#?}", res.parse())
         }
         Commands::ParseIngredient { name } => {
             let res = ingredient::from_str(name);

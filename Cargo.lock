@@ -747,8 +747,11 @@ dependencies = [
  "egui_extras",
  "ehttp",
  "image",
+ "ingredient",
  "poll-promise",
+ "rand 0.8.5",
  "recipe-scraper",
+ "serde_json",
 ]
 
 [[package]]
@@ -2143,6 +2146,7 @@ dependencies = [
 name = "recipe-scraper"
 version = "0.1.0"
 dependencies = [
+ "ingredient",
  "reqwest",
  "reqwest-middleware",
  "reqwest-tracing",

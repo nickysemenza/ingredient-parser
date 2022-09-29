@@ -12,3 +12,6 @@ ehttp = "0.2"
 image = { version = "0.24", default-features = false, features = ["jpeg"] }
 poll-promise = "0.1"
 recipe-scraper = {path= "../recipe-scraper"}
+ingredient= {path = "../ingredient-parser"}
+serde_json = "1.0"
+rand = "0.8.5"

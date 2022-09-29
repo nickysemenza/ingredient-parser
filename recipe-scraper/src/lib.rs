@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use ingredient::{
+    rich_text::{Rich, RichParser},
+    Ingredient, IngredientParser,
+};
 use scraper::{Html, Selector};
 
 use serde::{Deserialize, Serialize};
@@ -22,13 +26,47 @@ pub enum ScrapeError {
     #[error("could not parse `{0}`")]
     Parse(String),
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ScrapedRecipe {
     pub ingredients: Vec<String>,
     pub instructions: Vec<String>,
     pub name: String,
     pub url: String,
     pub image: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ParsedRecipe {
+    pub ingredients: Vec<Ingredient>,
+    pub instructions: Vec<Rich>,
+}
+impl ScrapedRecipe {
+    pub fn parse(&self) -> ParsedRecipe {
+        let ip = IngredientParser::new(false);
+        let ingredients = self
+            .ingredients
+            .iter()
+            .map(|i| {
+                let res = ip.clone().from_str(i);
+                res
+            })
+            .collect::<Vec<_>>();
+        let names = ingredients.iter().map(|i| i.name.clone()).collect();
+        let rtp = RichParser {
+            ingredient_names: names,
+            ip: IngredientParser::new(true),
+        };
+        let parsed_instructions = self
+            .instructions
+            .iter()
+            .map(|i| rtp.clone().parse(i).unwrap())
+            .collect::<Vec<Rich>>();
+
+        ParsedRecipe {
+            ingredients,
+            instructions: parsed_instructions,
+        }
+    }
 }
 // inspiration
 // https://github.com/pombadev/sunny/blob/main/src/lib/spider.rs

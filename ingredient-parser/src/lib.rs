@@ -458,6 +458,8 @@ fn text(input: &str) -> Res<&str, &str> {
         tag("."),
         tag("è"),
         tag("î"),
+        tag("ó"),
+        tag("é"),
         // tag("\""),
     ))(input)
 }
