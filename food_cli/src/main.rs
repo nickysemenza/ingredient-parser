@@ -26,7 +26,7 @@ async fn main() {
 
     match &cli.command {
         Commands::Scrape { url } => {
-            let s = recipe_scraper::Scraper::new();
+            let s = recipe_scraper_fetcher::Fetcher::new();
             let res = s.scrape_url(url).await.unwrap();
             println!("{}", serde_json::to_string_pretty(&res).unwrap());
             println!("{:#?}", res.parse())

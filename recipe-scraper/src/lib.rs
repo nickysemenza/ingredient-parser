@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use ingredient::{
     rich_text::{Rich, RichParser},
     Ingredient, IngredientParser,
@@ -8,15 +6,14 @@ use scraper::{Html, Selector};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-mod http_utils;
 mod ld_schema;
 
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ScrapeError {
-    #[error("HTTP error: {0}")]
-    Http(#[from] reqwest::Error),
+    #[error("could not find fetch `{0}`")]
+    Http(String),
     #[error("could not find ld+json for `{0}`")]
     NoLDJSON(String),
     #[error("could not find recipe in ld ld+json for `{0}`")]
@@ -72,61 +69,6 @@ impl ScrapedRecipe {
 // https://github.com/pombadev/sunny/blob/main/src/lib/spider.rs
 // https://github.com/megametres/recettes-api/blob/dev/src/html_parser/mod.rs
 
-#[derive(Debug)]
-pub struct Scraper {
-    client: reqwest_middleware::ClientWithMiddleware,
-    cache: Option<HashMap<String, String>>,
-}
-impl Scraper {
-    pub fn new() -> Self {
-        return Scraper {
-            client: http_utils::http_client(),
-            cache: None,
-        };
-    }
-    pub fn new_with_cache(m: HashMap<String, String>) -> Self {
-        return Scraper {
-            client: http_utils::http_client(),
-            cache: Some(m),
-        };
-    }
-    #[tracing::instrument(name = "scrape_url")]
-    pub async fn scrape_url(&self, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
-        let body = self.fetch_html(url).await?;
-        scrape(body.as_ref(), url)
-    }
-
-    #[tracing::instrument]
-    async fn fetch_html(&self, url: &str) -> Result<String, ScrapeError> {
-        if let Some(cache) = &self.cache {
-            if let Some(cached) = cache.get(url) {
-                return Ok(cached.to_string());
-            }
-        }
-
-        let r = match self
-            .client
-            .get(url)
-            .header("user-agent", "recipe")
-            .send()
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                return Err(match e {
-                    reqwest_middleware::Error::Middleware(e) => panic!("{}", e),
-                    reqwest_middleware::Error::Reqwest(e) => ScrapeError::Http(e),
-                })
-            }
-        };
-        if !r.status().is_success() {
-            let e = Err(ScrapeError::Http(r.error_for_status_ref().unwrap_err()));
-            dbg!(r.text().await?);
-            return e;
-        }
-        Ok(r.text().await?)
-    }
-}
 pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     let dom = Html::parse_document(body);
     let res = match extract_ld(dom.clone()) {
@@ -281,7 +223,7 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{ld_schema::InstructionWrapper, Scraper};
+    use crate::ld_schema::InstructionWrapper;
 
     macro_rules! include_testdata {
         ($x:expr) => {
@@ -289,8 +231,15 @@ mod tests {
         };
     }
 
-    fn get_scraper() -> Scraper {
-        Scraper::new_with_cache(HashMap::from([
+    fn scrape_url(url: &str) -> Result<super::ScrapedRecipe, super::ScrapeError> {
+        let binding = get_testdata();
+        let html = binding.get(url);
+        assert!(html.is_some(), "no test data for {}", url);
+        let res = super::scrape(html.unwrap(), url);
+        res
+    }
+    fn get_testdata() -> HashMap<String, String> {
+        HashMap::from([
             (
                 "https://cooking.nytimes.com/recipes/1015819-chocolate-chip-cookies".to_string(),
                 include_testdata!("nytimes_chocolate_chip_cookies.html").to_string(),
@@ -307,53 +256,48 @@ mod tests {
                 "https://smittenkitchen.com/2018/04/crispy-tofu-pad-thai/".to_string(),
                 include_testdata!("smittenkitchen_crispy-tofu-pad-thai.html").to_string(),
             ),
-        ]))
+            (
+                "http://cooking.nytimes.com/recipes/1017060-doughnuts".to_string(),
+                include_testdata!("nytimes_doughnuts.html").to_string(),
+            ),
+            (
+                "https://cooking.nytimes.com/recipes/1019232-toll-house-chocolate-chip-cookies"
+                    .to_string(),
+                include_testdata!("nytimes_toll-house-chocolate-chip-cookies.html").to_string(),
+            ),
+        ])
     }
 
-    #[tokio::test]
-    async fn scrape_from_live() {
-        let res = get_scraper()
-            .scrape_url("http://cooking.nytimes.com/recipes/1017060-doughnuts")
-            .await
-            .unwrap();
+    #[test]
+    fn scrape_from_live() {
+        let res = scrape_url("http://cooking.nytimes.com/recipes/1017060-doughnuts").unwrap();
         assert_eq!(res.ingredients.len(), 8);
     }
 
-    #[tokio::test]
-    async fn scrape_from_cache() {
-        let res = get_scraper()
-            .scrape_url("https://cooking.nytimes.com/recipes/1015819-chocolate-chip-cookies")
-            .await
+    #[test]
+    fn scrape_from_cache() {
+        let res = scrape_url("https://cooking.nytimes.com/recipes/1015819-chocolate-chip-cookies")
             .unwrap();
         assert_eq!(res.ingredients.len(), 12);
 
-        let res = get_scraper()
-            .scrape_url(
-                "https://cooking.nytimes.com/recipes/1019232-toll-house-chocolate-chip-cookies",
-            )
-            .await
-            .unwrap();
+        let res = scrape_url(
+            "https://cooking.nytimes.com/recipes/1019232-toll-house-chocolate-chip-cookies",
+        )
+        .unwrap();
         assert_eq!(res.ingredients[0], "2 1/4 cups all-purpose flour");
 
-        let res = get_scraper()
-            .scrape_url("http://www.seriouseats.com/recipes/2011/08/grilled-naan-recipe.html")
-            .await
+        let res = scrape_url("http://www.seriouseats.com/recipes/2011/08/grilled-naan-recipe.html")
             .unwrap();
         assert_eq!(res.ingredients.len(), 6);
 
-        let res = get_scraper()
-            .scrape_url("https://www.kingarthurbaking.com/recipes/pretzel-focaccia-recipe")
-            .await
-            .unwrap();
+        let res =
+            scrape_url("https://www.kingarthurbaking.com/recipes/pretzel-focaccia-recipe").unwrap();
         assert_eq!(res.ingredients.len(), 14);
         assert_eq!(res.instructions[0], "To make the starter: Mix the water and yeast. Weigh your flour; or measure it by gently spooning it into a cup, then sweeping off any excess. Add the flour, stirring until the flour is incorporated. The starter will be paste-like; it won't form a ball.");
     }
-    #[tokio::test]
-    async fn scrape_from_cache_html() {
-        let res = get_scraper()
-            .scrape_url("https://smittenkitchen.com/2018/04/crispy-tofu-pad-thai/")
-            .await
-            .unwrap();
+    #[test]
+    fn scrape_from_cache_html() {
+        let res = scrape_url("https://smittenkitchen.com/2018/04/crispy-tofu-pad-thai/").unwrap();
         assert_eq!(res.ingredients.len(), 17);
         assert_eq!(res.instructions.len(), 16);
     }
@@ -397,16 +341,6 @@ mod tests {
             crate::scrape(include_testdata!("malformed.html"), "https://malformed.com",)
                 .unwrap_err(),
             crate::ScrapeError::Parse(_)
-        ));
-    }
-    #[tokio::test]
-    async fn scrape_errors() {
-        assert!(matches!(
-            get_scraper()
-                .scrape_url("https://doesnotresolve.com")
-                .await
-                .unwrap_err(),
-            crate::ScrapeError::Http(_)
         ));
     }
 }

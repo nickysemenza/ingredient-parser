@@ -1,12 +1,15 @@
-use std::time::Instant;
-
 use reqwest::{Request, Response};
 
+use reqwest_middleware::ClientBuilder;
+
 use reqwest_middleware::{ClientWithMiddleware, Result};
+
 use reqwest_tracing::{default_on_request_end, reqwest_otel_span, ReqwestOtelSpanBackend};
 
-use reqwest_middleware::ClientBuilder;
+use std::time::Instant;
+
 use task_local_extensions::Extensions;
+
 use tracing::Span;
 
 pub struct TimeTrace;
