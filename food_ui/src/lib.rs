@@ -1,6 +1,6 @@
 use eframe::{
-    egui::{self, RichText},
-    epaint::Color32,
+    egui::{self, RichText, TextFormat, WidgetText},
+    epaint::{text::LayoutJob, Color32},
 };
 use egui_extras::RetainedImage;
 use poll_promise::Promise;
@@ -51,12 +51,55 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String) -> bool {
     trigger_fetch
 }
 
+fn make_rich(i: &ingredient::Ingredient) -> WidgetText {
+    let amounts: Vec<String> = i.amounts.iter().map(|id| id.to_string()).collect();
+    let modifier = match i.modifier.clone() {
+        Some(m) => {
+            format!(", {}", m)
+        }
+        None => "".to_string(),
+    };
+    let amount_list = match amounts.len() {
+        0 => "n/a ".to_string(),
+        _ => format!("{} ", amounts.join(" / ")),
+    };
+    let name = i.name.clone();
+    // return write!(f, "{}{}{}", amount_list, name, modifier);
+    // RichText::new(x.to_string()).color(Color32::GOLD)
+    let mut job = LayoutJob::default();
+    job.append(
+        amount_list.as_str(),
+        0.0,
+        TextFormat {
+            color: Color32::GOLD,
+            ..Default::default()
+        },
+    );
+    job.append(
+        name.as_str(),
+        0.0,
+        TextFormat {
+            color: Color32::LIGHT_BLUE,
+            ..Default::default()
+        },
+    );
+    job.append(
+        modifier.as_str(),
+        0.0,
+        TextFormat {
+            color: Color32::LIGHT_GRAY,
+            ..Default::default()
+        },
+    );
+    WidgetText::LayoutJob(job)
+}
+
 fn show_parsed(ui: &mut egui::Ui, parsed: &ParsedRecipe) {
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             parsed.ingredients.iter().for_each(|x| {
                 // ui.label(x.to_string());
-                ui.collapsing(x.to_string(), |ui| {
+                ui.collapsing(make_rich(x), |ui| {
                     ui.label(serde_json::to_string_pretty(&x).unwrap())
                 });
             });

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "recipe")]
 pub struct RootRecipe {
     #[serde(rename = "@context")]
     pub context: Option<String>,
@@ -106,8 +106,10 @@ pub struct RootGraph {
     pub graph: Vec<Graph>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "@type")]
+// #[serde(tag = "@type")]
+#[serde(untagged)]
 pub enum Graph {
+    Recipe(RootRecipe),
     Article(Value),
     WebPage(Value),
     ImageObject(Image),
@@ -115,7 +117,6 @@ pub enum Graph {
     WebSite(Value),
     Organization(Value),
     Person(Value),
-    Recipe(RootRecipe),
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -284,6 +285,11 @@ mod tests {
 
         let _v: RootRecipe = serde_json::from_str(include_str!(
             "../test_data/food52_85952-nectarine-crumble-recipe.json"
+        ))
+        .unwrap();
+
+        let _v: RootGraph = serde_json::from_str(include_str!(
+            "../test_data/omnivorescookbook_sichuan-shrimp-stir-fry.json"
         ))
         .unwrap();
     }

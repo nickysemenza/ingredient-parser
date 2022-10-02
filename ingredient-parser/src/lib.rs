@@ -121,7 +121,18 @@ impl IngredientParser {
         .iter()
         .map(|&s| s.into())
         .collect();
-        let adjectives: Vec<String> = vec!["chopped"].iter().map(|&s| s.into()).collect();
+        let adjectives: Vec<String> = vec![
+            "chopped",
+            "minced",
+            "diced",
+            "freshly ground",
+            "finely chopped",
+            "thinly sliced",
+            "sliced",
+        ]
+        .iter()
+        .map(|&s| s.into())
+        .collect();
         IngredientParser {
             units: HashSet::from_iter(units.iter().cloned()),
             adjectives: HashSet::from_iter(adjectives.iter().cloned()),
@@ -210,18 +221,40 @@ impl IngredientParser {
             )),
         )(input)
         .map(|(next_input, res)| {
-            let (amounts, _, adjective, name_chunks, amounts2, _, modifier_chunks) = dbg!(res);
+            let (
+                amounts,
+                _maybespace,
+                adjective,
+                name_chunks,
+                amounts2,
+                _maybecomma,
+                modifier_chunks,
+            ): (
+                Option<Vec<Amount>>,
+                &str,
+                Option<(String, &str)>,
+                Option<Vec<&str>>,
+                Option<Vec<Amount>>,
+                Option<&str>,
+                &str,
+            ) = res;
             let mut m: String = modifier_chunks.to_owned();
             if let Some((adjective, _)) = adjective {
                 m.push_str(&adjective);
             }
-            // println!("adj{:#?}", adjective);
-
-            let name = name_chunks
+            let mut name: String = name_chunks
                 .unwrap_or(vec![])
                 .join("")
                 .trim_matches(' ')
                 .to_string();
+
+            // if the ingredient name still has adjective in it, remove that
+            self.adjectives.iter().for_each(|f| {
+                if name.contains(f) {
+                    m.push_str(f);
+                    name = name.replace(f, "").trim_matches(' ').to_string();
+                }
+            });
 
             let mut amounts = match amounts {
                 Some(a) => a,

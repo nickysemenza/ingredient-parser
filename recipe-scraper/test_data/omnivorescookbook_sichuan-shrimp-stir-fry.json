@@ -1,0 +1,269 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Article",
+      "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#article",
+      "isPartOf": {
+        "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/"
+      },
+      "author": {
+        "name": "Maggie Zhu",
+        "@id": "https://omnivorescookbook.com/#/schema/person/0237ebb4117b875ec4b3779d88ee7165"
+      },
+      "headline": "Sichuan Shrimp Stir Fry",
+      "datePublished": "2021-04-27T21:17:25+00:00",
+      "dateModified": "2021-04-27T21:17:27+00:00",
+      "wordCount": 1125,
+      "commentCount": 7,
+      "publisher": {
+        "@id": "https://omnivorescookbook.com/#/schema/person/0237ebb4117b875ec4b3779d88ee7165"
+      },
+      "image": {
+        "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#primaryimage"
+      },
+      "thumbnailUrl": "https://omnivorescookbook.com/wp-content/uploads/2021/04/210204_Sichuan-Shrimp-Stir-Fry_550.jpg",
+      "keywords": [
+        "30 Minutes or Less",
+        "Fish &amp; Seafood",
+        "Intermediate",
+        "Low Carb",
+        "Non-Dairy",
+        "Sichuan Cuisine",
+        "Stir Frying",
+        "Stovetop"
+      ],
+      "articleSection": ["Main"],
+      "inLanguage": "en-US",
+      "potentialAction": [
+        {
+          "@type": "CommentAction",
+          "name": "Comment",
+          "target": [
+            "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#respond"
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/",
+      "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/",
+      "name": "Sichuan Shrimp Stir Fry - Omnivore&#039;s Cookbook",
+      "isPartOf": { "@id": "https://omnivorescookbook.com/#website" },
+      "primaryImageOfPage": {
+        "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#primaryimage"
+      },
+      "image": {
+        "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#primaryimage"
+      },
+      "thumbnailUrl": "https://omnivorescookbook.com/wp-content/uploads/2021/04/210204_Sichuan-Shrimp-Stir-Fry_550.jpg",
+      "datePublished": "2021-04-27T21:17:25+00:00",
+      "dateModified": "2021-04-27T21:17:27+00:00",
+      "description": "Authentic Chinese restaurant-style Sichuan shrimp stir fry delivers a crispy texture, richly aromatic, and utterly divine flavor.",
+      "breadcrumb": {
+        "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#breadcrumb"
+      },
+      "inLanguage": "en-US",
+      "potentialAction": [
+        {
+          "@type": "ReadAction",
+          "target": ["https://omnivorescookbook.com/sichuan-shrimp-stir-fry/"]
+        }
+      ]
+    },
+    {
+      "@type": "ImageObject",
+      "inLanguage": "en-US",
+      "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#primaryimage",
+      "url": "https://omnivorescookbook.com/wp-content/uploads/2021/04/210204_Sichuan-Shrimp-Stir-Fry_550.jpg",
+      "contentUrl": "https://omnivorescookbook.com/wp-content/uploads/2021/04/210204_Sichuan-Shrimp-Stir-Fry_550.jpg",
+      "width": 800,
+      "height": 800,
+      "caption": "Stir fried shrimp accented with bright pop of Sichuan flavor: chile pepper, tingly peppercorn, and a dose of umami will just dazzle your taste buds."
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://omnivorescookbook.com/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Recipe",
+          "item": "https://omnivorescookbook.com/category/recipe/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "Main",
+          "item": "https://omnivorescookbook.com/category/recipe/main/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 4,
+          "name": "Sichuan Shrimp Stir Fry"
+        }
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://omnivorescookbook.com/#website",
+      "url": "https://omnivorescookbook.com/",
+      "name": "Omnivore&#039;s Cookbook",
+      "description": "Modern Chinese Recipes",
+      "publisher": {
+        "@id": "https://omnivorescookbook.com/#/schema/person/0237ebb4117b875ec4b3779d88ee7165"
+      },
+      "potentialAction": [
+        {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://omnivorescookbook.com/?s={search_term_string}"
+          },
+          "query-input": "required name=search_term_string"
+        }
+      ],
+      "inLanguage": "en-US"
+    },
+    {
+      "@type": ["Person", "Organization"],
+      "@id": "https://omnivorescookbook.com/#/schema/person/0237ebb4117b875ec4b3779d88ee7165",
+      "name": "Maggie Zhu",
+      "image": {
+        "@type": "ImageObject",
+        "inLanguage": "en-US",
+        "@id": "https://omnivorescookbook.com/#/schema/person/image/",
+        "url": "https://secure.gravatar.com/avatar/6c67aa41027ed3ed87f52a12022161b0?s=96&d=blank&r=g",
+        "contentUrl": "https://secure.gravatar.com/avatar/6c67aa41027ed3ed87f52a12022161b0?s=96&d=blank&r=g",
+        "caption": "Maggie Zhu"
+      },
+      "logo": { "@id": "https://omnivorescookbook.com/#/schema/person/image/" },
+      "description": "Hi I'm Maggie Zhu! Welcome to my site about modern Chinese cooking - including street food, family recipes, and restaurant dishes. I take a less labor-intensive approach while maintaining the taste and look of the dish. I am originally from Beijing, and now cook from my New York kitchen.",
+      "sameAs": [
+        "https://omnivorescookbook.com/about/",
+        "http://www.facebook.com/omnivorescookbook",
+        "https://twitter.com/omnivorcookbook"
+      ]
+    },
+    {
+      "@context": "http://schema.org/",
+      "@type": "Recipe",
+      "name": "Sichuan Shrimp Stir Fry",
+      "author": { "@type": "Person", "name": "Maggie Zhu" },
+      "description": "Authentic Chinese restaurant-style Sichuan shrimp is quick enough for a weeknight meal and delivers a crispy texture and richly aromatic, utterly divine flavor with that signature Sichuan spice.",
+      "datePublished": "2021-04-27T17:17:25+00:00",
+      "image": [
+        "https://omnivorescookbook.com/wp-content/uploads/2021/04/210204_Sichuan-Shrimp-Stir-Fry_550.jpg",
+        "https://omnivorescookbook.com/wp-content/uploads/2021/04/210204_Sichuan-Shrimp-Stir-Fry_550-500x500.jpg",
+        "https://omnivorescookbook.com/wp-content/uploads/2021/04/210204_Sichuan-Shrimp-Stir-Fry_550-500x375.jpg",
+        "https://omnivorescookbook.com/wp-content/uploads/2021/04/210204_Sichuan-Shrimp-Stir-Fry_550-480x270.jpg"
+      ],
+      "recipeYield": ["4"],
+      "prepTime": "PT20M",
+      "cookTime": "PT10M",
+      "recipeIngredient": [
+        "1 lb (450 g) shrimp (, peeled and deveined)",
+        "1/2 teaspoon light soy sauce",
+        "1/2 teaspoon Shaoxing wine ((or dry sherry))",
+        "2 tablespoons cornstarch",
+        "1 cup dried Chinese chili peppers ((*Footnote 1))",
+        "1/3 cup vegetable oil ((or enough to cover the shrimp halfway ) (*Footnote 2))",
+        "3 cloves garlic (, minced)",
+        "1/2 ” (1 cm) ginger (, minced)",
+        "1  green onion (, whites minced, greens sliced for garnish)",
+        "2 teaspoons Doubanjiang",
+        "1 tablespoon Sichuan peppercorns",
+        "2 tablespoons roasted peanuts"
+      ],
+      "recipeInstructions": [
+        {
+          "@type": "HowToStep",
+          "text": "Pat the shrimp dry with paper towels and transfer them to a medium-sized bowl. Add the light soy sauce, Shaoxing wine, and cornstarch. Toss to coat well. Marinate for 15 minutes.",
+          "name": "Pat the shrimp dry with paper towels and transfer them to a medium-sized bowl. Add the light soy sauce, Shaoxing wine, and cornstarch. Toss to coat well. Marinate for 15 minutes.",
+          "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#wprm-recipe-28656-step-0-0"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Cut the chilis into 1/2” pieces and place in a colander that has holes big enough to have the chili seeds fall through. Shimmy the colander above a big plate to separate some of the seeds from the chilis. Set aside the deseeded chilis for the cooking and discard the seeds.",
+          "name": "Cut the chilis into 1/2” pieces and place in a colander that has holes big enough to have the chili seeds fall through. Shimmy the colander above a big plate to separate some of the seeds from the chilis. Set aside the deseeded chilis for the cooking and discard the seeds.",
+          "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#wprm-recipe-28656-step-0-1"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Heat the oil in a large skillet over medium-high heat until hot. Add the shrimp. Let cook without moving for 1 to 2 minutes, until the bottom turns golden. Flip to cook the other side for another 1 to 2 minutes, until turning golden and the shrimp are fully curled up. Transfer the shrimp to a big plate and set aside.",
+          "name": "Heat the oil in a large skillet over medium-high heat until hot. Add the shrimp. Let cook without moving for 1 to 2 minutes, until the bottom turns golden. Flip to cook the other side for another 1 to 2 minutes, until turning golden and the shrimp are fully curled up. Transfer the shrimp to a big plate and set aside.",
+          "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#wprm-recipe-28656-step-0-2"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Turn to low heat. Remove all but 2 tablespoons of oil from the pan by pouring the oil into a bowl, or use a few layers of paper towels held in a pair of tongs to wipe the pan.",
+          "name": "Turn to low heat. Remove all but 2 tablespoons of oil from the pan by pouring the oil into a bowl, or use a few layers of paper towels held in a pair of tongs to wipe the pan.",
+          "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#wprm-recipe-28656-step-0-3"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Turn to medium-low heat. Add the garlic, ginger, and green onion. Cook and stir until fragrant, about 30 seconds.",
+          "name": "Turn to medium-low heat. Add the garlic, ginger, and green onion. Cook and stir until fragrant, about 30 seconds.",
+          "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#wprm-recipe-28656-step-0-4"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Add the doubanjiang. Stir and cook for a minute.",
+          "name": "Add the doubanjiang. Stir and cook for a minute.",
+          "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#wprm-recipe-28656-step-0-5"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Add the dried chilis, sichuan peppercorns, and peanuts. Continue to cook and stir for another minute, or until the chilis turn dark brown but are not burned.",
+          "name": "Add the dried chilis, sichuan peppercorns, and peanuts. Continue to cook and stir for another minute, or until the chilis turn dark brown but are not burned.",
+          "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#wprm-recipe-28656-step-0-6"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Add back the shrimp. Toss thoroughly to coat well. Immediately transfer everything to a serving plate.",
+          "name": "Add back the shrimp. Toss thoroughly to coat well. Immediately transfer everything to a serving plate.",
+          "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#wprm-recipe-28656-step-0-7"
+        },
+        {
+          "@type": "HowToStep",
+          "text": "Serve hot over steamed rice as a main dish. (*Footnote 3)",
+          "name": "Serve hot over steamed rice as a main dish. (*Footnote 3)",
+          "url": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#wprm-recipe-28656-step-0-8"
+        }
+      ],
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "5",
+        "ratingCount": "2"
+      },
+      "recipeCategory": ["Main"],
+      "recipeCuisine": ["Chinese"],
+      "keywords": "restaurant-style",
+      "nutrition": {
+        "@type": "NutritionInformation",
+        "servingSize": "1 serving",
+        "calories": "246 kcal",
+        "carbohydrateContent": "8.2 g",
+        "proteinContent": "27.3 g",
+        "fatContent": "11.1 g",
+        "saturatedFatContent": "2.3 g",
+        "cholesterolContent": "239 mg",
+        "sodiumContent": "385 mg",
+        "fiberContent": "0.7 g",
+        "sugarContent": "0.5 g"
+      },
+      "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#recipe",
+      "isPartOf": {
+        "@id": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/#article"
+      },
+      "mainEntityOfPage": "https://omnivorescookbook.com/sichuan-shrimp-stir-fry/"
+    }
+  ]
+}

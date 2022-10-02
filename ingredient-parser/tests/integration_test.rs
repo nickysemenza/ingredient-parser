@@ -57,14 +57,14 @@ fn test_many() {
                 modifier: None,
             },
         ),
-        // (
-        //     "1 tsp freshly ground black pepper",
-        //     Ingredient {
-        //         name: "black pepper".to_string(),
-        //         amounts: vec![Amount::new("tsp", 1.0)],
-        //         modifier: Some("freshly ground".to_string()),
-        //     },
-        // ),
+        (
+            "1 tsp freshly ground black pepper",
+            Ingredient {
+                name: "black pepper".to_string(),
+                amounts: vec![Amount::new("tsp", 1.0)],
+                modifier: Some("freshly ground".to_string()),
+            },
+        ),
         (
             "1 tsp chopped pepper",
             Ingredient {
@@ -77,7 +77,7 @@ fn test_many() {
 
     for x in &tests {
         let parser = IngredientParser::new(false);
-        let res = parser.parse_ingredient(x.0).unwrap().1;
+        let res = parser.from_str(x.0);
         assert_eq!(res, x.1, "Failed to parse {}", x.0);
     }
 }

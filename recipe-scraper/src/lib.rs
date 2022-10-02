@@ -144,7 +144,7 @@ fn normalize_ld_json(
     match ld_schema_a {
         ld_schema::Root::Recipe(ld_schema) => Ok(normalize_root_recipe(ld_schema, url)),
         ld_schema::Root::Graph(g) => {
-            let recipe = g.graph.iter().find_map(|d| match d {
+            let recipe = dbg!(g).graph.iter().find_map(|d| match d {
                 ld_schema::Graph::Recipe(a) => Some(a.to_owned()),
                 _ => None,
             });
