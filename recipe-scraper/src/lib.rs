@@ -7,8 +7,8 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 mod ld_schema;
-
 use thiserror::Error;
+use tracing::error;
 
 #[derive(Error, Debug)]
 pub enum ScrapeError {
@@ -16,8 +16,8 @@ pub enum ScrapeError {
     Http(String),
     #[error("could not find ld+json for `{0}`")]
     NoLDJSON(String),
-    #[error("could not find recipe in ld ld+json for `{0}`")]
-    LDJSONMissingRecipe(String),
+    #[error("could not find recipe in ld+json for `{0}`, tried {1} chunks")]
+    LDJSONMissingRecipe(String, usize),
     #[error("could not deserialize `{0}`")]
     Deserialize(#[from] serde_json::Error),
     #[error("could not parse `{0}`")]
@@ -72,7 +72,18 @@ impl ScrapedRecipe {
 pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     let dom = Html::parse_document(body);
     let res = match extract_ld(dom.clone()) {
-        Ok(ld_schema) => scrape_from_json(ld_schema.as_str(), url),
+        Ok(ld_schemas) => {
+            let items = ld_schemas.len();
+            match ld_schemas
+                .into_iter()
+                .map(|ld| scrape_from_json(ld.as_str(), url))
+                // .collect::<Vec<Result<ScrapedRecipe, ScrapeError>>>()
+                .find_map(Result::ok)
+            {
+                Some(r) => Ok(r),
+                None => Err(ScrapeError::LDJSONMissingRecipe(url.to_string(), items)),
+            }
+        }
         Err(e) => match e {
             ScrapeError::NoLDJSON(_) => scrape_from_html(dom),
             _ => Err(e),
@@ -144,6 +155,7 @@ fn normalize_ld_json(
     match ld_schema_a {
         ld_schema::Root::Recipe(ld_schema) => Ok(normalize_root_recipe(ld_schema, url)),
         ld_schema::Root::Graph(g) => {
+            let items = g.graph.len();
             let recipe = dbg!(g).graph.iter().find_map(|d| match d {
                 ld_schema::Graph::Recipe(a) => Some(a.to_owned()),
                 _ => None,
@@ -151,7 +163,8 @@ fn normalize_ld_json(
             match recipe {
                 Some(r) => Ok(normalize_root_recipe(r, url)),
                 None => Err(ScrapeError::LDJSONMissingRecipe(
-                    "failed to find recipe in ld json".to_string(),
+                    "failed to find recipe in ld json graph".to_string(),
+                    items,
                 )),
             }
         }
@@ -189,31 +202,37 @@ fn scrape_from_html(dom: Html) -> Result<ScrapedRecipe, ScrapeError> {
     }))
     // Err(ScrapeError::Parse("foo".to_string()))
 }
-fn extract_ld(dom: Html) -> Result<String, ScrapeError> {
+fn extract_ld(dom: Html) -> Result<Vec<String>, ScrapeError> {
     let selector = match Selector::parse("script[type='application/ld+json']") {
         Ok(s) => s,
         Err(e) => return Err(ScrapeError::Parse(format!("{:?}", e))),
     };
 
-    let element = match dom.select(&selector).next() {
-        Some(e) => e,
-        None => {
-            return Err(ScrapeError::NoLDJSON(
-                dom.root_element().html().chars().take(40).collect(),
-            ))
-        }
-    };
-
-    Ok(element.inner_html())
+    let json_chunks: Vec<String> = dom
+        .select(&selector)
+        .into_iter()
+        .map(|element| element.inner_html())
+        .collect();
+    match json_chunks.len() {
+        0 => Err(ScrapeError::NoLDJSON(
+            dom.root_element().html().chars().take(40).collect(),
+        )),
+        _ => Ok(json_chunks),
+    }
 }
 fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
     let json = json.as_str();
-    let _raw = serde_json::from_str::<Value>(json)?;
-    // dbg!(_raw);
+    let raw = serde_json::from_str::<Value>(json)?;
     // tracing::info!("raw json: {:#?}", raw);
     let v: ld_schema::Root = match serde_json::from_str(json) {
         Ok(v) => v,
-        Err(e) => return Err(ScrapeError::Deserialize(e)),
+        Err(e) => {
+            error!(
+                "failed to parse ld json: {}",
+                serde_json::to_string_pretty(&raw).unwrap()
+            );
+            return Err(ScrapeError::Deserialize(e));
+        }
     };
 
     return Ok(v);

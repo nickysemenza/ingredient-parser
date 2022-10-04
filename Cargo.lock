@@ -790,6 +790,7 @@ dependencies = [
  "recipe-scraper",
  "serde_json",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

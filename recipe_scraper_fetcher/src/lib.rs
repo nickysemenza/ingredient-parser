@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use recipe_scraper::ScrapeError;
+use tracing::error;
 
 mod http_utils;
 
@@ -55,9 +56,13 @@ impl Fetcher {
             }
         };
         if !r.status().is_success() {
-            let e = Err(ScrapeError::Http(
-                r.error_for_status_ref().unwrap_err().to_string(),
-            ));
+            let err_string = r.error_for_status_ref().unwrap_err().to_string();
+            error!(
+                "failed to fetch {}: {}",
+                url,
+                r.text().await.unwrap_or_default()
+            );
+            let e = Err(ScrapeError::Http(err_string));
             return e;
         }
         Ok(r.text().await.unwrap())
