@@ -15,4 +15,4 @@ recipe-scraper = {path= "../recipe-scraper"}
 ingredient= {path = "../ingredient-parser"}
 serde_json = "1.0"
 rand = "0.8.5"
-tracing = "0.1.36"
+tracing = "0.1.37"

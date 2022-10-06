@@ -10,7 +10,7 @@ scraper = "0.13.0"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
-tracing = "0.1.36"
+tracing = "0.1.37"
 ingredient= {path = "../ingredient-parser"}
 
 # https://github.com/serde-rs/serde/pull/1544#issuecomment-1244798727
