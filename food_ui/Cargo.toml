@@ -10,7 +10,7 @@ eframe = "0.19.0"
 egui_extras = {version="0.19.0", features=["image"]}
 ehttp = "0.2"
 image = { version = "0.24", default-features = false, features = ["jpeg"] }
-poll-promise = "0.1"
+poll-promise = "0.2"
 recipe-scraper = {path= "../recipe-scraper"}
 ingredient= {path = "../ingredient-parser"}
 serde_json = "1.0"
