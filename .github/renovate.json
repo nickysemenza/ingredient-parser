@@ -2,8 +2,13 @@
   "extends": ["config:base"],
   "packageRules": [
     {
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchUpdateTypes": ["minor", "pin", "major"],
+      "automergeType": "branch",
       "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["patch", "digest"],
+      "enabled": false
     }
   ]
 }
