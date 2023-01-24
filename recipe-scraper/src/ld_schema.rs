@@ -95,6 +95,7 @@ pub enum ImageOrList {
 pub enum Root {
     Graph(RootGraph),
     Recipe(RootRecipe),
+    List(Vec<RootRecipe>),
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]

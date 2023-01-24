@@ -1,0 +1,246 @@
+[
+  {
+    "@context": "http://schema.org",
+    "@type": ["Recipe"],
+    "headline": "Foolproof Pan Pizza Recipe",
+    "datePublished": "2013-01-22T11:15:00.000-05:00",
+    "dateModified": "2021-04-26T18:18:18.520-04:00",
+    "author": [
+      {
+        "@type": "Person",
+        "name": "J. Kenji López-Alt",
+        "description": "Kenji is the former culinary director for Serious Eats and a current culinary consultant for the site. He is also a New York Times food columnist and the author of The Food Lab: Better Home Cooking Through Science.",
+        "jobTitle": "Culinary Consultant",
+        "url": "https://www.seriouseats.com/j-kenji-lopez-alt-5118720",
+        "sameAs": [
+          "https://www.instagram.com/kenjilopezalt/",
+          "http://www.kenjilopezalt.com/"
+        ],
+        "knowsAbout": [
+          "Food science, Recipe development, Equipment reviews, Restaurant reviews , General food features"
+        ]
+      }
+    ],
+    "description": "A pan pizza recipe for those who love a thick and crispy crust that&#39;s golden on the bottom, but puffy and soft under the layers of sauce and mozzarella.",
+    "image": {
+      "@type": "ImageObject",
+      "url": "https://www.seriouseats.com/thmb/tnFVsXReQHz9fK0XXWwMzaslavI=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__2019__04__20190319-cast-iron-pan-pizza-reshoot-vicky-wasik-29-333170d36c004f5bbfeed3ad97437078.jpg",
+      "height": 1125,
+      "width": 1500
+    },
+    "video": {
+      "@type": "VideoObject",
+      "contentUrl": "https://cdn.jwplayer.com/videos/RXIIlec6-qP58AAan.mp4",
+      "description": "A pan pizza recipe for those who love a thick and crispy crust that's golden on the bottom, but puffy and soft under the layers of sauce and mozzerella. [Technique: Sasha Marx. Video: Serious Eats Video.]",
+      "duration": "PT9M58S",
+      "name": "How to Make a Pan Pizza",
+      "thumbnailUrl": "https://cdn.jwplayer.com/v2/media/RXIIlec6/poster.jpg?width=720",
+      "uploadDate": "2021-05-06T21:19:27.338Z"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "Serious Eats",
+      "url": "https://www.seriouseats.com",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://www.seriouseats.com/thmb/O7qOTYhS4IAKSKnr4JmNDURwjhw=/320x320/filters:no_upscale():max_bytes(150000):strip_icc()/Serious_Eats_Schema_Logo-033d1e058bdb4c8d9e0ada84a4485482.png",
+        "width": 320,
+        "height": 320
+      },
+      "brand": "Serious Eats",
+      "publishingPrinciples": "https://www.seriouseats.com/about-us-5120006#toc-editorial-guidelines",
+      "sameAs": [
+        "https://www.facebook.com/seriouseats",
+        "https://www.instagram.com/seriouseats",
+        "https://www.pinterest.com/seriouseats"
+      ]
+    },
+    "name": "Foolproof Pan Pizza Recipe",
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "4.9",
+      "ratingCount": "104"
+    },
+    "cookTime": "PT20M",
+    "keywords": "cast iron, cast iron pizza, focaccia, no knead dough, no-knead, no-knead bread, pan pizza, pizza hut",
+    "nutrition": {
+      "@type": "NutritionInformation",
+      "calories": "748 kcal",
+      "carbohydrateContent": "84 g",
+      "cholesterolContent": "74 mg",
+      "fiberContent": "5 g",
+      "proteinContent": "35 g",
+      "saturatedFatContent": "14 g",
+      "sodiumContent": "1883 mg",
+      "sugarContent": "5 g",
+      "fatContent": "29 g",
+      "servingSize": "makes two 10-inch pizzas",
+      "unsaturatedFatContent": "0 g"
+    },
+    "prepTime": "PT25M",
+    "recipeCategory": ["Pizza", "Quick Dinners"],
+    "recipeCuisine": ["American"],
+    "recipeIngredient": [
+      "400g bread flour (14 ounces; about 2 1/2 cups), plus more for dusting",
+      "10g kosher salt (0.35 ounces; about 2 teaspoons), plus more for sprinkling",
+      "4g instant yeast (0.15 ounces; about 1 teaspoon), such as SAF Instant Yeast",
+      "275g water (9.5 ounces; about 1 cup plus 3 tablespoons)",
+      "8g extra-virgin olive oil (0.25 ounces; about 2 teaspoons), plus more to coat pans and for drizzling",
+      "1 1/2 cups pizza sauce, such as our New York–style pizza sauce",
+      "12 ounces grated full-fat, low moisture (dry) mozzarella cheese (see note)",
+      "Toppings as desired",
+      "Small handful torn fresh basil leaves (optional)",
+      "2 ounces grated Parmesan or Pecorino Romano cheese (optional)"
+    ],
+    "recipeInstructions": [
+      {
+        "@type": "HowToStep",
+        "image": [
+          {
+            "@type": "ImageObject",
+            "url": "https://www.seriouseats.com/thmb/m1vBgZ-OqyUvZhgXoRf0gMETv6I=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__2019__04__20190319-cast-iron-pan-pizza-reshoot-vicky-wasik-mixing-dough-3-3657ba6992b94cd0a66976987ce8e088.jpg"
+          }
+        ],
+        "text": "Combine flour, salt, yeast, water, and oil in a large bowl. Mix with hands or a wooden spoon until no dry flour remains. (The bowl should be at least 4 to 6 times the volume of the dough to account for rising.)"
+      },
+      {
+        "@type": "HowToStep",
+        "image": [
+          {
+            "@type": "ImageObject",
+            "url": "https://www.seriouseats.com/thmb/7XE_pWxTF7w4U-DFzC1vH24PRDU=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__2019__04__20190319-cast-iron-pan-pizza-reshoot-vicky-wasik-21-36b60d13fb41404ea6e743a170d5876a.jpg"
+          }
+        ],
+        "text": "Cover bowl tightly with plastic wrap, making sure that the edges are well sealed, then let rest at cool room temperature (no warmer than 75°F) for at least 8 hours and up to 24. Dough should rise dramatically and fill bowl. In a hot kitchen, the dough may overproof near the end of that range."
+      },
+      {
+        "@type": "HowToStep",
+        "image": [
+          {
+            "@type": "ImageObject",
+            "url": "https://www.seriouseats.com/thmb/7teMXwQvsRwX9Pi95wNJeT_lg5g=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__2019__04__20190319-cast-iron-pan-pizza-reshoot-vicky-wasik-mixing-dough2-1debf07520244379abf82d21b147b44b.jpg"
+          }
+        ],
+        "text": "Sprinkle top of dough lightly with flour, then transfer it to a well-floured work surface. Divide dough into 2 pieces and form each into a ball by holding it with well-floured hands and tucking the dough underneath itself, rotating it until it forms a tight ball."
+      },
+      {
+        "@type": "HowToStep",
+        "image": [
+          {
+            "@type": "ImageObject",
+            "url": "https://www.seriouseats.com/thmb/ZuY2vDUaJfEo2lKAq8i2SgEySus=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__2019__04__20190319-cast-iron-pan-pizza-reshoot-vicky-wasik-dough-after-proof-in-pan-dd34865625f74f7786ea5df5406dbed8.jpg"
+          }
+        ],
+        "text": "Pour 1 to 2 tablespoons oil in the bottom of two 10-inch cast iron skillets or round cake pans (see note). Place 1 ball of dough in each pan and turn to coat evenly with oil. Using a flat palm, press dough around the pan, flattening it slightly and spreading oil around the entire bottom and edges of the pan. Cover tightly with plastic wrap and let dough sit at room temperature for 2 hours (at room temperatures above 75°F, the dough may require less time to rise; at temperatures below 65°F/18°C, it may require more time). After the first hour, adjust an oven rack to the middle position and preheat oven to 550°F (290°C)."
+      },
+      {
+        "@type": "HowToStep",
+        "image": [
+          {
+            "@type": "ImageObject",
+            "url": "https://www.seriouseats.com/thmb/EZL8ftuYRNj9_G2zxRXXY_Iwh3I=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__2019__04__20190319-cast-iron-pan-pizza-reshoot-vicky-wasik-22-c13f19c1b7954675968c6927cda5af94.jpg"
+          }
+        ],
+        "text": "After 2 hours, dough should be mostly filling the pan up to the edges. Use your fingertips to press it around until it fills in every corner, popping any large bubbles that appear. Lift up one edge of the dough to let any air bubbles underneath escape, then repeat, moving around the dough until there are no air bubbles left underneath and the dough is evenly spread around the pan."
+      },
+      {
+        "@type": "HowToStep",
+        "image": [
+          {
+            "@type": "ImageObject",
+            "url": "https://www.seriouseats.com/thmb/fOgAKaSZrd_Cf0TXdaerutDosOQ=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__2019__04__20190319-cast-iron-pan-pizza-reshoot-vicky-wasik-26-81b95935cda44f56a070ad6d72765274.jpg"
+          }
+        ],
+        "text": "Top each round of dough with 3/4 cup sauce, spreading sauce to the very edge with the back of a spoon. Sprinkle evenly with mozzarella cheese, all the way to the edges. Season with salt. Add other toppings as desired. Drizzle with olive oil and scatter a few basil leaves over the top of each pizza, if desired."
+      },
+      {
+        "@type": "HowToStep",
+        "image": [
+          {
+            "@type": "ImageObject",
+            "url": "https://www.seriouseats.com/thmb/18dv_44cXBuL7rdoq0IbrKtKgZY=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/__opt__aboutcom__coeus__resources__content_migration__serious_eats__seriouseats.com__2019__04__20190319-cast-iron-pan-pizza-reshoot-vicky-wasik-33-998265a30fd94eaaa6413118bb74ddff.jpg"
+          }
+        ],
+        "text": "Transfer pan to oven and bake until top is golden brown and bubbly and bottom is golden brown and crisp when you lift it with a thin spatula, 12 to 15 minutes. Immediately sprinkle with grated Parmesan or Pecorino Romano cheese, if using. Using a thin spatula, loosen pizza and peek underneath. If bottom is not as crisp as desired, place pan over a burner and cook on medium heat, moving the pan around to cook evenly until it is crisp, 1 to 3 minutes. Remove the pizzas and transfer to a cutting board. Cut each pizza into 6 slices and serve immediately."
+      }
+    ],
+    "recipeYield": ["4", "2 pizzas"],
+    "totalTime": "PT645M",
+    "review": [
+      {
+        "@type": "Review",
+        "author": {
+          "@type": "Person",
+          "name": "Jaych"
+        },
+        "reviewBody": "For a single pie in a 12\" cast iron pan using the \"multiply recipe by .44 for 12\"\" and \"divide in half for 1\" formula:\n\n288g flour\n7.2g salt\n2.9g yeast\n192g water\n5.8g olive oil in recipe + more for pan\n\nI believe my math is correct, though math was never my strong suit. I only have one skillet and since I'm only cooking for two &#38; don't want to make the full double batch of dough, I did the math. \n\nI figured there are others who may want the info and don't feel like digging through comments to see if someone else shared it. I didn't see it! \n\nIf anyone sees an error in my math, let me know."
+      },
+      {
+        "@type": "Review",
+        "author": {
+          "@type": "Person",
+          "name": "cmusarra"
+        },
+        "reviewBody": "Probably best pizza I've ever made. After the primary rise I stuck it in the fridge because I wasn't 100% sure when I would be making pizza. I think it was in there for a week, and was delicious. Topped with meatballs and pepperoni. My husband said it was the most attractive and tasty pizza he's ever eaten.\n\nAlso, could the serious eats team work on a way to search through the comments? I can tell that Kenji gets somewhat annoyed when the same question is asked over and over, but who has time to go through 18 pages of comments to see if their question has been answered previously? Smitten Kitchen and King Arthur Flour both have comment search bars that are extremely helpful if you need an example."
+      },
+      {
+        "@type": "Review",
+        "author": {
+          "@type": "Person",
+          "name": "ShiftyBiscuits"
+        },
+        "reviewBody": "I don't think I'll make pizza any other way. First of all, the measurements in grams were just *chefs kiss*. I've been looking for something that I can easily replicate the same way time again. \n\nSince I didn't have the luxury of waiting 8 hours for the bulk rise (who am I kidding, I was just hungry), I added 25g of raspberry honey to the 275g warm water. No instant yeast, but used 8g active dry yeast (which was approximately 2 1/4 tsp), and stirred that into the honey mix to bloom. \n\nLeft to rise in the same bowl about 3.5 hours (warm kitchen) and divided the dough. Pressed one well oiled ball into a 10\" cast iron and pressed out the other into a 1/4 size heavy duty sheet pan. I left those in my cool oven to rise for another 2 hours or so. The dough in the skillet completely filled the pan. Pressed down gently with my fingers on both.\n\nSmothered each just as the recipe says in sauce and cheese edge to edge and baked in a screaming hot oven for 17~ minutes. The sheet pan one was crispy and divine! Cast iron needed just another 2-3 minutes on medium heat on the stove top to get that full golden brown. Nothing beats a crust of pure crispy cheese.\n\nYum!!\n\n<a href=\"https://i.ibb.co/Z2XKCCZ/MVIMG-20200808-210252.jpg\" rel=\"nofollow ugc\">Cat Iron Pizza Top</a>\n\n<a href=\"https://i.ibb.co/KDyFWXT/MVIMG-20200808-210242.jpg\" rel=\"nofollow ugc\">Cast Iron Pizza Side</a>\n\n<a href=\"https://i.ibb.co/wdfmXDX/MVIMG-20200808-210710.jpg\" rel=\"nofollow ugc\">Pizza Plated</a>"
+      },
+      {
+        "@type": "Review",
+        "author": {
+          "@type": "Person",
+          "name": "dtccooks"
+        },
+        "reviewBody": "I had two challenges with this recipe: dough sticking to the pan and the top cooking much faster than the bottom requiring a stove top finish. I've finally resolved both issues. BTW I cook the pizzas in 10\" heavy duty aluminum cake tins- not in a cast iron skillet. Each pizza is cooked at 550 F on a baking stone placed on the rack at the lowest level. The clue to the dough sticking problem was found in Ken Forkish \"The Elements of Pizza\" where he mentioned that dough sitting in oil absorbed most of it and allowed it to stick. To minimize this issue, I allow the two dough balls to rise on separate dinner plates slicked with olive oil, cover with Saran, and flatten by hand. Just before baking, I transfer the dough to the pan that's prepared per Kenji's recipe. This minimizes the extent to which the dough soaks up the oil applied to the pan. The second problem was the crust not getting completely cooked by the time the top was browned, requiring a stove top finish. The solution here was to cook the pizza for 10' at 550 F, then cover with foil, and cook another 10'. After 20' the crust is an even light golden color and the top is not overcooked."
+      },
+      {
+        "@type": "Review",
+        "author": {
+          "@type": "Person",
+          "name": "S M R"
+        },
+        "reviewBody": "OMG. Ok, been a reader forever, literally just registered so I could comment. Kenji's genius is worth it.\n\nHusband: \"I'm totally craving deep dish pizza!\"\nSelf: \"Ok. Like this?\" (Sends gorgeous pictures of Chicago deep-dish pizzas with complicated recipes)\nHusband: \"No .....like this\" (sends picture of Pizza Hut individual pan pizzas beloved in youth)\nSelf: \"Hmm......uhhhhhh.......ok.\" (Remembers husband is not a fancy fellow)\n\nAlready a Kenji fan, I google this and am surprised when his recipe comes up as a Pizza Hut clone. I make the stupidly easiest pizza dough ever. We cook it in cast iron pans in a wood fired oven. It is shockingly delicious - we shovel crusty, melty, soft golden slices into our faces. Husband now worships me as a pizza goddess. Without one tweak or adjustment, it is now a beloved favorite. I was skeptical about the \"2 tbs oil\" in the pan. I was wrong. I'm sorry I doubted you Kenji - this is why you have a blog and not me. Thank you. Epic"
+      }
+    ],
+    "mainEntityOfPage": {
+      "@type": ["WebPage"],
+      "@id": "https://www.seriouseats.com/foolproof-pan-pizza-recipe",
+      "breadcrumb": {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "item": {
+              "@id": "https://www.seriouseats.com/main-recipes-by-type-5117824",
+              "name": "Mains By Type"
+            }
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "item": {
+              "@id": "https://www.seriouseats.com/pizza-recipes-5117816",
+              "name": "Pizza"
+            }
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "item": {
+              "@id": "https://www.seriouseats.com/foolproof-pan-pizza-recipe",
+              "name": "Foolproof Pan Pizza Recipe"
+            }
+          }
+        ]
+      }
+    },
+    "about": []
+  }
+]

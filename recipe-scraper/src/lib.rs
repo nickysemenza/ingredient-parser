@@ -347,6 +347,13 @@ mod tests {
         .unwrap();
         assert_eq!(r.instructions.len(), 5);
         assert_eq!(r.ingredients.len(), 22);
+        let r = crate::scrape_from_json(
+            include_testdata!("seriouseats_pan_pizza.json"),
+            "a".as_ref(),
+        )
+        .unwrap();
+        assert_eq!(r.instructions.len(), 7);
+        assert_eq!(r.ingredients.len(), 10);
     }
 
     #[test]
