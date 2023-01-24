@@ -1,0 +1,292 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Article",
+      "@id": "https://www.justonecookbook.com/chicken-katsu-don/#article",
+      "isPartOf": {
+        "@id": "https://www.justonecookbook.com/chicken-katsu-don/"
+      },
+      "author": {
+        "name": "Namiko Chen",
+        "@id": "https://www.justonecookbook.com/#/schema/person/033420c6cd0fe01255dcd76d04d95472"
+      },
+      "headline": "Chicken Katsudon チキンカツ丼",
+      "datePublished": "2011-10-19T07:00:10+00:00",
+      "dateModified": "2022-12-14T06:32:05+00:00",
+      "wordCount": 824,
+      "commentCount": 99,
+      "publisher": { "@id": "https://www.justonecookbook.com/#organization" },
+      "image": {
+        "@id": "https://www.justonecookbook.com/chicken-katsu-don/#primaryimage"
+      },
+      "thumbnailUrl": "https://www.justonecookbook.com/wp-content/uploads/2021/04/Chicken-Katsudon-9331.jpg",
+      "keywords": [
+        "Chicken",
+        "College Meal",
+        "Easy",
+        "Kid-Friendly",
+        "Rice + Donburi"
+      ],
+      "articleSection": ["Main"],
+      "inLanguage": "en-US",
+      "potentialAction": [
+        {
+          "@type": "CommentAction",
+          "name": "Comment",
+          "target": [
+            "https://www.justonecookbook.com/chicken-katsu-don/#respond"
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://www.justonecookbook.com/chicken-katsu-don/",
+      "url": "https://www.justonecookbook.com/chicken-katsu-don/",
+      "name": "Chicken Katsudon チキンカツ丼 • Just One Cookbook",
+      "isPartOf": { "@id": "https://www.justonecookbook.com/#website" },
+      "primaryImageOfPage": {
+        "@id": "https://www.justonecookbook.com/chicken-katsu-don/#primaryimage"
+      },
+      "image": {
+        "@id": "https://www.justonecookbook.com/chicken-katsu-don/#primaryimage"
+      },
+      "thumbnailUrl": "https://www.justonecookbook.com/wp-content/uploads/2021/04/Chicken-Katsudon-9331.jpg",
+      "datePublished": "2011-10-19T07:00:10+00:00",
+      "dateModified": "2022-12-14T06:32:05+00:00",
+      "description": "Easy chicken katsudon recipe. Golden fried chicken katsu served with savory dashi sauce and eggs over rice. Garnished with wild parsley.",
+      "breadcrumb": {
+        "@id": "https://www.justonecookbook.com/chicken-katsu-don/#breadcrumb"
+      },
+      "inLanguage": "en-US",
+      "potentialAction": [
+        {
+          "@type": "ReadAction",
+          "target": ["https://www.justonecookbook.com/chicken-katsu-don/"]
+        }
+      ]
+    },
+    {
+      "@type": "ImageObject",
+      "inLanguage": "en-US",
+      "@id": "https://www.justonecookbook.com/chicken-katsu-don/#primaryimage",
+      "url": "https://www.justonecookbook.com/wp-content/uploads/2021/04/Chicken-Katsudon-9331.jpg",
+      "contentUrl": "https://www.justonecookbook.com/wp-content/uploads/2021/04/Chicken-Katsudon-9331.jpg",
+      "width": 800,
+      "height": 533,
+      "caption": "A white large donburi bowl containing steamed rice topped with chicken katsu, egg, and onion cooked in the savory seasoning."
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://www.justonecookbook.com/chicken-katsu-don/#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://www.justonecookbook.com/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Chicken Katsudon チキンカツ丼"
+        }
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://www.justonecookbook.com/#website",
+      "url": "https://www.justonecookbook.com/",
+      "name": "Just One Cookbook",
+      "description": "Japanese Food and Recipe Blog",
+      "publisher": { "@id": "https://www.justonecookbook.com/#organization" },
+      "potentialAction": [
+        {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://www.justonecookbook.com/?s={search_term_string}"
+          },
+          "query-input": "required name=search_term_string"
+        }
+      ],
+      "inLanguage": "en-US"
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://www.justonecookbook.com/#organization",
+      "name": "Just One Cookbook",
+      "url": "https://www.justonecookbook.com/",
+      "logo": {
+        "@type": "ImageObject",
+        "inLanguage": "en-US",
+        "@id": "https://www.justonecookbook.com/#/schema/logo/image/",
+        "url": "https://www.justonecookbook.com/wp-content/uploads/2021/03/JOC-logo-masthead-2021.jpg",
+        "contentUrl": "https://www.justonecookbook.com/wp-content/uploads/2021/03/JOC-logo-masthead-2021.jpg",
+        "width": 2000,
+        "height": 240,
+        "caption": "Just One Cookbook"
+      },
+      "image": {
+        "@id": "https://www.justonecookbook.com/#/schema/logo/image/"
+      },
+      "sameAs": [
+        "https://instagram.com/justonecookbook/",
+        "https://www.pinterest.com/justonecookbook/",
+        "https://www.youtube.com/user/justonecookbook",
+        "https://www.facebook.com/justonecookbook",
+        "https://twitter.com/justonecookbook"
+      ]
+    },
+    {
+      "@type": "Person",
+      "@id": "https://www.justonecookbook.com/#/schema/person/033420c6cd0fe01255dcd76d04d95472",
+      "name": "Namiko Chen",
+      "description": "I'm Nami, a Japanese home cook based in San Francisco. Have fun exploring the 800+ classic &amp; modern Japanese recipes I share with step-by-step photos and How-To YouTube videos.",
+      "sameAs": [
+        "https://www.justonecookbook.com/about/",
+        "https://www.facebook.com/justonecookbook/",
+        "https://www.instagram.com/justonecookbook/",
+        "https://www.pinterest.com/justonecookbook/",
+        "https://twitter.com/https://twitter.com/justonecookbook",
+        "https://www.youtube.com/user/justonecookbook"
+      ],
+      "url": "https://www.justonecookbook.com/author/administrator/"
+    },
+    {
+      "@type": "Recipe",
+      "name": "Chicken Katsudon",
+      "author": {
+        "@id": "https://www.justonecookbook.com/#/schema/person/033420c6cd0fe01255dcd76d04d95472"
+      },
+      "description": "Crispy breaded katsu (cutlets) quickly simmered with eggs in a savory sauce over rice, this Chicken Katsudon (Chicken Cutlet Rice Bowl) is a typical lunch enjoyed by all ages in Japan. Make this comforting rice bowl for your family today!",
+      "datePublished": "2011-10-19T00:00:10+00:00",
+      "image": [
+        "https://www.justonecookbook.com/wp-content/uploads/2021/04/Chicken-Katsudon-9331.jpg",
+        "https://www.justonecookbook.com/wp-content/uploads/2021/04/Chicken-Katsudon-9331-500x500.jpg",
+        "https://www.justonecookbook.com/wp-content/uploads/2021/04/Chicken-Katsudon-9331-500x375.jpg",
+        "https://www.justonecookbook.com/wp-content/uploads/2021/04/Chicken-Katsudon-9331-480x270.jpg"
+      ],
+      "recipeYield": ["2"],
+      "prepTime": "PT10M",
+      "cookTime": "PT30M",
+      "totalTime": "PT40M",
+      "recipeIngredient": [
+        "7 oz chicken tenders ((4 chicken tenders for 2 servings))",
+        "kosher salt (Diamond Crystal; use half for table salt)",
+        "freshly ground black pepper",
+        "¼ cup all-purpose flour (plain flour)",
+        "1  large egg (50 g w/o shell) ((beaten))",
+        "1 cup panko (Japanese breadcrumbs)",
+        "3 cups neutral-flavored oil (vegetable, rice bran, canola, etc.) ((for deep-frying))",
+        "½  onion ((thinly sliced))",
+        "2  large egg (50 g w/o shell) ((beaten))",
+        "2 servings cooked Japanese short-grain rice",
+        "4 sprigs mitsuba (Japanese parsley) ((chopped; or substitute green onion))",
+        "ichimi togarashi (Japanese chili pepper) ((for a spicy kick))",
+        "⅔ cup dashi (Japanese soup stock; click to learn more)",
+        "1½ Tbsp sake",
+        "1½ Tbsp mirin",
+        "1½ Tbsp soy sauce",
+        "1½ tsp sugar"
+      ],
+      "recipeInstructions": [
+        {
+          "@type": "HowToStep",
+          "text": "Gather all the ingredients.",
+          "name": "Gather all the ingredients.",
+          "url": "https://www.justonecookbook.com/chicken-katsu-don/#wprm-recipe-59923-step-0-0",
+          "image": "https://www.justonecookbook.com/wp-content/uploads/2011/10/Chicken-Katsu-Don-3-e1321782101503.jpg"
+        },
+        {
+          "@type": "HowToSection",
+          "name": "To Make the Chicken Katsu",
+          "itemListElement": [
+            {
+              "@type": "HowToStep",
+              "text": "Place the flour, beaten egg, and panko in individual bowls or plates. Season the chicken tenders with salt and pepper. To bread the chicken, dust each piece with the flour. Then, dip it into the beaten egg. Finally, coat the chicken completely with the panko. Set the breaded cutlets on a plate.",
+              "name": "Place the flour, beaten egg, and panko in individual bowls or plates. Season the chicken tenders with salt and pepper. To bread the chicken, dust each piece with the flour. Then, dip it into the beaten egg. Finally, coat the chicken completely with the panko. Set the breaded cutlets on a plate.",
+              "url": "https://www.justonecookbook.com/chicken-katsu-don/#wprm-recipe-59923-step-1-0",
+              "image": "https://www.justonecookbook.com/wp-content/uploads/2011/10/Chicken-Katsu-Don-1-e1321782063426.jpg"
+            },
+            {
+              "@type": "HowToStep",
+              "text": "Heat the oil in a frying pan and shallow-fry the panko-coated chicken at 350ºF (180ºC) until golden brown. Remove the chicken and place it on a wire rack or plate lined with paper towels to drain the extra oil.",
+              "name": "Heat the oil in a frying pan and shallow-fry the panko-coated chicken at 350ºF (180ºC) until golden brown. Remove the chicken and place it on a wire rack or plate lined with paper towels to drain the extra oil.",
+              "url": "https://www.justonecookbook.com/chicken-katsu-don/#wprm-recipe-59923-step-1-1",
+              "image": "https://www.justonecookbook.com/wp-content/uploads/2011/10/Chicken-Katsu-Don-2-e1321782092293.jpg"
+            }
+          ]
+        },
+        {
+          "@type": "HowToSection",
+          "name": "To Make the Katsudon",
+          "itemListElement": [
+            {
+              "@type": "HowToStep",
+              "text": "In another (or a clean) frying pan, add the onion slices and all the ingredients for the Katsudon seasonings. Cover and bring it to a boil over medium heat. Once boiling, lower the heat to medium low and cook the onion, covered, until wilted.",
+              "name": "In another (or a clean) frying pan, add the onion slices and all the ingredients for the Katsudon seasonings. Cover and bring it to a boil over medium heat. Once boiling, lower the heat to medium low and cook the onion, covered, until wilted.",
+              "url": "https://www.justonecookbook.com/chicken-katsu-don/#wprm-recipe-59923-step-2-0",
+              "image": "https://www.justonecookbook.com/wp-content/uploads/2011/10/Chicken-Katsu-Don-4-e1321782118197.jpg"
+            },
+            {
+              "@type": "HowToStep",
+              "text": "Put the chicken katsu on top of the onion slices and turn the heat up to medium. Evenly distribute the beaten eggs over the chicken katsu and onion. Cover to cook until the eggs are set to your liking, roughly 30 seconds.",
+              "name": "Put the chicken katsu on top of the onion slices and turn the heat up to medium. Evenly distribute the beaten eggs over the chicken katsu and onion. Cover to cook until the eggs are set to your liking, roughly 30 seconds.",
+              "url": "https://www.justonecookbook.com/chicken-katsu-don/#wprm-recipe-59923-step-2-1",
+              "image": "https://www.justonecookbook.com/wp-content/uploads/2011/10/Chicken-Katsu-Don-5-e1321782332446.jpg"
+            },
+            {
+              "@type": "HowToStep",
+              "text": "Top with the chopped mitsuba (or green onion) and turn off the heat. Divide the steamed rice into individual bowls. Gently transfer the simmered katsu and eggs on top of the steamed rice. Sprinkle the top with ichimi togarashi (Japanese chili pepper) for a spicy kick. Enjoy!",
+              "name": "Top with the chopped mitsuba (or green onion) and turn off the heat. Divide the steamed rice into individual bowls. Gently transfer the simmered katsu and eggs on top of the steamed rice. Sprinkle the top with ichimi togarashi (Japanese chili pepper) for a spicy kick. Enjoy!",
+              "url": "https://www.justonecookbook.com/chicken-katsu-don/#wprm-recipe-59923-step-2-2",
+              "image": "https://www.justonecookbook.com/wp-content/uploads/2011/10/Chicken-Katsu-Don-6-e1321782136230.jpg"
+            }
+          ]
+        },
+        {
+          "@type": "HowToSection",
+          "name": "To Store",
+          "itemListElement": [
+            {
+              "@type": "HowToStep",
+              "text": "You can keep the leftovers in an airtight container and store in the refrigerator for up to 3 days or in the freezer for a month.",
+              "name": "You can keep the leftovers in an airtight container and store in the refrigerator for up to 3 days or in the freezer for a month.",
+              "url": "https://www.justonecookbook.com/chicken-katsu-don/#wprm-recipe-59923-step-3-0"
+            }
+          ]
+        }
+      ],
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "4.82",
+        "ratingCount": "64"
+      },
+      "recipeCategory": ["Main Course"],
+      "recipeCuisine": ["Japanese"],
+      "keywords": "chicken, donburi, rice bowl",
+      "nutrition": {
+        "@type": "NutritionInformation",
+        "calories": "768 kcal",
+        "carbohydrateContent": "59 g",
+        "proteinContent": "37 g",
+        "fatContent": "38 g",
+        "saturatedFatContent": "7 g",
+        "transFatContent": "1 g",
+        "cholesterolContent": "315 mg",
+        "sodiumContent": "1089 mg",
+        "fiberContent": "2 g",
+        "sugarContent": "9 g",
+        "unsaturatedFatContent": "28 g",
+        "servingSize": "1 serving"
+      },
+      "@id": "https://www.justonecookbook.com/chicken-katsu-don/#recipe",
+      "isPartOf": {
+        "@id": "https://www.justonecookbook.com/chicken-katsu-don/#article"
+      },
+      "mainEntityOfPage": "https://www.justonecookbook.com/chicken-katsu-don/"
+    }
+  ]
+}

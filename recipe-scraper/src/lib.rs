@@ -112,13 +112,20 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
         instructions: match ld_schema.recipe_instructions {
             ld_schema::InstructionWrapper::A(a) => a.into_iter().map(|i| i.text).collect(),
             ld_schema::InstructionWrapper::B(b) => b
-                .clone()
-                .pop()
-                .unwrap()
-                .item_list_element
-                .iter()
-                .map(|i| i.text.clone().unwrap())
+                .into_iter()
+                .map(|i| match i.clone() {
+                    ld_schema::BOrWrapper::B(b) => b
+                        .item_list_element
+                        .iter()
+                        .map(|i| i.text.clone().unwrap())
+                        .collect(),
+                    ld_schema::BOrWrapper::Wrapper(w) => {
+                        vec![w.text.clone().unwrap()]
+                    }
+                })
+                .flatten()
                 .collect(),
+
             ld_schema::InstructionWrapper::C(c) => {
                 let selector = Selector::parse("p").unwrap();
 
@@ -153,6 +160,7 @@ fn normalize_ld_json(
     url: &str,
 ) -> Result<ScrapedRecipe, ScrapeError> {
     match ld_schema_a {
+        ld_schema::Root::List(mut l) => Ok(normalize_root_recipe(l.pop().unwrap(), url)),
         ld_schema::Root::Recipe(ld_schema) => Ok(normalize_root_recipe(ld_schema, url)),
         ld_schema::Root::Graph(g) => {
             let items = g.graph.len();
@@ -347,6 +355,7 @@ mod tests {
         .unwrap();
         assert_eq!(r.instructions.len(), 5);
         assert_eq!(r.ingredients.len(), 22);
+
         let r = crate::scrape_from_json(
             include_testdata!("seriouseats_pan_pizza.json"),
             "a".as_ref(),
@@ -354,8 +363,15 @@ mod tests {
         .unwrap();
         assert_eq!(r.instructions.len(), 7);
         assert_eq!(r.ingredients.len(), 10);
-    }
 
+        let r = crate::scrape_from_json(
+            include_testdata!("justonecookbook_chicken-katsu-don.json"),
+            "a".as_ref(),
+        )
+        .unwrap();
+        assert_eq!(r.instructions.len(), 7);
+        assert_eq!(r.ingredients.len(), 17);
+    }
     #[test]
     fn handle_no_ldjson() {
         assert!(matches!(
