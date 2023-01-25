@@ -2264,7 +2264,7 @@ version = "0.1.0"
 dependencies = [
  "recipe-scraper",
  "reqwest",
- "reqwest-middleware",
+ "reqwest-middleware 0.2.0",
  "reqwest-tracing",
  "task-local-extensions",
  "tokio",
@@ -2355,6 +2355,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "reqwest-middleware"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a1c03e9011a8c59716ad13115550469e081e2e9892656b0ba6a47c907921894"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "http",
+ "reqwest",
+ "serde",
+ "task-local-extensions",
+ "thiserror",
+]
+
+[[package]]
 name = "reqwest-tracing"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2362,7 +2377,7 @@ checksum = "64977f9a47fa7768cc88751e29026e569730ac1667c2eaeaac04b32624849fbe"
 dependencies = [
  "async-trait",
  "reqwest",
- "reqwest-middleware",
+ "reqwest-middleware 0.1.6",
  "task-local-extensions",
  "tokio",
  "tracing",
