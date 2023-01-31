@@ -55,7 +55,7 @@ fn make_rich(i: &ingredient::Ingredient) -> WidgetText {
     let amounts: Vec<String> = i.amounts.iter().map(|id| id.to_string()).collect();
     let modifier = match i.modifier.clone() {
         Some(m) => {
-            format!(", {}", m)
+            format!(", {m}")
         }
         None => "".to_string(),
     };
@@ -236,9 +236,9 @@ impl eframe::App for MyApp {
 
 #[allow(clippy::needless_pass_by_value)]
 fn parse_response(response: ehttp::Response) -> Result<ScrapedRecipe, String> {
-    match recipe_scraper::scrape(&response.text().unwrap(), &response.url) {
+    match recipe_scraper::scrape(response.text().unwrap(), &response.url) {
         Ok(r) => Ok(r),
-        Err(x) => Err(format!("failed to get recipe {:?}", x)),
+        Err(x) => Err(format!("failed to get recipe {x:?}")),
     }
 }
 

@@ -9,7 +9,6 @@ use reqwest_tracing::{default_on_request_end, reqwest_otel_span, ReqwestOtelSpan
 use std::time::Instant;
 
 use task_local_extensions::Extensions;
-
 use tracing::Span;
 
 pub struct TimeTrace;
@@ -17,7 +16,7 @@ pub struct TimeTrace;
 impl ReqwestOtelSpanBackend for TimeTrace {
     fn on_request_start(req: &Request, extension: &mut Extensions) -> Span {
         extension.insert(Instant::now());
-        reqwest_otel_span!(req, time_elapsed = tracing::field::Empty)
+        reqwest_otel_span!(name = "reqwest-http-request", req)
     }
 
     fn on_request_end(span: &Span, outcome: &Result<Response>, extension: &mut Extensions) {
