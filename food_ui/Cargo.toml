@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 eframe = "0.20.1"
-egui_extras = {version="0.20.0", features=["image"]}
+egui_extras = {version="0.21.0", features=["image"]}
 ehttp = "0.2"
 image = { version = "0.24", default-features = false, features = ["jpeg"] }
 poll-promise = "0.2"
