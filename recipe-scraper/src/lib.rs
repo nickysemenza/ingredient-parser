@@ -202,12 +202,18 @@ fn scrape_from_html(dom: Html) -> Result<ScrapedRecipe, ScrapeError> {
         .map(|s| s.into())
         .collect::<Vec<String>>();
 
+    let image_selector = Selector::parse(r#"meta[property="og:image"]"#).unwrap();
+    let image = dom
+        .select(&image_selector)
+        .next()
+        .map(|i| i.value().attr("content").unwrap().to_string());
+
     Ok(dbg!(ScrapedRecipe {
         ingredients,
         instructions,
         name: "".to_string(),
         url: "".to_string(),
-        image: None,
+        image: image,
     }))
     // Err(ScrapeError::Parse("foo".to_string()))
 }
@@ -328,6 +334,7 @@ mod tests {
         let res = scrape_url("https://smittenkitchen.com/2018/04/crispy-tofu-pad-thai/").unwrap();
         assert_eq!(res.ingredients.len(), 17);
         assert_eq!(res.instructions.len(), 16);
+        assert_eq!(res.image, Some("https://i1.wp.com/smittenkitchen.com/wp-content/uploads//2018/04/crispy-tofu-pad-thai.jpg?fit=1200%2C800&ssl=1".to_string()));
     }
     #[test]
     fn json() {
