@@ -28,10 +28,6 @@ export const Demo: React.FC = () => {
             WASM!
           </p>
           <div className="flex flex-col items-center md:flex-row">
-            <div className="w-full space-y-5 md:w-3/5 md:pr-16">
-              <Debug data={parsed} compact />
-            </div>
-
             <div className="w-full mt-16 md:mt-0 md:w-2/5">
               <div className="relative z-10 h-auto p-8 py-10 overflow-hidden bg-white border-b-2 border-gray-300 rounded-lg shadow-2xl px-7">
                 <h3 className="mb-6 text-2xl font-medium text-center">
@@ -43,6 +39,9 @@ export const Demo: React.FC = () => {
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                 />
+                <div className="w-full">
+                  <Debug data={parsed} compact />
+                </div>
               </div>
             </div>
           </div>
@@ -146,11 +145,7 @@ const Scraper: React.FC = () => {
   const doScrape = useCallback(async () => {
     let res = await fetch("https://cors.nicky.workers.dev/?target=" + url);
     let body = await res.text();
-    if (w) {
-      const res2 = w.scrape(body, url);
-      console.log({ res });
-      setRecipe(res2);
-    }
+    w && setRecipe(w.scrape(body, url));
   }, [w, url]);
 
   useEffect(() => {
@@ -164,15 +159,31 @@ const Scraper: React.FC = () => {
 
   return (
     <div>
-      <input
-        type="text"
-        className="block w-full px-4 py-3 mb-4 border-2 border-transparent border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
-        value={url}
-        onChange={(e) => setURL(e.target.value)}
-      />
-      <h3 className="text-md">{scrapedRecipe && scrapedRecipe.name}</h3>
-      <div className="flex">
-        <div className="w-1/3 mr-8">
+      <div className="flex flex-col md:flex-row">
+        <div className="w-full md:w-2/3">
+          <h3 className="font-darkfont-medium leading-tight text-xl">
+            {scrapedRecipe && scrapedRecipe.name}
+          </h3>
+          <input
+            type="text"
+            className="w-full h-12 px-4 py-3 mb-4 border-2 border-transparent border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
+            value={url}
+            onChange={(e) => setURL(e.target.value)}
+          />
+        </div>
+        <div>
+          {scrapedRecipe && (
+            <img
+              className="object-contain h-48 w-96 ..."
+              src={scrapedRecipe.image}
+              alt={scrapedRecipe.name}
+            />
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-col md:flex-row">
+        <div className="w-full md:w-1/3 md:mr-8">
           {w &&
             scrapedRecipe &&
             scrapedRecipe.ingredients.map((i) => {
@@ -192,7 +203,7 @@ const Scraper: React.FC = () => {
               );
             })}
         </div>
-        <ol className="list-decimal w-1/2">
+        <ol className="list-decimal w-full md:w-1/2">
           {w &&
             scrapedRecipe &&
             scrapedRecipe.instructions.map((i) => (
