@@ -149,7 +149,7 @@ impl MyApp {
 }
 #[cfg(target_arch = "wasm32")]
 fn rewrite_url(url: &str) -> String {
-    format!("https://cors-container.herokuapp.com/{}", url)
+    format!("https://cors.nicky.workers.dev/?target={}", url)
 }
 #[cfg(not(target_arch = "wasm32"))]
 fn rewrite_url(url: &str) -> String {
