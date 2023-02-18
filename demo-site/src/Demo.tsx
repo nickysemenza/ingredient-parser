@@ -1,5 +1,5 @@
-import { useContext, useState } from "react";
-import { RichItem, wasm, WasmContext } from "./wasmContext";
+import { useCallback, useContext, useEffect, useState } from "react";
+import { RichItem, wasm, WasmContext, ScrapedRecipe } from "./wasmContext";
 import ReactJson from "react-json-view";
 export const Demo: React.FC = () => {
   const w = useContext(WasmContext);
@@ -12,6 +12,7 @@ export const Demo: React.FC = () => {
   );
   const ingredientNames = ["flour", "water", "salt"];
   const parsedRich = w?.parse_rich_text(richText, ingredientNames);
+
   if (!w) {
     return null;
   }
@@ -45,35 +46,47 @@ export const Demo: React.FC = () => {
               </div>
             </div>
           </div>
-          <h2 className="text-lg font-extrabold leading-none text-black sm:text-1xl md:text-3xl pt-4">
-            rich text parser
-          </h2>
-          <p className="text-xl text-gray-600 md:pr-16">
-            <span className="flex flex-row">
-              It can also parse old ingredient names and amounts from freeform
-              text. (In other words, recipe instructions). This functionality
-              requires a list of ingredient names to be passed in (to
-              disambiguate them from other text when they are bare – without a
-              prefixed amount)
-              <div className="w-1/2">
-                <Debug data={{ ingredientNames: ingredientNames }} compact />
+          {/* section */}
+          <div>
+            <h2 className="text-lg font-extrabold leading-none text-black sm:text-1xl md:text-3xl pt-4">
+              recipe scraper by URL
+            </h2>
+            <div className="flex flex-col items-center md:flex-row">
+              <div className="w-full mt-2 p-3">
+                <div className="relative z-10 h-auto p-8 py-10 overflow-hidden bg-white border-b-2 border-gray-300 rounded-lg shadow-2xl px-7">
+                  <Scraper />
+                </div>
               </div>
-            </span>
-          </p>
-          <div className="flex flex-col items-center md:flex-row">
-            {/* <div className="w-full space-y-5 md:w-3/5 md:pr-16">
-              <Debug data={parsedRich} compact />
-            </div> */}
-
-            <div className="w-full mt-16 md:mt-0 md:w-1/2">
-              <div className="relative z-10 h-auto p-8 py-10 overflow-hidden bg-white border-b-2 border-gray-300 rounded-lg shadow-2xl px-7">
-                <input
-                  type="text"
-                  className="block w-full px-4 py-3 mb-4 border-2 border-transparent border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
-                  value={richText}
-                  onChange={(e) => setRichText(e.target.value)}
-                />
-                <p>{w && parsedRich && formatRichText(w, parsedRich)}</p>
+            </div>
+          </div>
+          {/* section */}
+          <div>
+            <h2 className="text-lg font-extrabold leading-none text-black sm:text-1xl md:text-3xl pt-4">
+              rich text parser
+            </h2>
+            <p className="text-xl text-gray-600 md:pr-16">
+              <span className="flex flex-row">
+                It can also parse old ingredient names and amounts from freeform
+                text. (In other words, recipe instructions). This functionality
+                requires a list of ingredient names to be passed in (to
+                disambiguate them from other text when they are bare – without a
+                prefixed amount)
+                <div className="w-1/2">
+                  <Debug data={{ ingredientNames: ingredientNames }} compact />
+                </div>
+              </span>
+            </p>
+            <div className="flex flex-col items-center md:flex-row">
+              <div className="w-full mt-16 md:mt-0 md:w-1/2">
+                <div className="relative z-10 h-auto p-8 py-10 overflow-hidden bg-white border-b-2 border-gray-300 rounded-lg shadow-2xl px-7">
+                  <input
+                    type="text"
+                    className="block w-full px-4 py-3 mb-4 border-2 border-transparent border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
+                    value={richText}
+                    onChange={(e) => setRichText(e.target.value)}
+                  />
+                  <p>{w && parsedRich && formatRichText(w, parsedRich)}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -83,7 +96,7 @@ export const Demo: React.FC = () => {
       <section className="text-gray-700 bg-white body-font">
         <div className="container flex flex-col items-center px-8 py-8 mx-auto max-w-7xl sm:flex-row">
           <p className="mt-4 text-sm text-gray-500 sm:ml-4 sm:px-4 sm:border-r sm:border-gray-200 sm:mt-0">
-            © 2021 Nicky Semenza
+            © {new Date().getFullYear()} Nicky Semenza
           </p>
 
           <span className="inline-flex justify-center mt-4 space-x-5 sm:ml-auto sm:mt-0 sm:justify-start">
@@ -117,6 +130,78 @@ export const Demo: React.FC = () => {
           </span>
         </div>
       </section>
+    </div>
+  );
+};
+
+const Scraper: React.FC = () => {
+  const w = useContext(WasmContext);
+  const [scrapedRecipe, setRecipe] = useState<ScrapedRecipe | undefined>(
+    undefined
+  );
+  const [url, setURL] = useState(
+    "https://cooking.nytimes.com/recipes/1020830-caramelized-shallot-pasta"
+  );
+
+  const doScrape = useCallback(async () => {
+    let res = await fetch("https://cors.nicky.workers.dev/?target=" + url);
+    let body = await res.text();
+    if (w) {
+      const res2 = w.scrape(body, url);
+      console.log({ res });
+      setRecipe(res2);
+    }
+  }, [w, url]);
+
+  useEffect(() => {
+    doScrape();
+  }, [w, url, doScrape]);
+
+  const ingredientNames =
+    scrapedRecipe && w
+      ? scrapedRecipe.ingredients.map((i) => w.parse_ingredient(i).name)
+      : [];
+
+  return (
+    <div>
+      <input
+        type="text"
+        className="block w-full px-4 py-3 mb-4 border-2 border-transparent border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
+        value={url}
+        onChange={(e) => setURL(e.target.value)}
+      />
+      <h3 className="text-md">{scrapedRecipe && scrapedRecipe.name}</h3>
+      <div className="flex">
+        <div className="w-1/3 mr-8">
+          {w &&
+            scrapedRecipe &&
+            scrapedRecipe.ingredients.map((i) => {
+              const p = w.parse_ingredient(i);
+              return (
+                <div className="py-1 flex flex-row justify-center">
+                  <div className="w-1/2 flex justify-end pr-1 font-light text-gray-600">
+                    {p.amounts
+                      .filter((a) => a.unit !== "$" && a.unit !== "kcal")
+                      .map((a) => w.format_amount(a))
+                      .join(" / ")}
+                  </div>
+                  <div className="w-1/2">
+                    {p.name} <i>{p.modifier}</i>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+        <ol className="list-decimal w-1/2">
+          {w &&
+            scrapedRecipe &&
+            scrapedRecipe.instructions.map((i) => (
+              <li>
+                {formatRichText(w, w.parse_rich_text(i, ingredientNames))}
+              </li>
+            ))}
+        </ol>
+      </div>
     </div>
   );
 };

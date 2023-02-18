@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-fn main() {
+fn main() -> eframe::Result<()> {
     tracing_subscriber::fmt::init();
     let options = eframe::NativeOptions {
         // initial_window_size: Some([1280.0, 1024.0].into()),
@@ -10,5 +10,5 @@ fn main() {
         "Download and show an image with eframe/egui",
         options,
         Box::new(|_cc| Box::<food_ui::MyApp>::default()),
-    );
+    )
 }

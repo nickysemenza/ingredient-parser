@@ -1,6 +1,6 @@
 import { createContext, useEffect, useState } from "react";
 
-export type { RichItem } from "./wasm/pkg";
+export type { RichItem, ScrapedRecipe } from "./wasm/pkg";
 export type wasm = typeof import("./wasm/pkg/ingredient_wasm");
 
 export const WasmContext = createContext<wasm | undefined>(undefined);

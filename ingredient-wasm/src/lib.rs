@@ -1,9 +1,20 @@
 #![allow(deprecated)]
 
-mod utils;
-
 use ingredient::{self, rich_text::RichParser, Amount, IngredientParser};
 use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn start() -> Result<(), JsValue> {
+    // print pretty errors in wasm https://github.com/rustwasm/console_error_panic_hook
+    // This is not needed for tracing_wasm to work, but it is a common tool for getting proper error line numbers for panics.
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    // Add this line:
+    tracing_wasm::set_as_global_default();
+
+    Ok(())
+}
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -12,13 +23,11 @@ use wasm_bindgen::prelude::*;
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[wasm_bindgen]
 pub fn parse_ingredient(input: &str) -> IIngredient {
-    utils::set_panic_hook();
     let si = ingredient::from_str(input);
     JsValue::from_serde(&si).unwrap().into()
 }
 #[wasm_bindgen]
 pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> {
-    utils::set_panic_hook();
     let ings2: Vec<String> = ings.into_serde().unwrap();
     let rtp = RichParser {
         ingredient_names: ings2,
@@ -32,13 +41,20 @@ pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> 
 
 #[wasm_bindgen]
 pub fn format_amount(amount: &IAmount) -> String {
-    utils::set_panic_hook();
     let a1: Result<Amount, _> = amount.into_serde();
     match a1 {
         Ok(a) => format!("{}", a),
         Err(e) => {
             format!("failed to format {:#?}: {:?}", amount, e)
         }
+    }
+}
+
+#[wasm_bindgen]
+pub fn scrape(body: String, url: String) -> Result<IScrapedREcipe, JsValue> {
+    match recipe_scraper::scrape(body.as_str(), &url) {
+        Ok(r) => Ok(JsValue::from_serde(&r).unwrap().into()),
+        Err(x) => Err(JsValue::from_str(&format!("failed to get recipe: {x:?}"))),
     }
 }
 
@@ -53,6 +69,8 @@ extern "C" {
     pub type IAmounts;
     #[wasm_bindgen(typescript_type = "RichItem[]")]
     pub type RichItems;
+    #[wasm_bindgen(typescript_type = "ScrapedRecipe")]
+    pub type IScrapedREcipe;
 }
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -67,6 +85,15 @@ interface Amount {
   value: number;
   upper_value?: number;
 }
+
+interface ScrapedRecipe {
+    image: string;
+    ingredients: string[];
+    instructions: string[];
+    name: string;
+    url: string;
+}
+
 export type RichItem =
   | { kind: "Text"; value: string }
   | { kind: "Ing"; value: string }

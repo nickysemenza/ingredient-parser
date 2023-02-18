@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 mod ld_schema;
 use thiserror::Error;
-use tracing::error;
+use tracing::{error, info};
 
 #[derive(Error, Debug)]
 pub enum ScrapeError {
@@ -70,6 +70,7 @@ impl ScrapedRecipe {
 // https://github.com/megametres/recettes-api/blob/dev/src/html_parser/mod.rs
 
 pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
+    info!("scraping {} from {}", body.len(), url);
     let dom = Html::parse_document(body);
     let res = match extract_ld(dom.clone()) {
         Ok(ld_schemas) => {
