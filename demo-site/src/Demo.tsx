@@ -190,14 +190,15 @@ const Scraper: React.FC = () => {
               const p = w.parse_ingredient(i);
               return (
                 <div className="py-1 flex flex-row justify-center">
-                  <div className="w-1/2 flex justify-end pr-1 font-light text-gray-600">
+                  <div className="w-1/2 flex justify-end pr-1 font-light  text-gray-600">
                     {p.amounts
                       .filter((a) => a.unit !== "$" && a.unit !== "kcal")
                       .map((a) => w.format_amount(a))
                       .join(" / ")}
                   </div>
                   <div className="w-1/2">
-                    {p.name} <i>{p.modifier}</i>
+                    <div className="underline text-gray-700">{p.name}</div>{" "}
+                    <i>{p.modifier}</i>
                   </div>
                 </div>
               );
@@ -243,7 +244,7 @@ export const formatRichText = (w: wasm, text: RichItem[]) => {
           {t.value}
         </div>
       );
-    } else if (t.kind === "Amount") {
+    } else if (t.kind === "Measure") {
       let val = t.value.pop();
       if (!val) {
         return null;

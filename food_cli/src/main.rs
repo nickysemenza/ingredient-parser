@@ -34,6 +34,7 @@ async fn main() {
         Commands::ParseIngredient { name } => {
             let res = ingredient::from_str(name);
             println!("{}", serde_json::to_string_pretty(&res).unwrap());
+            println!("{}", res.to_string())
         }
     }
 }

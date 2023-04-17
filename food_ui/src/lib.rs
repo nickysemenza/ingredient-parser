@@ -51,7 +51,7 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String) -> bool {
     trigger_fetch
 }
 
-fn make_rich(i: &ingredient::Ingredient) -> WidgetText {
+fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
     let amounts: Vec<String> = i.amounts.iter().map(|id| id.to_string()).collect();
     let modifier = match i.modifier.clone() {
         Some(m) => {
@@ -110,7 +110,7 @@ fn show_parsed(ui: &mut egui::Ui, parsed: &ParsedRecipe) {
                     ui.group(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
                         x.iter().for_each(|x| match x {
-                            ingredient::rich_text::Chunk::Amount(x) => x.iter().for_each(|x| {
+                            ingredient::rich_text::Chunk::Measure(x) => x.iter().for_each(|x| {
                                 ui.label(RichText::new(x.to_string()).color(Color32::GOLD));
                             }),
                             ingredient::rich_text::Chunk::Text(t) => {

@@ -1,10 +1,12 @@
+use std::collections::HashSet;
 use std::iter::FromIterator;
-use std::{collections::HashSet, convert::TryFrom, fmt};
 
+pub use crate::ingredient::Ingredient;
+use fraction::fraction_number;
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, char, not_line_ending, satisfy, space0, space1},
+    character::complete::{alpha1, char, not_line_ending, space0, space1},
     combinator::{opt, verify},
     error::{context, VerboseError},
     multi::{many1, separated_list1},
@@ -13,8 +15,7 @@ use nom::{
     IResult,
 };
 use tracing::info;
-
-use crate::util::num_without_zeroes;
+use unit::Measure;
 
 extern crate nom;
 
@@ -22,83 +23,13 @@ extern crate nom;
 #[macro_use]
 extern crate serde;
 
+mod fraction;
+pub mod ingredient;
 pub mod rich_text;
 pub mod unit;
 pub mod util;
+pub type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
-type Res<T, U> = IResult<T, U, VerboseError<T>>;
-
-#[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
-#[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
-/// Holds a unit and value pair for an ingredient.
-pub struct Amount {
-    pub unit: String,
-    pub value: f64,
-    pub upper_value: Option<f64>,
-}
-
-impl fmt::Display for Amount {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", num_without_zeroes(self.value)).unwrap();
-        if let Some(u) = self.upper_value {
-            if u != 0.0 {
-                write!(f, " - {}", num_without_zeroes(u)).unwrap();
-            }
-        }
-        write!(f, " {}", self.unit)
-    }
-}
-
-impl Amount {
-    pub fn new(unit: &str, value: f64) -> Amount {
-        Amount {
-            unit: unit.to_string(),
-            value,
-            upper_value: None,
-        }
-    }
-    pub fn new_with_upper(unit: &str, value: f64, upper: f64) -> Amount {
-        Amount {
-            unit: unit.to_string(),
-            value,
-            upper_value: Some(upper),
-        }
-    }
-}
-
-#[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
-#[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
-/// Holds a name, list of [Amount], and optional modifier string
-pub struct Ingredient {
-    pub name: String,
-    pub amounts: Vec<Amount>,
-    pub modifier: Option<String>,
-}
-
-impl TryFrom<&str> for Ingredient {
-    type Error = String;
-    fn try_from(value: &str) -> Result<Ingredient, Self::Error> {
-        Ok(from_str(value))
-    }
-}
-
-impl fmt::Display for Ingredient {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let amounts: Vec<String> = self.amounts.iter().map(|id| id.to_string()).collect();
-        let modifier = match self.modifier.clone() {
-            Some(m) => {
-                format!(", {}", m)
-            }
-            None => "".to_string(),
-        };
-        let amount_list = match amounts.len() {
-            0 => "n/a ".to_string(),
-            _ => format!("{} ", amounts.join(" / ")),
-        };
-        let name = self.name.clone();
-        return write!(f, "{}{}{}", amount_list, name, modifier);
-    }
-}
 /// use [IngredientParser] to customize
 pub fn from_str(input: &str) -> Ingredient {
     (IngredientParser::new(false)).from_str(input)
@@ -116,7 +47,8 @@ impl IngredientParser {
             // non standard units - these aren't really convertible for the most part.
             // default set
             "whole", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large",
-            "small", "medium", "package", "recipe", "slice", "standard", "can", "leaf", "leaves",
+            "pinch", "small", "medium", "package", "recipe", "slice", "standard", "can", "leaf",
+            "leaves",
         ]
         .iter()
         .map(|&s| s.into())
@@ -151,23 +83,23 @@ impl IngredientParser {
 
     /// Parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`. Used by [self.parse_ingredient].
     /// ```
-    /// use ingredient::{IngredientParser,Amount};
+    /// use ingredient::{IngredientParser,unit::Measure};
     /// let ip = IngredientParser::new(false);
     /// assert_eq!(
     ///    ip.parse_amount("120 grams"),
-    ///    vec![Amount::new("grams",120.0)]
+    ///    vec![Measure::parse_new("grams",120.0)]
     ///  );
     /// assert_eq!(
     ///    ip.parse_amount("120 grams / 1 cup"),
-    ///    vec![Amount::new("grams",120.0),Amount::new("cup", 1.0)]
+    ///    vec![Measure::parse_new("grams",120.0),Measure::parse_new("cup", 1.0)]
     ///  );
     /// assert_eq!(
     ///    ip.parse_amount("120 grams / 1 cup / 1 whole"),
-    ///    vec![Amount::new("grams",120.0),Amount::new("cup", 1.0),Amount::new("whole", 1.0)]
+    ///    vec![Measure::parse_new("grams",120.0),Measure::parse_new("cup", 1.0),Measure::parse_new("whole", 1.0)]
     ///  );
     /// ```
     #[tracing::instrument(name = "parse_amount")]
-    pub fn parse_amount(&self, input: &str) -> Vec<Amount> {
+    pub fn parse_amount(&self, input: &str) -> Vec<Measure> {
         // todo: also can't get this one to fail either
         self.clone().many_amount(input).expect(input).1
     }
@@ -189,7 +121,7 @@ impl IngredientParser {
     /// * name
     /// * 1 name
     /// ```
-    /// use ingredient::{IngredientParser, Ingredient, Amount};
+    /// use ingredient::{IngredientParser, ingredient::Ingredient, unit::Measure};
     /// let ip = IngredientParser::new(false);
     /// assert_eq!(
     ///     ip.parse_ingredient("1¼  cups / 155.5 grams flour"),
@@ -198,8 +130,8 @@ impl IngredientParser {
     ///         Ingredient {
     ///             name: "flour".to_string(),
     ///             amounts: vec![
-    ///                 Amount::new("cups", 1.25),
-    ///                 Amount::new("grams", 155.5),
+    ///                 Measure::parse_new("cups", 1.25),
+    ///                 Measure::parse_new("grams", 155.5),
     ///             ],
     ///             modifier: None,
     ///         }
@@ -230,11 +162,11 @@ impl IngredientParser {
                 _maybecomma,
                 modifier_chunks,
             ): (
-                Option<Vec<Amount>>,
+                Option<Vec<Measure>>,
                 &str,
                 Option<(String, &str)>,
                 Option<Vec<&str>>,
-                Option<Vec<Amount>>,
+                Option<Vec<Measure>>,
                 Option<&str>,
                 &str,
             ) = res;
@@ -335,7 +267,7 @@ impl IngredientParser {
     }
 
     // parses a single amount
-    fn amount1(self, input: &str) -> Res<&str, Vec<Amount>> {
+    fn amount1(self, input: &str) -> Res<&str, Measure> {
         let res = context(
             "amount1",
             tuple(
@@ -357,20 +289,20 @@ impl IngredientParser {
             }
             return (
                 next_input,
-                vec![Amount {
-                    unit: unit
-                        .unwrap_or("whole".to_string())
+                Measure::from_parts(
+                    unit.unwrap_or("whole".to_string())
                         .to_string()
-                        .to_lowercase(),
-                    value: v,
-                    upper_value: value.1,
-                }],
+                        .to_lowercase()
+                        .as_ref(),
+                    v,
+                    value.1,
+                ),
             );
         });
         res
     }
     // parses an amount like `78g to 104g cornmeal`
-    fn amount_with_units_twice(self, input: &str) -> Res<&str, Vec<Amount>> {
+    fn amount_with_units_twice(self, input: &str) -> Res<&str, Option<Measure>> {
         let res = context(
             "amount_with_units_twice",
             tuple((
@@ -388,7 +320,7 @@ impl IngredientParser {
             if upper_unit.is_some() && unit != upper_unit {
                 info!("unit mismatch: {:?} vs {:?}", unit, upper_unit);
                 // panic!("unit mismatch: {:?} vs {:?}", unit, upper_unit)
-                return (next_input, vec![]);
+                return (next_input, None);
             }
             // let upper = match value.1 {
             //     Some(u) => Some(u),
@@ -401,30 +333,40 @@ impl IngredientParser {
             let upper = Some(upper_val);
             return (
                 next_input,
-                vec![Amount {
-                    unit: unit
-                        .unwrap_or("whole".to_string())
+                Some(Measure::from_parts(
+                    unit.unwrap_or("whole".to_string())
                         .to_string()
-                        .to_lowercase(),
-                    value: value.0,
-                    upper_value: upper,
-                }],
+                        .to_lowercase()
+                        .as_ref(),
+                    value.0,
+                    upper,
+                )),
             );
         });
         res
     }
     // parses 1-n amounts, e.g. `12 grams` or `120 grams / 1 cup`
     #[tracing::instrument(name = "many_amount")]
-    fn many_amount(self, input: &str) -> Res<&str, Vec<Amount>> {
+    fn many_amount(self, input: &str) -> Res<&str, Vec<Measure>> {
         context(
             "many_amount",
             separated_list1(
                 alt((tag("; "), tag(" / "), tag(" "), tag(", "), tag("/"))),
                 alt((
-                    |a| self.clone().plus_amount(a),
-                    |a| self.clone().amount_with_units_twice(a), // regular amount
-                    |a| self.clone().amt_parens(a),              // amoiunt with parens
-                    |a| self.clone().amount1(a),                 // regular amount
+                    |a| self.clone().plus_amount(a).map(|(a, b)| (a, vec![b])),
+                    |a| {
+                        self.clone().amount_with_units_twice(a).map(|(a, b)| {
+                            (
+                                a,
+                                match b {
+                                    Some(a) => vec![a],
+                                    None => vec![],
+                                },
+                            )
+                        })
+                    }, // regular amount
+                    |a| self.clone().amt_parens(a), // amoiunt with parens
+                    |a| self.clone().amount1(a).map(|(a, b)| (a, vec![b])), // regular amount
                 )),
             ),
         )(input)
@@ -434,7 +376,7 @@ impl IngredientParser {
         })
     }
 
-    fn amt_parens(self, input: &str) -> Res<&str, Vec<Amount>> {
+    fn amt_parens(self, input: &str) -> Res<&str, Vec<Measure>> {
         context(
             "amt_parens",
             delimited(char('('), |a| self.clone().many_amount(a), char(')')),
@@ -478,7 +420,7 @@ impl IngredientParser {
         )(input)
         .map(|(next_input, (_space1, _, _space2, num))| (next_input, num))
     }
-    fn plus_amount(self, input: &str) -> Res<&str, Vec<Amount>> {
+    fn plus_amount(self, input: &str) -> Res<&str, Measure> {
         context(
             "plus_num",
             tuple((
@@ -489,10 +431,9 @@ impl IngredientParser {
                 |a| self.clone().amount1(a),
             )),
         )(input)
-        .map(|(next_input, (mut a, _space1, _, _, mut b))| {
-            // todo: sum instead of just append
-            a.append(&mut b);
-            return (next_input, a);
+        .map(|(next_input, (a, _space1, _, _, b))| {
+            let c = a.add(b).unwrap();
+            return (next_input, c);
         })
     }
 }
@@ -519,133 +460,25 @@ fn unitamt(input: &str) -> Res<&str, String> {
         .map(|(next_input, res)| (next_input, res.join("")))
 }
 
-fn v_frac_to_num(input: char) -> Result<f64, String> {
-    // two ranges for unicode fractions
-    // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
-    let (n, d): (i32, i32) = match input {
-        '¾' => (3, 4),
-        '⅛' => (1, 8),
-        '¼' => (1, 4),
-        '⅓' => (1, 3),
-        '½' => (1, 2),
-        '⅔' => (2, 3),
-        _ => return Err(format!("unkown fraction: {}", input)),
-    };
-    return Ok(n as f64 / d as f64);
-}
-
-fn is_frac_char(c: char) -> bool {
-    v_frac_to_num(c).is_ok()
-}
-/// parses unicode vulgar fractions
-fn v_fraction(input: &str) -> Res<&str, f64> {
-    context("v_fraction", satisfy(is_frac_char))(input)
-        .map(|(next_input, res)| (next_input, v_frac_to_num(res).unwrap()))
-}
-
-fn n_fraction(input: &str) -> Res<&str, f64> {
-    context("n_fraction", tuple((double, tag("/"), double)))(input)
-        .map(|(next_input, res)| (next_input, res.0 / res.2))
-}
 fn text_number(input: &str) -> Res<&str, f64> {
     context("text_number", alt((tag("one"), tag("a "))))(input)
         .map(|(next_input, _)| (next_input, 1.0))
 }
 
-/// parses `1 ⅛` or `1 1/8` into `1.125`
-fn fraction_number(input: &str) -> Res<&str, f64> {
-    context(
-        "fraction_number",
-        alt((
-            tuple((
-                opt(tuple((double, space0))), // optional number (and if number, optional space) before
-                v_fraction,                   // vulgar frac
-            )),
-            tuple((
-                opt(tuple((double, space1))), // optional number (and if number, required space space) before
-                n_fraction,                   // regular frac
-            )),
-        )),
-    )(input)
-    .map(|(next_input, res)| {
-        let (num, frac) = res;
-        let num1 = match num {
-            Some(x) => x.0,
-            None => 0.0,
-        };
-        (next_input, num1 + frac)
-    })
-}
-macro_rules! generate_test_function {
-    ($test_name:ident, $input:expr, $expected_output:expr) => {
-        #[test]
-        fn $test_name() {
-            assert_eq!(
-                (IngredientParser::new(false)).parse_ingredient($input),
-                Ok(("", $expected_output))
-            );
-        }
-    };
-}
-// macro_rules! test_map {
-//     ($name:ident, $($s:expr, $o:expr),+) => {
-//         #[test]
-//         fn $name() {
-//             let base = (IngredientParser::new(false)).parse_ingredient($s);
-//             let fst = fst_map(vec![$(($s, $o)),*]);
-//             let mut rdr = fst.stream();
-//             $({
-//                 let (s, o) = rdr.next().unwrap();
-//                 assert_eq!((s, o.value()), ($s.as_bytes(), $o));
-//             })*
-//             assert_eq!(rdr.next(), None);
-//             $({
-//                 assert_eq!(fst.get($s.as_bytes()), Some(Output::new($o)));
-//             })*
-//         }
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
-    use nom::error::{ErrorKind, VerboseErrorKind};
-    use nom::Err as NomErr;
+    use std::convert::TryFrom;
 
     use super::*;
-    #[test]
-    fn test_fraction() {
-        assert_eq!(fraction_number("1 ⅛"), Ok(("", 1.125)));
-        assert_eq!(fraction_number("1 1/8"), Ok(("", 1.125)));
-        assert_eq!(fraction_number("1⅓"), Ok(("", 1.3333333333333333)));
-        assert_eq!(fraction_number("¼"), Ok(("", 0.25)));
-        assert_eq!(fraction_number("1/4"), Ok(("", 0.25)));
-        assert_eq!(
-            fraction_number("1"),
-            Err(NomErr::Error(VerboseError {
-                errors: vec![
-                    ("", VerboseErrorKind::Nom(ErrorKind::Tag)),
-                    ("1", VerboseErrorKind::Context("n_fraction")),
-                    ("1", VerboseErrorKind::Nom(ErrorKind::Alt)),
-                    ("1", VerboseErrorKind::Context("fraction_number")),
-                ]
-            }))
-        );
-    }
-    #[test]
-    fn test_v_fraction() {
-        assert_eq!(v_frac_to_num('⅛'), Ok(0.125));
-        assert_eq!(v_frac_to_num('¼'), Ok(0.25));
-        assert_eq!(v_frac_to_num('½'), Ok(0.5));
-    }
     #[test]
     fn test_amount() {
         assert_eq!(
             (IngredientParser::new(false)).parse_amount("350 °"),
-            vec![Amount::new("°", 350.0)]
+            vec![Measure::parse_new("°", 350.0)]
         );
         assert_eq!(
             (IngredientParser::new(false)).parse_amount("350 °F"),
-            vec![Amount::new("°f", 350.0)]
+            vec![Measure::parse_new("°f", 350.0)]
         );
     }
 
@@ -653,17 +486,14 @@ mod tests {
     fn test_amount_range() {
         assert_eq!(
             (IngredientParser::new(false)).parse_amount("2¼-2.5 cups"),
-            vec![Amount::new_with_upper("cups", 2.25, 2.5)]
+            vec![Measure::parse_new_with_upper("cups", 2.25, 2.5)]
         );
-        assert_eq!(
-            (IngredientParser::new(false)).parse_amount("2¼-2.5 cups"),
-            (IngredientParser::new(false)).parse_amount("2 ¼ - 2.5 cups")
-        );
+
         assert_eq!(
             Ingredient::try_from("1-2 cups flour"),
             Ok(Ingredient {
                 name: "flour".to_string(),
-                amounts: vec![Amount::new_with_upper("cups", 1.0, 2.0)],
+                amounts: vec![Measure::parse_new_with_upper("cups", 1.0, 2.0)],
                 modifier: None,
             })
         );
@@ -679,17 +509,13 @@ mod tests {
         );
         assert_eq!(
             (IngredientParser::new(false)).parse_amount("2 to 4 days"),
-            vec![Amount::new_with_upper("days", 2.0, 4.0)]
+            vec![Measure::parse_new_with_upper("days", 2.0, 4.0)]
         );
 
         // #30
         assert_eq!(
             (IngredientParser::new(false)).parse_amount("up to 4 days"),
-            vec![Amount::new_with_upper("days", 0.0, 4.0)]
-        );
-        assert_eq!(
-            (IngredientParser::new(false)).parse_amount("78g to 104g"),
-            (IngredientParser::new(false)).parse_amount("78g - 104g"),
+            vec![Measure::parse_new_with_upper("days", 0.0, 4.0)]
         );
     }
     #[test]
@@ -698,72 +524,12 @@ mod tests {
             Ingredient::try_from("12 cups flour"),
             Ok(Ingredient {
                 name: "flour".to_string(),
-                amounts: vec![Amount::new("cups", 12.0)],
+                amounts: vec![Measure::parse_new("cups", 12.0)],
                 modifier: None,
             })
         );
     }
 
-    #[test]
-    fn test_ingredient_parse_no_amounts() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("egg"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "egg".to_string(),
-                    amounts: vec![],
-                    modifier: None,
-                }
-            ))
-        );
-    }
-    #[test]
-    fn test_ingredient_parse_no_unit() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("1 egg"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "egg".to_string(),
-                    amounts: vec![Amount::new("whole", 1.0)],
-                    modifier: None,
-                }
-            ))
-        );
-    }
-    #[test]
-    fn test_ingredient_parse_no_unit_multi_name() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("1 cinnamon stick"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "cinnamon stick".to_string(),
-                    amounts: vec![Amount::new("whole", 1.0)],
-                    modifier: None,
-                }
-            ))
-        );
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("1 cinnamon stick"),
-            (IngredientParser::new(false)).parse_ingredient("1 whole cinnamon stick"),
-        );
-    }
-    #[test]
-    fn test_ingredient_parse_no_unit_multi_name_adj() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("1 cinnamon stick, crushed"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "cinnamon stick".to_string(),
-                    amounts: vec![Amount::new("whole", 1.0)],
-                    modifier: Some("crushed".to_string()),
-                }
-            ))
-        );
-    }
     #[test]
     fn test_stringy() {
         assert_eq!(
@@ -777,200 +543,7 @@ mod tests {
     fn test_with_parens() {
         assert_eq!(
             from_str("1 cup (125.5 grams) AP flour, sifted").to_string(),
-            "1 cup / 125.5 grams AP flour, sifted"
+            "1 cup / 125.5 g AP flour, sifted"
         );
     }
-    #[test]
-    fn test_no_ingredient_amounts() {
-        assert_eq!(
-            Ingredient {
-                name: "apples".to_string(),
-                amounts: vec![],
-                modifier: None,
-            }
-            .to_string(),
-            "n/a apples"
-        );
-    }
-    generate_test_function!(
-        test_ingredient_parse_multi,
-        "12 cups all purpose flour, lightly sifted",
-        Ingredient {
-            name: "all purpose flour".to_string(),
-            amounts: vec![Amount::new("cups", 12.0)],
-            modifier: Some("lightly sifted".to_string()),
-        }
-    );
-    #[test]
-    fn test_ingredient_parse_multi_2() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("1¼  cups / 155.5 grams flour"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "flour".to_string(),
-                    amounts: vec![Amount::new("cups", 1.25), Amount::new("grams", 155.5),],
-                    modifier: None,
-                }
-            ))
-        );
-
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient(
-                "0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast"
-            ),
-            Ok((
-                "",
-                Ingredient {
-                    name: "instant or rapid rise yeast".to_string(),
-                    amounts: vec![
-                        Amount::new("ounces", 0.25),
-                        Amount::new("packet", 1.0),
-                        Amount::new("teaspoons", 2.0),
-                    ],
-                    modifier: None
-                }
-            ))
-        );
-        assert_eq!(
-            (IngredientParser::new(false))
-                .parse_ingredient("6 ounces unsalted butter (1½ sticks; 168.75g)"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "unsalted butter".to_string(),
-                    amounts: vec![
-                        Amount::new("ounces", 6.0),
-                        Amount::new("sticks", 1.5),
-                        Amount::new("g", 168.75),
-                    ],
-                    modifier: None
-                }
-            ))
-        );
-        assert_eq!(
-            (IngredientParser::new(false))
-                .parse_ingredient("½ pound 2 sticks; 227 g unsalted butter, room temperature"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "unsalted butter".to_string(),
-                    amounts: vec![
-                        Amount::new("pound", 0.5),
-                        Amount::new("sticks", 2.0),
-                        Amount::new("g", 227.0),
-                    ],
-                    modifier: Some("room temperature".to_string())
-                }
-            ))
-        );
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("1 ½ cups/192 grams all-purpose flour"),
-            (IngredientParser::new(false))
-                .parse_ingredient("1 1/2 cups / 192 grams all-purpose flour")
-        );
-    }
-    #[test]
-    fn test_weird_chars() {
-        vec![
-            "confectioners’ sugar",
-            "confectioners' sugar",
-            // "gruyère", #29
-        ]
-        .into_iter()
-        .for_each(|n| {
-            assert_eq!(
-                (IngredientParser::new(false))
-                    .parse_ingredient(&format!("2 cups/240 grams {}, sifted", n)),
-                Ok((
-                    "",
-                    Ingredient {
-                        name: n.to_string(),
-                        amounts: vec![Amount::new("cups", 2.0), Amount::new("grams", 240.0)],
-                        modifier: Some("sifted".to_string())
-                    }
-                ))
-            );
-        });
-    }
-    #[test]
-    fn test_parse_ing_upepr_range() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("78g to 104g cornmeal"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "cornmeal".to_string(),
-                    amounts: vec![Amount::new_with_upper("g", 78.0, 104.0),],
-                    modifier: None
-                }
-            ))
-        );
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("78g to 104g cornmeal"),
-            (IngredientParser::new(false)).parse_ingredient("78 to 104g cornmeal"),
-        )
-    }
-    #[test]
-    fn test_unit_period_mixed_case() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("1 Tbsp. flour"),
-            (IngredientParser::new(false)).parse_ingredient("1 tbsp flour"),
-        );
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("12 cloves of garlic, peeled"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "garlic".to_string(),
-                    amounts: vec![Amount::new("cloves", 12.0),],
-                    modifier: Some("peeled".to_string())
-                }
-            ))
-        );
-    }
-    #[test]
-    fn test_multiply() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("2 x 200g flour"),
-            (IngredientParser::new(false)).parse_ingredient("400g flour"),
-        );
-    }
-    #[test]
-    fn test_parse_ingredient_cloves() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_ingredient("1 clove garlic, grated"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "garlic".to_string(),
-                    amounts: vec![Amount::new("clove", 1.0),],
-                    modifier: Some("grated".to_string())
-                }
-            ))
-        );
-        //todo: doesn't work
-        // assert_eq!(
-        //     (IngredientParser::new(false)).parse_ingredient("1 clove, grated"),
-        //     Ok((
-        //         "",
-        //         Ingredient {
-        //             name: "clove".to_string(),
-        //             amounts: vec![Amount::new("whole", 1.0),],
-        //             modifier: Some("grated".to_string())
-        //         }
-        //     ))
-        // );
-    }
-
-    generate_test_function!(
-        test_sum_wip,
-        "1 tablespoon plus 1 teaspoon olive oil",
-        Ingredient {
-            name: "olive oil".to_string(),
-            // TODO: should be 4 teaspoons or 1.3333 tablespoons
-            amounts: vec![Amount::new("tablespoon", 1.0), Amount::new("teaspoon", 1.0),],
-            modifier: None
-        }
-    );
 }

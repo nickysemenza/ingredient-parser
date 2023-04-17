@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-use ingredient::{self, rich_text::RichParser, Amount, IngredientParser};
+use ingredient::{self, rich_text::RichParser, unit::Measure, IngredientParser};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
@@ -40,8 +40,8 @@ pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> 
 }
 
 #[wasm_bindgen]
-pub fn format_amount(amount: &IAmount) -> String {
-    let a1: Result<Amount, _> = amount.into_serde();
+pub fn format_amount(amount: &IMeasure) -> String {
+    let a1: Result<Measure, _> = amount.into_serde();
     match a1 {
         Ok(a) => format!("{}", a),
         Err(e) => {
@@ -62,11 +62,11 @@ pub fn scrape(body: String, url: String) -> Result<IScrapedREcipe, JsValue> {
 extern "C" {
     #[wasm_bindgen(typescript_type = "Ingredient")]
     pub type IIngredient;
-    #[wasm_bindgen(typescript_type = "Amount")]
+    #[wasm_bindgen(typescript_type = "Measure")]
     #[derive(Debug)]
-    pub type IAmount;
-    #[wasm_bindgen(typescript_type = "Amount[]")]
-    pub type IAmounts;
+    pub type IMeasure;
+    #[wasm_bindgen(typescript_type = "Measure[]")]
+    pub type IMeasures;
     #[wasm_bindgen(typescript_type = "RichItem[]")]
     pub type RichItems;
     #[wasm_bindgen(typescript_type = "ScrapedRecipe")]
@@ -76,11 +76,11 @@ extern "C" {
 #[wasm_bindgen(typescript_custom_section)]
 const ITEXT_STYLE: &'static str = r#"
 interface Ingredient {
-    amounts: Amount[];
+    amounts: Measure[];
     modifier?: string;
     name: string;
 }
-interface Amount {
+interface Measure {
   unit: string;
   value: number;
   upper_value?: number;
@@ -97,5 +97,5 @@ interface ScrapedRecipe {
 export type RichItem =
   | { kind: "Text"; value: string }
   | { kind: "Ing"; value: string }
-  | { kind: "Amount"; value: Amount[] }
+  | { kind: "Measure"; value: Measure[] }
 "#;

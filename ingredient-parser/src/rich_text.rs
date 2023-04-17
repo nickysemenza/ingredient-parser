@@ -1,4 +1,4 @@
-use crate::{text, Amount, IngredientParser, Res};
+use crate::{text, unit::Measure, IngredientParser, Res};
 use itertools::Itertools;
 use nom::{branch::alt, bytes::complete::tag, error::context, multi::many0};
 
@@ -6,7 +6,7 @@ use nom::{branch::alt, bytes::complete::tag, error::context, multi::many0};
 #[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
 #[serde(tag = "kind", content = "value")]
 pub enum Chunk {
-    Amount(Vec<Amount>),
+    Measure(Vec<Measure>),
     Text(String),
     Ing(String),
 }
@@ -55,7 +55,7 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
 
 fn amounts_chunk(ip: IngredientParser, input: &str) -> Res<&str, Chunk> {
     let res = context("amounts_chunk", |a| ip.clone().many_amount(a))(input)
-        .map(|(next_input, res)| (next_input, Chunk::Amount(res)));
+        .map(|(next_input, res)| (next_input, Chunk::Measure(res)));
     return res;
 }
 fn text_chunk(input: &str) -> Res<&str, Chunk> {
@@ -76,10 +76,10 @@ fn text2(input: &str) -> Res<&str, &str> {
         tag("!"),
     ))(input)
 }
-/// Parse some rich text that has some parsable [Amount] scattered around in it. Useful for displaying text with fancy formatting.
+/// Parse some rich text that has some parsable [Measure] scattered around in it. Useful for displaying text with fancy formatting.
 /// returns [Rich]
 /// ```
-/// use ingredient::{Amount, IngredientParser, rich_text::{RichParser, Chunk}};
+/// use ingredient::{unit::Measure, IngredientParser, rich_text::{RichParser, Chunk}};
 /// assert_eq!(
 /// (RichParser {
 /// ingredient_names: vec![],
@@ -87,7 +87,7 @@ fn text2(input: &str) -> Res<&str, &str> {
 /// }).parse("hello 1 cups foo bar").unwrap(),
 /// vec![
 /// 	Chunk::Text("hello ".to_string()),
-/// 	Chunk::Amount(vec![Amount::new("cups", 1.0)]),
+/// 	Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
 /// 	Chunk::Text(" foo bar".to_string())
 /// ]
 /// );
@@ -116,6 +116,7 @@ impl RichParser {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -129,7 +130,7 @@ mod tests {
             .unwrap(),
             vec![
                 Chunk::Text("hello ".to_string()),
-                Chunk::Amount(vec![Amount::new("cups", 1.0)]),
+                Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
                 Chunk::Text(" foo bar".to_string())
             ]
         );
@@ -142,7 +143,7 @@ mod tests {
             .unwrap(),
             vec![
                 Chunk::Text("hello ".to_string()),
-                Chunk::Amount(vec![Amount::new("cups", 1.0)]),
+                Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
                 // Chunk::Text(" foo bar".to_string()),
                 Chunk::Text(" foo ".to_string()),
                 Chunk::Ing("bar".to_string())
@@ -156,7 +157,7 @@ mod tests {
             .parse("2-2 1/2 cups foo' bar")
             .unwrap(),
             vec![
-                Chunk::Amount(vec![Amount::new_with_upper("cups", 2.0, 2.5)]),
+                Chunk::Measure(vec![Measure::parse_new_with_upper("cups", 2.0, 2.5)]),
                 Chunk::Text(" foo' bar".to_string())
             ]
         );
@@ -172,7 +173,7 @@ mod tests {
             .unwrap(),
             vec![
                 Chunk::Text("hello ".to_string()),
-                Chunk::Amount(vec![Amount::new("cups", 1.0)]),
+                Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
                 Chunk::Text(" ".to_string()),
                 Chunk::Ing("foo bar".to_string()),
             ]
@@ -190,7 +191,7 @@ mod tests {
             .unwrap(),
             vec![
                 Chunk::Text("store for ".to_string()),
-                Chunk::Amount(vec![Amount::new_with_upper("days", 1.0, 2.0)]),
+                Chunk::Measure(vec![Measure::parse_new_with_upper("days", 1.0, 2.0)]),
             ]
         );
         assert_eq!(
@@ -202,11 +203,11 @@ mod tests {
             .unwrap(),
             vec![
                 Chunk::Text("add ".to_string()),
-                Chunk::Amount(vec![Amount::new("cup", 1.0)]),
+                Chunk::Measure(vec![Measure::parse_new("cup", 1.0)]),
                 Chunk::Text(" ".to_string()),
                 Chunk::Ing("water".to_string()),
                 Chunk::Text(" and store for".to_string()),
-                Chunk::Amount(vec![Amount::new_with_upper("days", 0.0, 2.0)]),
+                Chunk::Measure(vec![Measure::parse_new_with_upper("days", 0.0, 2.0)]),
             ]
         );
     }
@@ -221,17 +222,9 @@ mod tests {
             .parse(r#"9" x 13""#)
             .unwrap(),
             vec![
-                Chunk::Amount(vec![Amount {
-                    unit: r#"""#.to_string(),
-                    value: 9.0,
-                    upper_value: None
-                }]),
+                Chunk::Measure(vec![Measure::parse_new(r#"""#, 9.0,)]),
                 Chunk::Text(" x ".to_string()),
-                Chunk::Amount(vec![Amount {
-                    unit: r#"""#.to_string(),
-                    value: 13.0,
-                    upper_value: None
-                }]),
+                Chunk::Measure(vec![Measure::parse_new(r#"""#, 13.0,)]),
             ]
         );
     }

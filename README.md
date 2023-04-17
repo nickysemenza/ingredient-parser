@@ -14,8 +14,8 @@ As an example, `1¼  cups / 155.5 grams all-purpose flour, lightly sifted`  beco
 {
     name: "all-purpose flour",
     amounts: [
-        Amount { unit: "cups", value: 1.25 },
-        Amount { unit: "grams", value: 155.5 }
+        Measure { unit: "cups", value: 1.25 },
+        Measure { unit: "grams", value: 155.5 }
     ],
     modifier: Some("lightly sifted")
 }

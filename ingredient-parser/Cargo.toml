@@ -17,6 +17,8 @@ serde-derive = ["serde/derive"]
 serde = { version = "1.0", optional = true, features = ["derive"] }
 itertools = "0.10.5"
 tracing = "0.1.37"
+anyhow = "1.0"
+petgraph = "0.6.2"
 
 
 [dependencies.nom]

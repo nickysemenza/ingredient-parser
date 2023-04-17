@@ -1,6 +1,7 @@
 use ingredient::{
+    ingredient::Ingredient,
     rich_text::{Rich, RichParser},
-    Ingredient, IngredientParser,
+    IngredientParser,
 };
 use scraper::{Html, Selector};
 
