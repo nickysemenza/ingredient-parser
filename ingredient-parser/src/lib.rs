@@ -116,7 +116,7 @@ impl IngredientParser {
             // non standard units - these aren't really convertible for the most part.
             // default set
             "whole", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large",
-            "medium", "package", "recipe", "slice", "standard", "can", "leaf", "leaves",
+            "small", "medium", "package", "recipe", "slice", "standard", "can", "leaf", "leaves",
         ]
         .iter()
         .map(|&s| s.into())
@@ -169,7 +169,7 @@ impl IngredientParser {
     #[tracing::instrument(name = "parse_amount")]
     pub fn parse_amount(&self, input: &str) -> Vec<Amount> {
         // todo: also can't get this one to fail either
-        self.clone().many_amount(input).unwrap().1
+        self.clone().many_amount(input).expect(input).1
     }
 
     /// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`.
@@ -421,6 +421,7 @@ impl IngredientParser {
             separated_list1(
                 alt((tag("; "), tag(" / "), tag(" "), tag(", "), tag("/"))),
                 alt((
+                    |a| self.clone().plus_amount(a),
                     |a| self.clone().amount_with_units_twice(a), // regular amount
                     |a| self.clone().amt_parens(a),              // amoiunt with parens
                     |a| self.clone().amount1(a),                 // regular amount
@@ -476,6 +477,23 @@ impl IngredientParser {
             )),
         )(input)
         .map(|(next_input, (_space1, _, _space2, num))| (next_input, num))
+    }
+    fn plus_amount(self, input: &str) -> Res<&str, Vec<Amount>> {
+        context(
+            "plus_num",
+            tuple((
+                |a| self.clone().amount1(a),
+                space1,
+                tag("plus"),
+                space1,
+                |a| self.clone().amount1(a),
+            )),
+        )(input)
+        .map(|(next_input, (mut a, _space1, _, _, mut b))| {
+            // todo: sum instead of just append
+            a.append(&mut b);
+            return (next_input, a);
+        })
     }
 }
 
@@ -558,6 +576,35 @@ fn fraction_number(input: &str) -> Res<&str, f64> {
         (next_input, num1 + frac)
     })
 }
+macro_rules! generate_test_function {
+    ($test_name:ident, $input:expr, $expected_output:expr) => {
+        #[test]
+        fn $test_name() {
+            assert_eq!(
+                (IngredientParser::new(false)).parse_ingredient($input),
+                Ok(("", $expected_output))
+            );
+        }
+    };
+}
+// macro_rules! test_map {
+//     ($name:ident, $($s:expr, $o:expr),+) => {
+//         #[test]
+//         fn $name() {
+//             let base = (IngredientParser::new(false)).parse_ingredient($s);
+//             let fst = fst_map(vec![$(($s, $o)),*]);
+//             let mut rdr = fst.stream();
+//             $({
+//                 let (s, o) = rdr.next().unwrap();
+//                 assert_eq!((s, o.value()), ($s.as_bytes(), $o));
+//             })*
+//             assert_eq!(rdr.next(), None);
+//             $({
+//                 assert_eq!(fst.get($s.as_bytes()), Some(Output::new($o)));
+//             })*
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -745,21 +792,17 @@ mod tests {
             "n/a apples"
         );
     }
+    generate_test_function!(
+        test_ingredient_parse_multi,
+        "12 cups all purpose flour, lightly sifted",
+        Ingredient {
+            name: "all purpose flour".to_string(),
+            amounts: vec![Amount::new("cups", 12.0)],
+            modifier: Some("lightly sifted".to_string()),
+        }
+    );
     #[test]
-    fn test_ingredient_parse_multi() {
-        assert_eq!(
-            (IngredientParser::new(false))
-                .parse_ingredient("12 cups all purpose flour, lightly sifted"),
-            Ok((
-                "",
-                Ingredient {
-                    name: "all purpose flour".to_string(),
-                    amounts: vec![Amount::new("cups", 12.0)],
-                    modifier: Some("lightly sifted".to_string()),
-                }
-            ))
-        );
-
+    fn test_ingredient_parse_multi_2() {
         assert_eq!(
             (IngredientParser::new(false)).parse_ingredient("1¼  cups / 155.5 grams flour"),
             Ok((
@@ -892,11 +935,6 @@ mod tests {
             (IngredientParser::new(false)).parse_ingredient("2 x 200g flour"),
             (IngredientParser::new(false)).parse_ingredient("400g flour"),
         );
-
-        // assert_eq!(
-        //     (IngredientParser::new(false)).parse_ingredient("2 x 200g flour"),
-        //     (IngredientParser::new(false)).parse_ingredient("2 200g flour"),
-        // );
     }
     #[test]
     fn test_parse_ingredient_cloves() {
@@ -924,4 +962,15 @@ mod tests {
         //     ))
         // );
     }
+
+    generate_test_function!(
+        test_sum_wip,
+        "1 tablespoon plus 1 teaspoon olive oil",
+        Ingredient {
+            name: "olive oil".to_string(),
+            // TODO: should be 4 teaspoons or 1.3333 tablespoons
+            amounts: vec![Amount::new("tablespoon", 1.0), Amount::new("teaspoon", 1.0),],
+            modifier: None
+        }
+    );
 }
