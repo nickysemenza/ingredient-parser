@@ -48,7 +48,7 @@ impl IngredientParser {
             // default set
             "whole", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large",
             "pinch", "small", "medium", "package", "recipe", "slice", "standard", "can", "leaf",
-            "leaves",
+            "leaves", "strand",
         ]
         .iter()
         .map(|&s| s.into())
@@ -58,9 +58,12 @@ impl IngredientParser {
             "minced",
             "diced",
             "freshly ground",
+            "freshly grated",
             "finely chopped",
             "thinly sliced",
             "sliced",
+            "plain",
+            "to taste",
         ]
         .iter()
         .map(|&s| s.into())
@@ -170,9 +173,9 @@ impl IngredientParser {
                 Option<&str>,
                 &str,
             ) = res;
-            let mut m: String = modifier_chunks.to_owned();
+            let mut modifiers: String = modifier_chunks.to_owned();
             if let Some((adjective, _)) = adjective {
-                m.push_str(&adjective);
+                modifiers.push_str(&adjective);
             }
             let mut name: String = name_chunks
                 .unwrap_or(vec![])
@@ -183,7 +186,7 @@ impl IngredientParser {
             // if the ingredient name still has adjective in it, remove that
             self.adjectives.iter().for_each(|f| {
                 if name.contains(f) {
-                    m.push_str(f);
+                    modifiers.push_str(f);
                     name = name.replace(f, "").trim_matches(' ').to_string();
                 }
             });
@@ -202,9 +205,9 @@ impl IngredientParser {
                 Ingredient {
                     name,
                     amounts,
-                    modifier: match m.chars().count() {
+                    modifier: match modifiers.chars().count() {
                         0 => None,
-                        _ => Some(m.to_string()),
+                        _ => Some(modifiers.to_string()),
                     },
                 },
             )
@@ -412,7 +415,7 @@ impl IngredientParser {
                 )),
                 tuple((
                     space1,
-                    alt((tag("to"), tag("through"))), // second dash is an unusual variant
+                    alt((tag("to"), tag("through"), tag("or"))),
                     space1,
                     |a| self.clone().num(a),
                 )),

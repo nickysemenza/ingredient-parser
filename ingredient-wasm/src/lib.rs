@@ -61,6 +61,7 @@ pub fn scrape(body: String, url: String) -> Result<IScrapedREcipe, JsValue> {
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "Ingredient")]
+    #[derive(Debug)]
     pub type IIngredient;
     #[wasm_bindgen(typescript_type = "Measure")]
     #[derive(Debug)]

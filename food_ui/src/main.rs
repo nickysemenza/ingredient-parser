@@ -7,7 +7,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "Download and show an image with eframe/egui",
+        "recipe viewer",
         options,
         Box::new(|_cc| Box::<food_ui::MyApp>::default()),
     )

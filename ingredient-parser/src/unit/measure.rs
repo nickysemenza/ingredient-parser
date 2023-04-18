@@ -332,7 +332,7 @@ mod tests {
     #[test]
     fn test_convert() {
         let m = Measure::from_str("1 tbsp");
-        let tbsp_dollars = dbg!((Measure::from_str("2 tbsp"), Measure::from_str("4 dollars")));
+        let tbsp_dollars = (Measure::from_str("2 tbsp"), Measure::from_str("4 dollars"));
         assert_eq!(
             Measure::from_str("2 dollars"),
             m.convert_measure_via_mappings(MeasureKind::Money, vec![tbsp_dollars.clone()])
@@ -443,11 +443,31 @@ mod tests {
     #[test]
     fn test_add() {
         assert_eq!(
-            Measure::from_str("10 minutes")
-                .add(Measure::from_str("2-3 minutes"))
-                .unwrap()
-                .denormalize(),
+            add_time_amounts(vec![
+                Measure::from_str("2-3 minutes"),
+                Measure::from_str("10 minutes")
+            ]),
             Measure::from_str("12-13 minutes"),
+        );
+    }
+    #[test]
+    fn test_print_graph() {
+        let g = make_graph(vec![
+            (Measure::from_str("1 tbsp"), Measure::from_str("30 dollar")),
+            (Measure::from_str("1 tsp"), Measure::from_str("1 gram")),
+        ]);
+        assert_eq!(
+            print_graph(g),
+            r#"digraph {
+    0 [ label = "Teaspoon" ]
+    1 [ label = "Cent" ]
+    2 [ label = "Gram" ]
+    0 -> 1 [ label = "1000" ]
+    1 -> 0 [ label = "0.001" ]
+    0 -> 2 [ label = "1" ]
+    2 -> 0 [ label = "1" ]
+}
+"#
         );
     }
 }
