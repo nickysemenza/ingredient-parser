@@ -24,7 +24,7 @@ pub enum ScrapeError {
     #[error("could not parse `{0}`")]
     Parse(String),
 }
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ScrapedRecipe {
     pub ingredients: Vec<String>,
     pub instructions: Vec<String>,
@@ -33,7 +33,7 @@ pub struct ScrapedRecipe {
     pub image: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct ParsedRecipe {
     pub ingredients: Vec<Ingredient>,
     pub instructions: Vec<Rich>,
@@ -166,7 +166,7 @@ fn normalize_ld_json(
         ld_schema::Root::Recipe(ld_schema) => Ok(normalize_root_recipe(ld_schema, url)),
         ld_schema::Root::Graph(g) => {
             let items = g.graph.len();
-            let recipe = dbg!(g).graph.iter().find_map(|d| match d {
+            let recipe = g.graph.iter().find_map(|d| match d {
                 ld_schema::Graph::Recipe(a) => Some(a.to_owned()),
                 _ => None,
             });
@@ -256,9 +256,9 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{ld_schema::InstructionWrapper, ParsedRecipe};
+    use pretty_assertions::assert_eq;
     use std::collections::HashMap;
-
-    use crate::ld_schema::InstructionWrapper;
 
     macro_rules! include_testdata {
         ($x:expr) => {
@@ -320,6 +320,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(res.ingredients[0], "2 1/4 cups all-purpose flour");
+        let scraped = res.parse();
+        // testdata from
+        // ❯ cargo run --bin food_cli scrape https://cooking.nytimes.com/recipes/1019232-toll-house-chocolate-chip-cookies --json --parse
+        let raw = serde_json::from_str::<ParsedRecipe>(include_testdata!(
+            "nytimes_toll-house-chocolate-chip-cookies_parsed.json"
+        ))
+        .unwrap();
+        assert_eq!(scraped, raw);
 
         let res = scrape_url("http://www.seriouseats.com/recipes/2011/08/grilled-naan-recipe.html")
             .unwrap();

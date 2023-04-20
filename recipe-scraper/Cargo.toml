@@ -12,7 +12,8 @@ serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
 tracing = "0.1.37"
 ingredient= {path = "../ingredient-parser"}
-
+[dev-dependencies]
+pretty_assertions = "1"
 # https://github.com/serde-rs/serde/pull/1544#issuecomment-1244798727
 # [patch.crates-io]
 # serde_derive = { git = "https://github.com/kurtbuilds/serde" }

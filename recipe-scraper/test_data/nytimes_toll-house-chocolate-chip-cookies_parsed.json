@@ -1,0 +1,242 @@
+{
+  "ingredients": [
+    {
+      "name": "all-purpose flour",
+      "amounts": [
+        {
+          "unit": "Cup",
+          "value": 2.25,
+          "upper_value": null
+        }
+      ],
+      "modifier": null
+    },
+    {
+      "name": "baking soda",
+      "amounts": [
+        {
+          "unit": "Teaspoon",
+          "value": 1.0,
+          "upper_value": null
+        }
+      ],
+      "modifier": null
+    },
+    {
+      "name": "salt",
+      "amounts": [
+        {
+          "unit": "Teaspoon",
+          "value": 1.0,
+          "upper_value": null
+        }
+      ],
+      "modifier": null
+    },
+    {
+      "name": "butter",
+      "amounts": [
+        {
+          "unit": "Cup",
+          "value": 1.0,
+          "upper_value": null
+        },
+        {
+          "unit": {
+            "Other": "stick"
+          },
+          "value": 2.0,
+          "upper_value": null
+        }
+      ],
+      "modifier": "softened"
+    },
+    {
+      "name": "granulated sugar",
+      "amounts": [
+        {
+          "unit": "Cup",
+          "value": 0.75,
+          "upper_value": null
+        }
+      ],
+      "modifier": null
+    },
+    {
+      "name": "packed brown sugar",
+      "amounts": [
+        {
+          "unit": "Cup",
+          "value": 0.75,
+          "upper_value": null
+        }
+      ],
+      "modifier": null
+    },
+    {
+      "name": "vanilla extract",
+      "amounts": [
+        {
+          "unit": "Teaspoon",
+          "value": 1.0,
+          "upper_value": null
+        }
+      ],
+      "modifier": null
+    },
+    {
+      "name": "eggs",
+      "amounts": [
+        {
+          "unit": {
+            "Other": "large"
+          },
+          "value": 2.0,
+          "upper_value": null
+        }
+      ],
+      "modifier": null
+    },
+    {
+      "name": "semisweet chocolate chips",
+      "amounts": [
+        {
+          "unit": "Cup",
+          "value": 2.0,
+          "upper_value": null
+        },
+        {
+          "unit": "Ounce",
+          "value": 12.0,
+          "upper_value": null
+        }
+      ],
+      "modifier": null
+    },
+    {
+      "name": "nuts",
+      "amounts": [
+        {
+          "unit": "Cup",
+          "value": 1.0,
+          "upper_value": null
+        }
+      ],
+      "modifier": "(optional)chopped"
+    }
+  ],
+  "instructions": [
+    [
+      {
+        "kind": "Text",
+        "value": "Heat oven to "
+      },
+      {
+        "kind": "Measure",
+        "value": [
+          {
+            "unit": {
+              "Other": "whole"
+            },
+            "value": 375.0,
+            "upper_value": null
+          }
+        ]
+      },
+      {
+        "kind": "Text",
+        "value": "Combine flour, "
+      },
+      {
+        "kind": "Ing",
+        "value": "baking soda"
+      },
+      {
+        "kind": "Text",
+        "value": " and "
+      },
+      {
+        "kind": "Ing",
+        "value": "salt"
+      },
+      {
+        "kind": "Text",
+        "value": " in small bowl. Beat "
+      },
+      {
+        "kind": "Ing",
+        "value": "butter"
+      },
+      {
+        "kind": "Text",
+        "value": ", "
+      },
+      {
+        "kind": "Ing",
+        "value": "granulated sugar"
+      },
+      {
+        "kind": "Text",
+        "value": ", brown sugar and "
+      },
+      {
+        "kind": "Ing",
+        "value": "vanilla extract"
+      },
+      {
+        "kind": "Text",
+        "value": " in large mixing bowl until creamy. Add "
+      },
+      {
+        "kind": "Ing",
+        "value": "eggs"
+      },
+      {
+        "kind": "Text",
+        "value": ", one at a time, beating well after each addition. Gradually beat in flour mixture. Stir in chocolate chips and "
+      },
+      {
+        "kind": "Ing",
+        "value": "nuts"
+      },
+      {
+        "kind": "Text",
+        "value": ", if using. Drop by rounded tablespoon onto ungreased baking sheets. "
+      }
+    ],
+    [
+      {
+        "kind": "Text",
+        "value": "Bake for "
+      },
+      {
+        "kind": "Measure",
+        "value": [
+          {
+            "unit": "Minute",
+            "value": 9.0,
+            "upper_value": 11.0
+          }
+        ]
+      },
+      {
+        "kind": "Text",
+        "value": " or until golden brown. Cool on baking sheets for "
+      },
+      {
+        "kind": "Measure",
+        "value": [
+          {
+            "unit": "Minute",
+            "value": 2.0,
+            "upper_value": null
+          }
+        ]
+      },
+      {
+        "kind": "Text",
+        "value": "; remove to wire racks to cool completely. "
+      }
+    ]
+  ]
+}
