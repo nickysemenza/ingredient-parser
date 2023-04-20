@@ -171,7 +171,8 @@ fn test_weird_chars() {
     vec![
         "confectioners’ sugar",
         "confectioners' sugar",
-        // "gruyère", #29
+        "gruyère",
+        "Jalapeños",
     ]
     .into_iter()
     .for_each(|n| {

@@ -6,7 +6,7 @@ use fraction::fraction_number;
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, char, not_line_ending, space0, space1},
+    character::complete::{alpha1, char, not_line_ending, satisfy, space0, space1},
     combinator::{opt, verify},
     error::{context, VerboseError},
     multi::{many1, separated_list1},
@@ -168,7 +168,7 @@ impl IngredientParser {
                 Option<Vec<Measure>>,
                 &str,
                 Option<(String, &str)>,
-                Option<Vec<&str>>,
+                Option<Vec<String>>,
                 Option<Vec<Measure>>,
                 Option<&str>,
                 &str,
@@ -441,22 +441,12 @@ impl IngredientParser {
     }
 }
 
-fn text(input: &str) -> Res<&str, &str> {
-    alt((
-        alpha1,
-        space1,
-        tag("-"),
-        tag("—"),
-        tag("-"),
-        tag("'"),
-        tag("’"),
-        tag("."),
-        tag("è"),
-        tag("î"),
-        tag("ó"),
-        tag("é"),
-        // tag("\""),
-    ))(input)
+fn text(input: &str) -> Res<&str, String> {
+    (satisfy(|c| match c {
+        '-' | '—' | '\'' | '’' | '.' | '\\' => true,
+        c => c.is_alphanumeric() || c.is_whitespace(),
+    }))(input)
+    .map(|(next_input, res)| (next_input, res.to_string()))
 }
 fn unitamt(input: &str) -> Res<&str, String> {
     nom::multi::many0(alt((alpha1, tag("°"), tag("\""))))(input)

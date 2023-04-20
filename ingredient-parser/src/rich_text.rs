@@ -1,6 +1,6 @@
-use crate::{text, unit::Measure, IngredientParser, Res};
+use crate::{unit::Measure, IngredientParser, Res};
 use itertools::Itertools;
-use nom::{branch::alt, bytes::complete::tag, error::context, multi::many0};
+use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
@@ -63,18 +63,13 @@ fn text_chunk(input: &str) -> Res<&str, Chunk> {
         .map(|(next_input, res)| (next_input, Chunk::Text(res.to_string())))
 }
 // text2 is like text, but allows for more ambiguous characters when parsing text but not caring about ingredient names
-fn text2(input: &str) -> Res<&str, &str> {
-    alt((
-        text,
-        tag(","),
-        tag("("),
-        tag(")"),
-        tag(";"),
-        tag("#"),
-        tag("/"),
-        tag(":"),
-        tag("!"),
-    ))(input)
+fn text2(input: &str) -> Res<&str, String> {
+    (satisfy(|c| match c {
+        '-' | '—' | '\'' | '’' | '.' | '\\' => true,
+        ',' | '(' | ')' | ';' | '#' | '/' | ':' | '!' => true, // in text2 but not text
+        c => c.is_alphanumeric() || c.is_whitespace(),
+    }))(input)
+    .map(|(next_input, res)| (next_input, res.to_string()))
 }
 /// Parse some rich text that has some parsable [Measure] scattered around in it. Useful for displaying text with fancy formatting.
 /// returns [Rich]
