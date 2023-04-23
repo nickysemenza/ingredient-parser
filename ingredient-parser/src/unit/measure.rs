@@ -78,8 +78,8 @@ impl Measure {
     pub fn unit(&self) -> Unit {
         self.unit.clone()
     }
-    pub fn values(&self) -> (f64, Option<f64>) {
-        (self.value, self.upper_value)
+    pub fn values(&self) -> (f64, Option<f64>, String) {
+        (self.value, self.upper_value, self.unit_as_string())
     }
     pub fn normalize(&self) -> Measure {
         let (unit, factor) = match &self.unit {
@@ -282,6 +282,16 @@ impl Measure {
         debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
         return Some(result.denormalize());
     }
+    fn unit_as_string(&self) -> String {
+        let measure = self.clone(); //.denormalize();
+        let mut s = singular(&measure.unit().to_str());
+        if (measure.unit() == Unit::Cup || measure.unit() == Unit::Minute)
+            && (self.value > 1.0 || self.upper_value.unwrap_or_default() > 1.0)
+        {
+            s.push_str("s");
+        }
+        s
+    }
 }
 
 impl fmt::Display for Measure {
@@ -293,13 +303,7 @@ impl fmt::Display for Measure {
                 write!(f, " - {}", num_without_zeroes(u)).unwrap();
             }
         }
-        let mut s = singular(&measure.unit().to_str());
-        if (measure.unit() == Unit::Cup || measure.unit() == Unit::Minute)
-            && (self.value > 1.0 || self.upper_value.unwrap_or_default() > 1.0)
-        {
-            s.push_str("s");
-        }
-        write!(f, " {}", s)
+        write!(f, " {}", self.unit_as_string())
     }
 }
 
@@ -469,5 +473,11 @@ mod tests {
 }
 "#
         );
+    }
+    #[test]
+    fn test_singular_plural() {
+        assert_eq!(Measure::from_str("1 cup").unit_as_string(), "cup");
+        assert_eq!(Measure::from_str("2 cup").unit_as_string(), "cups");
+        assert_eq!(Measure::from_str("3 grams").unit_as_string(), "g");
     }
 }
