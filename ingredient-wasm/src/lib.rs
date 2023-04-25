@@ -51,7 +51,7 @@ pub fn format_amount(amount: &IMeasure) -> String {
 }
 
 #[wasm_bindgen]
-pub fn scrape(body: String, url: String) -> Result<IScrapedREcipe, JsValue> {
+pub fn scrape(body: String, url: String) -> Result<IScrapedRecipe, JsValue> {
     match recipe_scraper::scrape(body.as_str(), &url) {
         Ok(r) => Ok(JsValue::from_serde(&r).unwrap().into()),
         Err(x) => Err(JsValue::from_str(&format!("failed to get recipe: {x:?}"))),
@@ -71,7 +71,7 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "RichItem[]")]
     pub type RichItems;
     #[wasm_bindgen(typescript_type = "ScrapedRecipe")]
-    pub type IScrapedREcipe;
+    pub type IScrapedRecipe;
 }
 
 #[wasm_bindgen(typescript_custom_section)]
