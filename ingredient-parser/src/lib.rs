@@ -48,7 +48,7 @@ impl IngredientParser {
             // default set
             "whole", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large",
             "pinch", "small", "medium", "package", "recipe", "slice", "standard", "can", "leaf",
-            "leaves", "strand",
+            "leaves", "strand", "tin",
         ]
         .iter()
         .map(|&s| s.into())
