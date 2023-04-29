@@ -1,11 +1,11 @@
-use std::fmt;
-
 use crate::unit::singular;
 use crate::unit::{kind::MeasureKind, Unit};
 use crate::util::num_without_zeroes;
 use crate::IngredientParser;
+use anyhow::Result;
 use petgraph::Graph;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use tracing::{debug, info};
 
 type MeasureGraph = Graph<Unit, f64>;
@@ -70,10 +70,10 @@ impl Measure {
         }
     }
     pub fn from_string(s: String) -> Measure {
-        IngredientParser::new(false).parse_amount(s.as_str())[0].clone()
+        IngredientParser::new(false).must_parse_amount(s.as_str())[0].clone()
     }
     pub fn from_str(s: &str) -> Measure {
-        IngredientParser::new(false).parse_amount(s)[0].clone()
+        IngredientParser::new(false).must_parse_amount(s)[0].clone()
     }
     pub fn unit(&self) -> Unit {
         self.unit.clone()
@@ -125,7 +125,7 @@ impl Measure {
             },
         };
     }
-    pub fn add(&self, b: Measure) -> Result<Measure, anyhow::Error> {
+    pub fn add(&self, b: Measure) -> Result<Measure> {
         info!("adding {:?} to {:?}", self, b);
 
         if let MeasureKind::Other = b.kind().unwrap() {
@@ -167,7 +167,7 @@ impl Measure {
         }
     }
 
-    pub fn kind(&self) -> Result<MeasureKind, anyhow::Error> {
+    pub fn kind(&self) -> Result<MeasureKind> {
         match self.unit {
             Unit::Gram => Ok(MeasureKind::Weight),
             Unit::Cent => Ok(MeasureKind::Money),

@@ -161,7 +161,23 @@
       },
       {
         "kind": "Text",
-        "value": " in small bowl. Beat "
+        "value": " in"
+      },
+      {
+        "kind": "Measure",
+        "value": [
+          {
+            "unit": {
+              "Other": "small"
+            },
+            "value": 1.0,
+            "upper_value": null
+          }
+        ]
+      },
+      {
+        "kind": "Text",
+        "value": "bowl. Beat "
       },
       {
         "kind": "Ing",
@@ -185,7 +201,23 @@
       },
       {
         "kind": "Text",
-        "value": " in large mixing bowl until creamy. Add "
+        "value": " in"
+      },
+      {
+        "kind": "Measure",
+        "value": [
+          {
+            "unit": {
+              "Other": "large"
+            },
+            "value": 1.0,
+            "upper_value": null
+          }
+        ]
+      },
+      {
+        "kind": "Text",
+        "value": "mixing bowl until creamy. Add "
       },
       {
         "kind": "Ing",

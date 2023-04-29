@@ -6,8 +6,11 @@ pub fn is_valid(units: HashSet<String>, s: &str) -> bool {
         // anything other than `other`
         return true;
     }
+    is_addon_unit(units, s)
+}
 
-    return units.contains(&s.to_lowercase());
+pub fn is_addon_unit(units: HashSet<String>, s: &str) -> bool {
+    units.contains(&s.to_lowercase())
 }
 
 #[derive(Clone, PartialEq, PartialOrd, Debug, Eq, Hash, Serialize, Deserialize)]

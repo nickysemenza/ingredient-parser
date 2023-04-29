@@ -128,6 +128,22 @@ test_parse_ingredient!(
 );
 
 test_parse_ingredient!(
+    test_unit_without_number,
+    "pinch nutmeg",
+    Ingredient {
+        name: "nutmeg".to_string(),
+        amounts: vec![Measure::parse_new("pinch", 1.0),],
+        modifier: None
+    }
+);
+
+test_parsing_equals!(
+    test_unit_without_number_of,
+    "pinch nutmeg",
+    "pinch of nutmeg"
+);
+
+test_parse_ingredient!(
     test_parse_ingredient_cloves,
     "1 clove garlic, grated",
     Ingredient {

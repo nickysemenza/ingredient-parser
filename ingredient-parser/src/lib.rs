@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::iter::FromIterator;
 
 pub use crate::ingredient::Ingredient;
+use anyhow::Result;
 use fraction::fraction_number;
 use nom::{
     branch::alt,
@@ -89,22 +90,32 @@ impl IngredientParser {
     /// use ingredient::{IngredientParser,unit::Measure};
     /// let ip = IngredientParser::new(false);
     /// assert_eq!(
-    ///    ip.parse_amount("120 grams"),
+    ///    ip.must_parse_amount("120 grams"),
     ///    vec![Measure::parse_new("grams",120.0)]
     ///  );
     /// assert_eq!(
-    ///    ip.parse_amount("120 grams / 1 cup"),
+    ///    ip.must_parse_amount("120 grams / 1 cup"),
     ///    vec![Measure::parse_new("grams",120.0),Measure::parse_new("cup", 1.0)]
     ///  );
     /// assert_eq!(
-    ///    ip.parse_amount("120 grams / 1 cup / 1 whole"),
+    ///    ip.must_parse_amount("120 grams / 1 cup / 1 whole"),
     ///    vec![Measure::parse_new("grams",120.0),Measure::parse_new("cup", 1.0),Measure::parse_new("whole", 1.0)]
     ///  );
     /// ```
     #[tracing::instrument(name = "parse_amount")]
-    pub fn parse_amount(&self, input: &str) -> Vec<Measure> {
+    pub fn parse_amount(&self, input: &str) -> Result<Vec<Measure>> {
         // todo: also can't get this one to fail either
-        self.clone().many_amount(input).expect(input).1
+        match self.clone().many_amount(input) {
+            Ok((_, res)) => Ok(res),
+            Err(e) => Err(anyhow::anyhow!(
+                "parse_amount on '{}' failed: {:?}",
+                input,
+                e
+            )),
+        }
+    }
+    pub fn must_parse_amount(&self, input: &str) -> Vec<Measure> {
+        self.parse_amount(input).expect("parse failed")
     }
 
     /// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`.
@@ -260,6 +271,14 @@ impl IngredientParser {
             verify(unitamt, |s: &str| unit::is_valid(self.units.clone(), s)),
         )(input)
     }
+    fn unit_extra(self, input: &str) -> Res<&str, String> {
+        context(
+            "unit",
+            verify(unitamt, |s: &str| {
+                unit::is_addon_unit(self.units.clone(), s)
+            }),
+        )(input)
+    }
     fn adjective(self, input: &str) -> Res<&str, String> {
         context(
             "adjective",
@@ -300,6 +319,31 @@ impl IngredientParser {
                     v,
                     value.1,
                 ),
+            );
+        });
+        res
+    }
+    fn just_extra_unit(self, input: &str) -> Res<&str, Measure> {
+        let res = context(
+            "just_extra_unit",
+            tuple((
+                |a| {
+                    if self.is_rich_text {
+                        space1(a)
+                    } else {
+                        space0(a)
+                    }
+                },
+                |a| self.clone().unit_extra(a), // unit
+                opt(alt((tag("."), tag(" of")))),
+                space1,
+            )),
+        )(input)
+        .map(|(next_input, res)| {
+            let (_, unit, _, _) = res;
+            return (
+                next_input,
+                Measure::from_parts(unit.to_string().to_lowercase().as_ref(), 1.0, None),
             );
         });
         res
@@ -370,6 +414,7 @@ impl IngredientParser {
                     }, // regular amount
                     |a| self.clone().amt_parens(a), // amoiunt with parens
                     |a| self.clone().amount1(a).map(|(a, b)| (a, vec![b])), // regular amount
+                    |a| self.clone().just_extra_unit(a).map(|(a, b)| (a, vec![b])), // regular amount
                 )),
             ),
         )(input)
@@ -466,11 +511,11 @@ mod tests {
     #[test]
     fn test_amount() {
         assert_eq!(
-            (IngredientParser::new(false)).parse_amount("350 °"),
+            (IngredientParser::new(false)).must_parse_amount("350 °"),
             vec![Measure::parse_new("°", 350.0)]
         );
         assert_eq!(
-            (IngredientParser::new(false)).parse_amount("350 °F"),
+            (IngredientParser::new(false)).must_parse_amount("350 °F"),
             vec![Measure::parse_new("°f", 350.0)]
         );
     }
@@ -478,7 +523,7 @@ mod tests {
     #[test]
     fn test_amount_range() {
         assert_eq!(
-            (IngredientParser::new(false)).parse_amount("2¼-2.5 cups"),
+            (IngredientParser::new(false)).must_parse_amount("2¼-2.5 cups"),
             vec![Measure::parse_new_with_upper("cups", 2.25, 2.5)]
         );
 
@@ -494,20 +539,20 @@ mod tests {
             format!(
                 "{}",
                 (IngredientParser::new(false))
-                    .parse_amount("2 ¼ - 2.5 cups")
+                    .must_parse_amount("2 ¼ - 2.5 cups")
                     .first()
                     .unwrap()
             ),
             "2.25 - 2.5 cups"
         );
         assert_eq!(
-            (IngredientParser::new(false)).parse_amount("2 to 4 days"),
+            (IngredientParser::new(false)).must_parse_amount("2 to 4 days"),
             vec![Measure::parse_new_with_upper("days", 2.0, 4.0)]
         );
 
         // #30
         assert_eq!(
-            (IngredientParser::new(false)).parse_amount("up to 4 days"),
+            (IngredientParser::new(false)).must_parse_amount("up to 4 days"),
             vec![Measure::parse_new_with_upper("days", 0.0, 4.0)]
         );
     }
