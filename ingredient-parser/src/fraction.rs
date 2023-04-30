@@ -20,9 +20,9 @@ fn v_frac_to_num(input: char) -> Result<f64, String> {
         '⅓' => (1, 3),
         '½' => (1, 2),
         '⅔' => (2, 3),
-        _ => return Err(format!("unkown fraction: {}", input)),
+        _ => return Err(format!("unkown fraction: {input}")),
     };
-    return Ok(n as f64 / d as f64);
+    Ok(n as f64 / d as f64)
 }
 
 fn is_frac_char(c: char) -> bool {

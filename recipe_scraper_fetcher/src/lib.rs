@@ -12,16 +12,16 @@ pub struct Fetcher {
 }
 impl Fetcher {
     pub fn new() -> Self {
-        return Fetcher {
+        Fetcher {
             client: http_utils::http_client(),
             cache: None,
-        };
+        }
     }
     pub fn new_with_cache(m: HashMap<String, String>) -> Self {
-        return Fetcher {
+        Fetcher {
             client: http_utils::http_client(),
             cache: Some(m),
-        };
+        }
     }
     #[tracing::instrument(name = "scrape_url")]
     pub async fn scrape_url(
@@ -91,7 +91,7 @@ mod tests {
             .fetch_html("https://doesnotresolve.com")
             .await
             .unwrap()
-            .to_string(),
+            ,
             "foo"
         );
     }

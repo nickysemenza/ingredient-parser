@@ -23,7 +23,7 @@ impl fmt::Display for Ingredient {
         let amounts: Vec<String> = self.amounts.iter().map(|id| id.to_string()).collect();
         let modifier = match &self.modifier {
             Some(m) => {
-                format!(", {}", m)
+                format!(", {m}")
             }
             None => "".to_string(),
         };
@@ -31,6 +31,6 @@ impl fmt::Display for Ingredient {
             0 => "n/a ".to_string(),
             _ => format!("{} ", amounts.join(" / ")),
         };
-        return write!(f, "{}{}{}", amount_list, self.name, modifier);
+        write!(f, "{}{}{}", amount_list, self.name, modifier)
     }
 }

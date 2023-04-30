@@ -35,7 +35,7 @@ pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> 
     };
     match rtp.parse(r.as_str()) {
         Ok(r) => Ok(JsValue::from_serde(&r).unwrap().into()),
-        Err(e) => Err(JsValue::from_str(&e.to_string())),
+        Err(e) => Err(JsValue::from_str(&e)),
     }
 }
 
@@ -43,9 +43,9 @@ pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> 
 pub fn format_amount(amount: &IMeasure) -> String {
     let a1: Result<Measure, _> = amount.into_serde();
     match a1 {
-        Ok(a) => format!("{}", a),
+        Ok(a) => format!("{a}"),
         Err(e) => {
-            format!("failed to format {:#?}: {:?}", amount, e)
+            format!("failed to format {amount:#?}: {e:?}")
         }
     }
 }

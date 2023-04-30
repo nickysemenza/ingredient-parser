@@ -45,8 +45,8 @@ impl ScrapedRecipe {
             .ingredients
             .iter()
             .map(|i| {
-                let res = ip.clone().from_str(i);
-                res
+                
+                ip.clone().from_str(i)
             })
             .collect::<Vec<_>>();
         let names = ingredients.iter().map(|i| i.name.clone()).collect();
@@ -101,7 +101,7 @@ pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     }
 }
 fn clean_string(i: String) -> String {
-    i.replace("&nbsp;", " ").replace("\n", " ")
+    i.replace("&nbsp;", " ").replace('\n', " ")
 }
 pub fn scrape_from_json(json: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     normalize_ld_json(parse_ld_json(json.to_owned())?, url)
@@ -115,17 +115,16 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
             ld_schema::InstructionWrapper::A(a) => a.into_iter().map(|i| i.text).collect(),
             ld_schema::InstructionWrapper::B(b) => b
                 .into_iter()
-                .map(|i| match i.clone() {
+                .flat_map(|i| match i {
                     ld_schema::BOrWrapper::B(b) => b
                         .item_list_element
                         .iter()
                         .map(|i| i.text.clone().unwrap())
                         .collect(),
                     ld_schema::BOrWrapper::Wrapper(w) => {
-                        vec![w.text.clone().unwrap()]
+                        vec![w.text.unwrap()]
                     }
                 })
-                .flatten()
                 .collect(),
 
             ld_schema::InstructionWrapper::C(c) => {
@@ -199,7 +198,7 @@ fn scrape_from_html(dom: Html) -> Result<ScrapedRecipe, ScrapeError> {
         .text()
         .collect::<Vec<_>>()
         .join("")
-        .split("\n")
+        .split('\n')
         .map(|s| s.into())
         .collect::<Vec<String>>();
 
@@ -214,14 +213,14 @@ fn scrape_from_html(dom: Html) -> Result<ScrapedRecipe, ScrapeError> {
         instructions,
         name: "".to_string(),
         url: "".to_string(),
-        image: image,
+        image,
     }))
     // Err(ScrapeError::Parse("foo".to_string()))
 }
 fn extract_ld(dom: Html) -> Result<Vec<String>, ScrapeError> {
     let selector = match Selector::parse("script[type='application/ld+json']") {
         Ok(s) => s,
-        Err(e) => return Err(ScrapeError::Parse(format!("{:?}", e))),
+        Err(e) => return Err(ScrapeError::Parse(format!("{e:?}"))),
     };
 
     let json_chunks: Vec<String> = dom
@@ -251,7 +250,7 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
         }
     };
 
-    return Ok(v);
+    Ok(v)
 }
 #[cfg(test)]
 mod tests {

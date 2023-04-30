@@ -16,7 +16,7 @@ fn condense_text(r: Rich) -> Rich {
     r.into_iter()
         .coalesce(
             |previous, current| match (previous.clone(), current.clone()) {
-                (Chunk::Text(a), Chunk::Text(b)) => Ok(Chunk::Text(format!("{}{}", a, b))),
+                (Chunk::Text(a), Chunk::Text(b)) => Ok(Chunk::Text(format!("{a}{b}"))),
                 _ => Err((previous, current)),
             },
         )
@@ -31,7 +31,7 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
                 // let mut a = s;
                 let mut text_or_ing_res = vec![];
 
-                for candidate in ingredient_names.iter().filter(|x| x.len() > 0) {
+                for candidate in ingredient_names.iter().filter(|x| !x.is_empty()) {
                     match text.split_once(candidate) {
                         Some((prefix, suffix)) => {
                             text_or_ing_res.push(Chunk::Text(prefix.to_string()));
@@ -41,7 +41,7 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
                         None => {}
                     }
                 }
-                if text.len() > 0 {
+                if !text.is_empty() {
                     // ignore empty
                     text_or_ing_res.push(Chunk::Text(text));
                 }
@@ -54,13 +54,13 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
 }
 
 fn amounts_chunk(ip: IngredientParser, input: &str) -> Res<&str, Chunk> {
-    let res = context("amounts_chunk", |a| ip.clone().many_amount(a))(input)
-        .map(|(next_input, res)| (next_input, Chunk::Measure(res)));
-    return res;
+    
+    context("amounts_chunk", |a| ip.clone().many_amount(a))(input)
+        .map(|(next_input, res)| (next_input, Chunk::Measure(res)))
 }
 fn text_chunk(input: &str) -> Res<&str, Chunk> {
     context("text_chunk", text2)(input)
-        .map(|(next_input, res)| (next_input, Chunk::Text(res.to_string())))
+        .map(|(next_input, res)| (next_input, Chunk::Text(res)))
 }
 // text2 is like text, but allows for more ambiguous characters when parsing text but not caring about ingredient names
 fn text2(input: &str) -> Res<&str, String> {
@@ -104,7 +104,7 @@ impl RichParser {
                 condense_text(res),
                 self.ingredient_names.clone(),
             )),
-            Err(e) => Err(format!("unable to parse '{}': {}", input, e)),
+            Err(e) => Err(format!("unable to parse '{input}': {e}")),
         }
     }
 }

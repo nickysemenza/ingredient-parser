@@ -249,8 +249,7 @@ fn parse_response_image(response: ehttp::Response) -> Result<RetainedImage, Stri
         RetainedImage::from_image_bytes(&response.url, &response.bytes)
     } else {
         Err(format!(
-            "Expected image, found content-type {:?}",
-            content_type
+            "Expected image, found content-type {content_type:?}"
         ))
     }
 }

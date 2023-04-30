@@ -47,8 +47,8 @@ impl Unit {
     pub fn normalize(self) -> Unit {
         //todo
         match self {
-            Unit::Other(x) => return Unit::Other(singular(&x)),
-            _ => return self,
+            Unit::Other(x) => Unit::Other(singular(&x)),
+            _ => self,
         }
     }
     pub fn from_str(s: &str) -> Self {
@@ -115,13 +115,13 @@ impl Unit {
 
 impl fmt::Display for Unit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
 pub fn singular(s: &str) -> String {
     let s2 = s.to_lowercase();
-    s2.strip_suffix("s").unwrap_or(&s2).to_string()
+    s2.strip_suffix('s').unwrap_or(&s2).to_string()
 }
 
 #[cfg(test)]

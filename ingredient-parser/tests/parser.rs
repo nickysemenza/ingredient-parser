@@ -194,7 +194,7 @@ fn test_weird_chars() {
     .for_each(|n| {
         assert_eq!(
             (IngredientParser::new(false))
-                .parse_ingredient(&format!("2 cups/240 grams {}, sifted", n)),
+                .parse_ingredient(&format!("2 cups/240 grams {n}, sifted")),
             Ok((
                 "",
                 Ingredient {

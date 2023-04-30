@@ -11,9 +11,9 @@ macro_rules! include_testdata {
 fn scrape_url(url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     let binding = get_testdata();
     let html = binding.get(url);
-    assert!(html.is_some(), "no test data for {}", url);
-    let res = scrape(html.unwrap(), url);
-    res
+    assert!(html.is_some(), "no test data for {url}");
+    
+    scrape(html.unwrap(), url)
 }
 fn get_testdata() -> HashMap<String, String> {
     HashMap::from([
@@ -90,7 +90,7 @@ fn scrape_from_cache_html() {
 fn json() {
     let r = scrape_from_json(
         include_testdata!("diningwithskyler_carbone-spicy-rigatoni-vodka.json"),
-        "a".as_ref(),
+        "a",
     )
     .unwrap();
     assert_eq!(r.ingredients.len(), 11);
@@ -98,7 +98,7 @@ fn json() {
 
     let r = scrape_from_json(
         include_testdata!("thewoksoflife_vietnamese-rice-noodle-salad-chicken.json"),
-        "a".as_ref(),
+        "a",
     )
     .unwrap();
     assert_eq!(r.instructions.len(), 5);
@@ -106,7 +106,7 @@ fn json() {
 
     let r = scrape_from_json(
         include_testdata!("seriouseats_pan_pizza.json"),
-        "a".as_ref(),
+        "a",
     )
     .unwrap();
     assert_eq!(r.instructions.len(), 7);
@@ -114,7 +114,7 @@ fn json() {
 
     let r = scrape_from_json(
         include_testdata!("justonecookbook_chicken-katsu-don.json"),
-        "a".as_ref(),
+        "a",
     )
     .unwrap();
     assert_eq!(r.instructions.len(), 7);

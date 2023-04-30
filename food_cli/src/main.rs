@@ -37,20 +37,18 @@ async fn main() {
                 if *json {
                     println!("{}", serde_json::to_string_pretty(&parsed).unwrap());
                 } else {
-                    println!("{:#?}", parsed)
+                    println!("{parsed:#?}")
                 }
+            } else if *json {
+                println!("{}", serde_json::to_string_pretty(&scraped).unwrap());
             } else {
-                if *json {
-                    println!("{}", serde_json::to_string_pretty(&scraped).unwrap());
-                } else {
-                    println!("{:#?}", scraped)
-                }
+                println!("{scraped:#?}")
             }
         }
         Commands::ParseIngredient { name } => {
             let res = ingredient::from_str(name);
             println!("{}", serde_json::to_string_pretty(&res).unwrap());
-            println!("{}", res.to_string())
+            println!("{res}")
         }
     }
 }

@@ -244,10 +244,7 @@ impl IngredientParser {
         )(input)
         .map(|(next_input, res)| {
             let (val, upper_val) = res;
-            let upper = match upper_val {
-                Some(u) => Some(u),
-                None => None,
-            };
+            let upper = upper_val;
             (next_input, (val, upper))
         })
     }
@@ -290,7 +287,8 @@ impl IngredientParser {
 
     // parses a single amount
     fn amount1(self, input: &str) -> Res<&str, Measure> {
-        let res = context(
+        
+        context(
             "amount1",
             tuple(
                 (
@@ -307,24 +305,24 @@ impl IngredientParser {
             let (_prefix, mult, value, _space, unit, _period) = res;
             let mut v = value.0;
             if mult.is_some() {
-                v = v * mult.unwrap();
+                v *= mult.unwrap();
             }
             return (
                 next_input,
                 Measure::from_parts(
                     unit.unwrap_or("whole".to_string())
-                        .to_string()
+                        
                         .to_lowercase()
                         .as_ref(),
                     v,
                     value.1,
                 ),
             );
-        });
-        res
+        })
     }
     fn just_extra_unit(self, input: &str) -> Res<&str, Measure> {
-        let res = context(
+        
+        context(
             "just_extra_unit",
             tuple((
                 |a| {
@@ -343,14 +341,14 @@ impl IngredientParser {
             let (_, unit, _, _) = res;
             return (
                 next_input,
-                Measure::from_parts(unit.to_string().to_lowercase().as_ref(), 1.0, None),
+                Measure::from_parts(unit.to_lowercase().as_ref(), 1.0, None),
             );
-        });
-        res
+        })
     }
     // parses an amount like `78g to 104g cornmeal`
     fn amount_with_units_twice(self, input: &str) -> Res<&str, Option<Measure>> {
-        let res = context(
+        
+        context(
             "amount_with_units_twice",
             tuple((
                 opt(tag("about ")),            // todo: add flag for estimates
@@ -382,15 +380,14 @@ impl IngredientParser {
                 next_input,
                 Some(Measure::from_parts(
                     unit.unwrap_or("whole".to_string())
-                        .to_string()
+                        
                         .to_lowercase()
                         .as_ref(),
                     value.0,
                     upper,
                 )),
             );
-        });
-        res
+        })
     }
     // parses 1-n amounts, e.g. `12 grams` or `120 grams / 1 cup`
     #[tracing::instrument(name = "many_amount")]
@@ -481,7 +478,7 @@ impl IngredientParser {
         )(input)
         .map(|(next_input, (a, _space1, _, _, b))| {
             let c = a.add(b).unwrap();
-            return (next_input, c);
+            (next_input, c)
         })
     }
 }

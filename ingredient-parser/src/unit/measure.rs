@@ -27,10 +27,10 @@ pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
         let _c1 = g.add_edge(n_a, n_b, m_b.value / m_a.value);
         let _c2 = g.add_edge(n_b, n_a, m_a.value / m_b.value);
     }
-    return g;
+    g
 }
 pub fn print_graph(g: MeasureGraph) -> String {
-    return format!("{}", petgraph::dot::Dot::new(&g));
+    format!("{}", petgraph::dot::Dot::new(&g))
 }
 
 pub fn add_time_amounts(a: Vec<Measure>) -> Measure {
@@ -116,14 +116,11 @@ impl Measure {
             Unit::Minute => (Unit::Second, SEC_TO_MIN),
         };
 
-        return Measure {
+        Measure {
             unit,
             value: self.value * factor,
-            upper_value: match self.upper_value {
-                Some(x) => Some(x * factor),
-                None => None,
-            },
-        };
+            upper_value: self.upper_value.map(|x| x * factor),
+        }
     }
     pub fn add(&self, b: Measure) -> Result<Measure> {
         info!("adding {:?} to {:?}", self, b);
@@ -161,7 +158,7 @@ impl Measure {
     }
     pub fn from_parts(unit: &str, value: f64, upper_value: Option<f64>) -> Measure {
         Measure {
-            unit: Unit::from_str(singular(unit.as_ref()).as_ref()),
+            unit: Unit::from_str(singular(unit).as_ref()),
             value,
             upper_value,
         }
@@ -232,10 +229,7 @@ impl Measure {
         Measure {
             unit: u,
             value: self.value / f,
-            upper_value: match self.upper_value {
-                Some(x) => Some(x / f),
-                None => None,
-            },
+            upper_value: self.upper_value.map(|x| x / f),
         }
     }
 
@@ -274,13 +268,10 @@ impl Measure {
         let result = Measure::new_with_upper(
             unit_b,
             (input.value * factor * 100.0).round() / 100.0,
-            match input.upper_value {
-                Some(x) => Some((x * factor * 100.0).round() / 100.0),
-                None => None,
-            },
+            input.upper_value.map(|x| (x * factor * 100.0).round() / 100.0),
         );
         debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
-        return Some(result.denormalize());
+        Some(result.denormalize())
     }
     fn unit_as_string(&self) -> String {
         let measure = self.clone(); //.denormalize();
@@ -288,7 +279,7 @@ impl Measure {
         if (measure.unit() == Unit::Cup || measure.unit() == Unit::Minute)
             && (self.value > 1.0 || self.upper_value.unwrap_or_default() > 1.0)
         {
-            s.push_str("s");
+            s.push('s');
         }
         s
     }
@@ -344,7 +335,7 @@ mod tests {
         );
 
         assert!(m
-            .convert_measure_via_mappings(MeasureKind::Volume, vec![tbsp_dollars.clone()])
+            .convert_measure_via_mappings(MeasureKind::Volume, vec![tbsp_dollars])
             .is_none());
     }
     #[test]
@@ -371,7 +362,7 @@ mod tests {
         assert_eq!(
             Measure::from_str("453.592 dollars"),
             Measure::from_str("1 lb")
-                .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars.clone()])
+                .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars])
                 .unwrap()
         );
     }
