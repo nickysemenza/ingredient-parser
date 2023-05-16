@@ -69,6 +69,12 @@ impl Fetcher {
     }
 }
 
+impl Default for Fetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,8 +96,7 @@ mod tests {
             )]))
             .fetch_html("https://doesnotresolve.com")
             .await
-            .unwrap()
-            ,
+            .unwrap(),
             "foo"
         );
     }

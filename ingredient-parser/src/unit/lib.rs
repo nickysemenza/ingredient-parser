@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 use std::fmt;
+use std::str::FromStr;
 
 pub fn is_valid(units: HashSet<String>, s: &str) -> bool {
-    if !matches!(Unit::from_str(&singular(s)), Unit::Other(_)) {
+    if !matches!(Unit::from_str(&singular(s)).unwrap(), Unit::Other(_)) {
         // anything other than `other`
         return true;
     }
@@ -51,39 +52,6 @@ impl Unit {
             _ => self,
         }
     }
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "gram" | "g" => Self::Gram,
-            "kilogram" | "kg" => Self::Kilogram,
-
-            "oz" | "ounce" => Self::Ounce,
-            "lb" | "pound" => Self::Pound,
-
-            "ml" | "milliliter" => Self::Milliliter,
-            "l" | "liter" => Self::Liter,
-
-            "tsp" | "teaspoon" => Self::Teaspoon,
-            "tbsp" | "tablespoon" => Self::Tablespoon,
-            "c" | "cup" => Self::Cup,
-            "q" | "quart" => Self::Quart,
-            "fl oz" | "fluid oz" => Self::FluidOunce,
-
-            "dollar" | "$" => Self::Dollar,
-            "cent" => Self::Cent,
-
-            "calorie" | "cal" | "kcal" => Self::KCal,
-            "second" | "sec" | "s" => Self::Second,
-            "minute" | "min" => Self::Minute,
-            "hour" | "hr" => Self::Hour,
-            "day" => Self::Day,
-
-            "fahrenheit" | "f" | "°" | "°f" | "degrees" => Self::Farhenheit,
-            "celcius" | "°c" => Self::Celcius,
-            "\"" | "inch" => Self::Inch,
-
-            _ => Self::Other(s.to_string()),
-        }
-    }
     pub fn to_str(self) -> String {
         match self {
             Unit::Gram => "g",
@@ -113,6 +81,43 @@ impl Unit {
     }
 }
 
+impl FromStr for Unit {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "gram" | "g" => Self::Gram,
+            "kilogram" | "kg" => Self::Kilogram,
+
+            "oz" | "ounce" => Self::Ounce,
+            "lb" | "pound" => Self::Pound,
+
+            "ml" | "milliliter" => Self::Milliliter,
+            "l" | "liter" => Self::Liter,
+
+            "tsp" | "teaspoon" => Self::Teaspoon,
+            "tbsp" | "tablespoon" => Self::Tablespoon,
+            "c" | "cup" => Self::Cup,
+            "q" | "quart" => Self::Quart,
+            "fl oz" | "fluid oz" => Self::FluidOunce,
+
+            "dollar" | "$" => Self::Dollar,
+            "cent" => Self::Cent,
+
+            "calorie" | "cal" | "kcal" => Self::KCal,
+            "second" | "sec" | "s" => Self::Second,
+            "minute" | "min" => Self::Minute,
+            "hour" | "hr" => Self::Hour,
+            "day" => Self::Day,
+
+            "fahrenheit" | "f" | "°" | "°f" | "degrees" => Self::Farhenheit,
+            "celcius" | "°c" => Self::Celcius,
+            "\"" | "inch" => Self::Inch,
+
+            _ => Self::Other(s.to_string()),
+        })
+    }
+}
 impl fmt::Display for Unit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
@@ -130,21 +135,21 @@ mod tests {
     use super::*;
     #[test]
     fn test_is_unit() {
-        assert_eq!(is_valid(HashSet::from([]), "oz"), true);
-        assert_eq!(is_valid(HashSet::from([]), "fl oz"), true);
-        assert_eq!(is_valid(HashSet::from([]), "slice"), false);
-        assert_eq!(
-            is_valid(HashSet::from(["slice".to_string()]), "slice"),
-            true
-        );
-        assert_eq!(is_valid(HashSet::from([]), "TABLESPOONS"), true);
-        assert_eq!(is_valid(HashSet::from([]), "foo"), false);
+        assert!(is_valid(HashSet::from([]), "oz"));
+        assert!(is_valid(HashSet::from([]), "fl oz"));
+        assert!(!is_valid(HashSet::from([]), "slice"));
+        assert!(is_valid(HashSet::from(["slice".to_string()]), "slice"),);
+        assert!(is_valid(HashSet::from([]), "TABLESPOONS"));
+        assert!(!is_valid(HashSet::from([]), "foo"));
     }
     #[test]
     fn test_back_forth() {
-        assert_eq!(Unit::from_str("oz"), Unit::Ounce);
-        assert_eq!(Unit::from_str("gram").to_str(), "g");
-        assert_eq!(Unit::from_str("foo").to_str(), "foo");
-        assert_eq!(format!("{}", Unit::from_str("foo")), "Other(\"foo\")");
+        assert_eq!(Unit::from_str("oz").unwrap(), Unit::Ounce);
+        assert_eq!(Unit::from_str("gram").unwrap().to_str(), "g");
+        assert_eq!(Unit::from_str("foo").unwrap().to_str(), "foo");
+        assert_eq!(
+            format!("{}", Unit::from_str("foo").unwrap()),
+            "Other(\"foo\")"
+        );
     }
 }

@@ -153,6 +153,7 @@ impl IngredientParser {
     /// );
     /// ```
     #[tracing::instrument(name = "parse_ingredient")]
+    #[allow(clippy::type_complexity)]
     pub fn parse_ingredient(self, input: &str) -> Res<&str, Ingredient> {
         context(
             "ing",
@@ -287,7 +288,6 @@ impl IngredientParser {
 
     // parses a single amount
     fn amount1(self, input: &str) -> Res<&str, Measure> {
-        
         context(
             "amount1",
             tuple(
@@ -304,16 +304,13 @@ impl IngredientParser {
         .map(|(next_input, res)| {
             let (_prefix, mult, value, _space, unit, _period) = res;
             let mut v = value.0;
-            if mult.is_some() {
-                v *= mult.unwrap();
+            if let Some(m) = mult {
+                v *= m
             }
             return (
                 next_input,
                 Measure::from_parts(
-                    unit.unwrap_or("whole".to_string())
-                        
-                        .to_lowercase()
-                        .as_ref(),
+                    unit.unwrap_or("whole".to_string()).to_lowercase().as_ref(),
                     v,
                     value.1,
                 ),
@@ -321,7 +318,6 @@ impl IngredientParser {
         })
     }
     fn just_extra_unit(self, input: &str) -> Res<&str, Measure> {
-        
         context(
             "just_extra_unit",
             tuple((
@@ -347,7 +343,6 @@ impl IngredientParser {
     }
     // parses an amount like `78g to 104g cornmeal`
     fn amount_with_units_twice(self, input: &str) -> Res<&str, Option<Measure>> {
-        
         context(
             "amount_with_units_twice",
             tuple((
@@ -379,10 +374,7 @@ impl IngredientParser {
             return (
                 next_input,
                 Some(Measure::from_parts(
-                    unit.unwrap_or("whole".to_string())
-                        
-                        .to_lowercase()
-                        .as_ref(),
+                    unit.unwrap_or("whole".to_string()).to_lowercase().as_ref(),
                     value.0,
                     upper,
                 )),

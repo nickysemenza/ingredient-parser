@@ -44,10 +44,7 @@ impl ScrapedRecipe {
         let ingredients = self
             .ingredients
             .iter()
-            .map(|i| {
-                
-                ip.clone().from_str(i)
-            })
+            .map(|i| ip.clone().from_str(i))
             .collect::<Vec<_>>();
         let names = ingredients.iter().map(|i| i.name.clone()).collect();
         let rtp = RichParser {
@@ -130,12 +127,10 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
             ld_schema::InstructionWrapper::C(c) => {
                 let selector = Selector::parse("p").unwrap();
 
-                let foo = Html::parse_fragment(c.as_ref())
+                Html::parse_fragment(c.as_ref())
                     .select(&selector)
                     .map(|i| i.text().collect::<Vec<_>>().join(""))
-                    .collect::<Vec<_>>();
-                foo
-                // c.split("</p>\n, <p>").map(|s| s.into()).collect()
+                    .collect::<Vec<_>>()
             }
             ld_schema::InstructionWrapper::D(d) => {
                 d[0].clone().into_iter().map(|i| i.text).collect()
@@ -146,9 +141,9 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
         url: url.to_string(),
         image: match ld_schema.image {
             Some(image) => match image {
-                ld_schema::ImageOrList::URL(i) => Some(i),
+                ld_schema::ImageOrList::Url(i) => Some(i),
                 ld_schema::ImageOrList::List(l) => Some(l[0].url.clone()),
-                ld_schema::ImageOrList::URLList(i) => Some(i[0].clone()),
+                ld_schema::ImageOrList::UrlList(i) => Some(i[0].clone()),
                 ld_schema::ImageOrList::Image(i) => Some(i.url),
             },
             None => None,
@@ -189,12 +184,12 @@ fn scrape_from_html(dom: Html) -> Result<ScrapedRecipe, ScrapeError> {
 
     let ul_selector = Selector::parse(r#"div.jetpack-recipe-directions"#).unwrap();
 
-    let foo = match dom.select(&ul_selector).next() {
+    let instruction_list_item_elem = match dom.select(&ul_selector).next() {
         Some(x) => x,
         None => return Err(ScrapeError::Parse("no ld json or parsed html".to_string())),
     };
 
-    let instructions = foo
+    let instructions = instruction_list_item_elem
         .text()
         .collect::<Vec<_>>()
         .join("")

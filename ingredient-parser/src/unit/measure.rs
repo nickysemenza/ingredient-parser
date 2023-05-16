@@ -6,6 +6,7 @@ use anyhow::Result;
 use petgraph::Graph;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::str::FromStr;
 use tracing::{debug, info};
 
 type MeasureGraph = Graph<Unit, f64>;
@@ -34,7 +35,7 @@ pub fn print_graph(g: MeasureGraph) -> String {
 }
 
 pub fn add_time_amounts(a: Vec<Measure>) -> Measure {
-    let mut m = Measure::from_str("0 seconds");
+    let mut m = Measure::parse_str("0 seconds");
     for x in a.into_iter() {
         m = m.add(x).unwrap();
     }
@@ -72,7 +73,7 @@ impl Measure {
     pub fn from_string(s: String) -> Measure {
         IngredientParser::new(false).must_parse_amount(s.as_str())[0].clone()
     }
-    pub fn from_str(s: &str) -> Measure {
+    pub fn parse_str(s: &str) -> Measure {
         IngredientParser::new(false).must_parse_amount(s)[0].clone()
     }
     pub fn unit(&self) -> Unit {
@@ -158,7 +159,7 @@ impl Measure {
     }
     pub fn from_parts(unit: &str, value: f64, upper_value: Option<f64>) -> Measure {
         Measure {
-            unit: Unit::from_str(singular(unit).as_ref()),
+            unit: Unit::from_str(singular(unit).as_ref()).unwrap(),
             value,
             upper_value,
         }
@@ -268,7 +269,9 @@ impl Measure {
         let result = Measure::new_with_upper(
             unit_b,
             (input.value * factor * 100.0).round() / 100.0,
-            input.upper_value.map(|x| (x * factor * 100.0).round() / 100.0),
+            input
+                .upper_value
+                .map(|x| (x * factor * 100.0).round() / 100.0),
         );
         debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
         Some(result.denormalize())
@@ -304,32 +307,35 @@ mod tests {
     use super::*;
     #[test]
     fn test_measure() {
-        let m1 = Measure::from_str("16 tbsp");
+        let m1 = Measure::parse_str("16 tbsp");
         assert_eq!(
             m1.normalize(),
             Measure::new_with_upper(Unit::Teaspoon, 48.0, None)
         );
         assert_eq!(m1.normalize(), Measure::parse_new("cup", 1.0).normalize());
         assert_eq!(
-            Measure::from_str("25.2 grams").denormalize(),
+            Measure::parse_str("25.2 grams").denormalize(),
             Measure::parse_new("g", 25.2)
         );
         assert_eq!(
-            Measure::from_str("2500.2 grams").denormalize(),
+            Measure::parse_str("2500.2 grams").denormalize(),
             Measure::parse_new("g", 2500.2)
         );
         assert_eq!(
-            Measure::from_str("12 foo").denormalize(),
+            Measure::parse_str("12 foo").denormalize(),
             Measure::parse_new("whole", 12.0)
         );
     }
 
     #[test]
     fn test_convert() {
-        let m = Measure::from_str("1 tbsp");
-        let tbsp_dollars = (Measure::from_str("2 tbsp"), Measure::from_str("4 dollars"));
+        let m = Measure::parse_str("1 tbsp");
+        let tbsp_dollars = (
+            Measure::parse_str("2 tbsp"),
+            Measure::parse_str("4 dollars"),
+        );
         assert_eq!(
-            Measure::from_str("2 dollars"),
+            Measure::parse_str("2 dollars"),
             m.convert_measure_via_mappings(MeasureKind::Money, vec![tbsp_dollars.clone()])
                 .unwrap()
         );
@@ -340,28 +346,28 @@ mod tests {
     }
     #[test]
     fn test_convert_lb() {
-        let grams_dollars = (Measure::from_str("1 gram"), Measure::from_str("1 dollar"));
+        let grams_dollars = (Measure::parse_str("1 gram"), Measure::parse_str("1 dollar"));
         assert_eq!(
-            Measure::from_str("2 dollars"),
-            Measure::from_str("2 grams")
+            Measure::parse_str("2 dollars"),
+            Measure::parse_str("2 grams")
                 .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars.clone()])
                 .unwrap()
         );
         assert_eq!(
-            Measure::from_str("56.699 dollars"),
-            Measure::from_str("2 oz")
+            Measure::parse_str("56.699 dollars"),
+            Measure::parse_str("2 oz")
                 .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars.clone()])
                 .unwrap()
         );
         assert_eq!(
-            Measure::from_str("226.796 dollars"),
-            Measure::from_str(".5 lb")
+            Measure::parse_str("226.796 dollars"),
+            Measure::parse_str(".5 lb")
                 .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars.clone()])
                 .unwrap()
         );
         assert_eq!(
-            Measure::from_str("453.592 dollars"),
-            Measure::from_str("1 lb")
+            Measure::parse_str("453.592 dollars"),
+            Measure::parse_str("1 lb")
                 .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars])
                 .unwrap()
         );
@@ -369,13 +375,13 @@ mod tests {
     #[test]
     fn test_convert_other() {
         assert_eq!(
-            Measure::from_str("10.0 cents").denormalize(),
-            Measure::from_str("1 whole")
+            Measure::parse_str("10.0 cents").denormalize(),
+            Measure::parse_str("1 whole")
                 .convert_measure_via_mappings(
                     MeasureKind::Money,
                     vec![(
-                        Measure::from_str("12 whole"),
-                        Measure::from_str("1.20 dollar"),
+                        Measure::parse_str("12 whole"),
+                        Measure::parse_str("1.20 dollar"),
                     )]
                 )
                 .unwrap()
@@ -384,11 +390,14 @@ mod tests {
     #[test]
     fn test_convert_range() {
         assert_eq!(
-            Measure::from_str("5-10 dollars"),
-            Measure::from_str("1-2 whole")
+            Measure::parse_str("5-10 dollars"),
+            Measure::parse_str("1-2 whole")
                 .convert_measure_via_mappings(
                     MeasureKind::Money,
-                    vec![(Measure::from_str("4 whole"), Measure::from_str("20 dollar"))]
+                    vec![(
+                        Measure::parse_str("4 whole"),
+                        Measure::parse_str("20 dollar")
+                    )]
                 )
                 .unwrap()
         );
@@ -396,25 +405,25 @@ mod tests {
     #[test]
     fn test_convert_transitive() {
         assert_eq!(
-            Measure::from_str("1 cent").denormalize(),
-            Measure::from_str("1 grams")
+            Measure::parse_str("1 cent").denormalize(),
+            Measure::parse_str("1 grams")
                 .convert_measure_via_mappings(
                     MeasureKind::Money,
                     vec![
-                        (Measure::from_str("1 cent"), Measure::from_str("1 tsp"),),
-                        (Measure::from_str("1 grams"), Measure::from_str("1 tsp"),),
+                        (Measure::parse_str("1 cent"), Measure::parse_str("1 tsp"),),
+                        (Measure::parse_str("1 grams"), Measure::parse_str("1 tsp"),),
                     ]
                 )
                 .unwrap()
         );
         assert_eq!(
-            Measure::from_str("1 dollar"),
-            Measure::from_str("1 grams")
+            Measure::parse_str("1 dollar"),
+            Measure::parse_str("1 grams")
                 .convert_measure_via_mappings(
                     MeasureKind::Money,
                     vec![
-                        (Measure::from_str("1 dollar"), Measure::from_str("1 cup"),),
-                        (Measure::from_str("1 grams"), Measure::from_str("1 cup"),),
+                        (Measure::parse_str("1 dollar"), Measure::parse_str("1 cup"),),
+                        (Measure::parse_str("1 grams"), Measure::parse_str("1 cup"),),
                     ]
                 )
                 .unwrap()
@@ -423,13 +432,19 @@ mod tests {
     #[test]
     fn test_convert_kcal() {
         assert_eq!(
-            Measure::from_str("200 kcal"),
-            Measure::from_str("100 g")
+            Measure::parse_str("200 kcal"),
+            Measure::parse_str("100 g")
                 .convert_measure_via_mappings(
                     MeasureKind::Calories,
                     vec![
-                        (Measure::from_str("20 cups"), Measure::from_str("40 grams"),),
-                        (Measure::from_str("20 grams"), Measure::from_str("40 kcal"),)
+                        (
+                            Measure::parse_str("20 cups"),
+                            Measure::parse_str("40 grams"),
+                        ),
+                        (
+                            Measure::parse_str("20 grams"),
+                            Measure::parse_str("40 kcal"),
+                        )
                     ]
                 )
                 .unwrap()
@@ -439,17 +454,20 @@ mod tests {
     fn test_add() {
         assert_eq!(
             add_time_amounts(vec![
-                Measure::from_str("2-3 minutes"),
-                Measure::from_str("10 minutes")
+                Measure::parse_str("2-3 minutes"),
+                Measure::parse_str("10 minutes")
             ]),
-            Measure::from_str("12-13 minutes"),
+            Measure::parse_str("12-13 minutes"),
         );
     }
     #[test]
     fn test_print_graph() {
         let g = make_graph(vec![
-            (Measure::from_str("1 tbsp"), Measure::from_str("30 dollar")),
-            (Measure::from_str("1 tsp"), Measure::from_str("1 gram")),
+            (
+                Measure::parse_str("1 tbsp"),
+                Measure::parse_str("30 dollar"),
+            ),
+            (Measure::parse_str("1 tsp"), Measure::parse_str("1 gram")),
         ]);
         assert_eq!(
             print_graph(g),
@@ -467,8 +485,8 @@ mod tests {
     }
     #[test]
     fn test_singular_plural() {
-        assert_eq!(Measure::from_str("1 cup").unit_as_string(), "cup");
-        assert_eq!(Measure::from_str("2 cup").unit_as_string(), "cups");
-        assert_eq!(Measure::from_str("3 grams").unit_as_string(), "g");
+        assert_eq!(Measure::parse_str("1 cup").unit_as_string(), "cup");
+        assert_eq!(Measure::parse_str("2 cup").unit_as_string(), "cups");
+        assert_eq!(Measure::parse_str("3 grams").unit_as_string(), "g");
     }
 }

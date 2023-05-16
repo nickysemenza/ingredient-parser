@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use super::Unit;
 
 #[derive(Clone, PartialEq, PartialOrd, Debug, Serialize, Deserialize)]
@@ -24,8 +26,12 @@ impl MeasureKind {
             MeasureKind::Length => Unit::Inch,
         }
     }
-    pub fn from_str(s: &str) -> Self {
-        match s {
+}
+impl FromStr for MeasureKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
             "weight" => Self::Weight,
             "volume" => Self::Volume,
             "money" => Self::Money,
@@ -34,37 +40,45 @@ impl MeasureKind {
             "temperature" => Self::Temperature,
             "length" => Self::Length,
             _ => Self::Other,
-        }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use crate::unit::{MeasureKind, Unit};
 
     #[test]
     fn test_kind() {
-        assert_eq!(Unit::from_str("g"), MeasureKind::from_str("weight").unit());
-        assert_eq!(Unit::from_str("ml"), MeasureKind::from_str("volume").unit());
         assert_eq!(
-            Unit::from_str("cent"),
-            MeasureKind::from_str("money").unit()
+            Unit::from_str("g").unwrap(),
+            MeasureKind::from_str("weight").unwrap().unit()
         );
         assert_eq!(
-            Unit::from_str("cal"),
-            MeasureKind::from_str("calories").unit()
+            Unit::from_str("ml").unwrap(),
+            MeasureKind::from_str("volume").unwrap().unit()
         );
         assert_eq!(
-            Unit::from_str("second"),
-            MeasureKind::from_str("time").unit()
+            Unit::from_str("cent").unwrap(),
+            MeasureKind::from_str("money").unwrap().unit()
         );
         assert_eq!(
-            Unit::from_str("°"),
-            MeasureKind::from_str("temperature").unit()
+            Unit::from_str("cal").unwrap(),
+            MeasureKind::from_str("calories").unwrap().unit()
         );
         assert_eq!(
-            Unit::from_str("").normalize(),
-            MeasureKind::from_str("foo").unit()
+            Unit::from_str("second").unwrap(),
+            MeasureKind::from_str("time").unwrap().unit()
+        );
+        assert_eq!(
+            Unit::from_str("°").unwrap(),
+            MeasureKind::from_str("temperature").unwrap().unit()
+        );
+        assert_eq!(
+            Unit::from_str("").unwrap().normalize(),
+            MeasureKind::from_str("foo").unwrap().unit()
         );
     }
 }

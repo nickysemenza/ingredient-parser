@@ -32,13 +32,10 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
                 let mut text_or_ing_res = vec![];
 
                 for candidate in ingredient_names.iter().filter(|x| !x.is_empty()) {
-                    match text.split_once(candidate) {
-                        Some((prefix, suffix)) => {
-                            text_or_ing_res.push(Chunk::Text(prefix.to_string()));
-                            text_or_ing_res.push(Chunk::Ing(candidate.to_string()));
-                            text = suffix.to_string();
-                        }
-                        None => {}
+                    if let Some((prefix, suffix)) = text.split_once(candidate) {
+                        text_or_ing_res.push(Chunk::Text(prefix.to_string()));
+                        text_or_ing_res.push(Chunk::Ing(candidate.to_string()));
+                        text = suffix.to_string();
                     }
                 }
                 if !text.is_empty() {
@@ -54,13 +51,11 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
 }
 
 fn amounts_chunk(ip: IngredientParser, input: &str) -> Res<&str, Chunk> {
-    
     context("amounts_chunk", |a| ip.clone().many_amount(a))(input)
         .map(|(next_input, res)| (next_input, Chunk::Measure(res)))
 }
 fn text_chunk(input: &str) -> Res<&str, Chunk> {
-    context("text_chunk", text2)(input)
-        .map(|(next_input, res)| (next_input, Chunk::Text(res)))
+    context("text_chunk", text2)(input).map(|(next_input, res)| (next_input, Chunk::Text(res)))
 }
 // text2 is like text, but allows for more ambiguous characters when parsing text but not caring about ingredient names
 fn text2(input: &str) -> Res<&str, String> {
@@ -81,9 +76,9 @@ fn text2(input: &str) -> Res<&str, String> {
 /// ip: IngredientParser::new(true),
 /// }).parse("hello 1 cups foo bar").unwrap(),
 /// vec![
-/// 	Chunk::Text("hello ".to_string()),
-/// 	Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
-/// 	Chunk::Text(" foo bar".to_string())
+///     Chunk::Text("hello ".to_string()),
+///     Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
+///     Chunk::Text(" foo bar".to_string())
 /// ]
 /// );
 /// ```

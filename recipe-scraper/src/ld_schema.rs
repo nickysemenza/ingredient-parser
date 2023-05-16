@@ -91,9 +91,9 @@ pub enum BOrWrapper {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ImageOrList {
-    URL(String),
+    Url(String),
     List(Vec<Image>),
-    URLList(Vec<String>),
+    UrlList(Vec<String>),
     Image(Image),
 }
 

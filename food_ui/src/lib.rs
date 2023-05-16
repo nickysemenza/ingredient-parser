@@ -172,15 +172,14 @@ impl eframe::App for MyApp {
                     let recipe = response.and_then(parse_response);
                     // sender.send(recipe); // send the results back to the UI thread.
 
-                    if recipe.is_ok() {
-                        let recipe = recipe.unwrap();
-                        if recipe.image.is_some() {
-                            let image_url = recipe.image.as_ref().unwrap();
+                    if let Ok(r) = recipe {
+                        if r.image.is_some() {
+                            let image_url = r.image.as_ref().unwrap();
                             let request = ehttp::Request::get(rewrite_url(image_url));
                             ehttp::fetch(request, move |response| {
                                 sender.send(Ok(Wrapper {
-                                    recipe: recipe.clone(),
-                                    parsed: recipe.parse(),
+                                    recipe: r.clone(),
+                                    parsed: r.parse(),
                                     image: match response.and_then(parse_response_image) {
                                         Ok(i) => Some(i),
                                         Err(e) => {
