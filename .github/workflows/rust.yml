@@ -21,29 +21,15 @@ jobs:
   coverage:
     name: code coverage
     runs-on: ubuntu-latest
+    # https://github.com/xd009642/tarpaulin#github-actions
+    container:
+      image: xd009642/tarpaulin:develop-nightly
+      options: --security-opt seccomp=unconfined
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-
-      - name: Run cargo-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1
-        with:
-          args: "-t 120 --run-types AllTargets -- --test-threads 1"
-          version: "0.15.0"
-
+      - uses: actions/checkout@v2
+      - run: |
+          cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v3.1.1
+        uses: codecov/codecov-action@v2
         with:
-          token: ${{secrets.CODECOV_TOKEN}}
-
-      - name: Archive code coverage results
-        uses: actions/upload-artifact@v3
-        with:
-          name: code-coverage-report
-          path: cobertura.xml
+          fail_ci_if_error: true
