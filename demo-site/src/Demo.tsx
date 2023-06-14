@@ -35,7 +35,7 @@ export const Demo: React.FC = () => {
                 </h3>
                 <input
                   type="text"
-                  className="block w-full px-4 py-3 mb-4 border-2 border-transparent border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
+                  className="block w-full px-4 py-3 mb-4 border-2 border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                 />
@@ -80,7 +80,7 @@ export const Demo: React.FC = () => {
                 <div className="relative z-10 h-auto p-8 py-10 overflow-hidden bg-white border-b-2 border-gray-300 rounded-lg shadow-2xl px-7">
                   <input
                     type="text"
-                    className="block w-full px-4 py-3 mb-4 border-2 border-transparent border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
+                    className="block w-full px-4 py-3 mb-4 border-2 border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
                     value={richText}
                     onChange={(e) => setRichText(e.target.value)}
                   />
@@ -166,7 +166,7 @@ const Scraper: React.FC = () => {
           </h3>
           <input
             type="text"
-            className="w-full h-12 px-4 py-3 mb-4 border-2 border-transparent border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
+            className="w-full h-12 px-4 py-3 mb-4 border-2 border-gray-200 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
             value={url}
             onChange={(e) => setURL(e.target.value)}
           />

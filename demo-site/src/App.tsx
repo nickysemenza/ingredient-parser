@@ -1,4 +1,3 @@
-import React from "react";
 import { WasmContextProvider } from "./wasmContext";
 import { Demo } from "./Demo";
 function App() {
