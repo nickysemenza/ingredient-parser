@@ -158,6 +158,7 @@ fn rewrite_url(url: &str) -> String {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        catppuccin_egui::set_theme(ctx, catppuccin_egui::FRAPPE);
         egui::TopBottomPanel::top("my_panel").show(ctx, |ui| {
             let trigger_fetch = ui_url(ui, &mut self.url);
 
