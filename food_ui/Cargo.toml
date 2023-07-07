@@ -9,7 +9,7 @@ edition = "2021"
 catppuccin-egui = "3.0"
 egui_extras = {version="0.22", features=["image"]}
 eframe = "=0.22.0"
-ehttp = "0.2"
+ehttp = "0.3"
 image = { version = "0.24", default-features = false, features = ["jpeg"] }
 poll-promise = "0.2"
 recipe-scraper = {path= "../recipe-scraper"}
