@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -26,9 +26,9 @@ jobs:
       image: xd009642/tarpaulin:develop-nightly
       options: --security-opt seccomp=unconfined
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4
       - run: |
-          cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
+          cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v3
         with:
