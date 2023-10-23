@@ -9,6 +9,9 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "recipe viewer",
         options,
-        Box::new(|_cc| Box::<food_ui::MyApp>::default()),
+        Box::new(|cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+            Box::<food_ui::MyApp>::default()
+        }),
     )
 }

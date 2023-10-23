@@ -1,17 +1,14 @@
 use eframe::{
-    egui::{self, RichText, TextFormat, WidgetText},
+    egui::{self, Image, RichText, TextFormat, WidgetText},
     epaint::{text::LayoutJob, Color32},
 };
-use egui_extras::RetainedImage;
 use poll_promise::Promise;
 use rand::Rng;
 use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
-use tracing::error;
 
 struct Wrapper {
     recipe: ScrapedRecipe,
     parsed: ParsedRecipe,
-    image: Option<RetainedImage>,
 }
 
 pub struct MyApp {
@@ -172,25 +169,11 @@ impl eframe::App for MyApp {
                 ehttp::fetch(request, move |response| {
                     let recipe = response.and_then(parse_response);
                     // sender.send(recipe); // send the results back to the UI thread.
-
                     if let Ok(r) = recipe {
-                        if r.image.is_some() {
-                            let image_url = r.image.as_ref().unwrap();
-                            let request = ehttp::Request::get(rewrite_url(image_url));
-                            ehttp::fetch(request, move |response| {
-                                sender.send(Ok(Wrapper {
-                                    recipe: r.clone(),
-                                    parsed: r.parse(),
-                                    image: match response.and_then(parse_response_image) {
-                                        Ok(i) => Some(i),
-                                        Err(e) => {
-                                            error!(e);
-                                            None
-                                        }
-                                    },
-                                }));
-                            });
-                        }
+                        sender.send(Ok(Wrapper {
+                            recipe: r.clone(),
+                            parsed: r.parse(),
+                        }));
                     } else {
                         sender.send(Err(recipe.err().unwrap()));
                     }
@@ -216,8 +199,8 @@ impl eframe::App for MyApp {
                         ui.horizontal(|ui| {
                             ui.set_min_height(200.0);
                             ui.heading(w.recipe.name.clone());
-                            if let Some(image) = w.image.as_ref() {
-                                image.show_max_size(ui, ui.available_size());
+                            if let Some(image) = &w.recipe.image {
+                                ui.add(Image::from_uri(image));
                             }
                         });
 
@@ -239,17 +222,5 @@ fn parse_response(response: ehttp::Response) -> Result<ScrapedRecipe, String> {
     match recipe_scraper::scrape(response.text().unwrap(), &response.url) {
         Ok(r) => Ok(r),
         Err(x) => Err(format!("failed to get recipe {x:?}")),
-    }
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn parse_response_image(response: ehttp::Response) -> Result<RetainedImage, String> {
-    let content_type = response.content_type().unwrap_or_default();
-    if content_type.starts_with("image/") {
-        RetainedImage::from_image_bytes(&response.url, &response.bytes)
-    } else {
-        Err(format!(
-            "Expected image, found content-type {content_type:?}"
-        ))
     }
 }

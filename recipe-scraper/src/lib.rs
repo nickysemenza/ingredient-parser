@@ -220,7 +220,6 @@ fn extract_ld(dom: Html) -> Result<Vec<String>, ScrapeError> {
 
     let json_chunks: Vec<String> = dom
         .select(&selector)
-        .into_iter()
         .map(|element| element.inner_html())
         .collect();
     match json_chunks.len() {
