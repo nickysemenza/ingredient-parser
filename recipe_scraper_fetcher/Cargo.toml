@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 reqwest  = "0.11" 
-reqwest-tracing ="0.4.5"
-reqwest-middleware ="0.2.2"
+reqwest-tracing ="0.4.6"
+reqwest-middleware ="0.2.3"
 task-local-extensions = "0.1.4"
 tokio = { version = "1", features = ["macros"] }
-tracing = "0.1.37"
+tracing = "0.1.40"
 recipe-scraper = {path= "../recipe-scraper"}
