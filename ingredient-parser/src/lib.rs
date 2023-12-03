@@ -54,7 +54,7 @@ impl IngredientParser {
         .iter()
         .map(|&s| s.into())
         .collect();
-        let adjectives: Vec<String> = vec![
+        let adjectives: Vec<String> = [
             "chopped",
             "minced",
             "diced",
