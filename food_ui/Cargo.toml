@@ -10,7 +10,7 @@ catppuccin-egui = { git = "https://github.com/catppuccin/egui", branch = "main" 
 egui_extras = { version = "0.24", features = ["image", "http"] }
 eframe = "0.24"
 ehttp = "0.3"
-image = { version = "0.24", default-features = false, features = ["jpeg"] }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 poll-promise = "0.3"
 recipe-scraper = { path = "../recipe-scraper" }
 ingredient = { path = "../ingredient-parser" }
