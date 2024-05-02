@@ -6,10 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest  = "0.11" 
-reqwest-tracing ="0.4.8"
-reqwest-middleware ="0.2.5"
+reqwest  = "0.12.4" 
+reqwest-tracing ="0.5.0"
+reqwest-middleware ="0.3.0"
 task-local-extensions = "0.1.4"
 tokio = { version = "1", features = ["macros"] }
 tracing = "0.1.40"
 recipe-scraper = {path= "../recipe-scraper"}
+http = "1.1.0"
