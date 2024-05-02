@@ -3097,6 +3097,7 @@ dependencies = [
 name = "recipe_scraper_fetcher"
 version = "0.1.0"
 dependencies = [
+ "http",
  "recipe-scraper",
  "reqwest",
  "reqwest-middleware",
