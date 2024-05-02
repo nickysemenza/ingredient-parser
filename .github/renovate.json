@@ -4,7 +4,7 @@
     {
       "matchPackagePrefixes": ["eframe","egui","ehttp"],
       "groupName": "egui"
-    }
+    },
     {
       "matchUpdateTypes": ["minor", "pin", "major"],
       "automergeType": "branch",
