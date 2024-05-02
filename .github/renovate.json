@@ -6,6 +6,10 @@
       "groupName": "egui"
     },
     {
+      "matchPackagePrefixes": ["reqwest"],
+      "groupName": "reqwest"
+    },
+    {
       "matchUpdateTypes": ["minor", "pin", "major"],
       "automergeType": "branch",
       "automerge": true
