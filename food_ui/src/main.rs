@@ -11,7 +11,7 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Box::<food_ui::MyApp>::default()
+            Ok(Box::<food_ui::MyApp>::default())
         }),
     )
 }

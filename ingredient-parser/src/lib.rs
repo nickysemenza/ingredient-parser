@@ -203,10 +203,7 @@ impl IngredientParser {
                 }
             });
 
-            let mut amounts = match amounts {
-                Some(a) => a,
-                None => vec![],
-            };
+            let mut amounts = amounts.unwrap_or_default();
             amounts = match amounts2 {
                 Some(a) => amounts.into_iter().chain(a.into_iter()).collect(),
                 None => amounts,
