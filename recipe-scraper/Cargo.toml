@@ -9,7 +9,7 @@ edition = "2021"
 scraper = "0.21.0"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1.40"
 ingredient= {path = "../ingredient-parser"}
 [dev-dependencies]
