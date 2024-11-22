@@ -116,6 +116,8 @@ impl FromStr for Unit {
             "celcius" | "°c" => Self::Celcius,
             "\"" | "inch" => Self::Inch,
 
+            "whole" => Self::Whole,
+
             _ => Self::Other(s.to_string()),
         })
     }
