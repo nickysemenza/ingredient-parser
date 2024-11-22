@@ -84,7 +84,7 @@ pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
             }
         }
         Err(e) => match e {
-            ScrapeError::NoLDJSON(_) => scrape_from_html(dom),
+            ScrapeError::NoLDJSON(_) => scrape_from_html(dom, url),
             _ => Err(e),
         },
     };
@@ -174,7 +174,11 @@ fn normalize_ld_json(
         }
     }
 }
-fn scrape_from_html(dom: Html) -> Result<ScrapedRecipe, ScrapeError> {
+fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
+    let title = match dom.select(&Selector::parse("title").unwrap()).next() {
+        Some(x) => x.inner_html(),
+        None => "".to_string(),
+    };
     // smitten kitchen
     let ingredient_selector = Selector::parse("li.jetpack-recipe-ingredient").unwrap();
     let ingredients = dom
@@ -206,8 +210,8 @@ fn scrape_from_html(dom: Html) -> Result<ScrapedRecipe, ScrapeError> {
     Ok(dbg!(ScrapedRecipe {
         ingredients,
         instructions,
-        name: "".to_string(),
-        url: "".to_string(),
+        name: title,
+        url: url.to_string(),
         image,
     }))
     // Err(ScrapeError::Parse("foo".to_string()))

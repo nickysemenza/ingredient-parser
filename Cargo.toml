@@ -7,5 +7,5 @@ members = [
     "recipe_scraper_fetcher",
     "food_cli",
     "food_ui",
-    "food_web"
+    "food_web",
 ]

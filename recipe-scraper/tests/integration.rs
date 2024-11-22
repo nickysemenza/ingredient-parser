@@ -12,7 +12,7 @@ fn scrape_url(url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     let binding = get_testdata();
     let html = binding.get(url);
     assert!(html.is_some(), "no test data for {url}");
-    
+
     scrape(html.unwrap(), url)
 }
 fn get_testdata() -> HashMap<String, String> {
@@ -84,6 +84,7 @@ fn scrape_from_cache_html() {
     let res = scrape_url("https://smittenkitchen.com/2018/04/crispy-tofu-pad-thai/").unwrap();
     assert_eq!(res.ingredients.len(), 17);
     assert_eq!(res.instructions.len(), 16);
+    assert_eq!(res.name, "crispy tofu pad thai – smitten kitchen");
     assert_eq!(res.image, Some("https://i1.wp.com/smittenkitchen.com/wp-content/uploads//2018/04/crispy-tofu-pad-thai.jpg?fit=1200%2C800&ssl=1".to_string()));
 }
 #[test]
@@ -104,11 +105,7 @@ fn json() {
     assert_eq!(r.instructions.len(), 5);
     assert_eq!(r.ingredients.len(), 22);
 
-    let r = scrape_from_json(
-        include_testdata!("seriouseats_pan_pizza.json"),
-        "a",
-    )
-    .unwrap();
+    let r = scrape_from_json(include_testdata!("seriouseats_pan_pizza.json"), "a").unwrap();
     assert_eq!(r.instructions.len(), 7);
     assert_eq!(r.ingredients.len(), 10);
 

@@ -40,6 +40,7 @@ pub enum Unit {
     Celcius,
     //distance
     Inch,
+    Whole,
 
     Other(String),
 }
@@ -75,6 +76,7 @@ impl Unit {
             Unit::Celcius => "°c",
             Unit::Farhenheit => "°F",
             Unit::Inch => "inch",
+            Unit::Whole => "whole",
             Unit::Other(s) => return singular(&s),
         }
         .to_string()

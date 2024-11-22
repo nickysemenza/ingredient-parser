@@ -92,6 +92,7 @@ impl Measure {
             | Unit::Farhenheit
             | Unit::Celcius // todo: convert to farhenheit?
             | Unit::Inch
+            | Unit::Whole
             | Unit::Second => return self.clone(),
             Unit::Other(x) => {
                 let x2 = x.clone();
@@ -184,6 +185,7 @@ impl Measure {
             | Unit::Ounce
             | Unit::Pound
             | Unit::Dollar
+            | Unit::Whole
             | Unit::Day
             | Unit::Minute
             | Unit::Hour => self.normalize().kind(),
@@ -223,6 +225,7 @@ impl Measure {
             | Unit::Dollar
             | Unit::Farhenheit
             | Unit::Celcius // todo: convert to farhenheit?
+            | Unit::Whole
             | Unit::Minute
             | Unit::Hour
             | Unit::Day => return self,

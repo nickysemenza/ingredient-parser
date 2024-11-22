@@ -11,8 +11,8 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
-wasm-bindgen = {version = "0.2", features = ["serde-serialize"]} 
-ingredient= { path = "../ingredient-parser" }
+wasm-bindgen = { version = "0.2.93", features = ["serde-serialize"] }
+ingredient = { path = "../ingredient-parser" }
 recipe-scraper = { path = "../recipe-scraper" }
 tracing-wasm = "0.2.1"
 getrandom = { version = "0.2", features = ["js"] }
