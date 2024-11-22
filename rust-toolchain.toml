@@ -1,0 +1,3 @@
+[toolchain]
+# https://github.com/rustwasm/wasm-pack/issues/1441
+channel = "1.81"
