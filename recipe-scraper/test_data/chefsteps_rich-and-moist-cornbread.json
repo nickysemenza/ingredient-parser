@@ -1,0 +1,709 @@
+{
+  "usedIn": [],
+  "id": 462,
+  "title": "Rich and Moist Cornbread",
+  "byline": "",
+  "description": "What do we love the most about cornbread? That lovely, golden-brown exterior combined with the **crumbly-yet-still-moist interior**? The little puff of steam that escapes when you break a piece apart? The gentle sweetness of the corn? It’s too tough to call, really, so this recipe amplifies all of those qualities to create something extraordinary and ready to be slathered with butter. \n\nCornbread can be broken into northern and southern styles; southern-style is a lovely thing in its own right—savory, with a moist crumb and crispy crust—while ours is an almost brownielike riff on the sweeter northern style. To make it, we rely on a clever selection of ingredients. The keys are frozen corn (because freezing corn as soon as it’s picked keeps its sugars from converting into starches), cream for moisture, and isomalt, a sugar alcohol that’s not too sweet. Grandma might wrinkle her nose at that last one, but it keeps the cornbread incredibly tender.\n\nWe also use tiny loaf pans, which, along with being incredibly cute, create more surface area, allowing for more contrast between the exterior and interior in every bite. (Cupcake tins will work well too.) Finally, we use a thermometer to check the cornbread’s internal temperature at the end of baking. If Grandma wrinkles her nose at that, just tell her it’s a twenty-first-century cake tester. Then ask her to quit hogging the butter.",
+  "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/GxsXeSKSa23RWDVXOty0",
+  "youtubeId": "V2PMnnlcrGk",
+  "vimeoId": "",
+  "url": "https://www.chefsteps.com/activities/rich-and-moist-cornbread",
+  "likesCount": 1418,
+  "yield": "About 12 mini loaves or one 12- to 13-inch skillet",
+  "timing": "1 hr",
+  "shortDescription": "Not your grandma’s cornbread but—sorry, Nana—way better.",
+  "tagList": [
+    "barbecue",
+    "bbq",
+    "home",
+    "bread",
+    "side dishes",
+    "side dish",
+    "fatty",
+    "rich",
+    "vegetarian",
+    "corn",
+    "breakfast",
+    "dinner",
+    "classic",
+    "baking",
+    "savory",
+    "southern",
+    "lunch",
+    "no special equipment",
+    "no Modernist ingredients",
+    "brunch",
+    "kid friendly",
+    "grains",
+    "cast iron skillet",
+    "Kosher",
+    "honey butter",
+    "winter",
+    "summer",
+    "snack",
+    "spring",
+    "fall",
+    "superbowl"
+  ],
+  "chefstepsGenerated": true,
+  "heroImage": null,
+  "premium": false,
+  "studio": false,
+  "classes": ["barbecue"],
+  "includeInGallery": true,
+  "thumbnail": "https://d3awvtnmmsvyot.cloudfront.net/api/file/GxsXeSKSa23RWDVXOty0",
+  "featuredImageTag": "",
+  "difficulty": "intermediate",
+  "activityType": ["", "Recipe"],
+  "authorIds": [6],
+  "creator": null,
+  "sourceActivity": null,
+  "ingredients": [
+    {
+      "order": 0,
+      "title": "Butter",
+      "quantity": "400.0",
+      "unit": "g",
+      "note": "unsalted",
+      "subActivity": null,
+      "ingredient": {
+        "id": 2710,
+        "title": "Butter",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/bVBYX5deS26Kyptzyeka",
+        "url": "https://www.chefsteps.com/ingredients/butter",
+        "productUrl": "",
+        "density": null
+      }
+    },
+    {
+      "order": 1,
+      "title": "Corn",
+      "quantity": "900.0",
+      "unit": "g",
+      "note": "frozen",
+      "subActivity": null,
+      "ingredient": {
+        "id": 2950,
+        "title": "Corn",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/Ntu4evVcQuqxnwqKbvE7",
+        "url": "https://www.chefsteps.com/ingredients/corn",
+        "productUrl": "",
+        "density": null
+      }
+    },
+    {
+      "order": 2,
+      "title": "Heavy cream",
+      "quantity": "160.0",
+      "unit": "g",
+      "note": "",
+      "subActivity": null,
+      "ingredient": {
+        "id": 61,
+        "title": "Heavy cream",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/XcHjoGMTRtODozhUK3vB",
+        "url": "https://www.chefsteps.com/ingredients/heavy-cream",
+        "productUrl": "",
+        "density": null
+      }
+    },
+    {
+      "order": 3,
+      "title": "Milk",
+      "quantity": "90.0",
+      "unit": "g",
+      "note": "whole",
+      "subActivity": null,
+      "ingredient": {
+        "id": 2677,
+        "title": "Milk",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/7o7rwRLTVGOjzxKEJktd",
+        "url": "https://www.chefsteps.com/ingredients/milk",
+        "productUrl": "",
+        "density": null
+      }
+    },
+    {
+      "order": 4,
+      "title": "Egg(s)",
+      "quantity": "165.0",
+      "unit": "g",
+      "note": "",
+      "subActivity": null,
+      "ingredient": {
+        "id": 2698,
+        "title": "Egg(s)",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/zjmtgAbWTYSPTUjokERS",
+        "url": "https://www.chefsteps.com/ingredients/eggs--2",
+        "productUrl": "",
+        "density": null
+      }
+    },
+    {
+      "order": 5,
+      "title": "Cake flour",
+      "quantity": "245.0",
+      "unit": "g",
+      "note": "",
+      "subActivity": null,
+      "ingredient": {
+        "id": 16456,
+        "title": "Cake flour",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/G5FG1ZK5Q9Gt0J6vfhdC",
+        "url": "https://www.chefsteps.com/ingredients/cake-flour-bleached",
+        "productUrl": "https://www.amazon.com/King-Arthur-Cake-Flour-Unbleached/dp/B00P6ERO86?tag=chefsteps02-20",
+        "density": null
+      }
+    },
+    {
+      "order": 6,
+      "title": "Isomalt",
+      "quantity": "230.0",
+      "unit": "g",
+      "note": "",
+      "subActivity": null,
+      "ingredient": {
+        "id": 1157,
+        "title": "Isomalt",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/OqOgzZJORROTSpvjN7Fc",
+        "url": "https://www.chefsteps.com/ingredients/isomalt",
+        "productUrl": "https://www.amazon.com/Isomalt-Non-GMO-Vegan-Kosher-Certified/dp/B01B1BPAB0?\u0026linkCode=ll1\u0026tag=chefsteps02-20\u0026linkId=d57b2e466a1e798d77ef82f81b7c43ff\u0026language=en_US\u0026ref_=as_li_ss_tl",
+        "density": null
+      }
+    },
+    {
+      "order": 7,
+      "title": "Cornmeal",
+      "quantity": "160.0",
+      "unit": "g",
+      "note": "medium grind",
+      "subActivity": null,
+      "ingredient": {
+        "id": 1156,
+        "title": "Cornmeal",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/Y35TUtbUQsSCG6JZId2g",
+        "url": "https://www.chefsteps.com/ingredients/cornmeal--2",
+        "productUrl": "https://www.amazon.com/gp/product/B000WGELOI/ref=as_li_tl?ie=UTF8\u0026camp=1789\u0026creative=9325\u0026creativeASIN=B000WGELOI\u0026linkCode=as2\u0026tag=chefsteps02-20\u0026linkId=ff0f14079ab05ef4d782b6a6899588d9",
+        "density": null
+      }
+    },
+    {
+      "order": 8,
+      "title": "Sugar",
+      "quantity": "90.0",
+      "unit": "g",
+      "note": "",
+      "subActivity": null,
+      "ingredient": {
+        "id": 2618,
+        "title": "Sugar",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/rzBbn2PQwSFmvHkCShlw",
+        "url": "https://www.chefsteps.com/ingredients/sugar",
+        "productUrl": "https://www.amazon.com/Domino-Granulated-Sugar-4-lb/dp/B01J78INO0?\u0026linkCode=ll1\u0026tag=chefsteps02-20\u0026linkId=f43d6659364dabce50302d88c7e428fb\u0026language=en_US\u0026ref_=as_li_ss_tl",
+        "density": "845.35"
+      }
+    },
+    {
+      "order": 9,
+      "title": "Salt",
+      "quantity": "10.0",
+      "unit": "g",
+      "note": "kosher",
+      "subActivity": null,
+      "ingredient": {
+        "id": 2324,
+        "title": "Salt",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/UQOb27toTnuNk47dkU2A",
+        "url": "https://www.chefsteps.com/ingredients/salt",
+        "productUrl": "https://www.amazon.com/gp/product/B0011BPMUK/ref=as_li_tl?ie=UTF8\u0026amp;camp=1789\u0026amp;creative=9325\u0026amp;creativeASIN=B0011BPMUK\u0026amp;linkCode=as2\u0026amp;tag=chefsteps02-20\u0026amp;linkId=0328fee0ebe5b75d5c880cb2bebcfdd6",
+        "density": null
+      }
+    },
+    {
+      "order": 10,
+      "title": "Baking powder",
+      "quantity": "4.5",
+      "unit": "g",
+      "note": "",
+      "subActivity": null,
+      "ingredient": {
+        "id": 2323,
+        "title": "Baking powder",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/Dpo5i2uZQXecQc4ZS1TN",
+        "url": "https://www.chefsteps.com/ingredients/baking-powder",
+        "productUrl": "https://www.amazon.com/Bobs-Red-Mill-Baking-Powder/dp/B078T2TL6M?\u0026linkCode=ll1\u0026tag=chefsteps02-20\u0026linkId=7b3cd61b313b532906d4ca2a6b5cb79c\u0026language=en_US\u0026ref_=as_li_ss_tl",
+        "density": null
+      }
+    },
+    {
+      "order": 11,
+      "title": "Baking soda",
+      "quantity": "2.5",
+      "unit": "g",
+      "note": "",
+      "subActivity": null,
+      "ingredient": {
+        "id": 1162,
+        "title": "Baking soda",
+        "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/9iK1kFBR9q9pHHEmSb6M",
+        "url": "https://www.chefsteps.com/ingredients/baking-soda",
+        "productUrl": "https://www.amazon.com/Bobs-Red-Mill-Baking-Ounce/dp/B078T4YT67?\u0026linkCode=ll1\u0026tag=chefsteps02-20\u0026linkId=6f7048d6bcc9c5529e13e9d402cd4a89\u0026language=en_US\u0026ref_=as_li_ss_tl",
+        "density": null
+      }
+    }
+  ],
+  "steps": [
+    {
+      "order": 0,
+      "title": "Preheat oven to [c 190]",
+      "directions": "",
+      "image": null,
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107805,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": []
+    },
+    {
+      "order": 1,
+      "title": "Melt butter",
+      "directions": "Melt butter on high heat in a heavy-bottomed pot.",
+      "image": null,
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107806,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": [
+        {
+          "order": 0,
+          "title": "Butter",
+          "quantity": "400.0",
+          "unit": "g",
+          "note": "unsalted",
+          "subActivity": null,
+          "ingredient": {
+            "id": 2710,
+            "title": "Butter",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/bVBYX5deS26Kyptzyeka",
+            "url": "https://www.chefsteps.com/ingredients/butter",
+            "productUrl": "",
+            "density": null
+          }
+        }
+      ]
+    },
+    {
+      "order": 2,
+      "title": "Add frozen corn; cook",
+      "directions": "Add the corn, scraping the bottom of the pot continuously to prevent scorching. Cook until golden brown.",
+      "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/i4wesJIOQH2tHwOGx705",
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107807,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": [
+        {
+          "order": 0,
+          "title": "Corn",
+          "quantity": "900.0",
+          "unit": "g",
+          "note": "frozen",
+          "subActivity": null,
+          "ingredient": {
+            "id": 2950,
+            "title": "Corn",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/Ntu4evVcQuqxnwqKbvE7",
+            "url": "https://www.chefsteps.com/ingredients/corn",
+            "productUrl": "",
+            "density": null
+          }
+        }
+      ]
+    },
+    {
+      "order": 3,
+      "title": "Blend ingredients",
+      "directions": "In a blender, blend corn-and-butter mixture. Add cream and milk. Blend on high until smooth. Add the eggs and continue blending until well mixed.",
+      "image": null,
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107808,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": [
+        {
+          "order": 0,
+          "title": "Heavy cream",
+          "quantity": "160.0",
+          "unit": "g",
+          "note": null,
+          "subActivity": null,
+          "ingredient": {
+            "id": 61,
+            "title": "Heavy cream",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/XcHjoGMTRtODozhUK3vB",
+            "url": "https://www.chefsteps.com/ingredients/heavy-cream",
+            "productUrl": "",
+            "density": null
+          }
+        },
+        {
+          "order": 1,
+          "title": "Milk",
+          "quantity": "90.0",
+          "unit": "g",
+          "note": null,
+          "subActivity": null,
+          "ingredient": {
+            "id": 2677,
+            "title": "Milk",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/7o7rwRLTVGOjzxKEJktd",
+            "url": "https://www.chefsteps.com/ingredients/milk",
+            "productUrl": "",
+            "density": null
+          }
+        },
+        {
+          "order": 2,
+          "title": "Egg(s)",
+          "quantity": "165.0",
+          "unit": "g",
+          "note": null,
+          "subActivity": null,
+          "ingredient": {
+            "id": 2698,
+            "title": "Egg(s)",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/zjmtgAbWTYSPTUjokERS",
+            "url": "https://www.chefsteps.com/ingredients/eggs--2",
+            "productUrl": "",
+            "density": null
+          }
+        }
+      ]
+    },
+    {
+      "order": 4,
+      "title": "Mix dry ingredients in a large bowl",
+      "directions": "Dry blend remaining ingredients in a large bowl.",
+      "image": null,
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107809,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": [
+        {
+          "order": 0,
+          "title": "Cake flour",
+          "quantity": "245.0",
+          "unit": "g",
+          "note": null,
+          "subActivity": null,
+          "ingredient": {
+            "id": 16456,
+            "title": "Cake flour",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/G5FG1ZK5Q9Gt0J6vfhdC",
+            "url": "https://www.chefsteps.com/ingredients/cake-flour-bleached",
+            "productUrl": "https://www.amazon.com/King-Arthur-Cake-Flour-Unbleached/dp/B00P6ERO86?tag=chefsteps02-20",
+            "density": null
+          }
+        },
+        {
+          "order": 1,
+          "title": "Isomalt",
+          "quantity": "230.0",
+          "unit": "g",
+          "note": null,
+          "subActivity": null,
+          "ingredient": {
+            "id": 1157,
+            "title": "Isomalt",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/OqOgzZJORROTSpvjN7Fc",
+            "url": "https://www.chefsteps.com/ingredients/isomalt",
+            "productUrl": "https://www.amazon.com/Isomalt-Non-GMO-Vegan-Kosher-Certified/dp/B01B1BPAB0?\u0026linkCode=ll1\u0026tag=chefsteps02-20\u0026linkId=d57b2e466a1e798d77ef82f81b7c43ff\u0026language=en_US\u0026ref_=as_li_ss_tl",
+            "density": null
+          }
+        },
+        {
+          "order": 2,
+          "title": "Cornmeal",
+          "quantity": "160.0",
+          "unit": "g",
+          "note": "medium grind",
+          "subActivity": null,
+          "ingredient": {
+            "id": 1156,
+            "title": "Cornmeal",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/Y35TUtbUQsSCG6JZId2g",
+            "url": "https://www.chefsteps.com/ingredients/cornmeal--2",
+            "productUrl": "https://www.amazon.com/gp/product/B000WGELOI/ref=as_li_tl?ie=UTF8\u0026camp=1789\u0026creative=9325\u0026creativeASIN=B000WGELOI\u0026linkCode=as2\u0026tag=chefsteps02-20\u0026linkId=ff0f14079ab05ef4d782b6a6899588d9",
+            "density": null
+          }
+        },
+        {
+          "order": 3,
+          "title": "Sugar",
+          "quantity": "90.0",
+          "unit": "g",
+          "note": null,
+          "subActivity": null,
+          "ingredient": {
+            "id": 2618,
+            "title": "Sugar",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/rzBbn2PQwSFmvHkCShlw",
+            "url": "https://www.chefsteps.com/ingredients/sugar",
+            "productUrl": "https://www.amazon.com/Domino-Granulated-Sugar-4-lb/dp/B01J78INO0?\u0026linkCode=ll1\u0026tag=chefsteps02-20\u0026linkId=f43d6659364dabce50302d88c7e428fb\u0026language=en_US\u0026ref_=as_li_ss_tl",
+            "density": "845.35"
+          }
+        },
+        {
+          "order": 4,
+          "title": "Salt",
+          "quantity": "10.0",
+          "unit": "g",
+          "note": "kosher",
+          "subActivity": null,
+          "ingredient": {
+            "id": 2324,
+            "title": "Salt",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/UQOb27toTnuNk47dkU2A",
+            "url": "https://www.chefsteps.com/ingredients/salt",
+            "productUrl": "https://www.amazon.com/gp/product/B0011BPMUK/ref=as_li_tl?ie=UTF8\u0026amp;camp=1789\u0026amp;creative=9325\u0026amp;creativeASIN=B0011BPMUK\u0026amp;linkCode=as2\u0026amp;tag=chefsteps02-20\u0026amp;linkId=0328fee0ebe5b75d5c880cb2bebcfdd6",
+            "density": null
+          }
+        },
+        {
+          "order": 5,
+          "title": "Baking powder",
+          "quantity": "4.5",
+          "unit": "g",
+          "note": null,
+          "subActivity": null,
+          "ingredient": {
+            "id": 2323,
+            "title": "Baking powder",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/Dpo5i2uZQXecQc4ZS1TN",
+            "url": "https://www.chefsteps.com/ingredients/baking-powder",
+            "productUrl": "https://www.amazon.com/Bobs-Red-Mill-Baking-Powder/dp/B078T2TL6M?\u0026linkCode=ll1\u0026tag=chefsteps02-20\u0026linkId=7b3cd61b313b532906d4ca2a6b5cb79c\u0026language=en_US\u0026ref_=as_li_ss_tl",
+            "density": null
+          }
+        },
+        {
+          "order": 6,
+          "title": "Baking soda",
+          "quantity": "2.5",
+          "unit": "g",
+          "note": null,
+          "subActivity": null,
+          "ingredient": {
+            "id": 1162,
+            "title": "Baking soda",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/9iK1kFBR9q9pHHEmSb6M",
+            "url": "https://www.chefsteps.com/ingredients/baking-soda",
+            "productUrl": "https://www.amazon.com/Bobs-Red-Mill-Baking-Ounce/dp/B078T4YT67?\u0026linkCode=ll1\u0026tag=chefsteps02-20\u0026linkId=6f7048d6bcc9c5529e13e9d402cd4a89\u0026language=en_US\u0026ref_=as_li_ss_tl",
+            "density": null
+          }
+        }
+      ]
+    },
+    {
+      "order": 5,
+      "title": "Transfer corn purée to the bowl of dry ingredients",
+      "directions": "Use a rubber spatula to mix thoroughly.",
+      "image": null,
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107810,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": []
+    },
+    {
+      "order": 6,
+      "title": "Prep bread pans or cast iron skillet; add batter",
+      "directions": "Coat small bread pans or cast iron skillet with butter. \r\n\r\nDust with flour. Remove excess flour by tapping each pan against the counter.\r\n\r\nAdd batter to pans.",
+      "image": null,
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107811,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": [
+        {
+          "order": 0,
+          "title": "Butter",
+          "quantity": "0.0",
+          "unit": "a/n",
+          "note": "unsalted",
+          "subActivity": null,
+          "ingredient": {
+            "id": 2710,
+            "title": "Butter",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/bVBYX5deS26Kyptzyeka",
+            "url": "https://www.chefsteps.com/ingredients/butter",
+            "productUrl": "",
+            "density": null
+          }
+        },
+        {
+          "order": 1,
+          "title": "Cake flour",
+          "quantity": "0.0",
+          "unit": "a/n",
+          "note": null,
+          "subActivity": null,
+          "ingredient": {
+            "id": 16456,
+            "title": "Cake flour",
+            "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/G5FG1ZK5Q9Gt0J6vfhdC",
+            "url": "https://www.chefsteps.com/ingredients/cake-flour-bleached",
+            "productUrl": "https://www.amazon.com/King-Arthur-Cake-Flour-Unbleached/dp/B00P6ERO86?tag=chefsteps02-20",
+            "density": null
+          }
+        }
+      ]
+    },
+    {
+      "order": 7,
+      "title": "Bake",
+      "directions": "Bake to core temperature of [c 90], about 15 minutes.",
+      "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/7PFYmI7bSquFFAxScIBr",
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107812,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": []
+    },
+    {
+      "order": 8,
+      "title": "Remove from pans while still hot",
+      "directions": "If using bread tins, carefully remove the bread from the pans while still hot, and place on cooling rack. This way, the bread will develop more of a crust.",
+      "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/XVwNk3RRbCKjMN8FtXMj",
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107813,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": []
+    },
+    {
+      "order": 9,
+      "title": "Serve",
+      "directions": "Serve warm, with [honey butter](https://www.chefsteps.com/activities/honey-butter).",
+      "image": "https://d3awvtnmmsvyot.cloudfront.net/api/file/JVEUa1lTRTmICihsF3gm",
+      "isAside": null,
+      "youtubeId": "",
+      "vimeoId": null,
+      "hideNumber": null,
+      "id": 107814,
+      "applianceInstructionText": "",
+      "applianceImage": null,
+      "canCalculate": true,
+      "applianceInstructionImageAltText": "",
+      "imageDescription": "",
+      "imageAlt": "",
+      "ingredients": []
+    }
+  ],
+  "equipment": [
+    {
+      "order": 0,
+      "optional": false,
+      "equipment": {
+        "id": 571,
+        "title": "Breville Super Q™ Blender",
+        "url": "https://www.chefsteps.com/equipment/571",
+        "productUrl": "https://breville.oie8.net/aneXZb"
+      }
+    },
+    {
+      "order": 1,
+      "optional": true,
+      "equipment": {
+        "id": 305,
+        "title": "Cast-iron pan or skillet",
+        "url": "https://www.chefsteps.com/equipment/305",
+        "productUrl": "https://www.amazon.com/gp/product/B00WTSCXIS/ref=as_li_tl?ie=UTF8\u0026camp=1789\u0026creative=9325\u0026creativeASIN=B00WTSCXIS\u0026linkCode=as2\u0026tag=chefsteps02-20\u0026linkId=5e030d301a4d921cb050963a6fc593ce"
+      }
+    },
+    {
+      "order": 2,
+      "optional": true,
+      "equipment": {
+        "id": 1150,
+        "title": "Small bread tins",
+        "url": "https://www.chefsteps.com/equipment/1150",
+        "productUrl": "https://www.amazon.com/gp/product/B003YKGQVK/ref=as_li_tl?ie=UTF8\u0026amp;camp=1789\u0026amp;creative=9325\u0026amp;creativeASIN=B003YKGQVK\u0026amp;linkCode=as2\u0026amp;tag=chefsteps02-20\u0026amp;linkId=fc287b2d145699974c19f04ceb5f22ba"
+      }
+    },
+    {
+      "order": 3,
+      "optional": false,
+      "equipment": {
+        "id": 11,
+        "title": "Digital instant-read thermometer",
+        "url": "https://www.chefsteps.com/equipment/11",
+        "productUrl": "https://www.thermoworks.com/thermapen-one/?tw=CHEFSTEPS"
+      }
+    }
+  ],
+  "skip_paywall": false
+}

@@ -137,6 +137,17 @@ test_parse_ingredient!(
     }
 );
 
+test_parse_ingredient!(
+    // "whole" can sometimes be an ingredient
+    test_parse_whole_wheat_ambigious,
+    "100 grams whole wheat flour",
+    Ingredient {
+        name: "whole wheat flour".to_string(),
+        amounts: vec![Measure::parse_new("grams", 100.0),],
+        modifier: None
+    }
+);
+
 test_parsing_equals!(
     test_unit_without_number_of,
     "pinch nutmeg",

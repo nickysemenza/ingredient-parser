@@ -270,7 +270,12 @@ impl IngredientParser {
         context(
             "unit",
             verify(unitamt, |s: &str| {
-                unit::is_addon_unit(self.units.clone(), s)
+                // fix for test_parse_whole_wheat_ambigious
+                let mut x = self.units.clone();
+                if input.starts_with("whole wheat") {
+                    x.remove("whole");
+                }
+                unit::is_addon_unit(x, s)
             }),
         )(input)
     }

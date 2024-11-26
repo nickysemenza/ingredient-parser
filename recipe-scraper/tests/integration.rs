@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
-use recipe_scraper::{scrape, scrape_from_json, ParsedRecipe, ScrapeError, ScrapedRecipe};
+use recipe_scraper::ld_json;
+use recipe_scraper::{scrape, ParsedRecipe, ScrapeError, ScrapedRecipe};
 use std::collections::HashMap;
-
 macro_rules! include_testdata {
     ($x:expr) => {
         include_str!(concat!("../test_data/", $x))
@@ -89,7 +89,7 @@ fn scrape_from_cache_html() {
 }
 #[test]
 fn json() {
-    let r = scrape_from_json(
+    let r = ld_json::scrape_from_ld_json(
         include_testdata!("diningwithskyler_carbone-spicy-rigatoni-vodka.json"),
         "a",
     )
@@ -97,7 +97,7 @@ fn json() {
     assert_eq!(r.ingredients.len(), 11);
     assert_eq!(r.instructions.len(), 9); // todo
 
-    let r = scrape_from_json(
+    let r = ld_json::scrape_from_ld_json(
         include_testdata!("thewoksoflife_vietnamese-rice-noodle-salad-chicken.json"),
         "a",
     )
@@ -105,11 +105,12 @@ fn json() {
     assert_eq!(r.instructions.len(), 5);
     assert_eq!(r.ingredients.len(), 22);
 
-    let r = scrape_from_json(include_testdata!("seriouseats_pan_pizza.json"), "a").unwrap();
+    let r =
+        ld_json::scrape_from_ld_json(include_testdata!("seriouseats_pan_pizza.json"), "a").unwrap();
     assert_eq!(r.instructions.len(), 7);
     assert_eq!(r.ingredients.len(), 10);
 
-    let r = scrape_from_json(
+    let r = ld_json::scrape_from_ld_json(
         include_testdata!("justonecookbook_chicken-katsu-don.json"),
         "a",
     )

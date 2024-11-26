@@ -135,9 +135,7 @@
         "kind": "Measure",
         "value": [
           {
-            "unit": {
-              "Other": "whole"
-            },
+            "unit": "Whole",
             "value": 375.0,
             "upper_value": null
           }
