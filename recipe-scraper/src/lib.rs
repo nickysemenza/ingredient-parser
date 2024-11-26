@@ -1,3 +1,4 @@
+use chefsteps::parse_chefsteps;
 use html::scrape_from_html;
 use ingredient::{
     ingredient::Ingredient,
@@ -8,6 +9,7 @@ use ld_json::extract_ld;
 use scraper::Html;
 
 use serde::{Deserialize, Serialize};
+mod chefsteps;
 mod html;
 pub mod ld_json;
 mod ld_schema;
@@ -71,7 +73,11 @@ impl ScrapedRecipe {
 // https://github.com/megametres/recettes-api/blob/dev/src/html_parser/mod.rs
 
 pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
-    info!("scraping {} from {}", body.len(), url);
+    info!("scraping {} from {} ({:.10})", body.len(), url, body);
+    if url.contains("chefsteps.com") {
+        info!("scraping chefsteps");
+        return parse_chefsteps(body);
+    }
     let dom = Html::parse_document(body);
     let res = match extract_ld(dom.clone()) {
         Ok(ld_schemas) => {

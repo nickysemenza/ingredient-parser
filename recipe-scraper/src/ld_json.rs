@@ -94,13 +94,12 @@ pub(crate) fn extract_ld(dom: Html) -> Result<Vec<String>, ScrapeError> {
 }
 fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
     let json = json.as_str();
-    let raw = serde_json::from_str::<Value>(json)?;
-    // tracing::info!("raw json: {:#?}", raw);
     let v: ld_schema::Root = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
+            let raw = serde_json::from_str::<Value>(json).expect("failed to parse ld json");
             error!(
-                "failed to parse ld json: {}",
+                "failed to find ld json root: {}",
                 serde_json::to_string_pretty(&raw).unwrap()
             );
             return Err(ScrapeError::Deserialize(e));
@@ -111,8 +110,8 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
 }
 
 pub fn scrape_from_ld_json(json: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
-    let ld_schema = parse_ld_json(json.to_owned());
-    normalize_ld_json(ld_schema?, url)
+    let ld_schema = parse_ld_json(json.to_owned()).expect("failed to parse ld json");
+    normalize_ld_json(ld_schema, url)
 }
 
 #[cfg(test)]

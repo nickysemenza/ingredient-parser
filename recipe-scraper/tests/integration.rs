@@ -130,3 +130,15 @@ fn handle_no_ldjson() {
         ScrapeError::Parse(_)
     ));
 }
+
+#[test]
+fn test_scrape_chefsteps() {
+    let r = scrape(
+        include_testdata!("chefsteps_rich-and-moist-cornbread.json"),
+        "https://www.chefsteps.com/activities/rich-and-moist-cornbread",
+    )
+    .unwrap();
+    dbg!(r);
+    // assert_eq!(r.instructions.len(), 7);
+    // assert_eq!(r.ingredients.len(), 17);
+}
