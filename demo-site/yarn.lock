@@ -1961,9 +1961,9 @@ vite-plugin-top-level-await@^1.3.1:
     uuid "^9.0.1"
 
 vite-plugin-wasm@^3.2.2:
-  version "3.3.0"
-  resolved "https://registry.yarnpkg.com/vite-plugin-wasm/-/vite-plugin-wasm-3.3.0.tgz#2908ef2529bf8f33f4e549c8c6fda26ad273ca15"
-  integrity sha512-tVhz6w+W9MVsOCHzxo6SSMSswCeIw4HTrXEi6qL3IRzATl83jl09JVO1djBqPSwfjgnpVHNLYcaMbaDX5WB/pg==
+  version "3.4.0"
+  resolved "https://registry.yarnpkg.com/vite-plugin-wasm/-/vite-plugin-wasm-3.4.0.tgz#ff5c49011818cc663dadfd2145a5516f60771dad"
+  integrity sha512-7aIlP8IRRZcl/prKA36xKEqwZZMXcXFtrzWo16e7TpfNGpp05MOLNym8vTnl9UsU0nNqy3ekcEXDL5B1RsEPNQ==
 
 vite@^6.0.0:
   version "6.0.0"
