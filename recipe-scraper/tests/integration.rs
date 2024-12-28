@@ -42,6 +42,10 @@ fn get_testdata() -> HashMap<String, String> {
                 .to_string(),
             include_testdata!("nytimes_toll-house-chocolate-chip-cookies.html").to_string(),
         ),
+        (
+            "https://cooking.nytimes.com/recipes/1022674-chewy-gingerbread-cookies".to_string(),
+            include_testdata!("nytimes_toll-house-chocolate-chip-cookies.html").to_string(),
+        ),
     ])
 }
 
@@ -49,6 +53,11 @@ fn get_testdata() -> HashMap<String, String> {
 fn scrape_from_live() {
     let res = scrape_url("http://cooking.nytimes.com/recipes/1017060-doughnuts").unwrap();
     assert_eq!(res.ingredients.len(), 8);
+}
+fn scrape_2() {
+    let res = scrape_url("https://cooking.nytimes.com/recipes/1022674-chewy-gingerbread-cookies")
+        .unwrap();
+    assert_eq!(res.ingredients.len(), 10);
 }
 
 #[test]

@@ -1,0 +1,410 @@
+{
+  "@context": "http://schema.org",
+  "@id": "nyt://recipe/3b1e9cd8-7ee6-5a0e-80e4-d88521c42379",
+  "@type": "Recipe",
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingCount": 3124,
+    "ratingValue": 5
+  },
+  "author": {
+    "@type": "Person",
+    "name": "Sohla El-Waylly"
+  },
+  "copyrightHolder": {
+    "@id": "https://cooking.nytimes.com/#publisher",
+    "@type": "Organization",
+    "name": "NYT Cooking"
+  },
+  "copyrightYear": 2021,
+  "description": "This gingerbread is maxed out on spice, packed with two types of fiery ginger and lots of prickly black pepper. Cozy from all the warm spices as well as from molasses, they’re perfect for munching on while tree-trimming. The center of the cookie is fudgy and dense, while the outside edges stay crisp — like the best brownie, but in gingerbread form. That chewy-crispy texture is thanks to the confectioners’ sugar in the dough and a light coating of ginger-spiced sugar. Be sure to use true molasses and not blackstrap molasses; blackstrap molasses has less sugar, more salt and acidity, and can change the way the dough browns, spreads and interacts with the leavening.",
+  "image": [
+    {
+      "@id": "nyt://image/92fd7edf-5c1c-5d3e-892a-628b55f2985a#videoSixteenByNineJumbo1600",
+      "@type": "ImageObject",
+      "contentUrl": "https://static01.nyt.com/images/2021/12/08/dining/08COOKIESREX20-GINGERBREAD/01COOKIESREX20-GINGERBREAD-videoSixteenByNineJumbo1600.jpg",
+      "creditText": "Anna Williams for The New York Times. Food Stylist: Susan Spungen.",
+      "dateModified": "2021-12-03T16:00:06.418Z",
+      "datePublished": "2021-11-22T22:03:47.000Z",
+      "height": "900",
+      "representativeOfPage": true,
+      "uploadDate": "2021-11-22T22:03:47.000Z",
+      "url": "https://static01.nyt.com/images/2021/12/08/dining/08COOKIESREX20-GINGERBREAD/01COOKIESREX20-GINGERBREAD-videoSixteenByNineJumbo1600.jpg",
+      "width": "1600"
+    },
+    {
+      "@id": "nyt://image/92fd7edf-5c1c-5d3e-892a-628b55f2985a#superJumbo",
+      "@type": "ImageObject",
+      "contentUrl": "https://static01.nyt.com/images/2021/12/08/dining/08COOKIESREX20-GINGERBREAD/01COOKIESREX20-GINGERBREAD-superJumbo.jpg",
+      "creditText": "Anna Williams for The New York Times. Food Stylist: Susan Spungen.",
+      "dateModified": "2021-12-03T16:00:06.418Z",
+      "datePublished": "2021-11-22T22:03:47.000Z",
+      "height": "1337",
+      "representativeOfPage": true,
+      "uploadDate": "2021-11-22T22:03:47.000Z",
+      "url": "https://static01.nyt.com/images/2021/12/08/dining/08COOKIESREX20-GINGERBREAD/01COOKIESREX20-GINGERBREAD-superJumbo.jpg",
+      "width": "2048"
+    },
+    {
+      "@id": "nyt://image/92fd7edf-5c1c-5d3e-892a-628b55f2985a#mediumSquareAt3X",
+      "@type": "ImageObject",
+      "contentUrl": "https://static01.nyt.com/images/2021/12/08/dining/08COOKIESREX20-GINGERBREAD/01COOKIESREX20-GINGERBREAD-mediumSquareAt3X.jpg",
+      "creditText": "Anna Williams for The New York Times. Food Stylist: Susan Spungen.",
+      "dateModified": "2021-12-03T16:00:06.418Z",
+      "datePublished": "2021-11-22T22:03:47.000Z",
+      "height": "1800",
+      "representativeOfPage": true,
+      "uploadDate": "2021-11-22T22:03:47.000Z",
+      "url": "https://static01.nyt.com/images/2021/12/08/dining/08COOKIESREX20-GINGERBREAD/01COOKIESREX20-GINGERBREAD-mediumSquareAt3X.jpg",
+      "width": "1800"
+    }
+  ],
+  "keywords": "black pepper, christmas cookie, freezer friendly, fresh ginger, ground ginger, molasses, plan-ahead, christmas, winter",
+  "mainEntityOfPage": {
+    "@id": "https://cooking.nytimes.com/recipes/1022674-chewy-gingerbread-cookies",
+    "@type": "WebPage",
+    "name": "Chewy Gingerbread Cookies"
+  },
+  "name": "Chewy Gingerbread Cookies",
+  "nutrition": {
+    "@context": "http://schema.org",
+    "@type": "NutritionInformation",
+    "calories": 160,
+    "carbohydrateContent": "23 grams",
+    "cholesterolContent": null,
+    "fatContent": "7 grams",
+    "fiberContent": "1 gram",
+    "proteinContent": "1 gram",
+    "saturatedFatContent": "4 grams",
+    "sodiumContent": "91 milligrams",
+    "sugarContent": "14 grams",
+    "transFatContent": "0 grams",
+    "unsaturatedFatContent": "2 grams"
+  },
+  "publisher": {
+    "@id": "https://cooking.nytimes.com/#publisher",
+    "@type": "Organization",
+    "name": "NYT Cooking"
+  },
+  "recipeCategory": "dessert",
+  "recipeCuisine": "",
+  "recipeIngredient": [
+    "14 tablespoons/200 grams unsalted butter, cut into pieces",
+    "3 tablespoons/50 grams finely grated fresh ginger",
+    "1 tablespoon ground ginger",
+    "2 teaspoons ground cinnamon",
+    "1 teaspoon freshly ground black pepper",
+    "1/2 teaspoon freshly grated nutmeg",
+    "2 cups/240 grams confectioners’ sugar",
+    "3 tablespoons/60 grams unsulphured molasses",
+    "1 tablespoon vanilla extract",
+    "1 1/4 teaspoon kosher salt (Diamond Crystal)",
+    "1 teaspoon baking soda",
+    "1 large egg, room temperature",
+    "2 cups/250 grams all-purpose flour",
+    "1/4 cup/50 grams granulated sugar",
+    "2 teaspoons ground ginger"
+  ],
+  "recipeInstructions": [
+    {
+      "@context": "http://schema.org",
+      "@type": "HowToStep",
+      "text": "In a medium saucepan over medium, melt butter until foamy, about 3 minutes. Continue cooking butter, stirring and scraping frequently with a stiff silicone spatula, until the sputtering has subsided and the butter solids look deeply browned, 3 to 5 minutes. Remove from heat, then whisk in the fresh ginger and ground spices. Scrape the butter and any brown bits at the bottom into the bowl of a stand mixer (or into a large bowl if using a hand mixer). Set aside until cool, slightly solid, but still creamy, about 20 minutes in the refrigerator or 2 hours at room temperature."
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "HowToStep",
+      "text": "Add confectioners’ sugar, molasses, vanilla, salt and baking soda to the cooled butter. Mix on low with the paddle attachment, stopping once to scrape the bowl and paddle, until creamy and combined, about 1 minute."
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "HowToStep",
+      "text": "Add the egg and mix on medium until pale and fluffy, stopping once to scrape the bowl and paddle, about 2 minutes. Add flour and mix until evenly combined, about 30 seconds. Cover and chill for at least 2 hours and up to 3 days before baking."
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "HowToStep",
+      "text": "Prepare the sugar coating: In a small bowl, stir together the sugar and ground ginger. Line two sheet pans with parchment paper, arrange the racks in the upper and lower thirds of the oven, and heat oven to 375 degrees."
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "HowToStep",
+      "text": "Using a #40 cookie scoop or two spoons, scoop the cookie dough into 2-tablespoon portions (30 grams). Roll the portioned cookie dough into balls and coat in the ginger sugar. Arrange on the sheet tray at least 1 inch apart and bake until set and lightly browned around the edges, about 10 minutes. Transfer to a wire rack to cool."
+    }
+  ],
+  "recipeYield": "24 cookies",
+  "review": [
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Laura"
+      },
+      "datePublished": "2024-12-26T20:28:10.000Z",
+      "reviewBody": "These were fantastic. Mine came out completely deflated so were named Flat Stanley cookies. Not sure what happened though I did not have the right amount of powdered sugar and had to add a bit of granulated. As one commenter pointed out, they were pretty buttery for this type of cookie. Not sure why the note says they are best eaten on the day of baking. Three days later, mine are still extremely yummy."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Mary K."
+      },
+      "datePublished": "2024-12-26T20:44:39.000Z",
+      "reviewBody": "I've made these twice in the last week. Every single person who tries them loves them, including a 2 yr old and a 4 yr old who both wanted more. I did halve the pepper, but that was the only change. Do make sure the dough is cold before scooping and baking, although even very thin and flat, these cookies taste amazing!"
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Leslie"
+      },
+      "datePublished": "2024-12-26T14:07:43.000Z",
+      "reviewBody": "These are delicious!  I was worried about burning the butter so I did not cook the butter solids until they were deeply brown.  I will definitely be making these again!!"
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Christina"
+      },
+      "datePublished": "2024-12-26T11:43:07.000Z",
+      "reviewBody": "Made these as instructed and they turned out perfectly and were a favorite among all who ate them! While these cookies are for sure best on day one (as all cookies are), ours held up really well for  about five days."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Frankie"
+      },
+      "datePublished": "2024-12-26T02:08:42.000Z",
+      "reviewBody": "I tried a gluten-free version, using half almond flour and half oat flour. Cookies were extremely runny/spready at first (maybe because I didn’t let the butter cool enough, based on other comments) and also were very quickly getting bubbly &amp; lacey @ 350. To fix, I used *very* small scoops of dough (about 1 tbsp, 2+ in apart) and I turned the oven down to 300 — they cooked slowly, and instead of the chewy centers, this resulted in a beautifully crispy, light melt-in-your-mouth texture. So good!"
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Chris M"
+      },
+      "datePublished": "2024-12-26T03:32:43.000Z",
+      "reviewBody": "The recipe should have you bake in multiple batches. I tried to bake 12 per sheet pan and they all merged. I tried again, baking 6 per sheet, and they came out perfect."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Kerry"
+      },
+      "datePublished": "2024-12-26T04:02:45.000Z",
+      "reviewBody": "These are the best cookies I have ever made - chewy, slightly spicy, ginger-molasses flavor bombs. Everyone loved them."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Kim"
+      },
+      "datePublished": "2024-12-25T18:36:54.000Z",
+      "reviewBody": "Cut powdered sugar by half a cup and it was still plenty sweet. Also reduced butter to 12 tbsp. Delicious! With above changes, texture  was slightly cakey on inside and crisp on outside."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Sugar Angel"
+      },
+      "datePublished": "2024-12-25T19:37:23.000Z",
+      "reviewBody": "Amazing!!! I recommend cooking for a 13 minutes instead of 10."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Joel"
+      },
+      "datePublished": "2024-12-25T16:11:26.000Z",
+      "reviewBody": "These are my new favorite cookies. I was a little worried when I tried the dough, because the dough before baking does not taste great, almost added more sugar. But I trusted the process and they are Delectable. Must makes if you like ginger cookies."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "fiftyfootgirl"
+      },
+      "datePublished": "2024-12-25T12:33:43.000Z",
+      "reviewBody": "I overbaked these by about 5-10 minutes because they seemed very doughy and underbaked at 10min. As a result, they were very hard when they cooled- (but still delicious!) I read a comment on Reddit about re-hydrating overbaked cookies by keeping them in an airtight container with a slice of apple— I tried it and it totally worked! Three days later, and these cookies are PERFECT. I will reduce the powdered sugar a bit (10%?) next time."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "M"
+      },
+      "datePublished": "2024-12-25T05:14:14.000Z",
+      "reviewBody": "Yes, it's easier to grate the ginger when frozen but boy does it lose its kick. My first batch with fresh was incredible. The second batch with frozen was... okay. Won't make that mistake again."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Mimi"
+      },
+      "datePublished": "2024-12-24T18:51:01.000Z",
+      "reviewBody": "For me, the output didn’t meet the effort.\n\nDid the fresh ginger or browned butter make it much better than the average gingerbread cookie? Meh. Not to my bourgeois palette. Even using a big pan there was massive spillage when I added the fresh ginger to the butter. It was a fun experiment for me, but other recipes would’ve yielded similar results with much less effort.\n\nThe cookies are good, but I won’t make them again. p.s. I love The Times’ chefs and learn something new from each of your recipes - thank you!"
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Krystal"
+      },
+      "datePublished": "2024-12-24T19:23:26.000Z",
+      "reviewBody": "Don’t put on lower third of oven. Will burn."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "margaret"
+      },
+      "datePublished": "2024-12-23T22:50:27.000Z",
+      "reviewBody": "I am not sure where I went wrong…followed the recipe to a T and got the most spread out/thin cookies as a result. This is so disappointing as the flavors and smells were unreal"
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "David"
+      },
+      "datePublished": "2021-12-03T23:17:20.000Z",
+      "reviewBody": "Freeze the fresh ginger root and keep in freezer then microplane it when ready for use.  Keeps the ginger juices intact; keeps longer than fresh ginger in the fridge.  Microplane is easier and quicker than grater although your fingers can get pretty cold in the grating process."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "AC"
+      },
+      "datePublished": "2021-12-07T01:30:12.000Z",
+      "reviewBody": "Diamond Crystal salt and Morton’s weigh differently even if you use the same volume. That’s why it’s helpful for recipes to identify what it was made with. One teaspoon of Morton kosher salt weighs 4.8 grams; one teaspoon of Diamond Crystal kosher weighs 2.8 grams. There’s a good Cooks a illustrated article on the difference."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Pam"
+      },
+      "datePublished": "2021-12-05T23:04:07.000Z",
+      "reviewBody": "MAKE THIS. I just finished my third cookie (don't judge me). With  no substitutions, these are by far, the most delicious ginger cookie I've ever eaten. These have an amazing kick, and come out beautifully crackled. \n\nMAKE AHEAD: I made the brown butter the night before, and let it come to room temperature before the mixing. \n\nPAN BANGING: I banged the pans at the 5 min mark, and right after they can out. Stored in an airtight container to retain chewiness."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Sean"
+      },
+      "datePublished": "2021-12-13T12:12:15.000Z",
+      "reviewBody": "In the end, these came out great, and I will absolutely make them many more times. Crispy outside, chewy center, sweet and spicy. 10/10.\n\nHowever, like others have already said, be careful when adding the fresh ginger to the browned butter -- it will foam a ton (like, way more than when making caramel). Either brown the butter in a larger-than-you-think-you-need sauce pot or move the butter to the bowl of the stand mixer first and then add the spices. It'll save you a mess."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Butter Goddess"
+      },
+      "datePublished": "2021-12-02T17:47:15.000Z",
+      "reviewBody": "I cannot stop eating these cookies. I love the kick this cookie gets from the fresh ginger and all the spices. I don't always have it in me to grate that much fresh ginger, but the 50g was absolutely worth it. This is my new favorite winter cookie!"
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "James"
+      },
+      "datePublished": "2021-12-06T17:49:10.000Z",
+      "reviewBody": "These are outstanding and have a really nice bite. For serving, we spread vanilla ice cream (softened in the fridge) between two of them, then refroze them as ice cream sandwiches. Outstanding!"
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Canucklehead"
+      },
+      "datePublished": "2021-12-02T19:38:01.000Z",
+      "reviewBody": "At the risk of annoying purists, I used leftover preserved ginger instead of the fresh so I expect my cookie was a little sweeter than the recipe.  I can't find Diamond Crystal salt where I live but the Canadian substitute seemed to work OK.  Likewise, my choices of molasses included neither blackstrap nor true molasses.  Using my \"cooking molasses\", I plunged ahead.  Took a bit longer and spread more than as written (or perhaps exactly as cautioned) but absolutely delicious nonetheless."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Jenna"
+      },
+      "datePublished": "2021-12-09T06:05:09.000Z",
+      "reviewBody": "Wow! These are fantastic. Chewy center and crispy, lacy edge. Cookies were the same whether I followed the directions to refrigerate for 2  hours or  froze the dough 15-20 minutes, instead. I was worried this would affect the outcome, but it didn’t. I used Trader Joe’s frozen, grated ginger (Dorot), and the flavor was excellent. Have fun eating these: they are the perfect ginger cookie."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Beth J"
+      },
+      "datePublished": "2022-11-10T19:15:59.000Z",
+      "reviewBody": "The recipe is not super clear, but the butter needs to be fully cooled and semi-solid. If it’s still at all runny, your cookies will spread and not have compact chewy texture."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "compass.kitchen (Ryan)"
+      },
+      "datePublished": "2021-12-11T23:14:22.000Z",
+      "reviewBody": "These cookies were really good.  Very spicy from ginger and definitely chewy.  Only downside is that they're a little greasy.  Also make sure to leave your cookies way farther than 1 inch apart (that must be a type because these cookies spread a decent amount so my first batch became one giant mega-cookie). I think you can only fit 8 cookies to a baking sheet."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "New Baker"
+      },
+      "datePublished": "2021-12-12T18:59:06.000Z",
+      "reviewBody": "Be sure to use a large enough saucepan for the butter browning!!! Mine was too small and the whole thing foamed up over the top (and all over my stove) when I added the fresh ginger + spices.  A rookie mistake for sure.  Next time I'll go straight into the stand mixer bowl. \n\nDidn't start over (not enough ingredients) so I tried to make up for lost butter \nby weighing it out and re-browning the difference, accounting for 15% loss due to water evaporation. We'll see how they turn out...."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "korinswanson"
+      },
+      "datePublished": "2021-12-05T21:41:50.000Z",
+      "reviewBody": "Freeze the fresh ginger root and keep in freezer then microplane it when ready for use. Keeps the ginger juices intact"
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Amemm"
+      },
+      "datePublished": "2021-12-12T02:43:12.000Z",
+      "reviewBody": "These spread a lot for me. Put far enough apart so they don’t run into each other."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Sally"
+      },
+      "datePublished": "2021-12-04T22:24:09.000Z",
+      "reviewBody": "They specify because Diamond Crystal is coarser than Morton's (probably the main other readily available kosher salt), so if you use the same amount of Morton's salt as is called for in Diamond Crystal salt, it'll be a lot saltier."
+    },
+    {
+      "@type": "Review",
+      "author": {
+        "@type": "Person",
+        "name": "Silvia"
+      },
+      "datePublished": "2021-12-03T16:20:49.000Z",
+      "reviewBody": "These cookies are perfection for ginger lovers.  I was lazy and only used two Tb of fresh ginger, also too lazy to grind a full tsp. of pepper, chilled in the freezer for 45 minutes, and still got some close to perfect cookies.  Will definitely try the recipe as written."
+    }
+  ],
+  "totalTime": "PT35M",
+  "url": "https://cooking.nytimes.com/recipes/1022674-chewy-gingerbread-cookies"
+}

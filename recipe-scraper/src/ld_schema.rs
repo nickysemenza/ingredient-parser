@@ -57,8 +57,10 @@ pub struct HasPart {
 #[serde(rename_all = "camelCase")]
 pub struct Image {
     pub url: String,
-    pub height: Option<i64>,
-    pub width: Option<i64>,
+    // todo: dims are sometimes string, sometimes int
+    // nytimes_1022674-chewy-gingerbread-cookies.json is string, others are int.
+    // pub height: Option<i64>,
+    // pub width: Option<i64>,
     #[serde(rename = "@context")]
     pub context: Option<String>,
     #[serde(rename = "@type")]
@@ -298,6 +300,10 @@ mod tests {
 
         let _v: RootGraph = serde_json::from_str(include_str!(
             "../test_data/omnivorescookbook_sichuan-shrimp-stir-fry.json"
+        ))
+        .unwrap();
+        let _v: RootRecipe = serde_json::from_str(include_str!(
+            "../test_data/nytimes_1022674-chewy-gingerbread-cookies.json"
         ))
         .unwrap();
     }
