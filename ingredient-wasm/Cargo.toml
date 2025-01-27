@@ -2,7 +2,7 @@
 name = "ingredient-wasm"
 version = "0.1.0"
 authors = ["Nicky Semenza <nicky@nickysemenza.com>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -15,7 +15,7 @@ wasm-bindgen = { version = "0.2.93", features = ["serde-serialize"] }
 ingredient = { path = "../ingredient-parser" }
 recipe-scraper = { path = "../recipe-scraper" }
 tracing-wasm = "0.2.1"
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
