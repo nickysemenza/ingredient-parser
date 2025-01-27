@@ -54,11 +54,6 @@ fn scrape_from_live() {
     let res = scrape_url("http://cooking.nytimes.com/recipes/1017060-doughnuts").unwrap();
     assert_eq!(res.ingredients.len(), 8);
 }
-fn scrape_2() {
-    let res = scrape_url("https://cooking.nytimes.com/recipes/1022674-chewy-gingerbread-cookies")
-        .unwrap();
-    assert_eq!(res.ingredients.len(), 10);
-}
 
 #[test]
 fn scrape_from_cache() {

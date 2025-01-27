@@ -13,6 +13,7 @@ use tracing::Span;
 
 pub struct TimeTrace;
 
+#[allow(unexpected_cfgs)]
 impl ReqwestOtelSpanBackend for TimeTrace {
     fn on_request_start(req: &Request, extension: &mut Extensions) -> Span {
         extension.insert(Instant::now());
