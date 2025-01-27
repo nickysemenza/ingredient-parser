@@ -28,7 +28,7 @@ tracing-subscriber = "0.3"
 console_error_panic_hook = "0.1.7"
 tracing-wasm = "0.2"
 wasm-bindgen-futures = "0.4"
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["js"] }
 
 
 [profile.release]
