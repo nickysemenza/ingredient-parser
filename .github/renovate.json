@@ -1,21 +1,36 @@
 {
-  "extends": ["config:base"],
+  "extends": [
+    "config:recommended"
+  ],
   "packageRules": [
     {
-      "matchPackagePrefixes": ["eframe","egui","ehttp"],
-      "groupName": "egui"
+      "groupName": "egui",
+      "matchPackageNames": [
+        "eframe{/,}**",
+        "egui{/,}**",
+        "ehttp{/,}**"
+      ]
     },
     {
-      "matchPackagePrefixes": ["reqwest"],
-      "groupName": "reqwest"
+      "groupName": "reqwest",
+      "matchPackageNames": [
+        "reqwest{/,}**"
+      ]
     },
     {
-      "matchUpdateTypes": ["minor", "pin", "major"],
+      "matchUpdateTypes": [
+        "minor",
+        "pin",
+        "major"
+      ],
       "automergeType": "branch",
       "automerge": true
     },
     {
-      "matchUpdateTypes": ["patch", "digest"],
+      "matchUpdateTypes": [
+        "patch",
+        "digest"
+      ],
       "enabled": false
     }
   ]
