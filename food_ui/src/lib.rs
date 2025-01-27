@@ -37,10 +37,10 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String) -> bool {
             .lost_focus();
     });
     if ui.button("Random NYT").clicked() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         *url = format!(
             "https://cooking.nytimes.com/recipes/{}",
-            rng.gen_range(10..15000)
+            rng.random_range(10..15000)
         );
         trigger_fetch = true;
     }
