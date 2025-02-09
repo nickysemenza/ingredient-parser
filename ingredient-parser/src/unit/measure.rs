@@ -11,6 +11,9 @@ use tracing::{debug, info};
 
 type MeasureGraph = Graph<Unit, f64>;
 
+fn truncate2_decimals(f: f64) -> f64 {
+    f64::trunc(f * 1000.0) / 1000.0
+}
 pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
     let mut g = Graph::<Unit, f64>::new();
 
@@ -25,8 +28,8 @@ pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
             .node_indices()
             .find(|i| g[*i] == m_b.unit)
             .unwrap_or_else(|| g.add_node(m_b.unit.clone().normalize()));
-        let _c1 = g.add_edge(n_a, n_b, m_b.value / m_a.value);
-        let _c2 = g.add_edge(n_b, n_a, m_a.value / m_b.value);
+        let _c1 = g.add_edge(n_a, n_b, truncate2_decimals(m_b.value / m_a.value));
+        let _c2 = g.add_edge(n_b, n_a, truncate2_decimals(m_a.value / m_b.value));
     }
     g
 }
