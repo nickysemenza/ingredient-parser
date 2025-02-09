@@ -5,7 +5,7 @@ use nom::{
     combinator::opt,
     error::context,
     number::complete::double,
-    sequence::tuple,
+    Parser,
 };
 
 use crate::Res;
@@ -31,11 +31,13 @@ fn is_frac_char(c: char) -> bool {
 
 /// parses unicode vulgar fractions
 fn v_fraction(input: &str) -> Res<&str, f64> {
-    context("v_fraction", satisfy(is_frac_char))(input)
+    context("v_fraction", satisfy(is_frac_char))
+        .parse(input)
         .map(|(next_input, res)| (next_input, v_frac_to_num(res).unwrap()))
 }
 fn n_fraction(input: &str) -> Res<&str, f64> {
-    context("n_fraction", tuple((double, tag("/"), double)))(input)
+    context("n_fraction", (double, tag("/"), double))
+        .parse(input)
         .map(|(next_input, res)| (next_input, res.0 / res.2))
 }
 
@@ -44,16 +46,17 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
     context(
         "fraction_number",
         alt((
-            tuple((
-                opt(tuple((double, space0))), // optional number (and if number, optional space) before
-                v_fraction,                   // vulgar frac
-            )),
-            tuple((
-                opt(tuple((double, space1))), // optional number (and if number, required space space) before
-                n_fraction,                   // regular frac
-            )),
+            (
+                opt((double, space0)), // optional number (and if number, optional space) before
+                v_fraction,            // vulgar frac
+            ),
+            (
+                opt((double, space1)), // optional number (and if number, required space space) before
+                n_fraction,            // regular frac
+            ),
         )),
-    )(input)
+    )
+    .parse(input)
     .map(|(next_input, res)| {
         let (num, frac) = res;
         let num1 = match num {
@@ -67,8 +70,9 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
 #[cfg(test)]
 mod tests {
 
-    use nom::error::{ErrorKind, VerboseError, VerboseErrorKind};
+    use nom::error::ErrorKind;
     use nom::Err as NomErr;
+    use nom_language::error::{VerboseError, VerboseErrorKind};
 
     use crate::fraction::{fraction_number, v_frac_to_num};
 

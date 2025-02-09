@@ -1,6 +1,6 @@
 use crate::{unit::Measure, IngredientParser, Res};
 use itertools::Itertools;
-use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0};
+use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0, Parser};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
@@ -51,11 +51,12 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
 }
 
 fn amounts_chunk(ip: IngredientParser, input: &str) -> Res<&str, Chunk> {
-    context("amounts_chunk", |a| ip.clone().many_amount(a))(input)
+    context("amounts_chunk", |a| ip.clone().many_amount(a))
+        .parse(input)
         .map(|(next_input, res)| (next_input, Chunk::Measure(res)))
 }
 fn text_chunk(input: &str) -> Res<&str, Chunk> {
-    context("text_chunk", text2)(input).map(|(next_input, res)| (next_input, Chunk::Text(res)))
+    text2(input).map(|(next_input, res)| (next_input, Chunk::Text(res)))
 }
 // text2 is like text, but allows for more ambiguous characters when parsing text but not caring about ingredient names
 fn text2(input: &str) -> Res<&str, String> {
@@ -93,7 +94,8 @@ impl RichParser {
         match context(
             "amts",
             many0(alt((|a| amounts_chunk(self.ip.clone(), a), text_chunk))),
-        )(input)
+        )
+        .parse(input)
         {
             Ok((_, res)) => Ok(extract_ingredients(
                 condense_text(res),

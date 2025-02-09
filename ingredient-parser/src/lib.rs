@@ -4,17 +4,19 @@ use std::iter::FromIterator;
 pub use crate::ingredient::Ingredient;
 use anyhow::Result;
 use fraction::fraction_number;
+#[allow(deprecated)]
 use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alpha1, char, not_line_ending, satisfy, space0, space1},
     combinator::{opt, verify},
-    error::{context, VerboseError},
+    error::context,
     multi::{many1, separated_list1},
     number::complete::double,
     sequence::{delimited, tuple},
-    IResult,
+    IResult, Parser,
 };
+use nom_language::error::VerboseError;
 use tracing::info;
 use unit::Measure;
 
@@ -157,16 +159,17 @@ impl IngredientParser {
     pub fn parse_ingredient(self, input: &str) -> Res<&str, Ingredient> {
         context(
             "ing",
-            tuple((
+            (
                 opt(|a| self.clone().many_amount(a)),
                 space0, // space between amount(s) and name
-                opt(tuple((|a| self.clone().adjective(a), space1))), // optional modifier
+                opt((|a| self.clone().adjective(a), space1)), // optional modifier
                 opt(many1(text)), // name, can be multiple words
                 opt(|a| self.clone().amt_parens(a)), // can have some more amounts in parens after the name
                 opt(tag(", ")),                      // comma seperates the modifier
                 not_line_ending, // modifier, can be multiple words and even include numbers, since once we've hit the comma everything is fair game.
-            )),
-        )(input)
+            ),
+        )
+        .parse(input)
         .map(|(next_input, res)| {
             let (
                 amounts,
@@ -229,17 +232,19 @@ impl IngredientParser {
                 |a| self.clone().upper_range_only(a),
                 |a| self.clone().num_or_range(a),
             )),
-        )(input)
+        )
+        .parse(input)
     }
 
     fn num_or_range(self, input: &str) -> Res<&str, (f64, Option<f64>)> {
         context(
             "num_or_range",
-            tuple((
+            (
                 |a| self.clone().num(a),
                 opt(|a| self.clone().range_up_num(a)),
-            )),
-        )(input)
+            ),
+        )
+        .parse(input)
         .map(|(next_input, res)| {
             let (val, upper_val) = res;
             let upper = upper_val;
@@ -250,13 +255,14 @@ impl IngredientParser {
     fn upper_range_only(self, input: &str) -> Res<&str, (f64, Option<f64>)> {
         context(
             "upper_range_only",
-            tuple((
+            (
                 opt(space0),
                 alt((tag("up to"), tag("at most"))),
                 space0,
                 |a| self.clone().num(a),
-            )),
-        )(input)
+            ),
+        )
+        .parse(input)
         .map(|(next_input, res)| (next_input, (0.0, Some(res.3))))
     }
 
@@ -264,7 +270,8 @@ impl IngredientParser {
         context(
             "unit",
             verify(unitamt, |s: &str| unit::is_valid(self.units.clone(), s)),
-        )(input)
+        )
+        .parse(input)
     }
     fn unit_extra(self, input: &str) -> Res<&str, String> {
         context(
@@ -277,7 +284,8 @@ impl IngredientParser {
                 }
                 unit::is_addon_unit(x, s)
             }),
-        )(input)
+        )
+        .parse(input)
     }
     fn adjective(self, input: &str) -> Res<&str, String> {
         context(
@@ -285,10 +293,12 @@ impl IngredientParser {
             verify(unitamt, |s: &str| {
                 self.adjectives.contains(&s.to_lowercase())
             }),
-        )(input)
+        )
+        .parse(input)
     }
 
     // parses a single amount
+    #[allow(deprecated)]
     fn amount1(self, input: &str) -> Res<&str, Measure> {
         context(
             "amount1",
@@ -302,7 +312,8 @@ impl IngredientParser {
                     opt(alt((tag("."), tag(" of")))),
                 ), // 1 gram
             ),
-        )(input)
+        )
+        .parse(input)
         .map(|(next_input, res)| {
             let (_prefix, mult, value, _space, unit, _period) = res;
             let mut v = value.0;
@@ -322,7 +333,7 @@ impl IngredientParser {
     fn just_extra_unit(self, input: &str) -> Res<&str, Measure> {
         context(
             "just_extra_unit",
-            tuple((
+            (
                 |a| {
                     if self.is_rich_text {
                         space1(a)
@@ -333,8 +344,9 @@ impl IngredientParser {
                 |a| self.clone().unit_extra(a), // unit
                 opt(alt((tag("."), tag(" of")))),
                 space1,
-            )),
-        )(input)
+            ),
+        )
+        .parse(input)
         .map(|(next_input, res)| {
             let (_, unit, _, _) = res;
             return (
@@ -347,7 +359,7 @@ impl IngredientParser {
     fn amount_with_units_twice(self, input: &str) -> Res<&str, Option<Measure>> {
         context(
             "amount_with_units_twice",
-            tuple((
+            (
                 opt(tag("about ")),            // todo: add flag for estimates
                 |a| self.clone().get_value(a), // value
                 space0,
@@ -355,8 +367,9 @@ impl IngredientParser {
                 |a| self.clone().range_up_num(a),
                 opt(|a| self.clone().unit(a)),
                 opt(alt((tag("."), tag(" of")))),
-            )),
-        )(input)
+            ),
+        )
+        .parse(input)
         .map(|(next_input, res)| {
             let (_prefix, value, _space, unit, upper_val, upper_unit, _period) = res;
             if upper_unit.is_some() && unit != upper_unit {
@@ -408,7 +421,8 @@ impl IngredientParser {
                     |a| self.clone().just_extra_unit(a).map(|(a, b)| (a, vec![b])), // regular amount
                 )),
             ),
-        )(input)
+        )
+        .parse(input)
         .map(|(next_input, res)| {
             // let (a, b) = res;
             (next_input, res.into_iter().flatten().collect())
@@ -419,21 +433,23 @@ impl IngredientParser {
         context(
             "amt_parens",
             delimited(char('('), |a| self.clone().many_amount(a), char(')')),
-        )(input)
+        )
+        .parse(input)
     }
     /// handles vulgar fraction, or just a number
     fn num(self, input: &str) -> Res<&str, f64> {
         if self.is_rich_text {
-            context("num", alt((fraction_number, double)))(input)
+            context("num", alt((fraction_number, double))).parse(input)
         } else {
-            context("num", alt((fraction_number, text_number, double)))(input)
+            context("num", alt((fraction_number, text_number, double))).parse(input)
         }
     }
     fn mult_prefix_1(self, input: &str) -> Res<&str, f64> {
         context(
             "mult_prefix_1",
-            tuple((|a| self.clone().num(a), space1, tag("x"), space1)),
-        )(input)
+            (|a| self.clone().num(a), space1, tag("x"), space1),
+        )
+        .parse(input)
         .map(|(next_input, res)| {
             let (num, _, _, _) = res;
             (next_input, num)
@@ -443,33 +459,35 @@ impl IngredientParser {
         context(
             "range_up_num",
             alt((
-                tuple((
+                (
                     space0,
                     alt((tag("-"), tag("–"))), // second dash is an unusual variant
                     space0,
                     |a| self.clone().num(a),
-                )),
-                tuple((
+                ),
+                (
                     space1,
                     alt((tag("to"), tag("through"), tag("or"))),
                     space1,
                     |a| self.clone().num(a),
-                )),
+                ),
             )),
-        )(input)
+        )
+        .parse(input)
         .map(|(next_input, (_space1, _, _space2, num))| (next_input, num))
     }
     fn plus_amount(self, input: &str) -> Res<&str, Measure> {
         context(
             "plus_num",
-            tuple((
+            (
                 |a| self.clone().amount1(a),
                 space1,
                 tag("plus"),
                 space1,
                 |a| self.clone().amount1(a),
-            )),
-        )(input)
+            ),
+        )
+        .parse(input)
         .map(|(next_input, (a, _space1, _, _, b))| {
             let c = a.add(b).unwrap();
             (next_input, c)
@@ -481,16 +499,19 @@ fn text(input: &str) -> Res<&str, String> {
     (satisfy(|c| match c {
         '-' | '—' | '\'' | '’' | '.' | '\\' => true,
         c => c.is_alphanumeric() || c.is_whitespace(),
-    }))(input)
+    }))
+    .parse(input)
     .map(|(next_input, res)| (next_input, res.to_string()))
 }
 fn unitamt(input: &str) -> Res<&str, String> {
-    nom::multi::many0(alt((alpha1, tag("°"), tag("\""))))(input)
+    nom::multi::many0(alt((alpha1, tag("°"), tag("\""))))
+        .parse(input)
         .map(|(next_input, res)| (next_input, res.join("")))
 }
 
 fn text_number(input: &str) -> Res<&str, f64> {
-    context("text_number", alt((tag("one"), tag("a "))))(input)
+    context("text_number", alt((tag("one"), tag("a "))))
+        .parse(input)
         .map(|(next_input, _)| (next_input, 1.0))
 }
 

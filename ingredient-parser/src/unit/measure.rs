@@ -14,6 +14,9 @@ type MeasureGraph = Graph<Unit, f64>;
 fn truncate2_decimals(f: f64) -> f64 {
     f64::trunc(f * 1000.0) / 1000.0
 }
+fn round_result(x: f64) -> f64 {
+    x.round()
+}
 pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
     let mut g = Graph::<Unit, f64>::new();
 
@@ -274,10 +277,8 @@ impl Measure {
 
         let result = Measure::new_with_upper(
             unit_b,
-            (input.value * factor * 100.0).round() / 100.0,
-            input
-                .upper_value
-                .map(|x| (x * factor * 100.0).round() / 100.0),
+            round_result(input.value * factor),
+            input.upper_value.map(|x| (round_result(x * factor))),
         );
         debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
         Some(result.denormalize())
@@ -360,19 +361,19 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(
-            Measure::parse_str("56.699 dollars"),
+            Measure::parse_str("56.7 dollars"),
             Measure::parse_str("2 oz")
                 .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars.clone()])
                 .unwrap()
         );
         assert_eq!(
-            Measure::parse_str("226.796 dollars"),
+            Measure::parse_str("226.8 dollars"),
             Measure::parse_str(".5 lb")
                 .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars.clone()])
                 .unwrap()
         );
         assert_eq!(
-            Measure::parse_str("453.592 dollars"),
+            Measure::parse_str("453.59 dollars"),
             Measure::parse_str("1 lb")
                 .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars])
                 .unwrap()
