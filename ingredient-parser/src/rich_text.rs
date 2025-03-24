@@ -51,7 +51,7 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
 }
 
 fn amounts_chunk(ip: IngredientParser, input: &str) -> Res<&str, Chunk> {
-    context("amounts_chunk", |a| ip.clone().many_amount(a))
+    context("amounts_chunk", |a| ip.clone().parse_measurement_list(a))
         .parse(input)
         .map(|(next_input, res)| (next_input, Chunk::Measure(res)))
 }

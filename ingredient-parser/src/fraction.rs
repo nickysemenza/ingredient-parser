@@ -20,7 +20,17 @@ fn v_frac_to_num(input: char) -> Result<f64, String> {
         '⅓' => (1, 3),
         '½' => (1, 2),
         '⅔' => (2, 3),
-        _ => return Err(format!("unkown fraction: {input}")),
+        // Adding more common unicode fractions
+        '⅕' => (1, 5),
+        '⅖' => (2, 5),
+        '⅗' => (3, 5),
+        '⅘' => (4, 5),
+        '⅙' => (1, 6),
+        '⅚' => (5, 6),
+        '⅐' => (1, 7),
+        '⅑' => (1, 9),
+        '⅒' => (1, 10),
+        _ => return Err(format!("unknown fraction: {input}")),
     };
     Ok(n as f64 / d as f64)
 }
@@ -41,29 +51,37 @@ fn n_fraction(input: &str) -> Res<&str, f64> {
         .map(|(next_input, res)| (next_input, res.0 / res.2))
 }
 
-/// parses `1 ⅛` or `1 1/8` into `1.125`
+/// Parses mixed number formats like `1 ⅛` or `1 1/8` into `1.125`
+/// 
+/// This parser handles both unicode vulgar fractions and standard slash-notation fractions,
+/// either alone or with a whole number component.
 pub fn fraction_number(input: &str) -> Res<&str, f64> {
+    // Define parser for unicode vulgar fractions with optional whole number
+    let vulgar_fraction_parser = (
+        opt((double, space0)),  // Optional whole number with optional whitespace
+        v_fraction,             // Unicode vulgar fraction like ½, ¼, etc.
+    );
+    
+    // Define parser for slash-notation fractions with optional whole number
+    let slash_fraction_parser = (
+        opt((double, space1)),  // Optional whole number with required whitespace
+        n_fraction,             // Standard fraction notation like 1/4, 3/8, etc.
+    );
+    
+    // Try both parsers
     context(
         "fraction_number",
-        alt((
-            (
-                opt((double, space0)), // optional number (and if number, optional space) before
-                v_fraction,            // vulgar frac
-            ),
-            (
-                opt((double, space1)), // optional number (and if number, required space space) before
-                n_fraction,            // regular frac
-            ),
-        )),
+        alt((vulgar_fraction_parser, slash_fraction_parser)),
     )
     .parse(input)
     .map(|(next_input, res)| {
-        let (num, frac) = res;
-        let num1 = match num {
-            Some(x) => x.0,
-            None => 0.0,
-        };
-        (next_input, num1 + frac)
+        let (whole_number, fractional_part) = res;
+        
+        // Extract whole number or default to 0.0
+        let whole_value = whole_number.map_or(0.0, |(num, _)| num);
+        
+        // Sum whole and fractional parts
+        (next_input, whole_value + fractional_part)
     })
 }
 
