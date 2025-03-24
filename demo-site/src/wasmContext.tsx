@@ -8,7 +8,6 @@ export const WasmContext = createContext<wasm | undefined>(undefined);
 export const WasmContextProvider: React.FC<{
   children?: React.ReactNode;
 }> = ({ children }) => {
-  // const [cursor, setCursor] = useState({ active: false });
   const [state, setState] = useState<wasm>();
   useEffect(() => {
     const fetchWasm = async () => {

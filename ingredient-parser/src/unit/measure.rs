@@ -31,8 +31,23 @@ pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
             .node_indices()
             .find(|i| g[*i] == m_b.unit)
             .unwrap_or_else(|| g.add_node(m_b.unit.clone().normalize()));
-        let _c1 = g.add_edge(n_a, n_b, truncate2_decimals(m_b.value / m_a.value));
-        let _c2 = g.add_edge(n_b, n_a, truncate2_decimals(m_a.value / m_b.value));
+
+        let a_to_b_weight = truncate2_decimals(m_b.value / m_a.value);
+
+        let exists = match g.find_edge(n_a, n_b) {
+            Some(existing_edge) => match g.edge_weight(existing_edge) {
+                Some(weight) => *weight == a_to_b_weight,
+                None => false,
+            },
+            None => false,
+        };
+        if !exists {
+            // if a to b exists with the right weight, then b to a likely exists too
+            // edge from a to b
+            g.add_edge(n_a, n_b, a_to_b_weight);
+            // edge from b to a
+            g.add_edge(n_b, n_a, truncate2_decimals(m_a.value / m_b.value));
+        }
     }
     g
 }

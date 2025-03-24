@@ -117,6 +117,7 @@ impl FromStr for Unit {
             "\"" | "inch" => Self::Inch,
 
             "whole" => Self::Whole,
+            "each" => Self::Whole,
 
             _ => Self::Other(s.to_string()),
         })
