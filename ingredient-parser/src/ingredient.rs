@@ -21,17 +21,17 @@ impl TryFrom<&str> for Ingredient {
 impl fmt::Display for Ingredient {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let amounts: Vec<String> = self.amounts.iter().map(|id| id.to_string()).collect();
-        let modifier = self.modifier.as_ref().map_or_else(
-            || String::new(),
-            |m| format!(", {m}")
-        );
-        
+        let modifier = self
+            .modifier
+            .as_ref()
+            .map_or_else(String::new, |m| format!(", {m}"));
+
         let amount_list = if amounts.is_empty() {
             "n/a ".to_string()
         } else {
             format!("{} ", amounts.join(" / "))
         };
-        
+
         write!(f, "{}{}{}", amount_list, self.name, modifier)
     }
 }
