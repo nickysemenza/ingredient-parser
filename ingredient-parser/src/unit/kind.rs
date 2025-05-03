@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 use super::Unit;
 
@@ -26,7 +26,26 @@ impl MeasureKind {
             MeasureKind::Length => Unit::Inch,
         }
     }
+    pub fn to_str(&self) -> &str {
+        match self {
+            MeasureKind::Weight => "weight",
+            MeasureKind::Volume => "volume",
+            MeasureKind::Money => "money",
+            MeasureKind::Calories => "calories",
+            MeasureKind::Other => "other",
+            MeasureKind::Time => "time",
+            MeasureKind::Temperature => "temperature",
+            MeasureKind::Length => "length",
+        }
+    }
 }
+
+impl fmt::Display for MeasureKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 impl FromStr for MeasureKind {
     type Err = ();
 
