@@ -41,7 +41,8 @@ pub enum Unit {
     //distance
     Inch,
     Whole,
-
+    // https://stackoverflow.com/a/77723851
+    #[serde(untagged)]
     Other(String),
 }
 
