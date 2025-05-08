@@ -1,14 +1,30 @@
 # ingredient-parser
 
-
 [![crates.io](https://docs.rs/ingredient/badge.svg)](https://docs.rs/ingredient/latest/ingredient/)
 
-This leverages [nom](https://github.com/Geal/nom) to parse ingredient line items from recipes into a common format.
+**ingredient-parser** is a Rust library that uses [nom](https://github.com/Geal/nom) to parse ingredient lines from recipes into a structured, machine-readable format.
 
-# demo
-[ingredient.nickysemenza.com](https://ingredient.nickysemenza.com)
+---
 
-As an example, `1¼  cups / 155.5 grams all-purpose flour, lightly sifted`  becomes
+## Features
+
+- Parses complex ingredient lines into structured data
+- Supports multiple units and values per ingredient
+- Extracts ingredient names and modifiers (e.g., "sifted", "chopped")
+- Handles common recipe notation and edge cases
+
+---
+
+## Example
+
+Given the input:
+
+```
+1¼ cups / 155.5 grams all-purpose flour, lightly sifted
+```
+
+The parser produces:
+
 ```rust
 {
     name: "all-purpose flour",
@@ -19,4 +35,30 @@ As an example, `1¼  cups / 155.5 grams all-purpose flour, lightly sifted`  beco
     modifier: Some("lightly sifted")
 }
 ```
-More examples listed in [the docs](https://docs.rs/ingredient/)
+
+See more examples in the [documentation](https://docs.rs/ingredient/).
+
+---
+
+## Demo
+
+Try it live: [ingredient.nickysemenza.com](https://ingredient.nickysemenza.com)
+
+---
+
+
+## Documentation
+
+- [API Docs on docs.rs](https://docs.rs/ingredient/)
+
+---
+
+## Contributing
+
+Contributions, issues, and feature requests are welcome! Please open an issue or pull request.
+
+---
+
+## License
+
+MIT
