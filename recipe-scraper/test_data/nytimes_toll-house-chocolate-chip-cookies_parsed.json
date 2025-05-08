@@ -42,9 +42,7 @@
           "upper_value": null
         },
         {
-          "unit": {
-            "Other": "stick"
-          },
+          "unit": "stick",
           "value": 2.0,
           "upper_value": null
         }
@@ -88,9 +86,7 @@
       "name": "eggs",
       "amounts": [
         {
-          "unit": {
-            "Other": "large"
-          },
+          "unit": "large",
           "value": 2.0,
           "upper_value": null
         }
@@ -165,9 +161,7 @@
         "kind": "Measure",
         "value": [
           {
-            "unit": {
-              "Other": "small"
-            },
+            "unit": "small",
             "value": 1.0,
             "upper_value": null
           }
@@ -205,9 +199,7 @@
         "kind": "Measure",
         "value": [
           {
-            "unit": {
-              "Other": "large"
-            },
+            "unit": "large",
             "value": 1.0,
             "upper_value": null
           }
