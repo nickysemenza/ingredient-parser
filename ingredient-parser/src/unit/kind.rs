@@ -8,7 +8,7 @@ pub enum MeasureKind {
     Volume,
     Money,
     Calories,
-    Other, //todo: make this hold a string
+    Other(String),
     Time,
     Temperature,
     Length,
@@ -20,23 +20,19 @@ impl MeasureKind {
             MeasureKind::Volume => Unit::Milliliter,
             MeasureKind::Money => Unit::Cent,
             MeasureKind::Calories => Unit::KCal,
-            MeasureKind::Other => Unit::Other("".to_string()),
+            MeasureKind::Other(s) => Unit::Other(s.clone()),
             MeasureKind::Time => Unit::Second,
             MeasureKind::Temperature => Unit::Farhenheit,
             MeasureKind::Length => Unit::Inch,
         }
     }
     pub fn to_str(&self) -> &str {
-        match self {
-            MeasureKind::Weight => "weight",
-            MeasureKind::Volume => "volume",
-            MeasureKind::Money => "money",
-            MeasureKind::Calories => "calories",
-            MeasureKind::Other => "other",
-            MeasureKind::Time => "time",
-            MeasureKind::Temperature => "temperature",
-            MeasureKind::Length => "length",
+        for (s, kind) in MEASURE_KIND_MAPPINGS {
+            if self == kind {
+                return s;
+            }
         }
+        "other"
     }
 }
 
@@ -46,20 +42,27 @@ impl fmt::Display for MeasureKind {
     }
 }
 
+static MEASURE_KIND_MAPPINGS: &[(&str, MeasureKind)] = &[
+    ("weight", MeasureKind::Weight),
+    ("volume", MeasureKind::Volume),
+    ("money", MeasureKind::Money),
+    ("calories", MeasureKind::Calories),
+    ("time", MeasureKind::Time),
+    ("temperature", MeasureKind::Temperature),
+    ("length", MeasureKind::Length),
+];
+
 impl FromStr for MeasureKind {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "weight" => Self::Weight,
-            "volume" => Self::Volume,
-            "money" => Self::Money,
-            "calories" => Self::Calories,
-            "time" => Self::Time,
-            "temperature" => Self::Temperature,
-            "length" => Self::Length,
-            _ => Self::Other,
-        })
+        let s_norm = s.to_lowercase();
+        for (str_repr, kind) in MEASURE_KIND_MAPPINGS {
+            if s_norm == *str_repr {
+                return Ok(kind.clone());
+            }
+        }
+        Ok(MeasureKind::Other(s.to_string()))
     }
 }
 
@@ -96,7 +99,7 @@ mod tests {
             MeasureKind::from_str("temperature").unwrap().unit()
         );
         assert_eq!(
-            Unit::from_str("").unwrap().normalize(),
+            Unit::from_str("foo").unwrap().normalize(),
             MeasureKind::from_str("foo").unwrap().unit()
         );
     }

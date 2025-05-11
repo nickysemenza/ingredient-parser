@@ -54,74 +54,83 @@ impl Unit {
             _ => self,
         }
     }
-    pub fn to_str(self) -> String {
-        match self {
-            Unit::Gram => "g",
-            Unit::Kilogram => "kg",
-            Unit::Liter => "l",
-            Unit::Milliliter => "ml",
-            Unit::Teaspoon => "tsp",
-            Unit::Tablespoon => "tbsp",
-            Unit::Cup => "cup",
-            Unit::Quart => "quart",
-            Unit::FluidOunce => "fl oz",
-            Unit::Ounce => "oz",
-            Unit::Pound => "lb",
-            Unit::Cent => "cent",
-            Unit::Dollar => "$",
-            Unit::KCal => "kcal",
-            Unit::Day => "day",
-            Unit::Hour => "hour",
-            Unit::Minute => "minute",
-            Unit::Second => "second",
-            Unit::Celcius => "°c",
-            Unit::Farhenheit => "°F",
-            Unit::Inch => "inch",
-            Unit::Whole => "whole",
-            Unit::Other(s) => return singular(&s),
+    pub fn to_str(&self) -> String {
+        for (s, unit) in UNIT_MAPPINGS {
+            if self == unit {
+                return s.to_string();
+            }
         }
-        .to_string()
+        match self {
+            Unit::Other(s) => singular(s),
+            _ => unreachable!("Unit not found in mapping"),
+        }
     }
 }
+
+static UNIT_MAPPINGS: &[(&str, Unit)] = &[
+    ("g", Unit::Gram),
+    ("gram", Unit::Gram),
+    ("kg", Unit::Kilogram),
+    ("kilogram", Unit::Kilogram),
+    ("l", Unit::Liter),
+    ("liter", Unit::Liter),
+    ("ml", Unit::Milliliter),
+    ("milliliter", Unit::Milliliter),
+    ("tsp", Unit::Teaspoon),
+    ("teaspoon", Unit::Teaspoon),
+    ("tbsp", Unit::Tablespoon),
+    ("tablespoon", Unit::Tablespoon),
+    ("cup", Unit::Cup),
+    ("c", Unit::Cup),
+    ("quart", Unit::Quart),
+    ("q", Unit::Quart),
+    ("fl oz", Unit::FluidOunce),
+    ("fluid oz", Unit::FluidOunce),
+    ("oz", Unit::Ounce),
+    ("ounce", Unit::Ounce),
+    ("lb", Unit::Pound),
+    ("pound", Unit::Pound),
+    ("cent", Unit::Cent),
+    ("$", Unit::Dollar),
+    ("dollar", Unit::Dollar),
+    ("kcal", Unit::KCal),
+    ("calorie", Unit::KCal),
+    ("cal", Unit::KCal),
+    // time
+    ("second", Unit::Second),
+    ("sec", Unit::Second),
+    ("s", Unit::Second),
+    ("minute", Unit::Minute),
+    ("min", Unit::Minute),
+    ("hour", Unit::Hour),
+    ("hr", Unit::Hour),
+    ("day", Unit::Day),
+    // temperature
+    ("fahrenheit", Unit::Farhenheit),
+    ("f", Unit::Farhenheit),
+    ("°", Unit::Farhenheit),
+    ("°f", Unit::Farhenheit),
+    ("degrees", Unit::Farhenheit),
+    ("celcius", Unit::Celcius),
+    ("°c", Unit::Celcius),
+    ("\"", Unit::Inch),
+    //distance
+    ("inch", Unit::Inch),
+    ("whole", Unit::Whole),
+    ("each", Unit::Whole),
+];
 
 impl FromStr for Unit {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "gram" | "g" => Self::Gram,
-            "kilogram" | "kg" => Self::Kilogram,
-
-            "oz" | "ounce" => Self::Ounce,
-            "lb" | "pound" => Self::Pound,
-
-            "ml" | "milliliter" => Self::Milliliter,
-            "l" | "liter" => Self::Liter,
-
-            "tsp" | "teaspoon" => Self::Teaspoon,
-            "tbsp" | "tablespoon" => Self::Tablespoon,
-            "c" | "cup" => Self::Cup,
-            "q" | "quart" => Self::Quart,
-            "fl oz" | "fluid oz" => Self::FluidOunce,
-
-            "dollar" | "$" => Self::Dollar,
-            "cent" => Self::Cent,
-
-            "calorie" | "cal" | "kcal" => Self::KCal,
-            "second" | "sec" | "s" => Self::Second,
-            "minute" | "min" => Self::Minute,
-            "hour" | "hr" => Self::Hour,
-            "day" => Self::Day,
-
-            "fahrenheit" | "f" | "°" | "°f" | "degrees" => Self::Farhenheit,
-            "celcius" | "°c" => Self::Celcius,
-            "\"" | "inch" => Self::Inch,
-
-            "whole" => Self::Whole,
-            "each" => Self::Whole,
-
-            _ => Self::Other(s.to_string()),
-        })
+        let s_norm = singular(&s.to_lowercase());
+        for (str_repr, unit) in UNIT_MAPPINGS {
+            if s_norm == *str_repr {
+                return Ok(unit.clone());
+            }
+        }
+        Ok(Unit::Other(s.to_string()))
     }
 }
 impl fmt::Display for Unit {
@@ -133,6 +142,10 @@ impl fmt::Display for Unit {
 pub fn singular(s: &str) -> String {
     let s2 = s.to_lowercase();
     s2.strip_suffix('s').unwrap_or(&s2).to_string()
+}
+
+pub fn all_unit_keys() -> Vec<String> {
+    UNIT_MAPPINGS.iter().map(|(k, _)| k.to_string()).collect()
 }
 
 #[cfg(test)]

@@ -148,7 +148,7 @@ impl Measure {
     pub fn add(&self, b: Measure) -> Result<Measure> {
         info!("adding {:?} to {:?}", self, b);
 
-        if let MeasureKind::Other = b.kind().unwrap() {
+        if let MeasureKind::Other(_) = b.kind().unwrap() {
             return Ok(self.clone());
         }
 
@@ -186,7 +186,6 @@ impl Measure {
             upper_value,
         }
     }
-
     pub fn kind(&self) -> Result<MeasureKind> {
         match self.unit {
             Unit::Gram => Ok(MeasureKind::Weight),
@@ -196,7 +195,8 @@ impl Measure {
             Unit::Second => Ok(MeasureKind::Time),
             Unit::Farhenheit | Unit::Celcius => Ok(MeasureKind::Temperature), // todo: convert to farhenheit?
             Unit::Inch => Ok(MeasureKind::Length),
-            Unit::Other(_) => Ok(MeasureKind::Other),
+            Unit::Other(ref s) => Ok(MeasureKind::Other(s.clone())),
+            Unit::Whole => Ok(MeasureKind::Other("whole".to_string())),
             Unit::Kilogram
             | Unit::Liter
             | Unit::Tablespoon
@@ -206,7 +206,6 @@ impl Measure {
             | Unit::Ounce
             | Unit::Pound
             | Unit::Dollar
-            | Unit::Whole
             | Unit::Day
             | Unit::Minute
             | Unit::Hour => self.normalize().kind(),
