@@ -69,13 +69,6 @@ pub struct Image {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum RecipeInstruction {
-    A(RecipeInstructionA),
-    B(BOrWrapper),
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
 pub enum InstructionWrapper {
     A(Vec<RecipeInstructionA>),
     B(Vec<BOrWrapper>),
