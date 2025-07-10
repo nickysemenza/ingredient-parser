@@ -2,6 +2,7 @@ use eframe::{
     egui::{self, Image, RichText, TextFormat, WidgetText},
     epaint::{text::LayoutJob, Color32},
 };
+use std::sync::Arc;
 use poll_promise::Promise;
 use rand::Rng;
 use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
@@ -88,7 +89,7 @@ fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
             ..Default::default()
         },
     );
-    WidgetText::LayoutJob(job)
+    WidgetText::LayoutJob(Arc::new(job))
 }
 
 fn show_parsed(ui: &mut egui::Ui, parsed: &ParsedRecipe) {
