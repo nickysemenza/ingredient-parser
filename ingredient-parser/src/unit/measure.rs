@@ -292,7 +292,7 @@ impl Measure {
         let result = Measure::new_with_upper(
             unit_b,
             round_result(input.value * factor),
-            input.upper_value.map(|x| (round_result(x * factor))),
+            input.upper_value.map(|x| round_result(x * factor)),
         );
         debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
         Some(result.denormalize())

@@ -46,6 +46,7 @@ pub struct RecipeInstructionB {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct HasPart {
     #[serde(rename = "@type")]
     pub type_field: String,
@@ -124,6 +125,7 @@ pub enum Graph {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct Graph2 {
     #[serde(rename = "@type")]
     pub type_field: String,
