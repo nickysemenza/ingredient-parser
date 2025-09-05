@@ -1,14 +1,67 @@
+//! # Ingredient Parser
+//!
+//! A Rust library for parsing recipe ingredient lines into structured data using
+//! [nom](https://github.com/Geal/nom) parser combinators.
+//!
+//! ## Features
+//!
+//! - Parse complex ingredient strings with multiple units and values
+//! - Support for fractions, ranges, and text numbers ("one", "a")
+//! - Extract ingredient names and modifiers (preparation instructions)
+//! - Handle common recipe notation and edge cases gracefully
+//! - Support for Unicode fractions (½, ¼, etc.) in rich text mode
+//! - Customizable units and adjectives
+//!
+//! ## Quick Start
+//!
+//! The simplest way to parse an ingredient is using [`from_str`]:
+//!
+//! ```
+//! use ingredient::from_str;
+//!
+//! let ingredient = from_str("2 cups all-purpose flour, sifted");
+//! assert_eq!(ingredient.name, "all-purpose flour");
+//! assert_eq!(ingredient.amounts.len(), 1);
+//! assert_eq!(ingredient.modifier, Some("sifted".to_string()));
+//! ```
+//!
+//! ## Advanced Usage
+//!
+//! For more control, use [`IngredientParser`] directly:
+//!
+//! ```
+//! use ingredient::IngredientParser;
+//!
+//! let parser = IngredientParser::new(false);
+//! let ingredient = parser.from_str("1¼ cups / 155.5g flour");
+//! assert_eq!(ingredient.amounts.len(), 2); // Multiple units parsed
+//! ```
+//!
+//! ## Error Handling
+//!
+//! Use [`IngredientParser::try_from_str`] for explicit error handling:
+//!
+//! ```
+//! use ingredient::IngredientParser;
+//!
+//! let parser = IngredientParser::new(false);
+//! match parser.try_from_str("2 cups flour") {
+//!     Ok(ingredient) => println!("Parsed: {}", ingredient.name),
+//!     Err(e) => eprintln!("Parse error: {}", e),
+//! }
+//! ```
+
 use std::collections::HashSet;
 use std::iter::FromIterator;
 
 pub use crate::ingredient::Ingredient;
-use anyhow::Result;
+pub use crate::error::{IngredientError, IngredientResult};
 use fraction::fraction_number;
 #[allow(deprecated)]
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, char, not_line_ending, satisfy, space0, space1},
+    character::complete::{char, not_line_ending, space0, space1},
     combinator::{opt, verify},
     error::context,
     multi::{many1, separated_list1},
@@ -19,6 +72,7 @@ use nom::{
 use nom_language::error::VerboseError;
 use tracing::info;
 use unit::Measure;
+use parser::{text, text_number, unitamt};
 
 extern crate nom;
 
@@ -27,7 +81,9 @@ extern crate nom;
 extern crate serde;
 
 mod fraction;
+pub mod error;
 pub mod ingredient;
+pub mod parser;
 pub mod rich_text;
 pub mod unit;
 pub mod util;
@@ -35,18 +91,104 @@ pub type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
 /// Parse an ingredient string using default settings
 ///
-/// Use [IngredientParser] directly to customize the parsing behavior
+/// This is the simplest way to parse an ingredient string. It uses default
+/// units and adjectives, and handles most common ingredient formats gracefully.
+/// 
+/// # Arguments
+/// 
+/// * `input` - The ingredient string to parse (e.g. "2 cups flour, sifted")
+/// 
+/// # Returns
+/// 
+/// An [`Ingredient`] struct containing the parsed name, amounts, and modifier.
+/// If parsing fails completely, returns an ingredient with just the input as the name.
+/// 
+/// # Examples
+/// 
+/// ```
+/// use ingredient::from_str;
+/// 
+/// let ingredient = from_str("2 cups all-purpose flour, sifted");
+/// assert_eq!(ingredient.name, "all-purpose flour");
+/// assert_eq!(ingredient.amounts.len(), 1);
+/// assert_eq!(ingredient.modifier, Some("sifted".to_string()));
+/// 
+/// // Handles fractions and multiple units
+/// let ingredient = from_str("1¼ cups / 155.5g flour");
+/// assert_eq!(ingredient.amounts.len(), 2);
+/// 
+/// // Gracefully handles unparseable input
+/// let ingredient = from_str("some weird ingredient");
+/// assert_eq!(ingredient.name, "some weird ingredient");
+/// ```
+/// 
+/// Use [`IngredientParser`] directly for more control over parsing behavior.
 pub fn from_str(input: &str) -> Ingredient {
     IngredientParser::new(false).from_str(input)
 }
 
+/// Customizable ingredient parser with configurable units and adjectives
+/// 
+/// This parser allows you to customize which units and adjectives are recognized
+/// during parsing. It also supports rich text mode for handling special Unicode
+/// characters like fractions (½, ¼, etc.).
+/// 
+/// # Fields
+/// 
+/// * `units` - Set of recognized measurement units (e.g. "cups", "grams", "tbsp")
+/// * `adjectives` - Set of recognized adjectives that get moved to the modifier field
+/// * `is_rich_text` - Whether to parse rich text characters (Unicode fractions, etc.)
+/// 
+/// # Examples
+/// 
+/// ```
+/// use ingredient::IngredientParser;
+/// use std::collections::HashSet;
+/// 
+/// // Create parser with custom units
+/// let mut parser = IngredientParser::new(false);
+/// parser.units.insert("handfuls".to_string());
+/// 
+/// let ingredient = parser.from_str("2 handfuls of nuts");
+/// assert_eq!(ingredient.name, "nuts");
+/// 
+/// // Rich text mode handles Unicode fractions
+/// let rich_parser = IngredientParser::new(true);
+/// let ingredient = rich_parser.from_str("½ cup sugar");
+/// // Parser handles the ½ character directly
+/// ```
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct IngredientParser {
+    /// Set of recognized measurement units
     pub units: HashSet<String>,
+    /// Set of recognized adjectives that get moved to modifier field
     pub adjectives: HashSet<String>,
+    /// Whether to parse rich text characters (Unicode fractions, etc.)
     pub is_rich_text: bool,
 }
 impl IngredientParser {
+    /// Create a new ingredient parser with default units and adjectives
+    /// 
+    /// # Arguments
+    /// 
+    /// * `is_rich_text` - Whether to enable rich text parsing for Unicode characters
+    /// 
+    /// # Returns
+    /// 
+    /// A new `IngredientParser` with sensible defaults for common cooking units
+    /// and adjectives like "chopped", "minced", "sifted", etc.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use ingredient::IngredientParser;
+    /// 
+    /// // Standard parser
+    /// let parser = IngredientParser::new(false);
+    /// 
+    /// // Rich text parser (handles ½, ¼, etc.)
+    /// let rich_parser = IngredientParser::new(true);
+    /// ```
     pub fn new(is_rich_text: bool) -> Self {
         let units: Vec<String> = vec![
             // non standard units - these aren't really convertible for the most part.
@@ -86,10 +228,55 @@ impl IngredientParser {
     /// ```
     /// Parse an ingredient string into an Ingredient object
     ///
-    /// This is a wrapper around parse_ingredient that handles the Result
+    /// This method never panics and provides fallback behavior for unparseable input
     pub fn from_str(self, input: &str) -> Ingredient {
-        // The parser is flexible enough that it rarely fails
-        self.parse_ingredient(input).unwrap().1
+        match self.parse_ingredient(input) {
+            Ok((_, ingredient)) => ingredient,
+            Err(_) => {
+                // Fallback: create an ingredient with just the name if parsing fails completely
+                Ingredient {
+                    name: input.trim().to_string(),
+                    amounts: vec![],
+                    modifier: None,
+                }
+            }
+        }
+    }
+
+    /// Parse an ingredient string with explicit error handling
+    /// 
+    /// This method returns a `Result` that allows you to handle parsing errors
+    /// explicitly, unlike `from_str` which provides fallback behavior.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `input` - The ingredient string to parse
+    /// 
+    /// # Returns
+    /// 
+    /// * `Ok(Ingredient)` - Successfully parsed ingredient
+    /// * `Err(IngredientError)` - Detailed error information about parsing failure
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use ingredient::IngredientParser;
+    /// 
+    /// let parser = IngredientParser::new(false);
+    /// 
+    /// match parser.try_from_str("2 cups flour") {
+    ///     Ok(ingredient) => println!("Parsed: {}", ingredient.name),
+    ///     Err(e) => eprintln!("Parse error: {}", e),
+    /// }
+    /// ```
+    pub fn try_from_str(self, input: &str) -> IngredientResult<Ingredient> {
+        match self.parse_ingredient(input) {
+            Ok((_, ingredient)) => Ok(ingredient),
+            Err(e) => Err(IngredientError::ParseError {
+                input: input.to_string(),
+                context: format!("Failed to parse ingredient: {:?}", e),
+            }),
+        }
     }
 
     /// Parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`. Used by [self.parse_ingredient].
@@ -113,21 +300,30 @@ impl IngredientParser {
     ///
     /// Returns a Result with a Vec of Measures, or an error if parsing fails
     #[tracing::instrument(name = "parse_amount")]
-    pub fn parse_amount(&self, input: &str) -> Result<Vec<Measure>> {
+    pub fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
         match self.clone().parse_measurement_list(input) {
             Ok((_, measurements)) => Ok(measurements),
-            Err(e) => Err(anyhow::anyhow!(
-                "Failed to parse amount from '{}': {:?}",
-                input,
-                e
-            )),
+            Err(e) => Err(IngredientError::AmountParseError {
+                input: input.to_string(),
+                reason: format!("{:?}", e),
+            }),
         }
     }
 
     /// Parse measurements with no error handling (will panic on failure)
+    /// 
+    /// # Panics
+    /// This method will panic if parsing fails. Consider using `parse_amount` for error handling.
     pub fn must_parse_amount(&self, input: &str) -> Vec<Measure> {
-        self.parse_amount(input)
-            .expect("Measurement parsing failed")
+        match self.parse_amount(input) {
+            Ok(measures) => measures,
+            Err(e) => panic!("Measurement parsing failed for '{}': {}", input, e),
+        }
+    }
+
+    /// Parse measurements with safer error handling that returns empty vec on failure
+    pub fn try_parse_amount(&self, input: &str) -> Vec<Measure> {
+        self.parse_amount(input).unwrap_or_else(|_| vec![])
     }
 
     /// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`.
@@ -604,32 +800,18 @@ impl IngredientParser {
         context("plus_expression", plus_parser).parse(input).map(
             |(next_input, (first_measure, _, _, _, second_measure))| {
                 // Add the two measurements together
-                let combined = first_measure.add(second_measure).unwrap();
-                (next_input, combined)
+                match first_measure.add(second_measure) {
+                    Ok(combined) => (next_input, combined),
+                    Err(_) => {
+                        // If addition fails, just return the first measure as fallback
+                        (next_input, first_measure)
+                    }
+                }
             },
         )
     }
 }
 
-fn text(input: &str) -> Res<&str, String> {
-    (satisfy(|c| match c {
-        '-' | '—' | '\'' | '’' | '.' | '\\' => true,
-        c => c.is_alphanumeric() || c.is_whitespace(),
-    }))
-    .parse(input)
-    .map(|(next_input, res)| (next_input, res.to_string()))
-}
-fn unitamt(input: &str) -> Res<&str, String> {
-    nom::multi::many0(alt((alpha1, tag("°"), tag("\""))))
-        .parse(input)
-        .map(|(next_input, res)| (next_input, res.join("")))
-}
-
-fn text_number(input: &str) -> Res<&str, f64> {
-    context("text_number", alt((tag("one"), tag("a "))))
-        .parse(input)
-        .map(|(next_input, _)| (next_input, 1.0))
-}
 
 #[cfg(test)]
 mod tests {
@@ -663,16 +845,10 @@ mod tests {
                 modifier: None,
             })
         );
-        assert_eq!(
-            format!(
-                "{}",
-                (IngredientParser::new(false))
-                    .must_parse_amount("2 ¼ - 2.5 cups")
-                    .first()
-                    .unwrap()
-            ),
-            "2.25 - 2.5 cups"
-        );
+        let amounts = (IngredientParser::new(false))
+            .must_parse_amount("2 ¼ - 2.5 cups");
+        assert!(!amounts.is_empty(), "Expected at least one measure");
+        assert_eq!(format!("{}", amounts[0]), "2.25 - 2.5 cups");
         assert_eq!(
             (IngredientParser::new(false)).must_parse_amount("2 to 4 days"),
             vec![Measure::parse_new_with_upper("days", 2.0, 4.0)]

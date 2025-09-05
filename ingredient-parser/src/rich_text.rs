@@ -15,7 +15,7 @@ fn condense_text(r: Rich) -> Rich {
     // https://www.reddit.com/r/rust/comments/e3mq41/combining_enum_values_with_itertools_coalesce/
     r.into_iter()
         .coalesce(
-            |previous, current| match (previous.clone(), current.clone()) {
+            |previous, current| match (&previous, &current) {
                 (Chunk::Text(a), Chunk::Text(b)) => Ok(Chunk::Text(format!("{a}{b}"))),
                 _ => Err((previous, current)),
             },
