@@ -15,7 +15,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         
       - name: Cache Cargo dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -31,7 +31,7 @@ jobs:
           cargo bench --message-format=json | tee ../benchmark_output.json
           
       - name: Download previous benchmark data
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ./cache
           key: ${{ runner.os }}-benchmark
