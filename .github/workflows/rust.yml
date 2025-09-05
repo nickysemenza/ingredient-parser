@@ -36,3 +36,28 @@ jobs:
         with:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
+  deploy:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    name: Deploy to Cloudflare Pages
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: jetli/wasm-pack-action@v0.4.0
+      - name: Build site
+        run: make build-demo-site
+      - name: Publish
+        uses: cloudflare/pages-action@v1.5.0
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: 9f10f078d35d86c78dedece2300a6b88
+          projectName: ingredient
+          directory: demo-site/dist/
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
