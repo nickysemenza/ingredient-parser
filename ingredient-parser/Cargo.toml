@@ -26,3 +26,11 @@ nom-language = "0.1.0"
 version = "8.0.0"
 default-features = false
 features = ["alloc"]
+
+[dev-dependencies]
+proptest = "1.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "parser_benchmarks"
+harness = false

@@ -1,0 +1,13 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4321fa88a8d981bad00b2864c43461b285b5d77ab6b59bccde150ef60be5a483 # shrinks to input = "("
+cc 020ac996f0e61a733565760e8d520b36920d7f357dc57e0f225a09dd36cf5912 # shrinks to input = "{"
+cc 4fc41bcc1e9b827109cbf8733825a0ec398eb270a44c5bf91bd2e68660497fc2 # shrinks to amount = "0\\a0", unit = "cup", name = "flour", modifier = None
+cc 2511254c0e04d570f738dc4d2000a67360abbfcdcab89739a30fa000f6eb1da8 # shrinks to ingredient_str = " "
+cc 29b33d036b0df50325de9f16e5db7a8bac2e3e54b5b4bcbf98d7450376d72a97 # shrinks to whole = 0, frac = "1/2", unit = "cup", name = " "
+cc e9fa6f9f77ce800972574e26da4e517703870f1117973b390ed7753f436b9ab4 # shrinks to amount = "0\\\00", unit = "cup", name = "flour", modifier = None
+cc eb728444ea198a79c16dd3bf0becc6fd2b5bbf123b6d0e17782d9aa0ae83c3d9 # shrinks to whole = 0, frac = "1/2", unit = "cup", name = "of"
