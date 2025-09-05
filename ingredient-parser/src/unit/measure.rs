@@ -2,7 +2,7 @@ use crate::unit::singular;
 use crate::unit::{kind::MeasureKind, Unit};
 use crate::util::num_without_zeroes;
 use crate::IngredientParser;
-use anyhow::Result;
+use crate::{IngredientError, IngredientResult};
 use petgraph::Graph;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -145,19 +145,22 @@ impl Measure {
             upper_value: self.upper_value.map(|x| x * factor),
         }
     }
-    pub fn add(&self, b: Measure) -> Result<Measure> {
+    pub fn add(&self, b: Measure) -> IngredientResult<Measure> {
         info!("adding {:?} to {:?}", self, b);
 
-        if let MeasureKind::Other(_) = b.kind().unwrap() {
+        // Get kinds with proper error handling
+        let b_kind = b.kind()?;
+        let self_kind = self.kind()?;
+
+        if let MeasureKind::Other(_) = b_kind {
             return Ok(self.clone());
         }
 
-        if self.kind().unwrap() != b.kind().unwrap() {
-            return Err(anyhow::anyhow!(
-                "Cannot add measures of different kinds: {:#?} {:?}",
-                self,
-                b
-            ));
+        if self_kind != b_kind {
+            return Err(IngredientError::MeasureError {
+                operation: "add".to_string(),
+                reason: format!("Cannot add measures of different kinds: {:?} and {:?}", self_kind, b_kind),
+            });
         }
         let left = self.normalize();
         let right = b.normalize();
@@ -180,13 +183,17 @@ impl Measure {
         Measure::from_parts(unit, value, Some(upper))
     }
     pub fn from_parts(unit: &str, value: f64, upper_value: Option<f64>) -> Measure {
+        let normalized_unit = singular(unit);
+        let unit = Unit::from_str(normalized_unit.as_ref())
+            .unwrap_or(Unit::Other(normalized_unit));
+        
         Measure {
-            unit: Unit::from_str(singular(unit).as_ref()).unwrap(),
+            unit,
             value,
             upper_value,
         }
     }
-    pub fn kind(&self) -> Result<MeasureKind> {
+    pub fn kind(&self) -> IngredientResult<MeasureKind> {
         match self.unit {
             Unit::Gram => Ok(MeasureKind::Weight),
             Unit::Cent => Ok(MeasureKind::Money),
@@ -298,9 +305,8 @@ impl Measure {
         Some(result.denormalize())
     }
     fn unit_as_string(&self) -> String {
-        let measure = self.clone(); //.denormalize();
-        let mut s = singular(&measure.unit().to_str());
-        if (measure.unit() == Unit::Cup || measure.unit() == Unit::Minute)
+        let mut s = singular(&self.unit().to_str());
+        if (self.unit() == Unit::Cup || self.unit() == Unit::Minute)
             && (self.value > 1.0 || self.upper_value.unwrap_or_default() > 1.0)
         {
             s.push('s');

@@ -1,0 +1,55 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  benchmark:
+    name: Run Rust Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+            
+      - name: Run benchmarks
+        run: |
+          cd ingredient-parser
+          cargo bench --message-format=json > benchmark_output.json
+          
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          # What benchmark tool the output.txt came from
+          tool: 'cargo'
+          # Where the output from the benchmark tool is stored
+          output-file-path: ingredient-parser/benchmark_output.json
+          # GitHub API token to make a commit to gh-pages branch
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Auto push to gh-pages branch
+          auto-push: true
+          # Show alert with commit comment when benchmark performance degrades
+          comment-on-alert: true
+          alert-threshold: '200%'
+          fail-on-alert: false
+          # Enable Job Summary for PRs  
+          summary-always: true
