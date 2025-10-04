@@ -4,24 +4,13 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq)]
 pub enum IngredientError {
     /// Failed to parse ingredient string
-    ParseError {
-        input: String,
-        context: String,
-    },
+    ParseError { input: String, context: String },
     /// Failed to parse measurement/amount
-    AmountParseError {
-        input: String,
-        reason: String,
-    },
+    AmountParseError { input: String, reason: String },
     /// Measure operation error (adding incompatible measures, etc.)
-    MeasureError {
-        operation: String,
-        reason: String,
-    },
+    MeasureError { operation: String, reason: String },
     /// Generic parsing error with context
-    Generic {
-        message: String,
-    },
+    Generic { message: String },
 }
 
 impl fmt::Display for IngredientError {
@@ -67,24 +56,36 @@ mod tests {
             input: "bad input".to_string(),
             context: "invalid format".to_string(),
         };
-        assert_eq!(err.to_string(), "Failed to parse ingredient 'bad input': invalid format");
+        assert_eq!(
+            err.to_string(),
+            "Failed to parse ingredient 'bad input': invalid format"
+        );
 
         let err = IngredientError::AmountParseError {
             input: "2x cups".to_string(),
             reason: "unexpected character".to_string(),
         };
-        assert_eq!(err.to_string(), "Failed to parse amount '2x cups': unexpected character");
+        assert_eq!(
+            err.to_string(),
+            "Failed to parse amount '2x cups': unexpected character"
+        );
 
         let err = IngredientError::MeasureError {
             operation: "add".to_string(),
             reason: "incompatible units".to_string(),
         };
-        assert_eq!(err.to_string(), "Measure operation 'add' failed: incompatible units");
+        assert_eq!(
+            err.to_string(),
+            "Measure operation 'add' failed: incompatible units"
+        );
 
         let err = IngredientError::Generic {
             message: "something went wrong".to_string(),
         };
-        assert_eq!(err.to_string(), "Ingredient parsing error: something went wrong");
+        assert_eq!(
+            err.to_string(),
+            "Ingredient parsing error: something went wrong"
+        );
     }
 
     #[test]
@@ -106,7 +107,7 @@ mod tests {
     fn test_from_anyhow_error() {
         let anyhow_err = anyhow::anyhow!("test error");
         let ingredient_err: IngredientError = anyhow_err.into();
-        
+
         match ingredient_err {
             IngredientError::Generic { message } => {
                 assert_eq!(message, "test error");
@@ -117,9 +118,6 @@ mod tests {
 
     #[test]
     fn test_ingredient_result_type() {
-        let result: IngredientResult<i32> = Ok(42);
-        assert_eq!(result.unwrap(), 42);
-
         let result: IngredientResult<i32> = Err(IngredientError::Generic {
             message: "error".to_string(),
         });

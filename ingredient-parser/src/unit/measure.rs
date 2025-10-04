@@ -20,7 +20,20 @@ fn round_result(x: f64) -> f64 {
 pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
     let mut g = Graph::<Unit, f64>::new();
 
-    for (mut m_a, mut m_b) in mappings.into_iter() {
+    // Add fundamental unit conversions to bridge different unit systems
+    let fundamental_conversions = vec![
+        // Volume conversions (metric ↔ imperial)
+        (Measure::parse_new("ml", 1.0), Measure::parse_new("tsp", 1.0 / TSP_TO_ML)),
+        (Measure::parse_new("tsp", 1.0), Measure::parse_new("ml", TSP_TO_ML)),
+        // Weight conversions (metric ↔ imperial) 
+        (Measure::parse_new("g", 1.0), Measure::parse_new("oz", 1.0 / GRAM_TO_OZ)),
+        (Measure::parse_new("oz", 1.0), Measure::parse_new("g", GRAM_TO_OZ)),
+    ];
+
+    // Combine fundamental conversions with provided mappings
+    let all_mappings = [mappings, fundamental_conversions].concat();
+
+    for (mut m_a, mut m_b) in all_mappings.into_iter() {
         m_a = m_a.normalize();
         m_b = m_b.normalize();
         let n_a = g
@@ -82,6 +95,7 @@ const CENTS_TO_DOLLAR: f64 = 100.0;
 const SEC_TO_MIN: f64 = 60.0;
 const SEC_TO_HOUR: f64 = 3600.0;
 const SEC_TO_DAY: f64 = 86400.0;
+const TSP_TO_ML: f64 = 4.92892;
 
 impl Measure {
     pub fn new_with_upper(unit: Unit, value: f64, upper_value: Option<f64>) -> Measure {
@@ -367,9 +381,12 @@ mod tests {
                 .unwrap()
         );
 
-        assert!(m
-            .convert_measure_via_mappings(MeasureKind::Volume, vec![tbsp_dollars])
-            .is_none());
+        // With fundamental conversions, tbsp can now convert to ml via tbsp→tsp→ml
+        assert_eq!(
+            Measure::parse_str("15.0 ml"),
+            m.convert_measure_via_mappings(MeasureKind::Volume, vec![tbsp_dollars])
+                .unwrap()
+        );
     }
     #[test]
     fn test_convert_lb() {
@@ -502,10 +519,15 @@ mod tests {
     0 [ label = "Teaspoon" ]
     1 [ label = "Cent" ]
     2 [ label = "Gram" ]
+    3 [ label = "Milliliter" ]
     0 -> 1 [ label = "1000" ]
     1 -> 0 [ label = "0.001" ]
     0 -> 2 [ label = "1" ]
     2 -> 0 [ label = "1" ]
+    3 -> 0 [ label = "0.202" ]
+    0 -> 3 [ label = "4.928" ]
+    2 -> 2 [ label = "1" ]
+    2 -> 2 [ label = "1" ]
 }
 "#
         );
