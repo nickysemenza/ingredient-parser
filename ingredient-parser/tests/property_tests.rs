@@ -165,9 +165,10 @@ proptest! {
         };
         
         let ingredient = from_str(&ingredient_str);
-        
+
         // Should successfully parse - name might be empty for whitespace-only names or reserved words
-        if !name.trim().is_empty() && name.trim() != "of" {
+        // "a" is a text number, "of" is often consumed as part of amounts
+        if !name.trim().is_empty() && name.trim() != "of" && name.trim() != "a" {
             prop_assert!(!ingredient.name.is_empty());
         }
         prop_assert!(!ingredient.amounts.is_empty());
