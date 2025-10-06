@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useState } from "react";
-import { RichItem, wasm, WasmContext, ScrapedRecipe } from "./wasmContext";
+import { RichItem, wasm, WasmContext, ScrapedRecipe, Measure } from "./wasmContext";
 import ReactJson from "react-json-view";
 export const Demo: React.FC = () => {
   const w = useContext(WasmContext);
@@ -190,6 +190,14 @@ export const Demo: React.FC = () => {
   );
 };
 
+const scaleAmount = (amount: Measure, scale: number) => {
+  return {
+    ...amount,
+    value: amount.value * scale,
+    upper_value: amount.upper_value ? amount.upper_value * scale : undefined,
+  };
+};
+
 const Scraper: React.FC = () => {
   const w = useContext(WasmContext);
   const [scrapedRecipe, setRecipe] = useState<ScrapedRecipe | undefined>(
@@ -198,6 +206,7 @@ const Scraper: React.FC = () => {
   const [url, setURL] = useState(
     "https://cooking.nytimes.com/recipes/1020830-caramelized-shallot-pasta"
   );
+  const [scaleFactor, setScaleFactor] = useState(1.0);
 
   const doScrape = useCallback(async () => {
     let res = await fetch("https://cors.nicky.workers.dev/?target=" + url);
@@ -231,9 +240,35 @@ const Scraper: React.FC = () => {
                 <h3 className="text-2xl font-bold text-gray-800 mb-2">
                   {scrapedRecipe.name}
                 </h3>
-                <div className="flex items-center text-gray-600">
-                  <span className="mr-2">🍽️</span>
-                  <span>Recipe successfully scraped!</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center text-gray-600">
+                    <span className="mr-2">🍽️</span>
+                    <span>Recipe successfully scraped!</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600 font-medium">Scale:</span>
+                    {[0.5, 1, 2, 3].map((scale) => (
+                      <button
+                        key={scale}
+                        onClick={() => setScaleFactor(scale)}
+                        className={`px-3 py-1 text-sm font-medium rounded-lg transition-all duration-200 ${
+                          scaleFactor === scale
+                            ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-md'
+                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                        }`}
+                      >
+                        {scale === 0.5 ? '½' : scale}x
+                      </button>
+                    ))}
+                    <input
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      value={scaleFactor}
+                      onChange={(e) => setScaleFactor(parseFloat(e.target.value) || 1)}
+                      className="w-16 px-2 py-1 text-sm text-center border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -279,6 +314,7 @@ const Scraper: React.FC = () => {
                       <div className="text-right font-medium text-purple-600 ml-4">
                         {p.amounts
                           .filter((a) => a.unit !== "$" && a.unit !== "kcal")
+                          .map((a) => scaleAmount(a, scaleFactor))
                           .map((a) => w.format_amount(a))
                           .join(" / ")}
                       </div>

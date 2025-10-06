@@ -14,7 +14,7 @@ mod html;
 pub mod ld_json;
 mod ld_schema;
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::info;
 
 #[derive(Error, Debug)]
 pub enum ScrapeError {
