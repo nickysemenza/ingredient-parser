@@ -274,7 +274,7 @@ impl IngredientParser {
             Ok((_, ingredient)) => Ok(ingredient),
             Err(e) => Err(IngredientError::ParseError {
                 input: input.to_string(),
-                context: format!("Failed to parse ingredient: {:?}", e),
+                context: format!("Failed to parse ingredient: {e:?}"),
             }),
         }
     }
@@ -305,7 +305,7 @@ impl IngredientParser {
             Ok((_, measurements)) => Ok(measurements),
             Err(e) => Err(IngredientError::AmountParseError {
                 input: input.to_string(),
-                reason: format!("{:?}", e),
+                reason: format!("{e:?}"),
             }),
         }
     }
@@ -317,7 +317,7 @@ impl IngredientParser {
     pub fn must_parse_amount(&self, input: &str) -> Vec<Measure> {
         match self.parse_amount(input) {
             Ok(measures) => measures,
-            Err(e) => panic!("Measurement parsing failed for '{}': {}", input, e),
+            Err(e) => panic!("Measurement parsing failed for '{input}': {e}"),
         }
     }
 

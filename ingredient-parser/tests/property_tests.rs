@@ -65,7 +65,7 @@ proptest! {
         // Each amount should have reasonable values
         for amount in &ingredient.amounts {
             // Should be able to convert to string without panics
-            let _display = format!("{}", amount);
+            let _display = format!("{amount}");
         }
         
         // Modifier is optional but if present shouldn't be empty
@@ -74,7 +74,7 @@ proptest! {
         }
         
         // Should be able to display the ingredient
-        let _display = format!("{}", ingredient);
+        let _display = format!("{ingredient}");
     }
 
     /// Test that well-formed ingredients parse correctly
@@ -86,7 +86,7 @@ proptest! {
         // Name parsing depends on complex rules, so just verify basic sanity
         
         // String representation should not panic
-        let _display = format!("{}", ingredient);
+        let _display = format!("{ingredient}");
         
         // Try from_str should not panic
         let parser = IngredientParser::new(false);
@@ -116,7 +116,7 @@ proptest! {
             // Name can be empty for inputs that don't contain ingredient names
             
             // Should be able to display the result
-            let _display = format!("{}", ingredient);
+            let _display = format!("{ingredient}");
         }
     }
 
@@ -130,8 +130,8 @@ proptest! {
     ) {
         let has_modifier = modifier.is_some();
         let ingredient_str = match modifier {
-            Some(ref mod_str) => format!("{} {} {}, {}", amount, unit, name, mod_str),
-            None => format!("{} {} {}", amount, unit, name),
+            Some(ref mod_str) => format!("{amount} {unit} {name}, {mod_str}"),
+            None => format!("{amount} {unit} {name}"),
         };
         
         let ingredient = from_str(&ingredient_str);
@@ -159,9 +159,9 @@ proptest! {
         name in r"[a-zA-Z ]+"
     ) {
         let ingredient_str = if whole > 0 {
-            format!("{} {} {} {}", whole, frac, unit, name)
+            format!("{whole} {frac} {unit} {name}")
         } else {
-            format!("{} {} {}", frac, unit, name)
+            format!("{frac} {unit} {name}")
         };
         
         let ingredient = from_str(&ingredient_str);
@@ -173,7 +173,7 @@ proptest! {
         prop_assert!(!ingredient.amounts.is_empty());
         
         // Should be able to format
-        let _formatted = format!("{}", ingredient);
+        let _formatted = format!("{ingredient}");
     }
 }
 
@@ -207,14 +207,14 @@ mod integration_property_tests {
             
             // Should never have empty name unless input was empty or whitespace only
             if !input.trim().is_empty() {
-                assert!(!ingredient.name.is_empty(), "Input '{}' resulted in empty name", input);
+                assert!(!ingredient.name.is_empty(), "Input '{input}' resulted in empty name");
             }
             
             // Should be able to display result
-            let _display = format!("{}", ingredient);
+            let _display = format!("{ingredient}");
             
             // Should be able to debug print
-            let _debug = format!("{:?}", ingredient);
+            let _debug = format!("{ingredient:?}");
         }
     }
 }

@@ -159,7 +159,7 @@ impl Measure {
         if self_kind != b_kind {
             return Err(IngredientError::MeasureError {
                 operation: "add".to_string(),
-                reason: format!("Cannot add measures of different kinds: {:?} and {:?}", self_kind, b_kind),
+                reason: format!("Cannot add measures of different kinds: {self_kind:?} and {b_kind:?}"),
             });
         }
         let left = self.normalize();
