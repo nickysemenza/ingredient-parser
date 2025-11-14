@@ -16,10 +16,10 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
                     ld_schema::BOrWrapper::B(b) => b
                         .item_list_element
                         .iter()
-                        .map(|i| i.text.clone().unwrap())
+                        .filter_map(|i| i.text.clone())
                         .collect(),
                     ld_schema::BOrWrapper::Wrapper(w) => {
-                        vec![w.text.unwrap()]
+                        w.text.into_iter().collect()
                     }
                 })
                 .collect(),
@@ -33,7 +33,9 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
                     .collect::<Vec<_>>()
             }
             ld_schema::InstructionWrapper::D(d) => {
-                d[0].clone().into_iter().map(|i| i.text).collect()
+                d.first()
+                    .map(|inner| inner.clone().into_iter().map(|i| i.text).collect())
+                    .unwrap_or_default()
             }
         },
 
@@ -42,8 +44,8 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
         image: match ld_schema.image {
             Some(image) => match image {
                 ld_schema::ImageOrList::Url(i) => Some(i),
-                ld_schema::ImageOrList::List(l) => Some(l[0].url.clone()),
-                ld_schema::ImageOrList::UrlList(i) => Some(i[0].clone()),
+                ld_schema::ImageOrList::List(l) => l.first().map(|img| img.url.clone()),
+                ld_schema::ImageOrList::UrlList(i) => i.first().cloned(),
                 ld_schema::ImageOrList::Image(i) => Some(i.url),
             },
             None => None,
@@ -56,7 +58,14 @@ fn normalize_ld_json(
     url: &str,
 ) -> Result<ScrapedRecipe, ScrapeError> {
     match ld_schema_a {
-        ld_schema::Root::List(mut l) => Ok(normalize_root_recipe(l.pop().unwrap(), url)),
+        ld_schema::Root::List(mut l) => {
+            l.pop()
+                .map(|recipe| normalize_root_recipe(recipe, url))
+                .ok_or_else(|| ScrapeError::LDJSONMissingRecipe(
+                    "Empty recipe list in LD+JSON".to_string(),
+                    0,
+                ))
+        }
         ld_schema::Root::Recipe(ld_schema) => Ok(normalize_root_recipe(ld_schema, url)),
         ld_schema::Root::Graph(g) => {
             let items = g.graph.len();
@@ -97,11 +106,12 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
     let v: ld_schema::Root = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
-            let raw = serde_json::from_str::<Value>(json).expect("failed to parse ld json");
-            error!(
-                "failed to find ld json root: {}",
-                serde_json::to_string_pretty(&raw).unwrap()
-            );
+            if let Ok(raw) = serde_json::from_str::<Value>(json) {
+                error!(
+                    "failed to find ld json root: {}",
+                    serde_json::to_string_pretty(&raw).unwrap_or_else(|_| "unknown".to_string())
+                );
+            }
             return Err(ScrapeError::Deserialize(e));
         }
     };
@@ -110,7 +120,7 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
 }
 
 pub fn scrape_from_ld_json(json: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
-    let ld_schema = parse_ld_json(json.to_owned()).expect("failed to parse ld json");
+    let ld_schema = parse_ld_json(json.to_owned())?;
     normalize_ld_json(ld_schema, url)
 }
 

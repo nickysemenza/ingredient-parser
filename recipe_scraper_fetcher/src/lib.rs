@@ -50,7 +50,7 @@ impl Fetcher {
             Ok(r) => r,
             Err(e) => {
                 return Err(match e {
-                    reqwest_middleware::Error::Middleware(e) => panic!("{}", e),
+                    reqwest_middleware::Error::Middleware(e) => ScrapeError::Http(e.to_string()),
                     reqwest_middleware::Error::Reqwest(e) => ScrapeError::Http(e.to_string()),
                 })
             }
@@ -65,7 +65,7 @@ impl Fetcher {
             let e = Err(ScrapeError::Http(err_string));
             return e;
         }
-        Ok(r.text().await.unwrap())
+        r.text().await.map_err(|e| ScrapeError::Http(e.to_string()))
     }
 }
 

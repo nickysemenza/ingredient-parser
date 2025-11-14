@@ -3,18 +3,22 @@ use scraper::{Html, Selector};
 use crate::{ScrapeError, ScrapedRecipe};
 
 pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
-    let title = match dom.select(&Selector::parse("title").unwrap()).next() {
+    let title_selector = Selector::parse("title")
+        .map_err(|e| ScrapeError::Parse(format!("Invalid title selector: {e:?}")))?;
+    let title = match dom.select(&title_selector).next() {
         Some(x) => x.inner_html(),
         None => "".to_string(),
     };
     // smitten kitchen
-    let ingredient_selector = Selector::parse("li.jetpack-recipe-ingredient").unwrap();
+    let ingredient_selector = Selector::parse("li.jetpack-recipe-ingredient")
+        .map_err(|e| ScrapeError::Parse(format!("Invalid ingredient selector: {e:?}")))?;
     let ingredients = dom
         .select(&ingredient_selector)
         .map(|i| i.text().collect::<Vec<_>>().join(""))
         .collect::<Vec<String>>();
 
-    let ul_selector = Selector::parse(r#"div.jetpack-recipe-directions"#).unwrap();
+    let ul_selector = Selector::parse(r#"div.jetpack-recipe-directions"#)
+        .map_err(|e| ScrapeError::Parse(format!("Invalid directions selector: {e:?}")))?;
 
     let instruction_list_item_elem = match dom.select(&ul_selector).next() {
         Some(x) => x,
@@ -29,18 +33,18 @@ pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeErr
         .map(|s| s.into())
         .collect::<Vec<String>>();
 
-    let image_selector = Selector::parse(r#"meta[property="og:image"]"#).unwrap();
+    let image_selector = Selector::parse(r#"meta[property="og:image"]"#)
+        .map_err(|e| ScrapeError::Parse(format!("Invalid image selector: {e:?}")))?;
     let image = dom
         .select(&image_selector)
         .next()
-        .map(|i| i.value().attr("content").unwrap().to_string());
+        .and_then(|i| i.value().attr("content").map(|s| s.to_string()));
 
-    Ok(dbg!(ScrapedRecipe {
+    Ok(ScrapedRecipe {
         ingredients,
         instructions,
         name: title,
         url: url.to_string(),
         image,
-    }))
-    // Err(ScrapeError::Parse("foo".to_string()))
+    })
 }

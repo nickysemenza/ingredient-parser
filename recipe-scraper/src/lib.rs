@@ -59,7 +59,7 @@ impl ScrapedRecipe {
         let parsed_instructions = self
             .instructions
             .iter()
-            .map(|i| rtp.clone().parse(i).unwrap())
+            .filter_map(|i| rtp.clone().parse(i).ok())
             .collect::<Vec<Rich>>();
 
         ParsedRecipe {

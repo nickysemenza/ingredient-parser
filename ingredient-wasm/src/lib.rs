@@ -22,19 +22,24 @@ pub fn start() -> Result<(), JsValue> {
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[wasm_bindgen]
-pub fn parse_ingredient(input: &str) -> IIngredient {
+pub fn parse_ingredient(input: &str) -> Result<IIngredient, JsValue> {
     let si = ingredient::from_str(input);
-    JsValue::from_serde(&si).unwrap().into()
+    JsValue::from_serde(&si)
+        .map(|v| v.into())
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {e:?}")))
 }
 #[wasm_bindgen]
 pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> {
-    let ings2: Vec<String> = ings.into_serde().unwrap();
+    let ings2: Vec<String> = ings.into_serde()
+        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize ingredient names: {e:?}")))?;
     let rtp = RichParser {
         ingredient_names: ings2,
         ip: IngredientParser::new(true),
     };
     match rtp.parse(r.as_str()) {
-        Ok(r) => Ok(JsValue::from_serde(&r).unwrap().into()),
+        Ok(r) => JsValue::from_serde(&r)
+            .map(|v| v.into())
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e:?}"))),
         Err(e) => Err(JsValue::from_str(&e)),
     }
 }
@@ -53,7 +58,9 @@ pub fn format_amount(amount: &IMeasure) -> String {
 #[wasm_bindgen]
 pub fn scrape(body: String, url: String) -> Result<IScrapedRecipe, JsValue> {
     match recipe_scraper::scrape(body.as_str(), &url) {
-        Ok(r) => Ok(JsValue::from_serde(&r).unwrap().into()),
+        Ok(r) => JsValue::from_serde(&r)
+            .map(|v| v.into())
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e:?}"))),
         Err(x) => Err(JsValue::from_str(&format!("failed to get recipe: {x:?}"))),
     }
 }

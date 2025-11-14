@@ -110,8 +110,8 @@ impl Measure {
             | Unit::Gram
             | Unit::Cent
             | Unit::KCal
-            | Unit::Farhenheit
-            | Unit::Celcius // todo: convert to farhenheit?
+            | Unit::Fahrenheit
+            | Unit::Celsius // todo: convert to fahrenheit?
             | Unit::Inch
             | Unit::Whole
             | Unit::Second => return self.clone(),
@@ -200,7 +200,7 @@ impl Measure {
             Unit::Teaspoon | Unit::Milliliter => Ok(MeasureKind::Volume),
             Unit::KCal => Ok(MeasureKind::Calories),
             Unit::Second => Ok(MeasureKind::Time),
-            Unit::Farhenheit | Unit::Celcius => Ok(MeasureKind::Temperature), // todo: convert to farhenheit?
+            Unit::Fahrenheit | Unit::Celsius => Ok(MeasureKind::Temperature), // todo: convert to fahrenheit?
             Unit::Inch => Ok(MeasureKind::Length),
             Unit::Other(ref s) => Ok(MeasureKind::Other(s.clone())),
             Unit::Whole => Ok(MeasureKind::Other("whole".to_string())),
@@ -250,8 +250,8 @@ impl Measure {
             | Unit::Ounce
             | Unit::Pound
             | Unit::Dollar
-            | Unit::Farhenheit
-            | Unit::Celcius // todo: convert to farhenheit?
+            | Unit::Fahrenheit
+            | Unit::Celsius // todo: convert to fahrenheit?
             | Unit::Whole
             | Unit::Minute
             | Unit::Hour

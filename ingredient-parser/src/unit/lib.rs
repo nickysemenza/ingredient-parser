@@ -3,9 +3,11 @@ use std::fmt;
 use std::str::FromStr;
 
 pub fn is_valid(units: HashSet<String>, s: &str) -> bool {
-    if !matches!(Unit::from_str(&singular(s)).unwrap(), Unit::Other(_)) {
-        // anything other than `other`
-        return true;
+    if let Ok(unit) = Unit::from_str(&singular(s)) {
+        if !matches!(unit, Unit::Other(_)) {
+            // anything other than `other`
+            return true;
+        }
     }
     is_addon_unit(units, s)
 }
@@ -36,8 +38,8 @@ pub enum Unit {
     Minute,
     Second,
     // temperature
-    Farhenheit,
-    Celcius,
+    Fahrenheit,
+    Celsius,
     //distance
     Inch,
     Whole,
@@ -106,13 +108,13 @@ static UNIT_MAPPINGS: &[(&str, Unit)] = &[
     ("hr", Unit::Hour),
     ("day", Unit::Day),
     // temperature
-    ("fahrenheit", Unit::Farhenheit),
-    ("f", Unit::Farhenheit),
-    ("°", Unit::Farhenheit),
-    ("°f", Unit::Farhenheit),
-    ("degrees", Unit::Farhenheit),
-    ("celcius", Unit::Celcius),
-    ("°c", Unit::Celcius),
+    ("fahrenheit", Unit::Fahrenheit),
+    ("f", Unit::Fahrenheit),
+    ("°", Unit::Fahrenheit),
+    ("°f", Unit::Fahrenheit),
+    ("degrees", Unit::Fahrenheit),
+    ("celsius", Unit::Celsius),
+    ("°c", Unit::Celsius),
     ("\"", Unit::Inch),
     //distance
     ("inch", Unit::Inch),

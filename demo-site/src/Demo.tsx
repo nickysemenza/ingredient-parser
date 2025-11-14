@@ -216,7 +216,8 @@ const Scraper: React.FC = () => {
 
   useEffect(() => {
     doScrape();
-  }, [w, url, doScrape]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [w, url]);
 
   const ingredientNames =
     scrapedRecipe && w
@@ -265,7 +266,10 @@ const Scraper: React.FC = () => {
                       min="0.1"
                       step="0.1"
                       value={scaleFactor}
-                      onChange={(e) => setScaleFactor(parseFloat(e.target.value) || 1)}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setScaleFactor(!isNaN(val) && val > 0 ? val : 1);
+                      }}
                       className="w-16 px-2 py-1 text-sm text-center border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:outline-none"
                     />
                   </div>
@@ -390,19 +394,17 @@ export const formatRichText = (w: wasm, text: RichItem[]) => {
         </span>
       );
     } else if (t.kind === "Measure") {
-      let val = t.value.pop();
+      const val = t.value[t.value.length - 1];
       if (!val) {
         return null;
       }
-      if (val.unit === "whole") {
-        val.unit = "";
-      }
+      const displayVal = val.unit === "whole" ? { ...val, unit: "" } : val;
       return (
         <span
           className="inline px-2 py-1 bg-green-100 text-green-800 rounded-md font-semibold mx-1 border border-green-200"
           key={x}
         >
-          {w.format_amount(val)}
+          {w.format_amount(displayVal)}
         </span>
       );
     } else {

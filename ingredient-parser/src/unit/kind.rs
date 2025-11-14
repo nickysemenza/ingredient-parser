@@ -22,7 +22,7 @@ impl MeasureKind {
             MeasureKind::Calories => Unit::KCal,
             MeasureKind::Other(s) => Unit::Other(s.clone()),
             MeasureKind::Time => Unit::Second,
-            MeasureKind::Temperature => Unit::Farhenheit,
+            MeasureKind::Temperature => Unit::Fahrenheit,
             MeasureKind::Length => Unit::Inch,
         }
     }
