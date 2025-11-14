@@ -25,12 +25,13 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
                 .collect(),
 
             ld_schema::InstructionWrapper::C(c) => {
-                let selector = Selector::parse("p").unwrap();
-
-                Html::parse_fragment(c.as_ref())
-                    .select(&selector)
-                    .map(|i| i.text().collect::<Vec<_>>().join(""))
-                    .collect::<Vec<_>>()
+                match Selector::parse("p") {
+                    Ok(selector) => Html::parse_fragment(c.as_ref())
+                        .select(&selector)
+                        .map(|i| i.text().collect::<Vec<_>>().join(""))
+                        .collect::<Vec<_>>(),
+                    Err(_) => vec![c.to_string()], // Fallback to raw HTML if selector fails
+                }
             }
             ld_schema::InstructionWrapper::D(d) => {
                 d.first()
