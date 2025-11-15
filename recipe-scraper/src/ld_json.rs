@@ -17,9 +17,9 @@ fn normalize_root_recipe(ld_schema: ld_schema::RootRecipe, url: &str) -> Scraped
                         .item_list_element
                         .iter()
                         .filter_map(|i| i.text.clone())
-                        .collect(),
+                        .collect::<Vec<_>>(),
                     ld_schema::BOrWrapper::Wrapper(w) => {
-                        w.text.into_iter().collect()
+                        w.text.into_iter().collect::<Vec<_>>()
                     }
                 })
                 .collect(),
