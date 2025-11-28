@@ -9,3 +9,4 @@ recipe_scraper_fetcher = {path= "../recipe_scraper_fetcher"}
 tokio = { version = "1.47.1", features = ["full"] }
 serde_json = "1.0"
 ingredient= {path = "../ingredient-parser"}
+atty = "0.2"

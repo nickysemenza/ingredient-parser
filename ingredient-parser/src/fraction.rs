@@ -52,37 +52,49 @@ fn n_fraction(input: &str) -> Res<&str, f64> {
 }
 
 /// Parses mixed number formats like `1 ⅛` or `1 1/8` into `1.125`
-/// 
+///
 /// This parser handles both unicode vulgar fractions and standard slash-notation fractions,
 /// either alone or with a whole number component.
 pub fn fraction_number(input: &str) -> Res<&str, f64> {
+    use crate::trace::{trace_enter, trace_exit_failure, trace_exit_success};
+    trace_enter("fraction_number", input);
+
     // Define parser for unicode vulgar fractions with optional whole number
     let vulgar_fraction_parser = (
         opt((double, space0)),  // Optional whole number with optional whitespace
         v_fraction,             // Unicode vulgar fraction like ½, ¼, etc.
     );
-    
+
     // Define parser for slash-notation fractions with optional whole number
     let slash_fraction_parser = (
         opt((double, space1)),  // Optional whole number with required whitespace
         n_fraction,             // Standard fraction notation like 1/4, 3/8, etc.
     );
-    
+
     // Try both parsers
-    context(
+    let result = context(
         "fraction_number",
         alt((vulgar_fraction_parser, slash_fraction_parser)),
     )
     .parse(input)
     .map(|(next_input, res)| {
         let (whole_number, fractional_part) = res;
-        
+
         // Extract whole number or default to 0.0
         let whole_value = whole_number.map_or(0.0, |(num, _)| num);
-        
+
         // Sum whole and fractional parts
         (next_input, whole_value + fractional_part)
-    })
+    });
+
+    match &result {
+        Ok((remaining, value)) => {
+            let consumed = input.len() - remaining.len();
+            trace_exit_success(consumed, &format!("{value}"));
+        }
+        Err(_) => trace_exit_failure("no fraction"),
+    }
+    result
 }
 
 #[cfg(test)]
