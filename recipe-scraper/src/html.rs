@@ -35,12 +35,12 @@ pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeErr
         .next()
         .map(|i| i.value().attr("content").unwrap().to_string());
 
-    Ok(dbg!(ScrapedRecipe {
+    Ok(ScrapedRecipe {
         ingredients,
         instructions,
         name: title,
         url: url.to_string(),
         image,
-    }))
+    })
     // Err(ScrapeError::Parse("foo".to_string()))
 }

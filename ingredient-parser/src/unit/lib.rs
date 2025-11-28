@@ -36,7 +36,7 @@ pub enum Unit {
     Minute,
     Second,
     // temperature
-    Farhenheit,
+    Fahrenheit,
     Celcius,
     //distance
     Inch,
@@ -106,11 +106,11 @@ static UNIT_MAPPINGS: &[(&str, Unit)] = &[
     ("hr", Unit::Hour),
     ("day", Unit::Day),
     // temperature
-    ("fahrenheit", Unit::Farhenheit),
-    ("f", Unit::Farhenheit),
-    ("°", Unit::Farhenheit),
-    ("°f", Unit::Farhenheit),
-    ("degrees", Unit::Farhenheit),
+    ("fahrenheit", Unit::Fahrenheit),
+    ("f", Unit::Fahrenheit),
+    ("°", Unit::Fahrenheit),
+    ("°f", Unit::Fahrenheit),
+    ("degrees", Unit::Fahrenheit),
     ("celcius", Unit::Celcius),
     ("°c", Unit::Celcius),
     ("\"", Unit::Inch),
@@ -142,10 +142,6 @@ impl fmt::Display for Unit {
 pub fn singular(s: &str) -> String {
     let s2 = s.to_lowercase();
     s2.strip_suffix('s').unwrap_or(&s2).to_string()
-}
-
-pub fn all_unit_keys() -> Vec<String> {
-    UNIT_MAPPINGS.iter().map(|(k, _)| k.to_string()).collect()
 }
 
 #[cfg(test)]

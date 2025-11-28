@@ -67,14 +67,11 @@ use nom::{
     multi::{many1, separated_list1},
     number::complete::double,
     sequence::{delimited, tuple},
-    IResult, Parser,
+    Parser,
 };
-use nom_language::error::VerboseError;
 use tracing::info;
 use unit::Measure;
-use parser::{text, text_number, unitamt};
-
-extern crate nom;
+use parser::{text, text_number, unitamt, Res};
 
 #[cfg(feature = "serde-derive")]
 #[macro_use]
@@ -88,7 +85,6 @@ pub mod rich_text;
 pub mod trace;
 pub mod unit;
 pub mod util;
-pub type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
 /// Parse an ingredient string using default settings
 ///

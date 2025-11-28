@@ -46,16 +46,6 @@ pub struct RecipeInstructionB {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub struct HasPart {
-    #[serde(rename = "@type")]
-    pub type_field: String,
-    pub is_accessible_for_free: String,
-    pub css_selector: String,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Image {
     pub url: String,
     // todo: dims are sometimes string, sometimes int
@@ -121,59 +111,6 @@ pub enum Graph {
     WebSite(Value),
     Organization(Value),
     Person(Value),
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub struct Graph2 {
-    #[serde(rename = "@type")]
-    pub type_field: String,
-    #[serde(rename = "@id")]
-    pub id: String,
-    pub is_part_of: Option<IsPartOf>,
-    pub author: Option<Author>,
-    pub headline: Option<String>,
-    pub date_published: Option<String>,
-    pub date_modified: Option<String>,
-    pub word_count: Option<i64>,
-    pub comment_count: Option<i64>,
-    // pub publisher: Option<Publisher>,
-    pub image: serde_json::Value,
-    pub thumbnail_url: Option<String>,
-    pub article_section: Option<Vec<String>>,
-    pub in_language: Option<String>,
-    pub url: Option<String>,
-    pub name: Option<String>,
-    pub primary_image_of_page: Option<PrimaryImageOfPage>,
-    pub description: Option<String>,
-    pub breadcrumb: Option<Breadcrumb>,
-    pub content_url: Option<String>,
-    pub width: Option<i64>,
-    pub height: Option<i64>,
-    pub caption: Option<String>,
-    pub item_list_element: Option<Vec<ItemListElement>>,
-    #[serde(default)]
-    pub same_as: Vec<String>,
-    pub logo: Option<Logo>,
-    #[serde(rename = "@context")]
-    pub context: Option<String>,
-    #[serde(default)]
-    pub recipe_yield: Vec<String>,
-    pub prep_time: Option<String>,
-    pub cook_time: Option<String>,
-    pub total_time: Option<String>,
-    #[serde(default)]
-    pub recipe_ingredient: Vec<String>,
-    pub recipe_instructions: Option<Vec<RecipeInstructionC>>,
-    pub aggregate_rating: Option<AggregateRating>,
-    #[serde(default)]
-    pub recipe_category: Vec<String>,
-    #[serde(default)]
-    pub recipe_cuisine: Vec<String>,
-    pub keywords: Option<String>,
-    pub nutrition: Option<Nutrition>,
-    pub main_entity_of_page: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
