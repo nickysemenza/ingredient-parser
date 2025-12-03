@@ -4,8 +4,8 @@ macro_rules! test_parse_ingredient {
         #[test]
         fn $test_name() {
             assert_eq!(
-                (IngredientParser::new(false)).parse_ingredient($input),
-                Ok(("", $expected_output))
+                (IngredientParser::new(false)).from_str($input),
+                $expected_output
             );
         }
     };
@@ -15,8 +15,8 @@ macro_rules! test_parsing_equals {
         #[test]
         fn $test_name() {
             assert_eq!(
-                (IngredientParser::new(false)).parse_ingredient($left),
-                (IngredientParser::new(false)).parse_ingredient($right),
+                (IngredientParser::new(false)).from_str($left),
+                (IngredientParser::new(false)).from_str($right),
             );
         }
     };
@@ -189,14 +189,14 @@ fn test_no_ingredient_amounts() {
 #[test]
 fn test_ingredient_parse_multi() {
     assert_eq!(
-        (IngredientParser::new(false)).parse_ingredient("1 ½ cups/192 grams all-purpose flour"),
-        (IngredientParser::new(false)).parse_ingredient("1 1/2 cups / 192 grams all-purpose flour")
+        (IngredientParser::new(false)).from_str("1 ½ cups/192 grams all-purpose flour"),
+        (IngredientParser::new(false)).from_str("1 1/2 cups / 192 grams all-purpose flour")
     );
 }
 #[test]
 fn test_weird_chars() {
     vec![
-        "confectioners’ sugar",
+        "confectioners' sugar",
         "confectioners' sugar",
         "gruyère",
         "Jalapeños",
@@ -205,54 +205,45 @@ fn test_weird_chars() {
     .for_each(|n| {
         assert_eq!(
             (IngredientParser::new(false))
-                .parse_ingredient(&format!("2 cups/240 grams {n}, sifted")),
-            Ok((
-                "",
-                Ingredient {
-                    name: n.to_string(),
-                    amounts: vec![
-                        Measure::parse_new("cups", 2.0),
-                        Measure::parse_new("grams", 240.0)
-                    ],
-                    modifier: Some("sifted".to_string())
-                }
-            ))
+                .from_str(&format!("2 cups/240 grams {n}, sifted")),
+            Ingredient {
+                name: n.to_string(),
+                amounts: vec![
+                    Measure::parse_new("cups", 2.0),
+                    Measure::parse_new("grams", 240.0)
+                ],
+                modifier: Some("sifted".to_string())
+            }
         );
     });
 }
 #[test]
 fn test_parse_ing_upepr_range() {
     assert_eq!(
-        (IngredientParser::new(false)).parse_ingredient("78g to 104g cornmeal"),
-        Ok((
-            "",
-            Ingredient {
-                name: "cornmeal".to_string(),
-                amounts: vec![Measure::parse_new_with_upper("g", 78.0, 104.0),],
-                modifier: None
-            }
-        ))
+        (IngredientParser::new(false)).from_str("78g to 104g cornmeal"),
+        Ingredient {
+            name: "cornmeal".to_string(),
+            amounts: vec![Measure::parse_new_with_upper("g", 78.0, 104.0),],
+            modifier: None
+        }
     );
     assert_eq!(
-        (IngredientParser::new(false)).parse_ingredient("78g to 104g cornmeal"),
-        (IngredientParser::new(false)).parse_ingredient("78 to 104g cornmeal"),
+        (IngredientParser::new(false)).from_str("78g to 104g cornmeal"),
+        (IngredientParser::new(false)).from_str("78 to 104g cornmeal"),
     )
 }
 #[test]
 fn test_unit_period_mixed_case() {
     assert_eq!(
-        (IngredientParser::new(false)).parse_ingredient("1 Tbsp. flour"),
-        (IngredientParser::new(false)).parse_ingredient("1 tbsp flour"),
+        (IngredientParser::new(false)).from_str("1 Tbsp. flour"),
+        (IngredientParser::new(false)).from_str("1 tbsp flour"),
     );
     assert_eq!(
-        (IngredientParser::new(false)).parse_ingredient("12 cloves of garlic, peeled"),
-        Ok((
-            "",
-            Ingredient {
-                name: "garlic".to_string(),
-                amounts: vec![Measure::parse_new("cloves", 12.0),],
-                modifier: Some("peeled".to_string())
-            }
-        ))
+        (IngredientParser::new(false)).from_str("12 cloves of garlic, peeled"),
+        Ingredient {
+            name: "garlic".to_string(),
+            amounts: vec![Measure::parse_new("cloves", 12.0),],
+            modifier: Some("peeled".to_string())
+        }
     );
 }

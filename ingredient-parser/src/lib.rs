@@ -36,20 +36,6 @@
 //! let ingredient = parser.from_str("1¼ cups / 155.5g flour");
 //! assert_eq!(ingredient.amounts.len(), 2); // Multiple units parsed
 //! ```
-//!
-//! ## Error Handling
-//!
-//! Use [`IngredientParser::try_from_str`] for explicit error handling:
-//!
-//! ```
-//! use ingredient::IngredientParser;
-//!
-//! let parser = IngredientParser::new(false);
-//! match parser.try_from_str("2 cups flour") {
-//!     Ok(ingredient) => println!("Parsed: {}", ingredient.name),
-//!     Err(e) => eprintln!("Parse error: {}", e),
-//! }
-//! ```
 
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -240,42 +226,6 @@ impl IngredientParser {
         }
     }
 
-    /// Parse an ingredient string with explicit error handling
-    /// 
-    /// This method returns a `Result` that allows you to handle parsing errors
-    /// explicitly, unlike `from_str` which provides fallback behavior.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `input` - The ingredient string to parse
-    /// 
-    /// # Returns
-    /// 
-    /// * `Ok(Ingredient)` - Successfully parsed ingredient
-    /// * `Err(IngredientError)` - Detailed error information about parsing failure
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use ingredient::IngredientParser;
-    /// 
-    /// let parser = IngredientParser::new(false);
-    /// 
-    /// match parser.try_from_str("2 cups flour") {
-    ///     Ok(ingredient) => println!("Parsed: {}", ingredient.name),
-    ///     Err(e) => eprintln!("Parse error: {}", e),
-    /// }
-    /// ```
-    pub fn try_from_str(self, input: &str) -> IngredientResult<Ingredient> {
-        match self.parse_ingredient(input) {
-            Ok((_, ingredient)) => Ok(ingredient),
-            Err(e) => Err(IngredientError::ParseError {
-                input: input.to_string(),
-                context: format!("Failed to parse ingredient: {e:?}"),
-            }),
-        }
-    }
-
     /// Parse an ingredient string with debug tracing enabled
     ///
     /// This method returns both the parsed result and a trace of which
@@ -347,7 +297,7 @@ impl IngredientParser {
     ///
     /// Returns a Result with a Vec of Measures, or an error if parsing fails
     #[tracing::instrument(name = "parse_amount")]
-    pub fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
+    pub(crate) fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
         match self.clone().parse_measurement_list(input) {
             Ok((_, measurements)) => Ok(measurements),
             Err(e) => Err(IngredientError::AmountParseError {
@@ -366,11 +316,6 @@ impl IngredientParser {
             Ok(measures) => measures,
             Err(e) => panic!("Measurement parsing failed for '{input}': {e}"),
         }
-    }
-
-    /// Parse measurements with safer error handling that returns empty vec on failure
-    pub fn try_parse_amount(&self, input: &str) -> Vec<Measure> {
-        self.parse_amount(input).unwrap_or_else(|_| vec![])
     }
 
     /// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`.
@@ -416,7 +361,7 @@ impl IngredientParser {
     /// - "1 cup (240ml) milk, room temperature"
     #[tracing::instrument(name = "parse_ingredient")]
     #[allow(clippy::type_complexity)]
-    pub fn parse_ingredient(self, input: &str) -> Res<&str, Ingredient> {
+    pub(crate) fn parse_ingredient(self, input: &str) -> Res<&str, Ingredient> {
         use trace::{trace_enter, trace_exit_failure, trace_exit_success};
 
         trace_enter("parse_ingredient", input);

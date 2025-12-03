@@ -12,10 +12,10 @@ use nom::{
 };
 use nom_language::error::VerboseError;
 
-pub type Res<T, U> = IResult<T, U, VerboseError<T>>;
+pub(crate) type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
 /// Parse text that can contain various characters common in ingredient names
-pub fn text(input: &str) -> Res<&str, String> {
+pub(crate) fn text(input: &str) -> Res<&str, String> {
     satisfy(|c| match c {
         '-' | '—' | '\'' | '\u{2019}' | '.' | '\\' => true,
         c => c.is_alphanumeric() || c.is_whitespace(),
@@ -25,14 +25,14 @@ pub fn text(input: &str) -> Res<&str, String> {
 }
 
 /// Parse unit/amount text including degrees and quotes
-pub fn unitamt(input: &str) -> Res<&str, String> {
+pub(crate) fn unitamt(input: &str) -> Res<&str, String> {
     many0(alt((alpha1, tag("°"), tag("\""))))
         .parse(input)
         .map(|(next_input, res)| (next_input, res.join("")))
 }
 
 /// Parse text numbers like "one" or "a"
-pub fn text_number(input: &str) -> Res<&str, f64> {
+pub(crate) fn text_number(input: &str) -> Res<&str, f64> {
     context("text_number", alt((tag("one"), tag("a "))))
         .parse(input)
         .map(|(next_input, _)| (next_input, 1.0))

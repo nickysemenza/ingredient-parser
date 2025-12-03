@@ -10,7 +10,7 @@ pub fn is_valid(units: HashSet<String>, s: &str) -> bool {
     is_addon_unit(units, s)
 }
 
-pub fn is_addon_unit(units: HashSet<String>, s: &str) -> bool {
+pub(crate) fn is_addon_unit(units: HashSet<String>, s: &str) -> bool {
     units.contains(&s.to_lowercase())
 }
 
@@ -139,7 +139,7 @@ impl fmt::Display for Unit {
     }
 }
 
-pub fn singular(s: &str) -> String {
+pub(crate) fn singular(s: &str) -> String {
     let s2 = s.to_lowercase();
     s2.strip_suffix('s').unwrap_or(&s2).to_string()
 }

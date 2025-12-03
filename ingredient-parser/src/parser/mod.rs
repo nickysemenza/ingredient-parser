@@ -4,4 +4,4 @@
 
 pub mod helpers;
 
-pub use helpers::{text, text_number, unitamt, Res};
+pub(crate) use helpers::{text, text_number, unitamt, Res};

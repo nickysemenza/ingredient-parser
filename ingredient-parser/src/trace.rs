@@ -65,7 +65,7 @@ impl TraceNode {
     }
 
     /// Get duration in microseconds if timing is available
-    pub fn duration_micros(&self) -> Option<u64> {
+    pub(crate) fn duration_micros(&self) -> Option<u64> {
         match (self.start_time, self.end_time) {
             (Some(start), Some(end)) => Some(end.duration_since(start).as_micros() as u64),
             _ => None,
@@ -96,16 +96,6 @@ pub enum TraceOutcome {
     },
     /// Parse still in progress (incomplete)
     Incomplete,
-}
-
-impl TraceOutcome {
-    pub fn is_success(&self) -> bool {
-        matches!(self, TraceOutcome::Success { .. })
-    }
-
-    pub fn is_failure(&self) -> bool {
-        matches!(self, TraceOutcome::Failure { .. })
-    }
 }
 
 /// Full parse trace for an ingredient
@@ -285,7 +275,7 @@ thread_local! {
 
 /// Collects trace information during parsing
 #[derive(Debug)]
-pub struct TraceCollector {
+pub(crate) struct TraceCollector {
     /// Stack of nodes being built (parent -> child relationship)
     stack: Vec<TraceNode>,
     /// Baseline instant for converting to unix time
@@ -296,7 +286,7 @@ pub struct TraceCollector {
 
 impl TraceCollector {
     /// Create a new trace collector
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
         let baseline_instant = Instant::now();
         let baseline_unix_micros = SystemTime::now()
@@ -311,13 +301,13 @@ impl TraceCollector {
     }
 
     /// Enter a new parser context
-    pub fn enter(&mut self, name: &str, input: &str) {
+    pub(crate) fn enter(&mut self, name: &str, input: &str) {
         let node = TraceNode::new(name, input);
         self.stack.push(node);
     }
 
     /// Exit the current parser context with success
-    pub fn exit_success(&mut self, consumed: usize, output_preview: &str) {
+    pub(crate) fn exit_success(&mut self, consumed: usize, output_preview: &str) {
         if let Some(mut node) = self.stack.pop() {
             node.success(consumed, output_preview);
             self.attach_to_parent(node);
@@ -325,7 +315,7 @@ impl TraceCollector {
     }
 
     /// Exit the current parser context with failure
-    pub fn exit_failure(&mut self, error: &str) {
+    pub(crate) fn exit_failure(&mut self, error: &str) {
         if let Some(mut node) = self.stack.pop() {
             node.failure(error);
             self.attach_to_parent(node);
@@ -343,7 +333,7 @@ impl TraceCollector {
     }
 
     /// Finish tracing and return the root trace
-    pub fn finish(mut self, input: &str) -> ParseTrace {
+    pub(crate) fn finish(mut self, input: &str) -> ParseTrace {
         let root = if let Some(node) = self.stack.pop() {
             node
         } else {
@@ -367,11 +357,6 @@ impl Default for TraceCollector {
 
 // Public API for interacting with thread-local collector
 
-/// Check if tracing is currently enabled
-pub fn is_tracing_enabled() -> bool {
-    TRACE_COLLECTOR.with(|tc| tc.borrow().is_some())
-}
-
 /// Enable tracing for the current thread
 pub fn enable_tracing() {
     TRACE_COLLECTOR.with(|tc| {
@@ -390,7 +375,7 @@ pub fn disable_tracing(input: &str) -> ParseTrace {
 }
 
 /// Enter a parser context (if tracing is enabled)
-pub fn trace_enter(name: &str, input: &str) {
+pub(crate) fn trace_enter(name: &str, input: &str) {
     TRACE_COLLECTOR.with(|tc| {
         if let Some(ref mut collector) = *tc.borrow_mut() {
             collector.enter(name, input);
@@ -399,7 +384,7 @@ pub fn trace_enter(name: &str, input: &str) {
 }
 
 /// Exit parser context with success (if tracing is enabled)
-pub fn trace_exit_success(consumed: usize, output_preview: &str) {
+pub(crate) fn trace_exit_success(consumed: usize, output_preview: &str) {
     TRACE_COLLECTOR.with(|tc| {
         if let Some(ref mut collector) = *tc.borrow_mut() {
             collector.exit_success(consumed, output_preview);
@@ -408,7 +393,7 @@ pub fn trace_exit_success(consumed: usize, output_preview: &str) {
 }
 
 /// Exit parser context with failure (if tracing is enabled)
-pub fn trace_exit_failure(error: &str) {
+pub(crate) fn trace_exit_failure(error: &str) {
     TRACE_COLLECTOR.with(|tc| {
         if let Some(ref mut collector) = *tc.borrow_mut() {
             collector.exit_failure(error);
@@ -500,14 +485,14 @@ mod tests {
     fn test_trace_node_success() {
         let mut node = TraceNode::new("test", "input");
         node.success(5, "value: 42");
-        assert!(node.outcome.is_success());
+        assert!(matches!(node.outcome, TraceOutcome::Success { .. }));
     }
 
     #[test]
     fn test_trace_node_failure() {
         let mut node = TraceNode::new("test", "input");
         node.failure("expected number");
-        assert!(node.outcome.is_failure());
+        assert!(matches!(node.outcome, TraceOutcome::Failure { .. }));
     }
 
     #[test]
@@ -549,16 +534,12 @@ mod tests {
 
     #[test]
     fn test_thread_local_tracing() {
-        assert!(!is_tracing_enabled());
-
         enable_tracing();
-        assert!(is_tracing_enabled());
 
         trace_enter("test", "input");
         trace_exit_success(5, "done");
 
         let trace = disable_tracing("input");
-        assert!(!is_tracing_enabled());
         assert_eq!(trace.root.name, "test");
     }
 }

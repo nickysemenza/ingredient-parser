@@ -88,9 +88,9 @@ proptest! {
         // String representation should not panic
         let _display = format!("{ingredient}");
         
-        // Try from_str should not panic
+        // from_str should not panic
         let parser = IngredientParser::new(false);
-        let _result = parser.try_from_str(&ingredient_str);
+        let _result = parser.from_str(&ingredient_str);
     }
 
     /// Test that parsing is consistent

@@ -11,3 +11,4 @@ cc 2511254c0e04d570f738dc4d2000a67360abbfcdcab89739a30fa000f6eb1da8 # shrinks to
 cc 29b33d036b0df50325de9f16e5db7a8bac2e3e54b5b4bcbf98d7450376d72a97 # shrinks to whole = 0, frac = "1/2", unit = "cup", name = " "
 cc e9fa6f9f77ce800972574e26da4e517703870f1117973b390ed7753f436b9ab4 # shrinks to amount = "0\\\00", unit = "cup", name = "flour", modifier = None
 cc eb728444ea198a79c16dd3bf0becc6fd2b5bbf123b6d0e17782d9aa0ae83c3d9 # shrinks to whole = 0, frac = "1/2", unit = "cup", name = "of"
+cc aaece4a9db5cdaf48ca721024bafe56878d81771c7ef18485b0c4fcd8f8159b2 # shrinks to whole = 0, frac = "1/2", unit = "cup", name = "a "
