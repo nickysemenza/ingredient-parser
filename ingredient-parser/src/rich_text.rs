@@ -1,4 +1,4 @@
-use crate::{unit::Measure, IngredientParser, Res};
+use crate::{unit::Measure, IngredientParser, Res, parser::MeasurementParser};
 use itertools::Itertools;
 use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0, Parser};
 
@@ -24,7 +24,7 @@ fn condense_text(r: Rich) -> Rich {
 }
 // find any text chunks which have an ingredient name as a substring in them.
 // if so, split on the ingredient name, giving it it's own `Chunk::Ing`.
-fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
+fn extract_ingredients(r: Rich, ingredient_names: &[String]) -> Rich {
     r.into_iter()
         .flat_map(|s| match s {
             Chunk::Text(mut text) => {
@@ -50,8 +50,9 @@ fn extract_ingredients(r: Rich, ingredient_names: Vec<String>) -> Rich {
         .collect()
 }
 
-fn amounts_chunk(ip: IngredientParser, input: &str) -> Res<&str, Chunk> {
-    context("amounts_chunk", |a| ip.clone().parse_measurement_list(a))
+fn amounts_chunk<'a>(ip: &IngredientParser, input: &'a str) -> Res<&'a str, Chunk> {
+    let mp = MeasurementParser::new(&ip.units, ip.is_rich_text);
+    context("amounts_chunk", |a| mp.parse_measurement_list(a))
         .parse(input)
         .map(|(next_input, res)| (next_input, Chunk::Measure(res)))
 }
@@ -78,7 +79,7 @@ fn text2(input: &str) -> Res<&str, String> {
 /// }).parse("hello 1 cups foo bar").unwrap(),
 /// vec![
 ///     Chunk::Text("hello ".to_string()),
-///     Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
+///     Chunk::Measure(vec![Measure::new("cups", 1.0)]),
 ///     Chunk::Text(" foo bar".to_string())
 /// ]
 /// );
@@ -90,16 +91,16 @@ pub struct RichParser {
 }
 impl RichParser {
     #[tracing::instrument]
-    pub fn parse(self, input: &str) -> Result<Rich, String> {
+    pub fn parse(&self, input: &str) -> Result<Rich, String> {
         match context(
             "amts",
-            many0(alt((|a| amounts_chunk(self.ip.clone(), a), text_chunk))),
+            many0(alt((|a| amounts_chunk(&self.ip, a), text_chunk))),
         )
         .parse(input)
         {
             Ok((_, res)) => Ok(extract_ingredients(
                 condense_text(res),
-                self.ingredient_names.clone(),
+                &self.ingredient_names,
             )),
             Err(e) => Err(format!("unable to parse '{input}': {e}")),
         }

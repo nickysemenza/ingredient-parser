@@ -401,6 +401,13 @@ pub fn trace_exit_failure(error: &str) {
     });
 }
 
+/// Check if tracing is currently enabled for this thread
+///
+/// Use this to avoid expensive formatting operations when tracing is disabled.
+pub fn is_tracing_enabled() -> bool {
+    TRACE_COLLECTOR.with(|tc| tc.borrow().is_some())
+}
+
 // Helper functions for formatting
 
 fn truncate_input(input: &str, max_len: usize) -> String {
@@ -436,18 +443,18 @@ fn format_node(node: &TraceNode, output: &mut String, prefix: &str, is_last: boo
         TraceOutcome::Incomplete => "...".to_string(),
     };
 
-    // Format the node name
-    let name_display = if colored {
-        format!("\x1b[1m{}\x1b[0m", node.name)
-    } else {
-        node.name.clone()
-    };
-
     // Write this node
-    output.push_str(&format!(
-        "{}{}{} \"{}\" {}\n",
-        prefix, connector, name_display, node.input, outcome_symbol
-    ));
+    if colored {
+        output.push_str(&format!(
+            "{}{}\x1b[1m{}\x1b[0m \"{}\" {}\n",
+            prefix, connector, node.name, node.input, outcome_symbol
+        ));
+    } else {
+        output.push_str(&format!(
+            "{}{}{} \"{}\" {}\n",
+            prefix, connector, node.name, node.input, outcome_symbol
+        ));
+    }
 
     // Format children
     let child_prefix = if is_last {
@@ -467,5 +474,48 @@ impl fmt::Display for ParseTrace {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.format_tree(false))
     }
+}
+
+/// Macro to wrap a parser with tracing, reducing boilerplate.
+///
+/// # Arguments
+/// * `$name` - The name of the parser for trace output
+/// * `$input` - The input string being parsed
+/// * `$parser` - The parser expression to execute
+/// * `$format` - A closure to format successful output for the trace
+/// * `$error` - The error message for failures
+///
+/// # Example
+/// ```ignore
+/// fn parse_number(&self, input: &str) -> Res<&str, f64> {
+///     traced_parser!(
+///         "parse_number",
+///         input,
+///         context("number", double).parse(input),
+///         |v: &f64| format!("{v}"),
+///         "no number"
+///     )
+/// }
+/// ```
+#[macro_export]
+macro_rules! traced_parser {
+    ($name:expr, $input:expr, $parser:expr, $format:expr, $error:expr) => {{
+        use $crate::trace::{is_tracing_enabled, trace_enter, trace_exit_failure, trace_exit_success};
+        let tracing = is_tracing_enabled();
+        if tracing {
+            trace_enter($name, $input);
+        }
+        let result = $parser;
+        if tracing {
+            match &result {
+                Ok((remaining, value)) => {
+                    let consumed = $input.len() - remaining.len();
+                    trace_exit_success(consumed, &$format(value));
+                }
+                Err(_) => trace_exit_failure($error),
+            }
+        }
+        result
+    }};
 }
 

@@ -61,7 +61,7 @@ pub struct Measure {
     upper_value: Option<f64>,
 }
 
-// multiplication factors
+// Multiplication factors for unit conversions
 const TSP_TO_TBSP: f64 = 3.0;
 const TSP_TO_FL_OZ: f64 = 2.0;
 const G_TO_K: f64 = 1000.0;
@@ -73,6 +73,41 @@ const CENTS_TO_DOLLAR: f64 = 100.0;
 const SEC_TO_MIN: f64 = 60.0;
 const SEC_TO_HOUR: f64 = 3600.0;
 const SEC_TO_DAY: f64 = 86400.0;
+
+/// Normalization rule: convert `from` unit to `to_base` unit by multiplying by `factor`
+struct NormalizationRule {
+    from: Unit,
+    to_base: Unit,
+    factor: f64,
+}
+
+/// Rules for normalizing units to their base units
+static NORMALIZATION_RULES: &[NormalizationRule] = &[
+    // Weight: normalize to grams
+    NormalizationRule { from: Unit::Kilogram, to_base: Unit::Gram, factor: G_TO_K },
+    NormalizationRule { from: Unit::Ounce, to_base: Unit::Gram, factor: GRAM_TO_OZ },
+    NormalizationRule { from: Unit::Pound, to_base: Unit::Gram, factor: GRAM_TO_OZ * OZ_TO_LB },
+
+    // Volume: normalize to teaspoons (or milliliters)
+    NormalizationRule { from: Unit::Liter, to_base: Unit::Milliliter, factor: G_TO_K },
+    NormalizationRule { from: Unit::Tablespoon, to_base: Unit::Teaspoon, factor: TSP_TO_TBSP },
+    NormalizationRule { from: Unit::Cup, to_base: Unit::Teaspoon, factor: TSP_TO_CUP },
+    NormalizationRule { from: Unit::Quart, to_base: Unit::Teaspoon, factor: CUP_TO_QUART * TSP_TO_CUP },
+    NormalizationRule { from: Unit::FluidOunce, to_base: Unit::Teaspoon, factor: TSP_TO_FL_OZ },
+
+    // Money: normalize to cents
+    NormalizationRule { from: Unit::Dollar, to_base: Unit::Cent, factor: CENTS_TO_DOLLAR },
+
+    // Time: normalize to seconds
+    NormalizationRule { from: Unit::Minute, to_base: Unit::Second, factor: SEC_TO_MIN },
+    NormalizationRule { from: Unit::Hour, to_base: Unit::Second, factor: SEC_TO_HOUR },
+    NormalizationRule { from: Unit::Day, to_base: Unit::Second, factor: SEC_TO_DAY },
+];
+
+/// Find the normalization rule for a given unit
+fn find_normalization_rule(unit: &Unit) -> Option<&'static NormalizationRule> {
+    NORMALIZATION_RULES.iter().find(|rule| &rule.from == unit)
+}
 
 impl Measure {
     pub(crate) fn new_with_upper(unit: Unit, value: f64, upper_value: Option<f64>) -> Measure {
@@ -88,47 +123,27 @@ impl Measure {
     pub fn values(&self) -> (f64, Option<f64>, String) {
         (self.value, self.upper_value, self.unit_as_string())
     }
+    /// Normalize this measure to its base unit
+    ///
+    /// Converts units like cups to teaspoons, kg to grams, etc.
+    /// Uses the NORMALIZATION_RULES table for conversion factors.
     pub(crate) fn normalize(&self) -> Measure {
-        let (unit, factor) = match &self.unit {
-            Unit::Teaspoon
-            | Unit::Milliliter
-            | Unit::Gram
-            | Unit::Cent
-            | Unit::KCal
-            | Unit::Fahrenheit
-            | Unit::Celcius // todo: convert to farhenheit?
-            | Unit::Inch
-            | Unit::Whole
-            | Unit::Second => return self.clone(),
-            Unit::Other(x) => {
-                let x2 = x.clone();
-                let u2 = singular(&x2);
-                return Measure::new_with_upper(Unit::Other(u2), self.value, self.upper_value);
-            }
-
-            Unit::Kilogram => (Unit::Gram, G_TO_K),
-
-            Unit::Ounce => (Unit::Gram, GRAM_TO_OZ),
-            Unit::Pound => (Unit::Gram, GRAM_TO_OZ * OZ_TO_LB),
-
-            Unit::Liter => (Unit::Milliliter, G_TO_K),
-
-            Unit::Tablespoon => (Unit::Teaspoon, TSP_TO_TBSP),
-            Unit::Cup => (Unit::Teaspoon, TSP_TO_CUP),
-            Unit::Quart => (Unit::Teaspoon, CUP_TO_QUART * TSP_TO_CUP),
-            Unit::FluidOunce => (Unit::Teaspoon, TSP_TO_FL_OZ),
-
-            Unit::Dollar => (Unit::Cent, CENTS_TO_DOLLAR),
-            Unit::Day => (Unit::Second, SEC_TO_DAY),
-            Unit::Hour => (Unit::Second, SEC_TO_HOUR),
-            Unit::Minute => (Unit::Second, SEC_TO_MIN),
-        };
-
-        Measure {
-            unit,
-            value: self.value * factor,
-            upper_value: self.upper_value.map(|x| x * factor),
+        // Handle custom units - normalize the unit name (singularize)
+        if let Unit::Other(x) = &self.unit {
+            return Measure::new_with_upper(Unit::Other(singular(x)), self.value, self.upper_value);
         }
+
+        // Look up conversion rule in the table
+        if let Some(rule) = find_normalization_rule(&self.unit) {
+            return Measure {
+                unit: rule.to_base.clone(),
+                value: self.value * rule.factor,
+                upper_value: self.upper_value.map(|x| x * rule.factor),
+            };
+        }
+
+        // Unit is already a base unit, return as-is
+        self.clone()
     }
     pub fn add(&self, b: Measure) -> IngredientResult<Measure> {
         info!("adding {:?} to {:?}", self, b);
@@ -161,51 +176,104 @@ impl Measure {
             },
         })
     }
-    pub fn parse_new(unit: &str, value: f64) -> Measure {
+    /// Create a new measure from a unit string and value
+    ///
+    /// # Arguments
+    /// * `unit` - The unit string (e.g., "cups", "grams")
+    /// * `value` - The numeric value
+    ///
+    /// # Example
+    /// ```
+    /// use ingredient::unit::Measure;
+    /// let m = Measure::new("cups", 2.0);
+    /// ```
+    pub fn new(unit: &str, value: f64) -> Measure {
         Measure::from_parts(unit, value, None)
     }
-    pub fn parse_new_with_upper(unit: &str, value: f64, upper: f64) -> Measure {
-        Measure::from_parts(unit, value, Some(upper))
+
+    /// Create a new measure with a range (lower to upper value)
+    ///
+    /// # Arguments
+    /// * `unit` - The unit string (e.g., "cups", "grams")
+    /// * `lower` - The lower bound of the range
+    /// * `upper` - The upper bound of the range
+    ///
+    /// # Example
+    /// ```
+    /// use ingredient::unit::Measure;
+    /// let m = Measure::with_range("cups", 2.0, 3.0);
+    /// ```
+    pub fn with_range(unit: &str, lower: f64, upper: f64) -> Measure {
+        Measure::from_parts(unit, lower, Some(upper))
     }
+
+    /// Deprecated: use `new` instead
+    #[deprecated(since = "0.4.0", note = "use `new` instead")]
+    pub fn parse_new(unit: &str, value: f64) -> Measure {
+        Measure::new(unit, value)
+    }
+
+    /// Deprecated: use `with_range` instead
+    #[deprecated(since = "0.4.0", note = "use `with_range` instead")]
+    pub fn parse_new_with_upper(unit: &str, value: f64, upper: f64) -> Measure {
+        Measure::with_range(unit, value, upper)
+    }
+
+    /// Create a measure from parts (core implementation)
+    ///
+    /// This is the low-level constructor used by `new` and `with_range`.
     pub fn from_parts(unit: &str, value: f64, upper_value: Option<f64>) -> Measure {
         let normalized_unit = singular(unit);
         let unit = Unit::from_str(normalized_unit.as_ref())
             .unwrap_or(Unit::Other(normalized_unit));
-        
+
         Measure {
             unit,
             value,
             upper_value,
         }
     }
+    /// Get the kind/category of this measurement (weight, volume, time, etc.)
+    ///
+    /// This uses direct mapping without recursion for better performance
+    /// and to avoid potential stack overflow on malformed data.
     pub fn kind(&self) -> IngredientResult<MeasureKind> {
-        match self.unit {
-            Unit::Gram => Ok(MeasureKind::Weight),
-            Unit::Cent => Ok(MeasureKind::Money),
-            Unit::Teaspoon | Unit::Milliliter => Ok(MeasureKind::Volume),
-            Unit::KCal => Ok(MeasureKind::Calories),
-            Unit::Second => Ok(MeasureKind::Time),
-            Unit::Fahrenheit | Unit::Celcius => Ok(MeasureKind::Temperature), // todo: convert to farhenheit?
-            Unit::Inch => Ok(MeasureKind::Length),
-            Unit::Other(ref s) => Ok(MeasureKind::Other(s.clone())),
-            Unit::Whole => Ok(MeasureKind::Other("whole".to_string())),
-            Unit::Kilogram
+        Ok(match &self.unit {
+            // Weight units
+            Unit::Gram | Unit::Kilogram | Unit::Ounce | Unit::Pound => MeasureKind::Weight,
+
+            // Volume units
+            Unit::Milliliter
             | Unit::Liter
+            | Unit::Teaspoon
             | Unit::Tablespoon
             | Unit::Cup
             | Unit::Quart
-            | Unit::FluidOunce
-            | Unit::Ounce
-            | Unit::Pound
-            | Unit::Dollar
-            | Unit::Day
-            | Unit::Minute
-            | Unit::Hour => self.normalize().kind(),
-        }
+            | Unit::FluidOunce => MeasureKind::Volume,
+
+            // Money units
+            Unit::Cent | Unit::Dollar => MeasureKind::Money,
+
+            // Time units
+            Unit::Second | Unit::Minute | Unit::Hour | Unit::Day => MeasureKind::Time,
+
+            // Temperature units
+            Unit::Fahrenheit | Unit::Celcius => MeasureKind::Temperature,
+
+            // Energy units
+            Unit::KCal => MeasureKind::Calories,
+
+            // Length units
+            Unit::Inch => MeasureKind::Length,
+
+            // Other/custom units
+            Unit::Whole => MeasureKind::Other("whole".to_string()),
+            Unit::Other(s) => MeasureKind::Other(s.clone()),
+        })
     }
 
-    pub fn denormalize(self) -> Measure {
-        let (u, f) = match self.unit {
+    pub fn denormalize(&self) -> Measure {
+        let (u, f) = match &self.unit {
             Unit::Gram => (Unit::Gram, 1.0),
             Unit::Milliliter => (Unit::Milliliter, 1.0),
             Unit::Teaspoon => match self.value {
@@ -225,7 +293,7 @@ impl Measure {
                 _ => (Unit::Day, SEC_TO_DAY),
             },
             Unit::Inch => (Unit::Inch, 1.0),
-            Unit::Other(o) => (Unit::Other(o), 1.0),
+            Unit::Other(o) => (Unit::Other(o.clone()), 1.0),
             Unit::Kilogram
             | Unit::Liter
             | Unit::Tablespoon
@@ -240,7 +308,7 @@ impl Measure {
             | Unit::Whole
             | Unit::Minute
             | Unit::Hour
-            | Unit::Day => return self,
+            | Unit::Day => return self.clone(),
         };
         Measure {
             unit: u,
@@ -298,7 +366,7 @@ impl Measure {
 
 impl fmt::Display for Measure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let measure = self.clone().denormalize();
+        let measure = self.denormalize();
         write!(f, "{}", num_without_zeroes(measure.value))?;
         if let Some(u) = measure.upper_value {
             if u != 0.0 {
@@ -316,26 +384,26 @@ mod tests {
 
     #[test]
     fn test_measure() {
-        let m1 = Measure::parse_new("tbsp", 16.0);
+        let m1 = Measure::new("tbsp", 16.0);
         assert_eq!(
             m1.normalize(),
             Measure::new_with_upper(Unit::Teaspoon, 48.0, None)
         );
-        assert_eq!(m1.normalize(), Measure::parse_new("cup", 1.0).normalize());
+        assert_eq!(m1.normalize(), Measure::new("cup", 1.0).normalize());
         assert_eq!(
-            Measure::parse_new("grams", 25.2).denormalize(),
-            Measure::parse_new("g", 25.2)
+            Measure::new("grams", 25.2).denormalize(),
+            Measure::new("g", 25.2)
         );
         assert_eq!(
-            Measure::parse_new("grams", 2500.2).denormalize(),
-            Measure::parse_new("g", 2500.2)
+            Measure::new("grams", 2500.2).denormalize(),
+            Measure::new("g", 2500.2)
         );
     }
 
     #[test]
     fn test_singular_plural() {
-        assert_eq!(Measure::parse_new("cup", 1.0).unit_as_string(), "cup");
-        assert_eq!(Measure::parse_new("cup", 2.0).unit_as_string(), "cups");
-        assert_eq!(Measure::parse_new("grams", 3.0).unit_as_string(), "g");
+        assert_eq!(Measure::new("cup", 1.0).unit_as_string(), "cup");
+        assert_eq!(Measure::new("cup", 2.0).unit_as_string(), "cups");
+        assert_eq!(Measure::new("grams", 3.0).unit_as_string(), "g");
     }
 }

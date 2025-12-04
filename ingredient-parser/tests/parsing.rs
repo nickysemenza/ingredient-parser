@@ -43,7 +43,7 @@ test_ingredient!(
     "1 egg",
     Ingredient {
         name: "egg".to_string(),
-        amounts: vec![Measure::parse_new("whole", 1.0)],
+        amounts: vec![Measure::new("whole", 1.0)],
         modifier: None,
     }
 );
@@ -53,7 +53,7 @@ test_ingredient!(
     "1 cinnamon stick, crushed",
     Ingredient {
         name: "cinnamon stick".to_string(),
-        amounts: vec![Measure::parse_new("whole", 1.0)],
+        amounts: vec![Measure::new("whole", 1.0)],
         modifier: Some("crushed".to_string()),
     }
 );
@@ -63,7 +63,7 @@ test_ingredient!(
     "1 tablespoon plus 1 teaspoon olive oil",
     Ingredient {
         name: "olive oil".to_string(),
-        amounts: vec![Measure::parse_new("teaspoon", 4.0)],
+        amounts: vec![Measure::new("teaspoon", 4.0)],
         modifier: None
     }
 );
@@ -73,7 +73,7 @@ test_ingredient!(
     "pinch nutmeg",
     Ingredient {
         name: "nutmeg".to_string(),
-        amounts: vec![Measure::parse_new("pinch", 1.0)],
+        amounts: vec![Measure::new("pinch", 1.0)],
         modifier: None
     }
 );
@@ -84,7 +84,7 @@ test_ingredient!(
     "100 grams whole wheat flour",
     Ingredient {
         name: "whole wheat flour".to_string(),
-        amounts: vec![Measure::parse_new("grams", 100.0)],
+        amounts: vec![Measure::new("grams", 100.0)],
         modifier: None
     }
 );
@@ -94,7 +94,7 @@ test_ingredient!(
     "1 clove garlic, grated",
     Ingredient {
         name: "garlic".to_string(),
-        amounts: vec![Measure::parse_new("clove", 1.0)],
+        amounts: vec![Measure::new("clove", 1.0)],
         modifier: Some("grated".to_string())
     }
 );
@@ -108,7 +108,7 @@ test_ingredient!(
     "12 cups all purpose flour, lightly sifted",
     Ingredient {
         name: "all purpose flour".to_string(),
-        amounts: vec![Measure::parse_new("cups", 12.0)],
+        amounts: vec![Measure::new("cups", 12.0)],
         modifier: Some("lightly sifted".to_string()),
     }
 );
@@ -119,8 +119,8 @@ test_ingredient!(
     Ingredient {
         name: "flour".to_string(),
         amounts: vec![
-            Measure::parse_new("cups", 1.25),
-            Measure::parse_new("grams", 155.5),
+            Measure::new("cups", 1.25),
+            Measure::new("grams", 155.5),
         ],
         modifier: None,
     }
@@ -132,9 +132,9 @@ test_ingredient!(
     Ingredient {
         name: "instant or rapid rise yeast".to_string(),
         amounts: vec![
-            Measure::parse_new("ounces", 0.25),
-            Measure::parse_new("packet", 1.0),
-            Measure::parse_new("teaspoons", 2.0),
+            Measure::new("ounces", 0.25),
+            Measure::new("packet", 1.0),
+            Measure::new("teaspoons", 2.0),
         ],
         modifier: None
     }
@@ -146,9 +146,9 @@ test_ingredient!(
     Ingredient {
         name: "unsalted butter".to_string(),
         amounts: vec![
-            Measure::parse_new("ounces", 6.0),
-            Measure::parse_new("sticks", 1.5),
-            Measure::parse_new("g", 168.75),
+            Measure::new("ounces", 6.0),
+            Measure::new("sticks", 1.5),
+            Measure::new("g", 168.75),
         ],
         modifier: None
     }
@@ -160,9 +160,9 @@ test_ingredient!(
     Ingredient {
         name: "unsalted butter".to_string(),
         amounts: vec![
-            Measure::parse_new("pound", 0.5),
-            Measure::parse_new("sticks", 2.0),
-            Measure::parse_new("g", 227.0),
+            Measure::new("pound", 0.5),
+            Measure::new("sticks", 2.0),
+            Measure::new("g", 227.0),
         ],
         modifier: Some("room temperature".to_string())
     }
@@ -176,11 +176,11 @@ test_ingredient!(
 fn test_amount() {
     assert_eq!(
         IngredientParser::new(false).parse_amount("350 °").unwrap(),
-        vec![Measure::parse_new("°", 350.0)]
+        vec![Measure::new("°", 350.0)]
     );
     assert_eq!(
         IngredientParser::new(false).parse_amount("350 °F").unwrap(),
-        vec![Measure::parse_new("°f", 350.0)]
+        vec![Measure::new("°f", 350.0)]
     );
 }
 
@@ -190,14 +190,14 @@ fn test_amount_range_parse() {
         IngredientParser::new(false)
             .parse_amount("2¼-2.5 cups")
             .unwrap(),
-        vec![Measure::parse_new_with_upper("cups", 2.25, 2.5)]
+        vec![Measure::with_range("cups", 2.25, 2.5)]
     );
 
     assert_eq!(
         Ingredient::try_from("1-2 cups flour"),
         Ok(Ingredient {
             name: "flour".to_string(),
-            amounts: vec![Measure::parse_new_with_upper("cups", 1.0, 2.0)],
+            amounts: vec![Measure::with_range("cups", 1.0, 2.0)],
             modifier: None,
         })
     );
@@ -212,7 +212,7 @@ fn test_amount_range_parse() {
         IngredientParser::new(false)
             .parse_amount("2 to 4 days")
             .unwrap(),
-        vec![Measure::parse_new_with_upper("days", 2.0, 4.0)]
+        vec![Measure::with_range("days", 2.0, 4.0)]
     );
 
     // #30
@@ -220,7 +220,7 @@ fn test_amount_range_parse() {
         IngredientParser::new(false)
             .parse_amount("up to 4 days")
             .unwrap(),
-        vec![Measure::parse_new_with_upper("days", 0.0, 4.0)]
+        vec![Measure::with_range("days", 0.0, 4.0)]
     );
 }
 
@@ -241,14 +241,13 @@ fn test_no_ingredient_amounts() {
     );
 }
 
-
 #[test]
 fn test_ingredient_parse() {
     assert_eq!(
         Ingredient::try_from("12 cups flour"),
         Ok(Ingredient {
             name: "flour".to_string(),
-            amounts: vec![Measure::parse_new("cups", 12.0)],
+            amounts: vec![Measure::new("cups", 12.0)],
             modifier: None,
         })
     );
@@ -291,15 +290,14 @@ fn test_weird_chars() {
             Ingredient {
                 name: n.to_string(),
                 amounts: vec![
-                    Measure::parse_new("cups", 2.0),
-                    Measure::parse_new("grams", 240.0)
+                    Measure::new("cups", 2.0),
+                    Measure::new("grams", 240.0)
                 ],
                 modifier: Some("sifted".to_string())
             }
         );
     });
 }
-
 
 #[test]
 fn test_unit_period_mixed_case() {
@@ -311,7 +309,7 @@ fn test_unit_period_mixed_case() {
         IngredientParser::new(false).from_str("12 cloves of garlic, peeled"),
         Ingredient {
             name: "garlic".to_string(),
-            amounts: vec![Measure::parse_new("cloves", 12.0)],
+            amounts: vec![Measure::new("cloves", 12.0)],
             modifier: Some("peeled".to_string())
         }
     );
@@ -329,8 +327,8 @@ fn test_real_world_ingredients() {
             Ingredient {
                 name: "unsalted butter".to_string(),
                 amounts: vec![
-                    Measure::parse_new("tablespoons", 14.0),
-                    Measure::parse_new("grams", 200.0),
+                    Measure::new("tablespoons", 14.0),
+                    Measure::new("grams", 200.0),
                 ],
                 modifier: Some("cut into pieces".to_string()),
             },
@@ -339,7 +337,7 @@ fn test_real_world_ingredients() {
             "6 cups vegetable stock, more if needed",
             Ingredient {
                 name: "vegetable stock".to_string(),
-                amounts: vec![Measure::parse_new("cups", 6.0)],
+                amounts: vec![Measure::new("cups", 6.0)],
                 modifier: Some("more if needed".to_string()),
             },
         ),
@@ -347,7 +345,7 @@ fn test_real_world_ingredients() {
             "1/4 cup crème fraîche",
             Ingredient {
                 name: "crème fraîche".to_string(),
-                amounts: vec![Measure::parse_new("cup", 0.25)],
+                amounts: vec![Measure::new("cup", 0.25)],
                 modifier: None,
             },
         ),
@@ -356,8 +354,8 @@ fn test_real_world_ingredients() {
             Ingredient {
                 name: "cold water".to_string(),
                 amounts: vec![
-                    Measure::parse_new("cup", 2.0 / 3.0),
-                    Measure::parse_new("ml", 167.0),
+                    Measure::new("cup", 2.0 / 3.0),
+                    Measure::new("ml", 167.0),
                 ],
                 modifier: None,
             },
@@ -366,7 +364,7 @@ fn test_real_world_ingredients() {
             "1 tsp freshly ground black pepper",
             Ingredient {
                 name: "black pepper".to_string(),
-                amounts: vec![Measure::parse_new("tsp", 1.0)],
+                amounts: vec![Measure::new("tsp", 1.0)],
                 modifier: Some("freshly ground".to_string()),
             },
         ),
@@ -374,7 +372,7 @@ fn test_real_world_ingredients() {
 
     for (input, expected) in tests {
         let res = IngredientParser::new(false).from_str(input);
-        assert_eq!(res, expected, "Failed to parse: {}", input);
+        assert_eq!(res, expected, "Failed to parse: {input}");
     }
 }
 
@@ -393,7 +391,7 @@ fn test_rich_text() {
         .unwrap(),
         vec![
             Chunk::Text("hello ".to_string()),
-            Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
+            Chunk::Measure(vec![Measure::new("cups", 1.0)]),
             Chunk::Text(" foo bar".to_string())
         ]
     );
@@ -406,7 +404,7 @@ fn test_rich_text() {
         .unwrap(),
         vec![
             Chunk::Text("hello ".to_string()),
-            Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
+            Chunk::Measure(vec![Measure::new("cups", 1.0)]),
             Chunk::Text(" foo ".to_string()),
             Chunk::Ing("bar".to_string())
         ]
@@ -419,7 +417,7 @@ fn test_rich_text() {
         .parse("2-2 1/2 cups foo' bar")
         .unwrap(),
         vec![
-            Chunk::Measure(vec![Measure::parse_new_with_upper("cups", 2.0, 2.5)]),
+            Chunk::Measure(vec![Measure::with_range("cups", 2.0, 2.5)]),
             Chunk::Text(" foo' bar".to_string())
         ]
     );
@@ -436,7 +434,7 @@ fn test_rich_text_space() {
         .unwrap(),
         vec![
             Chunk::Text("hello ".to_string()),
-            Chunk::Measure(vec![Measure::parse_new("cups", 1.0)]),
+            Chunk::Measure(vec![Measure::new("cups", 1.0)]),
             Chunk::Text(" ".to_string()),
             Chunk::Ing("foo bar".to_string()),
         ]
@@ -454,7 +452,7 @@ fn test_rich_upper_amount() {
         .unwrap(),
         vec![
             Chunk::Text("store for ".to_string()),
-            Chunk::Measure(vec![Measure::parse_new_with_upper("days", 1.0, 2.0)]),
+            Chunk::Measure(vec![Measure::with_range("days", 1.0, 2.0)]),
         ]
     );
     assert_eq!(
@@ -466,11 +464,11 @@ fn test_rich_upper_amount() {
         .unwrap(),
         vec![
             Chunk::Text("add ".to_string()),
-            Chunk::Measure(vec![Measure::parse_new("cup", 1.0)]),
+            Chunk::Measure(vec![Measure::new("cup", 1.0)]),
             Chunk::Text(" ".to_string()),
             Chunk::Ing("water".to_string()),
             Chunk::Text(" and store for".to_string()),
-            Chunk::Measure(vec![Measure::parse_new_with_upper("days", 0.0, 2.0)]),
+            Chunk::Measure(vec![Measure::with_range("days", 0.0, 2.0)]),
         ]
     );
 }
@@ -485,9 +483,9 @@ fn test_rich_dimensions() {
         .parse(r#"9" x 13""#)
         .unwrap(),
         vec![
-            Chunk::Measure(vec![Measure::parse_new(r#"""#, 9.0)]),
+            Chunk::Measure(vec![Measure::new(r#"""#, 9.0)]),
             Chunk::Text(" x ".to_string()),
-            Chunk::Measure(vec![Measure::parse_new(r#"""#, 13.0)]),
+            Chunk::Measure(vec![Measure::new(r#"""#, 13.0)]),
         ]
     );
 }

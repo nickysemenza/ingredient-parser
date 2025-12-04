@@ -1,8 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
-pub fn is_valid(units: HashSet<String>, s: &str) -> bool {
+pub fn is_valid(units: &HashSet<String>, s: &str) -> bool {
     // Unit::from_str always returns Ok - check if it's a known unit (not Other)
     if !matches!(Unit::from_str(&singular(s)), Ok(Unit::Other(_))) {
         // anything other than `other`
@@ -11,7 +12,10 @@ pub fn is_valid(units: HashSet<String>, s: &str) -> bool {
     is_addon_unit(units, s)
 }
 
-pub(crate) fn is_addon_unit(units: HashSet<String>, s: &str) -> bool {
+/// Check if a string matches an addon unit (from the custom units set)
+///
+/// This does NOT check built-in units - use `is_valid` for that.
+pub fn is_addon_unit(units: &HashSet<String>, s: &str) -> bool {
     units.contains(&s.to_lowercase())
 }
 
@@ -56,14 +60,14 @@ impl Unit {
         }
     }
     pub fn to_str(&self) -> String {
-        for (s, unit) in UNIT_MAPPINGS {
-            if self == unit {
-                return s.to_string();
-            }
+        // O(1) lookup using HashMap
+        if let Some(s) = UNIT_TO_STR.get(self) {
+            return (*s).to_string();
         }
         match self {
             Unit::Other(s) => singular(s),
-            _ => unreachable!("Unit not found in mapping"),
+            // Fallback: use Debug representation if unit is somehow missing from mapping
+            _ => format!("{self:?}").to_lowercase(),
         }
     }
 }
@@ -121,15 +125,30 @@ static UNIT_MAPPINGS: &[(&str, Unit)] = &[
     ("each", Unit::Whole),
 ];
 
+/// O(1) lookup from string to Unit
+static UNIT_MAP: LazyLock<HashMap<&'static str, Unit>> = LazyLock::new(|| {
+    UNIT_MAPPINGS.iter().map(|&(s, ref u)| (s, u.clone())).collect()
+});
+
+/// O(1) lookup from Unit to its canonical string representation
+/// Uses the first mapping found for each unit
+static UNIT_TO_STR: LazyLock<HashMap<Unit, &'static str>> = LazyLock::new(|| {
+    let mut map = HashMap::new();
+    // Iterate in reverse so earlier (preferred) mappings win
+    for &(s, ref u) in UNIT_MAPPINGS.iter().rev() {
+        map.insert(u.clone(), s);
+    }
+    map
+});
+
 impl FromStr for Unit {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s_norm = singular(&s.to_lowercase());
-        for (str_repr, unit) in UNIT_MAPPINGS {
-            if s_norm == *str_repr {
-                return Ok(unit.clone());
-            }
+        // O(1) lookup using HashMap
+        if let Some(unit) = UNIT_MAP.get(s_norm.as_str()) {
+            return Ok(unit.clone());
         }
         Ok(Unit::Other(s.to_string()))
     }

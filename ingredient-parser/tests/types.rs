@@ -23,7 +23,7 @@ fn test_ingredient_display() {
     // With amounts
     let ingredient = Ingredient {
         name: "flour".to_string(),
-        amounts: vec![Measure::parse_new("cups", 2.0)],
+        amounts: vec![Measure::new("cups", 2.0)],
         modifier: None,
     };
     assert_eq!(ingredient.to_string(), "2 cups flour");
@@ -31,7 +31,7 @@ fn test_ingredient_display() {
     // With modifier
     let ingredient = Ingredient {
         name: "flour".to_string(),
-        amounts: vec![Measure::parse_new("cups", 2.0)],
+        amounts: vec![Measure::new("cups", 2.0)],
         modifier: Some("sifted".to_string()),
     };
     assert_eq!(ingredient.to_string(), "2 cups flour, sifted");
@@ -40,8 +40,8 @@ fn test_ingredient_display() {
     let ingredient = Ingredient {
         name: "water".to_string(),
         amounts: vec![
-            Measure::parse_new("cup", 1.0),
-            Measure::parse_new("ml", 240.0),
+            Measure::new("cup", 1.0),
+            Measure::new("ml", 240.0),
         ],
         modifier: None,
     };
@@ -68,7 +68,7 @@ fn test_ingredient_default() {
 fn test_ingredient_clone_and_partial_eq() {
     let ingredient1 = Ingredient {
         name: "flour".to_string(),
-        amounts: vec![Measure::parse_new("cups", 2.0)],
+        amounts: vec![Measure::new("cups", 2.0)],
         modifier: Some("sifted".to_string()),
     };
 
@@ -77,7 +77,7 @@ fn test_ingredient_clone_and_partial_eq() {
 
     let ingredient3 = Ingredient {
         name: "sugar".to_string(),
-        amounts: vec![Measure::parse_new("cups", 2.0)],
+        amounts: vec![Measure::new("cups", 2.0)],
         modifier: Some("sifted".to_string()),
     };
     assert_ne!(ingredient1, ingredient3);

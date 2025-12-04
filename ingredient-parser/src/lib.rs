@@ -38,37 +38,20 @@
 //! ```
 
 use std::collections::HashSet;
-use std::iter::FromIterator;
 
 pub use crate::ingredient::Ingredient;
 pub use crate::error::{IngredientError, IngredientResult};
-use fraction::fraction_number;
 #[allow(deprecated)]
 use nom::{
-    branch::alt,
     bytes::complete::tag,
-    character::complete::{char, not_line_ending, space0, space1},
+    character::complete::{not_line_ending, space0, space1},
     combinator::{opt, verify},
     error::context,
-    multi::{many1, separated_list1},
-    number::complete::double,
-    sequence::{delimited, tuple},
+    multi::many1,
     Parser,
 };
-use tracing::info;
 use unit::Measure;
-use parser::{text, text_number, unitamt, Res};
-
-/// Type alias for the complex parsing result tuple in parse_ingredient
-type ParsedIngredientParts<'a> = (
-    Option<Vec<Measure>>,
-    &'a str,
-    Option<(String, &'a str)>,
-    Option<Vec<String>>,
-    Option<Vec<Measure>>,
-    Option<&'a str>,
-    &'a str,
-);
+use parser::{text, unitamt, MeasurementParser, Res};
 
 #[cfg(feature = "serde-derive")]
 #[macro_use]
@@ -185,9 +168,11 @@ impl IngredientParser {
     /// ```
     pub fn new(is_rich_text: bool) -> Self {
         let units: Vec<String> = vec![
-            // non standard units - these aren't really convertible for the most part.
-            // default set
-            "whole", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large",
+            // Non-standard units that aren't really convertible for the most part.
+            // Note: "whole" is NOT included here because it's a built-in Unit::Whole.
+            // Including it here would cause unit_extra() to incorrectly parse "whole wheat flour"
+            // as having unit "whole" instead of treating "whole wheat" as part of the name.
+            "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large",
             "pinch", "small", "medium", "package", "recipe", "slice", "standard", "can", "leaf",
             "leaves", "strand", "tin",
         ]
@@ -293,15 +278,15 @@ impl IngredientParser {
     /// let ip = IngredientParser::new(false);
     /// assert_eq!(
     ///    ip.parse_amount("120 grams").unwrap(),
-    ///    vec![Measure::parse_new("grams",120.0)]
+    ///    vec![Measure::new("grams",120.0)]
     ///  );
     /// assert_eq!(
     ///    ip.parse_amount("120 grams / 1 cup").unwrap(),
-    ///    vec![Measure::parse_new("grams",120.0),Measure::parse_new("cup", 1.0)]
+    ///    vec![Measure::new("grams",120.0),Measure::new("cup", 1.0)]
     ///  );
     /// assert_eq!(
     ///    ip.parse_amount("120 grams / 1 cup / 1 whole").unwrap(),
-    ///    vec![Measure::parse_new("grams",120.0),Measure::parse_new("cup", 1.0),Measure::parse_new("whole", 1.0)]
+    ///    vec![Measure::new("grams",120.0),Measure::new("cup", 1.0),Measure::new("whole", 1.0)]
     ///  );
     /// ```
     /// Parse a string containing one or more measurements
@@ -309,7 +294,8 @@ impl IngredientParser {
     /// Returns a Result with a Vec of Measures, or an error if parsing fails
     #[tracing::instrument(name = "parse_amount")]
     pub fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
-        match self.clone().parse_measurement_list(input) {
+        let mp = MeasurementParser::new(&self.units, self.is_rich_text);
+        match mp.parse_measurement_list(input) {
             Ok((_, measurements)) => Ok(measurements),
             Err(e) => Err(IngredientError::AmountParseError {
                 input: input.to_string(),
@@ -339,23 +325,25 @@ impl IngredientParser {
     /// * name
     /// * 1 name
     #[tracing::instrument(name = "parse_ingredient")]
-    pub(crate) fn parse_ingredient(self, input: &str) -> Res<&str, Ingredient> {
+    pub(crate) fn parse_ingredient<'a>(&self, input: &'a str) -> Res<&'a str, Ingredient> {
         use trace::{trace_enter, trace_exit_failure, trace_exit_success};
 
         trace_enter("parse_ingredient", input);
 
+        let mp = MeasurementParser::new(&self.units, self.is_rich_text);
+
         // Define the overall structure of an ingredient line
         let ingredient_format = (
             // Measurements at the beginning (optional)
-            opt(|a| self.clone().parse_measurement_list(a)),
+            opt(|a| mp.parse_measurement_list(a)),
             // Space between measurements and name
             space0,
             // Optional adjective with required space after it
-            opt((|a| self.clone().adjective(a), space1)),
+            opt((|a| self.adjective(a), space1)),
             // Name component - can be multiple words
             opt(many1(text)),
             // Optional measurements in parentheses after name
-            opt(|a| self.clone().parse_parenthesized_amounts(a)),
+            opt(|a| mp.parse_parenthesized_amounts(a)),
             // Optional comma before modifier
             opt(tag(", ")),
             // Modifier - everything until end of line
@@ -364,17 +352,7 @@ impl IngredientParser {
 
         let result = context("ingredient", ingredient_format)
             .parse(input)
-            .map(|(next_input, res)| {
-                let (
-                    primary_amounts,       // Measurements at start of line
-                    _,                     // Space
-                    adjective,             // Optional adjective
-                    name_chunks,           // Name components
-                    parenthesized_amounts, // Measurements in parentheses
-                    _,                     // Comma
-                    modifier_text,         // Modifier text
-                ): ParsedIngredientParts<'_> = res;
-
+            .map(|(next_input, (primary_amounts, _, adjective, name_chunks, paren_amounts, _, modifier_text))| {
                 // Start with modifier from the trailing text
                 let mut modifiers: String = modifier_text.to_owned();
 
@@ -391,17 +369,21 @@ impl IngredientParser {
                     .to_string();
 
                 // Extract any adjectives from the name and move them to modifiers
-                self.adjectives.iter().for_each(|adj| {
-                    if name.contains(adj) {
-                        modifiers.push_str(adj);
-                        name = name.replace(adj, "").trim_matches(' ').to_string();
-                    }
-                });
+                // Collect found adjectives first to avoid repeated string allocations
+                let found_adjectives: Vec<&String> = self.adjectives
+                    .iter()
+                    .filter(|adj| name.contains(adj.as_str()))
+                    .collect();
+
+                for adj in found_adjectives {
+                    modifiers.push_str(adj);
+                    name = name.replace(adj.as_str(), "");
+                }
+                let name = name.trim_matches(' ').to_string();
 
                 // Combine all measurements
-                let amounts = match (primary_amounts, parenthesized_amounts) {
+                let amounts = match (primary_amounts, paren_amounts) {
                     (Some(primary), Some(parenthesized)) => {
-                        // Combine both sets of measurements
                         primary.into_iter().chain(parenthesized).collect()
                     }
                     (Some(primary), None) => primary,
@@ -439,562 +421,20 @@ impl IngredientParser {
         result
     }
 
-    /// Parse a value that may have a range, returning (value, optional_upper_range)
-    fn get_value(self, input: &str) -> Res<&str, (f64, Option<f64>)> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("get_value", input);
-
-        let result = context(
-            "value_with_range",
-            alt((
-                |a| self.clone().parse_upper_bound_only(a), // "up to X" or "at most X"
-                |a| self.clone().parse_value_with_optional_range(a), // A value possibly with a range
-            )),
-        )
-        .parse(input);
-
-        match &result {
-            Ok((remaining, (val, upper))) => {
-                let consumed = input.len() - remaining.len();
-                let preview = match upper {
-                    Some(u) => format!("{val}-{u}"),
-                    None => format!("{val}"),
-                };
-                trace_exit_success(consumed, &preview);
-            }
-            Err(_) => trace_exit_failure("no value"),
-        }
-        result
-    }
-
-    /// Parse a single value possibly followed by a range
-    fn parse_value_with_optional_range(self, input: &str) -> Res<&str, (f64, Option<f64>)> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_value_with_optional_range", input);
-
-        // Format: numeric value + optional range
-        let format = (
-            |a| self.clone().parse_number(a),         // The main value
-            opt(|a| self.clone().parse_range_end(a)), // Optional range end
-        );
-
-        let result = context("value_with_optional_range", format).parse(input);
-
-        match &result {
-            Ok((remaining, (val, upper))) => {
-                let consumed = input.len() - remaining.len();
-                let preview = match upper {
-                    Some(u) => format!("{val}-{u}"),
-                    None => format!("{val}"),
-                };
-                trace_exit_success(consumed, &preview);
-            }
-            Err(_) => trace_exit_failure("no value"),
-        }
-        result
-    }
-
-    /// Parse expressions like "up to 5" or "at most 10"
-    fn parse_upper_bound_only(self, input: &str) -> Res<&str, (f64, Option<f64>)> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_upper_bound_only", input);
-
-        // Format: prefix + number
-        let format = (
-            opt(space0),                         // Optional space
-            alt((tag("up to"), tag("at most"))), // Upper bound keywords
-            space0,                              // Optional space
-            |a| self.clone().parse_number(a),    // The upper bound value
-        );
-
-        let result = context("upper_bound_only", format).parse(input).map(
-            |(next_input, (_, _, _, upper_value))| {
-                // Return 0.0 as the base value and the parsed number as the upper bound
-                (next_input, (0.0, Some(upper_value)))
-            },
-        );
-
-        match &result {
-            Ok((remaining, (_, Some(u)))) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, &format!("up to {u}"));
-            }
-            Ok(_) => trace_exit_success(0, ""),
-            Err(_) => trace_exit_failure("no upper bound"),
-        }
-        result
-    }
-
-    fn unit(self, input: &str) -> Res<&str, String> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("unit", input);
-
-        let result = context(
-            "unit",
-            verify(unitamt, |s: &str| unit::is_valid(self.units.clone(), s)),
-        )
-        .parse(input);
-
-        match &result {
-            Ok((remaining, unit_str)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, unit_str);
-            }
-            Err(_) => trace_exit_failure("not a valid unit"),
-        }
-        result
-    }
-    fn unit_extra(self, input: &str) -> Res<&str, String> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("unit_extra", input);
-
-        let result = context(
-            "unit",
-            verify(unitamt, |s: &str| {
-                // fix for test_parse_whole_wheat_ambigious
-                let mut x = self.units.clone();
-                if input.starts_with("whole wheat") {
-                    x.remove("whole");
-                }
-                unit::is_addon_unit(x, s)
-            }),
-        )
-        .parse(input);
-
-        match &result {
-            Ok((remaining, unit_str)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, unit_str);
-            }
-            Err(_) => trace_exit_failure("not an addon unit"),
-        }
-        result
-    }
-    fn adjective(self, input: &str) -> Res<&str, String> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("adjective", input);
-
-        let result = context(
+    /// Parse and validate an adjective string
+    fn adjective<'a>(&self, input: &'a str) -> Res<&'a str, String> {
+        traced_parser!(
             "adjective",
-            verify(unitamt, |s: &str| {
-                self.adjectives.contains(&s.to_lowercase())
-            }),
-        )
-        .parse(input);
-
-        match &result {
-            Ok((remaining, adj)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, adj);
-            }
-            Err(_) => trace_exit_failure("not an adjective"),
-        }
-        result
-    }
-
-    /// Parse a single measurement like "2 cups" or "about 3 tablespoons"
-    #[allow(deprecated)]
-    fn parse_single_measurement(self, input: &str) -> Res<&str, Measure> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_single_measurement", input);
-
-        // Define the structure of a basic measurement
-        let measurement_parser = (
-            opt(tag("about ")),                        // Optional "about" prefix for estimates
-            opt(|a| self.clone().parse_multiplier(a)), // Optional multiplier (e.g., "2 x")
-            |a| self.clone().get_value(a),             // The numeric value
-            space0,                                    // Optional whitespace
-            opt(|a| self.clone().unit(a)),             // Optional unit of measure
-            opt(alt((tag("."), tag(" of")))),          // Optional trailing period or "of"
-        );
-
-        let result = context("single_measurement", tuple(measurement_parser))
-            .parse(input)
-            .map(|(next_input, res)| {
-                let (_estimate_prefix, multiplier, value, _, unit, _) = res;
-
-                // Apply multiplier if present
-                let final_value = match multiplier {
-                    Some(m) => value.0 * m,
-                    None => value.0,
-                };
-
-                // Default to "whole" unit if none specified
-                let final_unit = unit.unwrap_or_else(|| "whole".to_string()).to_lowercase();
-
-                // Create the measurement
-                (
-                    next_input,
-                    Measure::from_parts(
-                        final_unit.as_ref(),
-                        final_value,
-                        value.1, // Pass along any upper range value
-                    ),
-                )
-            });
-
-        match &result {
-            Ok((remaining, measure)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, &measure.to_string());
-            }
-            Err(_) => trace_exit_failure("no measurement"),
-        }
-        result
-    }
-    /// Parse a standalone unit with implicit quantity of 1, like "cup" or "tablespoons"
-    fn parse_unit_only(self, input: &str) -> Res<&str, Measure> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_unit_only", input);
-
-        // Format: optional space + unit + optional period/of + required space
-        let unit_only_format = (
-            // Space requirement depends on text mode
-            |a| {
-                if self.is_rich_text {
-                    space1(a) // Rich text mode requires space
-                } else {
-                    space0(a) // Normal mode allows optional space
-                }
-            },
-            |a| self.clone().unit_extra(a),   // Parse the unit
-            opt(alt((tag("."), tag(" of")))), // Optional period or "of"
-            space1,                           // Required space after unit
-        );
-
-        let result = context("unit_only", unit_only_format)
-            .parse(input)
-            .map(|(next_input, (_, unit, _, _))| {
-                // Create a measure with value 1.0 and the parsed unit
-                (
-                    next_input,
-                    Measure::from_parts(unit.to_lowercase().as_ref(), 1.0, None),
-                )
-            });
-
-        match &result {
-            Ok((remaining, measure)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, &measure.to_string());
-            }
-            Err(_) => trace_exit_failure("no unit-only"),
-        }
-        result
-    }
-    /// Parse a range with units, like "78g to 104g" or "2-3 cups"
-    fn parse_range_with_units(self, input: &str) -> Res<&str, Option<Measure>> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_range_with_units", input);
-
-        // Format for a measurement with a range
-        let range_format = (
-            opt(tag("about ")),                  // Optional "about" for estimates
-            |a| self.clone().get_value(a),       // The lower value
-            space0,                              // Optional whitespace
-            opt(|a| self.clone().unit(a)),       // Optional unit for lower value
-            |a| self.clone().parse_range_end(a), // The upper range value
-            opt(|a| self.clone().unit(a)),       // Optional unit for upper value
-            opt(alt((tag("."), tag(" of")))),    // Optional period or "of"
-        );
-
-        let result = context("range_with_units", range_format)
-            .parse(input)
-            .map(|(next_input, res)| {
-                let (_, lower_value, _, lower_unit, upper_val, upper_unit, _) = res;
-
-                // Check for unit mismatch - both units must be the same if both are specified
-                if upper_unit.is_some() && lower_unit != upper_unit {
-                    info!(
-                        "unit mismatch between range values: {:?} vs {:?}",
-                        lower_unit, upper_unit
-                    );
-                    return (next_input, None);
-                }
-
-                // Create the measurement with range
-                (
-                    next_input,
-                    Some(Measure::from_parts(
-                        // Use the lower unit, or default to "whole" if not specified
-                        lower_unit
-                            .unwrap_or_else(|| "whole".to_string())
-                            .to_lowercase()
-                            .as_ref(),
-                        lower_value.0,
-                        Some(upper_val),
-                    )),
-                )
-            });
-
-        match &result {
-            Ok((remaining, opt_measure)) => {
-                let consumed = input.len() - remaining.len();
-                let preview = opt_measure
-                    .as_ref()
-                    .map(|m| m.to_string())
-                    .unwrap_or_else(|| "unit mismatch".to_string());
-                trace_exit_success(consumed, &preview);
-            }
-            Err(_) => trace_exit_failure("no range"),
-        }
-        result
-    }
-    // parses 1-n amounts, e.g. `12 grams` or `120 grams / 1 cup`
-    #[tracing::instrument(name = "many_amount")]
-    /// Parse a list of measurements with different separators
-    ///
-    /// This handles formats like:
-    /// - "2 cups; 1 tbsp"
-    /// - "120 grams / 1 cup"
-    /// - "1 tsp, 2 tbsp"
-    #[tracing::instrument(name = "many_amount")]
-    fn parse_measurement_list(self, input: &str) -> Res<&str, Vec<Measure>> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-
-        trace_enter("measurement_list", input);
-
-        // Define the separators between measurements
-        let amount_separators = alt((
-            tag("; "),  // semicolon with space
-            tag(" / "), // slash with spaces
-            tag("/"),   // bare slash
-            tag(", "),  // comma with space
-            tag(" "),   // just a space
-        ));
-
-        // Define the different types of measurements we can parse
-        let amount_parsers = alt((
-            // "1 cup plus 2 tbsp" -> combines measurements
-            |input| {
-                self.clone()
-                    .parse_plus_expression(input)
-                    .map(|(next, measure)| (next, vec![measure]))
-            },
-            // Range with units on both sides: "2-3 cups" or "1 to 2 tbsp"
-            |input| {
-                self.clone()
-                    .parse_range_with_units(input)
-                    .map(|(next, opt_measure)| {
-                        (next, opt_measure.map_or_else(Vec::new, |m| vec![m]))
-                    })
-            },
-            // Parenthesized amounts like "(1 cup)"
-            |input| self.clone().parse_parenthesized_amounts(input),
-            // Basic measurement like "2 cups"
-            |input| {
-                self.clone()
-                    .parse_single_measurement(input)
-                    .map(|(next, measure)| (next, vec![measure]))
-            },
-            // Just a unit with implicit quantity of 1, like "cup"
-            |input| {
-                self.clone()
-                    .parse_unit_only(input)
-                    .map(|(next, measure)| (next, vec![measure]))
-            },
-        ));
-
-        // Parse a list of measurements separated by the defined separators
-        let result = context(
-            "measurement_list",
-            separated_list1(amount_separators, amount_parsers),
-        )
-        .parse(input)
-        .map(|(next_input, measures_list)| {
-            // Flatten nested Vec<Vec<Measure>> into Vec<Measure>
-            (next_input, measures_list.into_iter().flatten().collect::<Vec<Measure>>())
-        });
-
-        // Record trace outcome
-        match &result {
-            Ok((remaining, measures)) => {
-                let consumed = input.len() - remaining.len();
-                let preview = measures
-                    .iter()
-                    .map(|m| m.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                trace_exit_success(consumed, &preview);
-            }
-            Err(_) => {
-                trace_exit_failure("no measurements found");
-            }
-        }
-
-        result
-    }
-
-    /// Parse measurements enclosed in parentheses: (1 cup)
-    fn parse_parenthesized_amounts(self, input: &str) -> Res<&str, Vec<Measure>> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_parenthesized_amounts", input);
-
-        let result = context(
-            "parenthesized_amounts",
-            delimited(
-                char('('),                                  // Opening parenthesis
-                |a| self.clone().parse_measurement_list(a), // Parse measurements inside parentheses
-                char(')'),                                  // Closing parenthesis
-            ),
-        )
-        .parse(input);
-
-        match &result {
-            Ok((remaining, measures)) => {
-                let consumed = input.len() - remaining.len();
-                let preview = measures
-                    .iter()
-                    .map(|m| m.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                trace_exit_success(consumed, &preview);
-            }
-            Err(_) => trace_exit_failure("no parenthesized amounts"),
-        }
-        result
-    }
-    /// Parse numeric values including fractions, decimals, and text numbers like "one"
-    fn parse_number(self, input: &str) -> Res<&str, f64> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_number", input);
-
-        // Choose parsers based on whether we're in rich text mode
-        let result = if self.is_rich_text {
-            // Rich text mode: try fraction or decimal number
+            input,
             context(
-                "number",
-                alt((
-                    fraction_number, // Parse fractions like "½" or "1/2"
-                    double,          // Parse decimal numbers like "2.5"
-                )),
+                "adjective",
+                verify(unitamt, |s: &str| {
+                    self.adjectives.contains(&s.to_lowercase())
+                }),
             )
-            .parse(input)
-        } else {
-            // Normal mode: try fraction, text number, or decimal
-            context(
-                "number",
-                alt((
-                    fraction_number, // Parse fractions like "½" or "1/2"
-                    text_number,     // Parse text numbers like "one" or "a"
-                    double,          // Parse decimal numbers like "2.5"
-                )),
-            )
-            .parse(input)
-        };
-
-        match &result {
-            Ok((remaining, value)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, &format!("{value}"));
-            }
-            Err(_) => trace_exit_failure("no number"),
-        }
-        result
-    }
-    /// Parse a multiplier expression like "2 x" (meaning multiply the following value by 2)
-    fn parse_multiplier(self, input: &str) -> Res<&str, f64> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_multiplier", input);
-
-        // Define the format of a multiplier: number + space + "x" + space
-        let multiplier_format = (
-            |a| self.clone().parse_number(a), // The multiplier value
-            space1,                           // Required whitespace
-            tag("x"),                         // The "x" character
-            space1,                           // Required whitespace
-        );
-
-        let result = context("multiplier", multiplier_format).parse(input).map(
-            |(next_input, (multiplier_value, _, _, _))| {
-                // Return just the numeric value
-                (next_input, multiplier_value)
-            },
-        );
-
-        match &result {
-            Ok((remaining, value)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, &format!("{value}x"));
-            }
-            Err(_) => trace_exit_failure("no multiplier"),
-        }
-        result
-    }
-    /// Parse the upper end of a range like "-3", "to 5", "through 10", or "or 2"
-    fn parse_range_end(self, input: &str) -> Res<&str, f64> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_range_end", input);
-
-        // Two possible formats for range syntax:
-
-        // 1. Dash syntax: space + dash + space + number
-        let dash_range = (
-            space0,                           // Optional space
-            alt((tag("-"), tag("–"))),        // Dash (including em-dash)
-            space0,                           // Optional space
-            |a| self.clone().parse_number(a), // Upper bound number
-        );
-
-        // 2. Word syntax: space + keyword + space + number
-        let word_range = (
-            space1,                                      // Required space
-            alt((tag("to"), tag("through"), tag("or"))), // Range keywords
-            space1,                                      // Required space
-            |a| self.clone().parse_number(a),            // Upper bound number
-        );
-
-        let result = context("range_end", alt((dash_range, word_range)))
-            .parse(input)
-            .map(|(next_input, (_, _, _, upper_value))| {
-                // Return just the upper value
-                (next_input, upper_value)
-            });
-
-        match &result {
-            Ok((remaining, value)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, &format!("{value}"));
-            }
-            Err(_) => trace_exit_failure("no range end"),
-        }
-        result
-    }
-    /// Parse expressions with "plus" that combine two measurements
-    ///
-    /// For example: "1 cup plus 2 tablespoons"
-    fn parse_plus_expression(self, input: &str) -> Res<&str, Measure> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-        trace_enter("parse_plus_expression", input);
-
-        // Define the structure of a plus expression
-        let plus_parser = (
-            |a| self.clone().parse_single_measurement(a), // First measurement
-            space1,                                       // Required whitespace
-            tag("plus"),                                  // The "plus" keyword
-            space1,                                       // Required whitespace
-            |a| self.clone().parse_single_measurement(a), // Second measurement
-        );
-
-        let result = context("plus_expression", plus_parser).parse(input).map(
-            |(next_input, (first_measure, _, _, _, second_measure))| {
-                // Add the two measurements together
-                match first_measure.add(second_measure) {
-                    Ok(combined) => (next_input, combined),
-                    Err(_) => {
-                        // If addition fails, just return the first measure as fallback
-                        (next_input, first_measure)
-                    }
-                }
-            },
-        );
-
-        match &result {
-            Ok((remaining, measure)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, &measure.to_string());
-            }
-            Err(_) => trace_exit_failure("no plus expression"),
-        }
-        result
+            .parse(input),
+            |s: &String| s.clone(),
+            "not an adjective"
+        )
     }
 }
