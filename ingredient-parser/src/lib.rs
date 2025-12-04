@@ -318,11 +318,15 @@ impl IngredientParser {
         }
     }
 
-    /// Parse an ingredient line item, such as `120 grams / 1 cup whole wheat flour, sifted lightly`.
+    /// Parse a complete ingredient line including amounts, name, and modifiers
     ///
-    /// returns an [Ingredient], Can be used as a wrapper to return verbose errors.
+    /// This handles formats like:
+    /// - "2 cups flour"
+    /// - "1-2 tbsp sugar, sifted"
+    /// - "3 large eggs"
+    /// - "1 cup (240ml) milk, room temperature"
     ///
-    /// supported formats include:
+    /// Supported formats include:
     /// * 1 g name
     /// * 1 g / 1g name, modifier
     /// * 1 g; 1 g name
@@ -334,31 +338,6 @@ impl IngredientParser {
     /// * 1 g name (about 1 g; 1 g)
     /// * name
     /// * 1 name
-    /// ```
-    /// use ingredient::{IngredientParser, ingredient::Ingredient, unit::Measure};
-    /// let ip = IngredientParser::new(false);
-    /// assert_eq!(
-    ///     ip.parse_ingredient("1¼  cups / 155.5 grams flour"),
-    ///     Ok((
-    ///         "",
-    ///         Ingredient {
-    ///             name: "flour".to_string(),
-    ///             amounts: vec![
-    ///                 Measure::parse_new("cups", 1.25),
-    ///                 Measure::parse_new("grams", 155.5),
-    ///             ],
-    ///             modifier: None,
-    ///         }
-    ///     ))
-    /// );
-    /// ```
-    /// Parse a complete ingredient line including amounts, name, and modifiers
-    ///
-    /// This handles formats like:
-    /// - "2 cups flour"
-    /// - "1-2 tbsp sugar, sifted"
-    /// - "3 large eggs"
-    /// - "1 cup (240ml) milk, room temperature"
     #[tracing::instrument(name = "parse_ingredient")]
     pub(crate) fn parse_ingredient(self, input: &str) -> Res<&str, Ingredient> {
         use trace::{trace_enter, trace_exit_failure, trace_exit_success};
@@ -1017,84 +996,5 @@ impl IngredientParser {
             Err(_) => trace_exit_failure("no plus expression"),
         }
         result
-    }
-}
-
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use std::convert::TryFrom;
-
-    use super::*;
-    #[test]
-    fn test_amount() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_amount("350 °").unwrap(),
-            vec![Measure::parse_new("°", 350.0)]
-        );
-        assert_eq!(
-            (IngredientParser::new(false)).parse_amount("350 °F").unwrap(),
-            vec![Measure::parse_new("°f", 350.0)]
-        );
-    }
-
-    #[test]
-    fn test_amount_range() {
-        assert_eq!(
-            (IngredientParser::new(false)).parse_amount("2¼-2.5 cups").unwrap(),
-            vec![Measure::parse_new_with_upper("cups", 2.25, 2.5)]
-        );
-
-        assert_eq!(
-            Ingredient::try_from("1-2 cups flour"),
-            Ok(Ingredient {
-                name: "flour".to_string(),
-                amounts: vec![Measure::parse_new_with_upper("cups", 1.0, 2.0)],
-                modifier: None,
-            })
-        );
-        let amounts = (IngredientParser::new(false))
-            .parse_amount("2 ¼ - 2.5 cups").unwrap();
-        assert!(!amounts.is_empty(), "Expected at least one measure");
-        assert_eq!(format!("{}", amounts[0]), "2.25 - 2.5 cups");
-        assert_eq!(
-            (IngredientParser::new(false)).parse_amount("2 to 4 days").unwrap(),
-            vec![Measure::parse_new_with_upper("days", 2.0, 4.0)]
-        );
-
-        // #30
-        assert_eq!(
-            (IngredientParser::new(false)).parse_amount("up to 4 days").unwrap(),
-            vec![Measure::parse_new_with_upper("days", 0.0, 4.0)]
-        );
-    }
-    #[test]
-    fn test_ingredient_parse() {
-        assert_eq!(
-            Ingredient::try_from("12 cups flour"),
-            Ok(Ingredient {
-                name: "flour".to_string(),
-                amounts: vec![Measure::parse_new("cups", 12.0)],
-                modifier: None,
-            })
-        );
-    }
-
-    #[test]
-    fn test_stringy() {
-        assert_eq!(
-            format!("res: {}", from_str("12 cups flour")),
-            "res: 12 cups flour"
-        );
-        assert_eq!(from_str("one whole egg").to_string(), "1 whole egg");
-        assert_eq!(from_str("a tsp flour").to_string(), "1 tsp flour");
-    }
-    #[test]
-    fn test_with_parens() {
-        assert_eq!(
-            from_str("1 cup (125.5 grams) AP flour, sifted").to_string(),
-            "1 cup / 125.5 g AP flour, sifted"
-        );
     }
 }

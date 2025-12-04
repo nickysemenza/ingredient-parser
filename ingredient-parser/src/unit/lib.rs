@@ -144,29 +144,3 @@ pub(crate) fn singular(s: &str) -> String {
     let s2 = s.to_lowercase();
     s2.strip_suffix('s').unwrap_or(&s2).to_string()
 }
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-
-    use super::*;
-    #[test]
-    fn test_is_unit() {
-        assert!(is_valid(HashSet::from([]), "oz"));
-        assert!(is_valid(HashSet::from([]), "fl oz"));
-        assert!(!is_valid(HashSet::from([]), "slice"));
-        assert!(is_valid(HashSet::from(["slice".to_string()]), "slice"),);
-        assert!(is_valid(HashSet::from([]), "TABLESPOONS"));
-        assert!(!is_valid(HashSet::from([]), "foo"));
-    }
-    #[test]
-    fn test_back_forth() {
-        assert_eq!(Unit::from_str("oz").unwrap(), Unit::Ounce);
-        assert_eq!(Unit::from_str("gram").unwrap().to_str(), "g");
-        assert_eq!(Unit::from_str("foo").unwrap().to_str(), "foo");
-        assert_eq!(
-            format!("{}", Unit::from_str("foo").unwrap()),
-            "Other(\"foo\")"
-        );
-    }
-}

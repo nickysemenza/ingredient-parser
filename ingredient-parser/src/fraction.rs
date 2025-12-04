@@ -106,12 +106,11 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-
     use nom::error::ErrorKind;
     use nom::Err as NomErr;
     use nom_language::error::{VerboseError, VerboseErrorKind};
 
-    use crate::fraction::{fraction_number, v_frac_to_num};
+    use super::{fraction_number, v_frac_to_num};
 
     #[test]
     fn test_fraction() {

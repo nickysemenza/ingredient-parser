@@ -375,7 +375,7 @@ pub fn disable_tracing(input: &str) -> ParseTrace {
 }
 
 /// Enter a parser context (if tracing is enabled)
-pub(crate) fn trace_enter(name: &str, input: &str) {
+pub fn trace_enter(name: &str, input: &str) {
     TRACE_COLLECTOR.with(|tc| {
         if let Some(ref mut collector) = *tc.borrow_mut() {
             collector.enter(name, input);
@@ -384,7 +384,7 @@ pub(crate) fn trace_enter(name: &str, input: &str) {
 }
 
 /// Exit parser context with success (if tracing is enabled)
-pub(crate) fn trace_exit_success(consumed: usize, output_preview: &str) {
+pub fn trace_exit_success(consumed: usize, output_preview: &str) {
     TRACE_COLLECTOR.with(|tc| {
         if let Some(ref mut collector) = *tc.borrow_mut() {
             collector.exit_success(consumed, output_preview);
@@ -393,7 +393,7 @@ pub(crate) fn trace_exit_success(consumed: usize, output_preview: &str) {
 }
 
 /// Exit parser context with failure (if tracing is enabled)
-pub(crate) fn trace_exit_failure(error: &str) {
+pub fn trace_exit_failure(error: &str) {
     TRACE_COLLECTOR.with(|tc| {
         if let Some(ref mut collector) = *tc.borrow_mut() {
             collector.exit_failure(error);
@@ -469,78 +469,3 @@ impl fmt::Display for ParseTrace {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_trace_node_creation() {
-        let node = TraceNode::new("test_parser", "some input text");
-        assert_eq!(node.name, "test_parser");
-        assert_eq!(node.input, "some input text");
-        assert!(matches!(node.outcome, TraceOutcome::Incomplete));
-    }
-
-    #[test]
-    fn test_trace_node_success() {
-        let mut node = TraceNode::new("test", "input");
-        node.success(5, "value: 42");
-        assert!(matches!(node.outcome, TraceOutcome::Success { .. }));
-    }
-
-    #[test]
-    fn test_trace_node_failure() {
-        let mut node = TraceNode::new("test", "input");
-        node.failure("expected number");
-        assert!(matches!(node.outcome, TraceOutcome::Failure { .. }));
-    }
-
-    #[test]
-    fn test_trace_collector() {
-        let mut collector = TraceCollector::new();
-
-        collector.enter("outer", "test input");
-        collector.enter("inner", "test input");
-        collector.exit_success(4, "parsed");
-        collector.exit_success(10, "full result");
-
-        let trace = collector.finish("test input");
-        assert_eq!(trace.root.name, "outer");
-        assert_eq!(trace.root.children.len(), 1);
-    }
-
-    #[test]
-    fn test_format_tree() {
-        let mut root = TraceNode::new("root", "input text");
-        root.success(10, "result");
-
-        let mut child = TraceNode::new("child", "input text");
-        child.failure("no match");
-        root.add_child(child);
-
-        let trace = ParseTrace {
-            input: "input text".to_string(),
-            root,
-            baseline_instant: None,
-            baseline_unix_micros: 0,
-        };
-
-        let output = trace.format_tree(false);
-        assert!(output.contains("root"));
-        assert!(output.contains("child"));
-        assert!(output.contains("✓"));
-        assert!(output.contains("✗"));
-    }
-
-    #[test]
-    fn test_thread_local_tracing() {
-        enable_tracing();
-
-        trace_enter("test", "input");
-        trace_exit_success(5, "done");
-
-        let trace = disable_tracing("input");
-        assert_eq!(trace.root.name, "test");
-    }
-}
