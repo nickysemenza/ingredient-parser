@@ -104,4 +104,64 @@ mod tests {
             "foo"
         );
     }
+
+    #[test]
+    fn test_default_fetcher() {
+        // Test that Default is implemented correctly
+        let fetcher = Fetcher::default();
+        // Default should have no cache
+        assert!(fetcher.cache.is_none());
+    }
+
+    #[test]
+    fn test_new_with_cache() {
+        let cache = HashMap::from([
+            ("url1".to_string(), "html1".to_string()),
+            ("url2".to_string(), "html2".to_string()),
+        ]);
+        let fetcher = Fetcher::new_with_cache(cache);
+        assert!(fetcher.cache.is_some());
+        assert_eq!(fetcher.cache.as_ref().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_cache_hit() {
+        let html_content = r#"<!DOCTYPE html>
+<html>
+<head>
+<script type="application/ld+json">
+{
+  "name": "Test Recipe",
+  "recipeIngredient": ["1 cup flour"],
+  "recipeInstructions": []
+}
+</script>
+</head>
+<body></body>
+</html>"#;
+
+        let fetcher = Fetcher::new_with_cache(HashMap::from([(
+            "https://example.com/recipe".to_string(),
+            html_content.to_string(),
+        )]));
+
+        // This should hit the cache and not make a network request
+        let result = fetcher.scrape_url("https://example.com/recipe").await;
+        assert!(result.is_ok());
+        let recipe = result.unwrap();
+        assert_eq!(recipe.name, "Test Recipe");
+    }
+
+    #[tokio::test]
+    async fn test_cache_miss_with_invalid_url() {
+        // Cache has a different URL, so it will miss and try to fetch
+        let fetcher = Fetcher::new_with_cache(HashMap::from([(
+            "https://other.com".to_string(),
+            "content".to_string(),
+        )]));
+
+        // This URL is not in the cache, so it will try to fetch and fail
+        let result = fetcher.scrape_url("https://doesnotresolve.com").await;
+        assert!(result.is_err());
+    }
 }

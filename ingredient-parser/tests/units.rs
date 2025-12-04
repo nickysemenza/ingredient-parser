@@ -197,3 +197,37 @@ fn test_graph_and_utilities() {
     assert_eq!(num_without_zeroes(1.01), "1.01");
     assert_eq!(num_without_zeroes(1.234), "1.23");
 }
+
+// ============================================================================
+// MeasureKind Display and to_str Tests
+// ============================================================================
+
+#[test]
+fn test_measure_kind_display_and_to_str() {
+    // Test Display trait for all MeasureKind variants
+    assert_eq!(format!("{}", MeasureKind::Weight), "Weight");
+    assert_eq!(format!("{}", MeasureKind::Volume), "Volume");
+    assert_eq!(format!("{}", MeasureKind::Money), "Money");
+    assert_eq!(format!("{}", MeasureKind::Calories), "Calories");
+    assert_eq!(format!("{}", MeasureKind::Time), "Time");
+    assert_eq!(format!("{}", MeasureKind::Temperature), "Temperature");
+    assert_eq!(format!("{}", MeasureKind::Length), "Length");
+    assert_eq!(
+        format!("{}", MeasureKind::Other("custom".to_string())),
+        "Other(\"custom\")"
+    );
+
+    // Test to_str for all MeasureKind variants
+    assert_eq!(MeasureKind::Weight.to_str(), "weight");
+    assert_eq!(MeasureKind::Volume.to_str(), "volume");
+    assert_eq!(MeasureKind::Money.to_str(), "money");
+    assert_eq!(MeasureKind::Calories.to_str(), "calories");
+    assert_eq!(MeasureKind::Time.to_str(), "time");
+    assert_eq!(MeasureKind::Temperature.to_str(), "temperature");
+    assert_eq!(MeasureKind::Length.to_str(), "length");
+    // Other falls back to "other"
+    assert_eq!(MeasureKind::Other("anything".to_string()).to_str(), "other");
+
+    // Test unit() method for Length (not covered before)
+    assert_eq!(MeasureKind::Length.unit(), Unit::Inch);
+}

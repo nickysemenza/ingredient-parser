@@ -122,7 +122,11 @@ pub fn scrape_from_ld_json(json: &str, url: &str) -> Result<ScrapedRecipe, Scrap
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use crate::{ld_json::parse_ld_json, ld_schema::InstructionWrapper};
+    use crate::{
+        ld_json::{extract_ld, normalize_ld_json, parse_ld_json, scrape_from_ld_json},
+        ld_schema::{InstructionWrapper, Root, RootRecipe},
+    };
+    use scraper::Html;
 
     #[test]
     fn json() {
@@ -145,5 +149,103 @@ mod tests {
                 recipe_instructions: InstructionWrapper::A(vec![]),
             })
         );
+    }
+
+    #[test]
+    fn test_parse_invalid_json() {
+        // Test that invalid JSON returns an error
+        let result = parse_ld_json("not valid json".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_normalize_list_root() {
+        // Test normalizing a Root::List with one recipe
+        let root = Root::List(vec![RootRecipe {
+            context: None,
+            name: "Test Recipe".to_string(),
+            image: None,
+            recipe_ingredient: vec!["1 cup flour".to_string()],
+            recipe_instructions: InstructionWrapper::A(vec![]),
+        }]);
+
+        let result = normalize_ld_json(root, "https://example.com");
+        assert!(result.is_ok());
+        let recipe = result.unwrap();
+        assert_eq!(recipe.name, "Test Recipe");
+    }
+
+    #[test]
+    fn test_normalize_empty_list() {
+        // Test normalizing an empty Root::List
+        let root = Root::List(vec![]);
+        let result = normalize_ld_json(root, "https://example.com");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_ld_no_script() {
+        // HTML without ld+json script
+        let html = Html::parse_document("<html><body>No recipe here</body></html>");
+        let result = extract_ld(html);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_ld_with_script() {
+        // HTML with ld+json script
+        let html = Html::parse_document(
+            r#"<html>
+            <head>
+                <script type="application/ld+json">{"name": "test"}</script>
+            </head>
+            <body></body>
+            </html>"#,
+        );
+        let result = extract_ld(html);
+        assert!(result.is_ok());
+        let scripts = result.unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert!(scripts[0].contains("name"));
+    }
+
+    #[test]
+    fn test_scrape_from_ld_json_valid() {
+        let json = r#"{
+            "name": "Chocolate Cake",
+            "recipeIngredient": ["2 cups flour", "1 cup sugar"],
+            "recipeInstructions": []
+        }"#;
+
+        let result = scrape_from_ld_json(json, "https://example.com/cake");
+        assert!(result.is_ok());
+        let recipe = result.unwrap();
+        assert_eq!(recipe.name, "Chocolate Cake");
+        assert_eq!(recipe.ingredients.len(), 2);
+        assert_eq!(recipe.url, "https://example.com/cake");
+    }
+
+    #[test]
+    fn test_scrape_from_ld_json_invalid() {
+        let json = "not valid json at all";
+        let result = scrape_from_ld_json(json, "https://example.com");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_instruction_wrapper_c() {
+        // Test InstructionWrapper::C (HTML string instructions)
+        let json = r#"{
+            "name": "Test",
+            "recipeIngredient": [],
+            "recipeInstructions": "<p>Step 1</p><p>Step 2</p>"
+        }"#;
+
+        let result = scrape_from_ld_json(json, "https://example.com");
+        assert!(result.is_ok());
+        let recipe = result.unwrap();
+        assert_eq!(recipe.instructions.len(), 2);
+        assert_eq!(recipe.instructions[0], "Step 1");
+        assert_eq!(recipe.instructions[1], "Step 2");
     }
 }

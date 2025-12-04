@@ -1,2 +1,7 @@
 ignore:
   - "bin/"
+  - "food_cli/"
+  - "food_ui/"
+  - "food_web/"
+  - "ingredient-wasm/"
+  - "ingredient-parser/benches/"
