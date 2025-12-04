@@ -33,7 +33,7 @@ pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> 
     let ings2: Vec<String> = ings.into_serde().unwrap();
     let rtp = RichParser {
         ingredient_names: ings2,
-        ip: IngredientParser::new(true),
+        ip: IngredientParser::new().with_rich_text(),
     };
     match rtp.parse(r.as_str()) {
         Ok(r) => Ok(JsValue::from_serde(&r).unwrap().into()),

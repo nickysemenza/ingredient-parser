@@ -32,7 +32,7 @@
 //! ```
 //! use ingredient::IngredientParser;
 //!
-//! let parser = IngredientParser::new(false);
+//! let parser = IngredientParser::new();
 //! let ingredient = parser.from_str("1¼ cups / 155.5g flour");
 //! assert_eq!(ingredient.amounts.len(), 2); // Multiple units parsed
 //! ```
@@ -101,7 +101,7 @@ pub mod util;
 ///
 /// Use [`IngredientParser`] directly for more control over parsing behavior.
 pub fn from_str(input: &str) -> Ingredient {
-    IngredientParser::new(false).from_str(input)
+    IngredientParser::new().from_str(input)
 }
 
 /// Customizable ingredient parser with configurable units and adjectives
@@ -110,45 +110,34 @@ pub fn from_str(input: &str) -> Ingredient {
 /// during parsing. It also supports rich text mode for handling special Unicode
 /// characters like fractions (½, ¼, etc.).
 ///
-/// # Fields
-///
-/// * `units` - Set of recognized measurement units (e.g. "cups", "grams", "tbsp")
-/// * `adjectives` - Set of recognized adjectives that get moved to the modifier field
-/// * `is_rich_text` - Whether to parse rich text characters (Unicode fractions, etc.)
-///
 /// # Examples
 ///
 /// ```
 /// use ingredient::IngredientParser;
-/// use std::collections::HashSet;
 ///
 /// // Create parser with custom units
-/// let mut parser = IngredientParser::new(false);
-/// parser.units.insert("handfuls".to_string());
+/// let parser = IngredientParser::new()
+///     .with_units(&["handful", "handfuls"]);
 ///
 /// let ingredient = parser.from_str("2 handfuls of nuts");
 /// assert_eq!(ingredient.name, "nuts");
 ///
 /// // Rich text mode handles Unicode fractions
-/// let rich_parser = IngredientParser::new(true);
+/// let rich_parser = IngredientParser::new().with_rich_text();
 /// let ingredient = rich_parser.from_str("½ cup sugar");
 /// // Parser handles the ½ character directly
 /// ```
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct IngredientParser {
     /// Set of recognized measurement units
-    pub units: HashSet<String>,
+    units: HashSet<String>,
     /// Set of recognized adjectives that get moved to modifier field
-    pub adjectives: HashSet<String>,
+    adjectives: HashSet<String>,
     /// Whether to parse rich text characters (Unicode fractions, etc.)
-    pub is_rich_text: bool,
+    is_rich_text: bool,
 }
 impl IngredientParser {
     /// Create a new ingredient parser with default units and adjectives
-    ///
-    /// # Arguments
-    ///
-    /// * `is_rich_text` - Whether to enable rich text parsing for Unicode characters
     ///
     /// # Returns
     ///
@@ -161,12 +150,16 @@ impl IngredientParser {
     /// use ingredient::IngredientParser;
     ///
     /// // Standard parser
-    /// let parser = IngredientParser::new(false);
+    /// let parser = IngredientParser::new();
     ///
     /// // Rich text parser (handles ½, ¼, etc.)
-    /// let rich_parser = IngredientParser::new(true);
+    /// let rich_parser = IngredientParser::new().with_rich_text();
+    ///
+    /// // With custom units
+    /// let parser = IngredientParser::new()
+    ///     .with_units(&["sprig", "sprigs"]);
     /// ```
-    pub fn new(is_rich_text: bool) -> Self {
+    pub fn new() -> Self {
         let units: Vec<String> = vec![
             // Non-standard units that aren't really convertible for the most part.
             // Note: "whole" is NOT included here because it's a built-in Unit::Whole.
@@ -197,9 +190,70 @@ impl IngredientParser {
         IngredientParser {
             units: HashSet::from_iter(units.iter().cloned()),
             adjectives: HashSet::from_iter(adjectives.iter().cloned()),
-            is_rich_text,
+            is_rich_text: false,
         }
     }
+
+    /// Enable rich text parsing for Unicode characters (chainable)
+    ///
+    /// When enabled, the parser handles Unicode fractions like ½, ¼, ¾, etc.
+    ///
+    /// # Example
+    /// ```
+    /// use ingredient::IngredientParser;
+    ///
+    /// let parser = IngredientParser::new().with_rich_text();
+    /// let ingredient = parser.from_str("½ cup sugar");
+    /// // Parser handles the ½ character directly
+    /// ```
+    pub fn with_rich_text(mut self) -> Self {
+        self.is_rich_text = true;
+        self
+    }
+
+    /// Add custom units to the parser (chainable)
+    ///
+    /// Note: You should add both singular and plural forms if applicable.
+    ///
+    /// # Example
+    /// ```
+    /// use ingredient::IngredientParser;
+    ///
+    /// let parser = IngredientParser::new()
+    ///     .with_units(&["sprig", "sprigs"]);
+    ///
+    /// let ingredient = parser.from_str("3 sprigs thyme");
+    /// assert_eq!(ingredient.name, "thyme");
+    /// ```
+    pub fn with_units(mut self, units: &[&str]) -> Self {
+        for unit in units {
+            self.units.insert((*unit).to_string());
+        }
+        self
+    }
+
+    /// Add custom adjectives to the parser (chainable)
+    ///
+    /// Adjectives are extracted from ingredient names and moved to the modifier field.
+    ///
+    /// # Example
+    /// ```
+    /// use ingredient::IngredientParser;
+    ///
+    /// let parser = IngredientParser::new()
+    ///     .with_adjectives(&["roughly chopped", "finely diced"]);
+    ///
+    /// let ingredient = parser.from_str("1 cup roughly chopped onion");
+    /// assert_eq!(ingredient.name, "onion");
+    /// assert_eq!(ingredient.modifier, Some("roughly chopped".to_string()));
+    /// ```
+    pub fn with_adjectives(mut self, adjectives: &[&str]) -> Self {
+        for adjective in adjectives {
+            self.adjectives.insert((*adjective).to_string());
+        }
+        self
+    }
+
     /// wrapper for [self.parse_ingredient]
     /// ```
     /// use ingredient::{from_str};
@@ -208,7 +262,7 @@ impl IngredientParser {
     /// Parse an ingredient string into an Ingredient object
     ///
     /// This method never panics and provides fallback behavior for unparseable input
-    pub fn from_str(self, input: &str) -> Ingredient {
+    pub fn from_str(&self, input: &str) -> Ingredient {
         match self.parse_ingredient(input) {
             Ok((_, ingredient)) => ingredient,
             Err(_) => {
@@ -243,7 +297,7 @@ impl IngredientParser {
     /// ```
     /// use ingredient::IngredientParser;
     ///
-    /// let parser = IngredientParser::new(false);
+    /// let parser = IngredientParser::new();
     /// let result = parser.parse_with_trace("2 cups flour");
     ///
     /// // Print the trace tree
@@ -254,7 +308,7 @@ impl IngredientParser {
     ///     println!("Parsed: {}", ingredient.name);
     /// }
     /// ```
-    pub fn parse_with_trace(self, input: &str) -> trace::ParseWithTrace<Ingredient> {
+    pub fn parse_with_trace(&self, input: &str) -> trace::ParseWithTrace<Ingredient> {
         use trace::{disable_tracing, enable_tracing};
 
         // Enable trace collection
@@ -275,7 +329,7 @@ impl IngredientParser {
     /// Parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`. Used by [self.parse_ingredient].
     /// ```
     /// use ingredient::{IngredientParser,unit::Measure};
-    /// let ip = IngredientParser::new(false);
+    /// let ip = IngredientParser::new();
     /// assert_eq!(
     ///    ip.parse_amount("120 grams").unwrap(),
     ///    vec![Measure::new("grams",120.0)]
@@ -371,18 +425,28 @@ impl IngredientParser {
                     .to_string();
 
                 // Extract any adjectives from the name and move them to modifiers
-                // Collect found adjectives first to avoid repeated string allocations
-                let found_adjectives: Vec<&String> = self
+                // Sort by length descending to match longer adjectives first
+                // (e.g., "thinly sliced" before "sliced")
+                let mut found_adjectives: Vec<&String> = self
                     .adjectives
                     .iter()
                     .filter(|adj| name.contains(adj.as_str()))
                     .collect();
+                found_adjectives.sort_by_key(|a| std::cmp::Reverse(a.len()));
 
                 for adj in found_adjectives {
-                    modifiers.push_str(adj);
-                    name = name.replace(adj.as_str(), "");
+                    // Only extract if the adjective is still in the name
+                    // (it may have been removed as part of a longer adjective)
+                    if name.contains(adj.as_str()) {
+                        if !modifiers.is_empty() {
+                            modifiers.push_str(", ");
+                        }
+                        modifiers.push_str(adj);
+                        name = name.replace(adj.as_str(), " ");
+                    }
                 }
-                let name = name.trim_matches(' ').to_string();
+                // Clean up multiple spaces
+                let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
 
                 // Combine all measurements
                 let amounts = match (primary_amounts, paren_amounts) {

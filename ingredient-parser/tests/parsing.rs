@@ -97,10 +97,32 @@ fn test_ingredient_parsing() {
         case("1 large egg", "egg", &[("large", 1.0)], None),
         case("2 medium onions", "onions", &[("medium", 2.0)], None),
         case("3 small potatoes", "potatoes", &[("small", 3.0)], None),
+        // Parenthesized amounts after name
+        case("butter (2 sticks), melted", "butter", &[("sticks", 2.0)], Some("melted")),
+        case("sugar (1 cup / 200g)", "sugar", &[("cup", 1.0), ("g", 200.0)], None),
+        // Adjective in middle of name gets extracted
+        case("2 cups freshly grated parmesan", "parmesan", &[("cups", 2.0)], Some("freshly grated")),
+        case("1 lb thinly sliced beef", "beef", &[("lb", 1.0)], Some("thinly sliced")),
+        case("1 cup sliced almonds", "almonds", &[("cup", 1.0)], Some("sliced")),
+        // Multiple adjectives get comma-separated
+        case("1 cup chopped minced onion", "onion", &[("cup", 1.0)], Some("chopped, minced")),
+        // Fallback behavior - unparseable keeps input as name
+        case("mystery ingredient xyz", "mystery ingredient xyz", &[], None),
+        // Em-dash in ranges
+        ("1–2 cups flour", Ingredient::new("flour", vec![Measure::with_range("cups", 1.0, 2.0)], None)),
+        // Semicolon separator
+        case("1 cup; 240 ml water", "water", &[("cup", 1.0), ("ml", 240.0)], None),
+        // Comma separator in amounts
+        case("1 packet, about 2 tsp yeast", "yeast", &[("packet", 1.0), ("tsp", 2.0)], None),
+        // Very small amounts
+        case("0.25 tsp salt", "salt", &[("tsp", 0.25)], None),
+        case("1/8 tsp pepper", "pepper", &[("tsp", 0.125)], None),
+        // Large amounts
+        case("1000 grams flour", "flour", &[("grams", 1000.0)], None),
     ];
 
     for (input, expected) in test_cases {
-        let result = IngredientParser::new(false).from_str(input);
+        let result = IngredientParser::new().from_str(input);
         assert_eq!(result, expected, "Failed to parse: {input}");
     }
 }
@@ -139,13 +161,50 @@ fn test_parsing_equivalence() {
         ("2 TBSP sugar", "2 tbsp sugar"),
     ];
 
+    let parser = IngredientParser::new();
     for (left, right) in equivalent_pairs {
         assert_eq!(
-            IngredientParser::new(false).from_str(left),
-            IngredientParser::new(false).from_str(right),
+            parser.from_str(left),
+            parser.from_str(right),
             "Expected '{left}' == '{right}'"
         );
     }
+}
+
+#[test]
+fn test_custom_units() {
+    // Must add both singular and plural forms
+    let parser = IngredientParser::new()
+        .with_units(&["handful", "handfuls", "sprig", "sprigs", "knob"]);
+
+    // Custom units should be recognized
+    assert_eq!(
+        parser.from_str("2 handfuls spinach"),
+        Ingredient::new("spinach", vec![Measure::new("handfuls", 2.0)], None)
+    );
+    assert_eq!(
+        parser.from_str("3 sprigs thyme"),
+        Ingredient::new("thyme", vec![Measure::new("sprigs", 3.0)], None)
+    );
+    assert_eq!(
+        parser.from_str("1 knob ginger"),
+        Ingredient::new("ginger", vec![Measure::new("knob", 1.0)], None)
+    );
+}
+
+#[test]
+fn test_custom_adjectives() {
+    let parser = IngredientParser::new()
+        .with_adjectives(&["roughly chopped", "finely diced"]);
+
+    assert_eq!(
+        parser.from_str("1 cup roughly chopped onion"),
+        Ingredient::new("onion", vec![Measure::new("cup", 1.0)], Some("roughly chopped"))
+    );
+    assert_eq!(
+        parser.from_str("2 cups finely diced tomatoes"),
+        Ingredient::new("tomatoes", vec![Measure::new("cups", 2.0)], Some("finely diced"))
+    );
 }
 
 // ============================================================================
@@ -154,7 +213,7 @@ fn test_parsing_equivalence() {
 
 #[test]
 fn test_amount_parsing() {
-    let parser = IngredientParser::new(false);
+    let parser = IngredientParser::new();
 
     #[rustfmt::skip]
     let test_cases: Vec<(&str, Vec<Measure>)> = vec![
@@ -236,7 +295,7 @@ fn test_display_formatting() {
 fn parse_rich(input: &str, ingredient_names: &[&str]) -> Vec<Chunk> {
     RichParser {
         ingredient_names: ingredient_names.iter().map(|s| s.to_string()).collect(),
-        ip: IngredientParser::new(true),
+        ip: IngredientParser::new().with_rich_text(),
     }
     .parse(input)
     .unwrap()

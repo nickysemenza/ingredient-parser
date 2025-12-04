@@ -73,7 +73,7 @@ fn text2(input: &str) -> Res<&str, String> {
 /// assert_eq!(
 /// (RichParser {
 /// ingredient_names: vec![],
-/// ip: IngredientParser::new(true),
+/// ip: IngredientParser::new().with_rich_text(),
 /// }).parse("hello 1 cups foo bar").unwrap(),
 /// vec![
 ///     Chunk::Text("hello ".to_string()),

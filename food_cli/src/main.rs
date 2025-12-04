@@ -61,7 +61,7 @@ async fn main() {
         } => {
             if *debug || jaeger_output.is_some() {
                 // Use parse_with_trace for debug output or Jaeger export
-                let parser = ingredient::IngredientParser::new(false);
+                let parser = ingredient::IngredientParser::new();
                 let result = parser.parse_with_trace(name);
 
                 // Export to Jaeger JSON if requested

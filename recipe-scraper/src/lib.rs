@@ -45,16 +45,16 @@ pub struct ParsedRecipe {
 }
 impl ScrapedRecipe {
     pub fn parse(&self) -> ParsedRecipe {
-        let ip = IngredientParser::new(false);
+        let ip = IngredientParser::new();
         let ingredients = self
             .ingredients
             .iter()
-            .map(|i| ip.clone().from_str(i))
+            .map(|i| ip.from_str(i))
             .collect::<Vec<_>>();
         let names = ingredients.iter().map(|i| i.name.clone()).collect();
         let rtp = RichParser {
             ingredient_names: names,
-            ip: IngredientParser::new(true),
+            ip: IngredientParser::new().with_rich_text(),
         };
         let parsed_instructions = self
             .instructions

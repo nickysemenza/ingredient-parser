@@ -8,7 +8,7 @@
 //! ```
 //! use ingredient::IngredientParser;
 //!
-//! let parser = IngredientParser::new(false);
+//! let parser = IngredientParser::new();
 //! let result = parser.parse_with_trace("2 cups flour");
 //! println!("{}", result.trace.format_tree(true));
 //! ```
