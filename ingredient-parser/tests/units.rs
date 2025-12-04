@@ -2,8 +2,6 @@
 
 #![allow(clippy::unwrap_used)]
 
-mod common;
-
 use std::collections::HashSet;
 use std::str::FromStr;
 
@@ -11,57 +9,44 @@ use ingredient::unit::{is_valid, make_graph, print_graph, Measure, MeasureKind, 
 use ingredient::util::num_without_zeroes;
 
 // ============================================================================
-// MeasureKind Tests
+// Unit and MeasureKind Tests
 // ============================================================================
 
 #[test]
-fn test_kind() {
-    assert_eq!(
-        Unit::from_str("g").unwrap(),
-        MeasureKind::from_str("weight").unwrap().unit()
-    );
-    assert_eq!(
-        Unit::from_str("ml").unwrap(),
-        MeasureKind::from_str("volume").unwrap().unit()
-    );
-    assert_eq!(
-        Unit::from_str("cent").unwrap(),
-        MeasureKind::from_str("money").unwrap().unit()
-    );
-    assert_eq!(
-        Unit::from_str("cal").unwrap(),
-        MeasureKind::from_str("calories").unwrap().unit()
-    );
-    assert_eq!(
-        Unit::from_str("second").unwrap(),
-        MeasureKind::from_str("time").unwrap().unit()
-    );
-    assert_eq!(
-        Unit::from_str("°").unwrap(),
-        MeasureKind::from_str("temperature").unwrap().unit()
-    );
+fn test_unit_and_kind() {
+    // MeasureKind to Unit mapping
+    let kind_unit_pairs: Vec<(&str, &str)> = vec![
+        ("weight", "g"),
+        ("volume", "ml"),
+        ("money", "cent"),
+        ("calories", "cal"),
+        ("time", "second"),
+        ("temperature", "°"),
+    ];
+
+    for (kind_str, unit_str) in kind_unit_pairs {
+        assert_eq!(
+            Unit::from_str(unit_str).unwrap(),
+            MeasureKind::from_str(kind_str).unwrap().unit(),
+            "Kind '{kind_str}' should map to unit '{unit_str}'"
+        );
+    }
+
+    // Custom/Other kind
     assert_eq!(
         Unit::from_str("foo").unwrap().normalize(),
         MeasureKind::from_str("foo").unwrap().unit()
     );
-}
 
-// ============================================================================
-// Unit Validation Tests
-// ============================================================================
-
-#[test]
-fn test_is_unit() {
+    // Unit validation
     assert!(is_valid(&HashSet::from([]), "oz"));
     assert!(is_valid(&HashSet::from([]), "fl oz"));
     assert!(!is_valid(&HashSet::from([]), "slice"));
     assert!(is_valid(&HashSet::from(["slice".to_string()]), "slice"));
     assert!(is_valid(&HashSet::from([]), "TABLESPOONS"));
     assert!(!is_valid(&HashSet::from([]), "foo"));
-}
 
-#[test]
-fn test_back_forth() {
+    // Unit roundtrip (from_str -> to_str)
     assert_eq!(Unit::from_str("oz").unwrap(), Unit::Ounce);
     assert_eq!(Unit::from_str("gram").unwrap().to_str(), "g");
     assert_eq!(Unit::from_str("foo").unwrap().to_str(), "foo");
@@ -76,29 +61,23 @@ fn test_back_forth() {
 // ============================================================================
 
 #[test]
-fn test_convert() {
+fn test_measure_conversions() {
+    // Basic conversion
     let m = Measure::new("tbsp", 1.0);
-    let tbsp_dollars = (
-        Measure::new("tbsp", 2.0),
-        Measure::new("dollars", 4.0),
-    );
+    let tbsp_dollars = (Measure::new("tbsp", 2.0), Measure::new("dollars", 4.0));
     assert_eq!(
         Measure::new("dollars", 2.0),
         m.convert_measure_via_mappings(MeasureKind::Money, vec![tbsp_dollars.clone()])
             .unwrap()
     );
 
+    // Conversion to incompatible kind fails
     assert!(m
         .convert_measure_via_mappings(MeasureKind::Volume, vec![tbsp_dollars])
         .is_none());
-}
 
-#[test]
-fn test_convert_lb() {
-    let grams_dollars = (
-        Measure::new("gram", 1.0),
-        Measure::new("dollar", 1.0),
-    );
+    // Weight conversions (lb, oz, g)
+    let grams_dollars = (Measure::new("gram", 1.0), Measure::new("dollar", 1.0));
     assert_eq!(
         Measure::new("dollars", 2.0),
         Measure::new("grams", 2.0)
@@ -123,56 +102,38 @@ fn test_convert_lb() {
             .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars])
             .unwrap()
     );
-}
 
-#[test]
-fn test_convert_other() {
+    // Custom unit (whole) conversion
     assert_eq!(
         Measure::new("cents", 10.0).denormalize(),
         Measure::new("whole", 1.0)
             .convert_measure_via_mappings(
                 MeasureKind::Money,
-                vec![(
-                    Measure::new("whole", 12.0),
-                    Measure::new("dollar", 1.20),
-                )]
+                vec![(Measure::new("whole", 12.0), Measure::new("dollar", 1.20))]
             )
             .unwrap()
     );
-}
 
-#[test]
-fn test_convert_range() {
+    // Range conversion
     assert_eq!(
         Measure::with_range("dollars", 5.0, 10.0),
         Measure::with_range("whole", 1.0, 2.0)
             .convert_measure_via_mappings(
                 MeasureKind::Money,
-                vec![(
-                    Measure::new("whole", 4.0),
-                    Measure::new("dollar", 20.0)
-                )]
+                vec![(Measure::new("whole", 4.0), Measure::new("dollar", 20.0))]
             )
             .unwrap()
     );
-}
 
-#[test]
-fn test_convert_transitive() {
+    // Transitive conversions (A -> B -> C)
     assert_eq!(
         Measure::new("cent", 1.0).denormalize(),
         Measure::new("grams", 1.0)
             .convert_measure_via_mappings(
                 MeasureKind::Money,
                 vec![
-                    (
-                        Measure::new("cent", 1.0),
-                        Measure::new("tsp", 1.0)
-                    ),
-                    (
-                        Measure::new("grams", 1.0),
-                        Measure::new("tsp", 1.0)
-                    ),
+                    (Measure::new("cent", 1.0), Measure::new("tsp", 1.0)),
+                    (Measure::new("grams", 1.0), Measure::new("tsp", 1.0)),
                 ]
             )
             .unwrap()
@@ -183,36 +144,22 @@ fn test_convert_transitive() {
             .convert_measure_via_mappings(
                 MeasureKind::Money,
                 vec![
-                    (
-                        Measure::new("dollar", 1.0),
-                        Measure::new("cup", 1.0)
-                    ),
-                    (
-                        Measure::new("grams", 1.0),
-                        Measure::new("cup", 1.0)
-                    ),
+                    (Measure::new("dollar", 1.0), Measure::new("cup", 1.0)),
+                    (Measure::new("grams", 1.0), Measure::new("cup", 1.0)),
                 ]
             )
             .unwrap()
     );
-}
 
-#[test]
-fn test_convert_kcal() {
+    // Calorie conversion
     assert_eq!(
         Measure::new("kcal", 200.0),
         Measure::new("g", 100.0)
             .convert_measure_via_mappings(
                 MeasureKind::Calories,
                 vec![
-                    (
-                        Measure::new("cups", 20.0),
-                        Measure::new("grams", 40.0),
-                    ),
-                    (
-                        Measure::new("grams", 20.0),
-                        Measure::new("kcal", 40.0),
-                    )
+                    (Measure::new("cups", 20.0), Measure::new("grams", 40.0)),
+                    (Measure::new("grams", 20.0), Measure::new("kcal", 40.0)),
                 ]
             )
             .unwrap()
@@ -220,20 +167,15 @@ fn test_convert_kcal() {
 }
 
 // ============================================================================
-// Graph Tests
+// Graph and Utility Tests
 // ============================================================================
 
 #[test]
-fn test_print_graph() {
+fn test_graph_and_utilities() {
+    // Graph creation and printing
     let g = make_graph(vec![
-        (
-            Measure::new("tbsp", 1.0),
-            Measure::new("dollar", 30.0),
-        ),
-        (
-            Measure::new("tsp", 1.0),
-            Measure::new("gram", 1.0),
-        ),
+        (Measure::new("tbsp", 1.0), Measure::new("dollar", 30.0)),
+        (Measure::new("tsp", 1.0), Measure::new("gram", 1.0)),
     ]);
     assert_eq!(
         print_graph(g),
@@ -248,14 +190,8 @@ fn test_print_graph() {
 }
 "#
     );
-}
 
-// ============================================================================
-// Utility Tests
-// ============================================================================
-
-#[test]
-fn test_num_without_zeroes() {
+    // num_without_zeroes utility
     assert_eq!(num_without_zeroes(1.0), "1");
     assert_eq!(num_without_zeroes(1.1), "1.1");
     assert_eq!(num_without_zeroes(1.01), "1.01");

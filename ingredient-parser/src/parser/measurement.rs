@@ -5,6 +5,8 @@
 
 use std::collections::HashSet;
 
+#[allow(deprecated)]
+use nom::sequence::tuple;
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -16,8 +18,6 @@ use nom::{
     sequence::delimited,
     Parser,
 };
-#[allow(deprecated)]
-use nom::sequence::tuple;
 use tracing::info;
 
 use crate::fraction::fraction_number;
@@ -45,7 +45,10 @@ pub(crate) struct MeasurementParser<'a> {
 impl<'a> MeasurementParser<'a> {
     /// Create a new measurement parser with the given configuration
     pub fn new(units: &'a HashSet<String>, is_rich_text: bool) -> Self {
-        Self { units, is_rich_text }
+        Self {
+            units,
+            is_rich_text,
+        }
     }
 
     /// Parse a list of measurements with different separators
@@ -104,9 +107,19 @@ impl<'a> MeasurementParser<'a> {
             .parse(input)
             .map(|(next_input, measures_list)| {
                 // Flatten nested Vec<Vec<Measure>> into Vec<Measure>
-                (next_input, measures_list.into_iter().flatten().collect::<Vec<Measure>>())
+                (
+                    next_input,
+                    measures_list
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<Measure>>(),
+                )
             }),
-            |measures: &Vec<Measure>| measures.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(", "),
+            |measures: &Vec<Measure>| measures
+                .iter()
+                .map(|m| m.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
             "no measurements found"
         )
     }
@@ -116,12 +129,12 @@ impl<'a> MeasurementParser<'a> {
     fn parse_single_measurement<'b>(&self, input: &'b str) -> Res<&'b str, Measure> {
         // Define the structure of a basic measurement
         let measurement_parser = (
-            opt(tag("about ")),                  // Optional "about" prefix for estimates
-            opt(|a| self.parse_multiplier(a)),   // Optional multiplier (e.g., "2 x")
-            |a| self.get_value(a),               // The numeric value
-            space0,                              // Optional whitespace
-            opt(|a| self.unit(a)),               // Optional unit of measure
-            optional_period_or_of,               // Optional trailing period or "of"
+            opt(tag("about ")),                // Optional "about" prefix for estimates
+            opt(|a| self.parse_multiplier(a)), // Optional multiplier (e.g., "2 x")
+            |a| self.get_value(a),             // The numeric value
+            space0,                            // Optional whitespace
+            opt(|a| self.unit(a)),             // Optional unit of measure
+            optional_period_or_of,             // Optional trailing period or "of"
         );
 
         traced_parser!(
@@ -139,7 +152,9 @@ impl<'a> MeasurementParser<'a> {
                     };
 
                     // Default to "whole" unit if none specified
-                    let final_unit = unit.unwrap_or_else(|| DEFAULT_UNIT.to_string()).to_lowercase();
+                    let final_unit = unit
+                        .unwrap_or_else(|| DEFAULT_UNIT.to_string())
+                        .to_lowercase();
 
                     // Create the measurement
                     (
@@ -168,23 +183,23 @@ impl<'a> MeasurementParser<'a> {
                     space0(a) // Normal mode allows optional space
                 }
             },
-            |a| self.unit_extra(a),           // Parse the unit
-            optional_period_or_of,            // Optional period or "of"
-            space1,                           // Required space after unit
+            |a| self.unit_extra(a), // Parse the unit
+            optional_period_or_of,  // Optional period or "of"
+            space1,                 // Required space after unit
         );
 
         traced_parser!(
             "parse_unit_only",
             input,
-            context("unit_only", unit_only_format)
-                .parse(input)
-                .map(|(next_input, (_, unit, _, _))| {
+            context("unit_only", unit_only_format).parse(input).map(
+                |(next_input, (_, unit, _, _))| {
                     // Create a measure with value 1.0 and the parsed unit
                     (
                         next_input,
                         Measure::from_parts(unit.to_lowercase().as_ref(), 1.0, None),
                     )
-                }),
+                }
+            ),
             |m: &Measure| m.to_string(),
             "no unit-only"
         )
@@ -194,13 +209,13 @@ impl<'a> MeasurementParser<'a> {
     fn parse_range_with_units<'b>(&self, input: &'b str) -> Res<&'b str, Option<Measure>> {
         // Format for a measurement with a range
         let range_format = (
-            opt(tag("about ")),               // Optional "about" for estimates
-            |a| self.get_value(a),            // The lower value
-            space0,                           // Optional whitespace
-            opt(|a| self.unit(a)),            // Optional unit for lower value
-            |a| self.parse_range_end(a),      // The upper range value
-            opt(|a| self.unit(a)),            // Optional unit for upper value
-            optional_period_or_of,            // Optional period or "of"
+            opt(tag("about ")),          // Optional "about" for estimates
+            |a| self.get_value(a),       // The lower value
+            space0,                      // Optional whitespace
+            opt(|a| self.unit(a)),       // Optional unit for lower value
+            |a| self.parse_range_end(a), // The upper range value
+            opt(|a| self.unit(a)),       // Optional unit for upper value
+            optional_period_or_of,       // Optional period or "of"
         );
 
         traced_parser!(
@@ -234,7 +249,10 @@ impl<'a> MeasurementParser<'a> {
                         )),
                     )
                 }),
-            |opt_m: &Option<Measure>| opt_m.as_ref().map(|m| m.to_string()).unwrap_or_else(|| "unit mismatch".to_string()),
+            |opt_m: &Option<Measure>| opt_m
+                .as_ref()
+                .map(|m| m.to_string())
+                .unwrap_or_else(|| "unit mismatch".to_string()),
             "no range"
         )
     }
@@ -247,13 +265,17 @@ impl<'a> MeasurementParser<'a> {
             context(
                 "parenthesized_amounts",
                 delimited(
-                    char('('),                         // Opening parenthesis
+                    char('('),                          // Opening parenthesis
                     |a| self.parse_measurement_list(a), // Parse measurements inside parentheses
-                    char(')'),                         // Closing parenthesis
+                    char(')'),                          // Closing parenthesis
                 ),
             )
             .parse(input),
-            |measures: &Vec<Measure>| measures.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(", "),
+            |measures: &Vec<Measure>| measures
+                .iter()
+                .map(|m| m.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
             "no parenthesized amounts"
         )
     }
@@ -313,7 +335,10 @@ impl<'a> MeasurementParser<'a> {
     }
 
     /// Parse a single value possibly followed by a range
-    fn parse_value_with_optional_range<'b>(&self, input: &'b str) -> Res<&'b str, (f64, Option<f64>)> {
+    fn parse_value_with_optional_range<'b>(
+        &self,
+        input: &'b str,
+    ) -> Res<&'b str, (f64, Option<f64>)> {
         // Format: numeric value + optional range
         let format = (
             |a| self.parse_number(a),         // The main value

@@ -39,8 +39,8 @@
 
 use std::collections::HashSet;
 
-pub use crate::ingredient::Ingredient;
 pub use crate::error::{IngredientError, IngredientResult};
+pub use crate::ingredient::Ingredient;
 #[allow(deprecated)]
 use nom::{
     bytes::complete::tag,
@@ -50,15 +50,15 @@ use nom::{
     multi::many1,
     Parser,
 };
-use unit::Measure;
 use parser::{text, unitamt, MeasurementParser, Res};
+use unit::Measure;
 
 #[cfg(feature = "serde-derive")]
 #[macro_use]
 extern crate serde;
 
-mod fraction;
 pub mod error;
+mod fraction;
 pub mod ingredient;
 pub mod parser;
 pub mod rich_text;
@@ -70,65 +70,65 @@ pub mod util;
 ///
 /// This is the simplest way to parse an ingredient string. It uses default
 /// units and adjectives, and handles most common ingredient formats gracefully.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `input` - The ingredient string to parse (e.g. "2 cups flour, sifted")
-/// 
+///
 /// # Returns
-/// 
+///
 /// An [`Ingredient`] struct containing the parsed name, amounts, and modifier.
 /// If parsing fails completely, returns an ingredient with just the input as the name.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```
 /// use ingredient::from_str;
-/// 
+///
 /// let ingredient = from_str("2 cups all-purpose flour, sifted");
 /// assert_eq!(ingredient.name, "all-purpose flour");
 /// assert_eq!(ingredient.amounts.len(), 1);
 /// assert_eq!(ingredient.modifier, Some("sifted".to_string()));
-/// 
+///
 /// // Handles fractions and multiple units
 /// let ingredient = from_str("1¼ cups / 155.5g flour");
 /// assert_eq!(ingredient.amounts.len(), 2);
-/// 
+///
 /// // Gracefully handles unparseable input
 /// let ingredient = from_str("some weird ingredient");
 /// assert_eq!(ingredient.name, "some weird ingredient");
 /// ```
-/// 
+///
 /// Use [`IngredientParser`] directly for more control over parsing behavior.
 pub fn from_str(input: &str) -> Ingredient {
     IngredientParser::new(false).from_str(input)
 }
 
 /// Customizable ingredient parser with configurable units and adjectives
-/// 
+///
 /// This parser allows you to customize which units and adjectives are recognized
 /// during parsing. It also supports rich text mode for handling special Unicode
 /// characters like fractions (½, ¼, etc.).
-/// 
+///
 /// # Fields
-/// 
+///
 /// * `units` - Set of recognized measurement units (e.g. "cups", "grams", "tbsp")
 /// * `adjectives` - Set of recognized adjectives that get moved to the modifier field
 /// * `is_rich_text` - Whether to parse rich text characters (Unicode fractions, etc.)
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```
 /// use ingredient::IngredientParser;
 /// use std::collections::HashSet;
-/// 
+///
 /// // Create parser with custom units
 /// let mut parser = IngredientParser::new(false);
 /// parser.units.insert("handfuls".to_string());
-/// 
+///
 /// let ingredient = parser.from_str("2 handfuls of nuts");
 /// assert_eq!(ingredient.name, "nuts");
-/// 
+///
 /// // Rich text mode handles Unicode fractions
 /// let rich_parser = IngredientParser::new(true);
 /// let ingredient = rich_parser.from_str("½ cup sugar");
@@ -145,24 +145,24 @@ pub struct IngredientParser {
 }
 impl IngredientParser {
     /// Create a new ingredient parser with default units and adjectives
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `is_rich_text` - Whether to enable rich text parsing for Unicode characters
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A new `IngredientParser` with sensible defaults for common cooking units
     /// and adjectives like "chopped", "minced", "sifted", etc.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use ingredient::IngredientParser;
-    /// 
+    ///
     /// // Standard parser
     /// let parser = IngredientParser::new(false);
-    /// 
+    ///
     /// // Rich text parser (handles ½, ¼, etc.)
     /// let rich_parser = IngredientParser::new(true);
     /// ```
@@ -172,9 +172,9 @@ impl IngredientParser {
             // Note: "whole" is NOT included here because it's a built-in Unit::Whole.
             // Including it here would cause unit_extra() to incorrectly parse "whole wheat flour"
             // as having unit "whole" instead of treating "whole wheat" as part of the name.
-            "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large",
-            "pinch", "small", "medium", "package", "recipe", "slice", "standard", "can", "leaf",
-            "leaves", "strand", "tin",
+            "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large", "pinch",
+            "small", "medium", "package", "recipe", "slice", "standard", "can", "leaf", "leaves",
+            "strand", "tin",
         ]
         .iter()
         .map(|&s| s.into())
@@ -350,9 +350,11 @@ impl IngredientParser {
             not_line_ending,
         );
 
-        let result = context("ingredient", ingredient_format)
-            .parse(input)
-            .map(|(next_input, (primary_amounts, _, adjective, name_chunks, paren_amounts, _, modifier_text))| {
+        let result = context("ingredient", ingredient_format).parse(input).map(
+            |(
+                next_input,
+                (primary_amounts, _, adjective, name_chunks, paren_amounts, _, modifier_text),
+            )| {
                 // Start with modifier from the trailing text
                 let mut modifiers: String = modifier_text.to_owned();
 
@@ -370,7 +372,8 @@ impl IngredientParser {
 
                 // Extract any adjectives from the name and move them to modifiers
                 // Collect found adjectives first to avoid repeated string allocations
-                let found_adjectives: Vec<&String> = self.adjectives
+                let found_adjectives: Vec<&String> = self
+                    .adjectives
                     .iter()
                     .filter(|adj| name.contains(adj.as_str()))
                     .collect();
@@ -405,7 +408,8 @@ impl IngredientParser {
                         },
                     },
                 )
-            });
+            },
+        );
 
         // Record trace outcome
         match &result {

@@ -2,8 +2,6 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-mod common;
-
 use ingredient::{ingredient::Ingredient, unit::Measure, IngredientError, IngredientResult};
 
 // ============================================================================
@@ -11,76 +9,60 @@ use ingredient::{ingredient::Ingredient, unit::Measure, IngredientError, Ingredi
 // ============================================================================
 
 #[test]
-fn test_ingredient_try_from() {
+fn test_ingredient_struct() {
+    // try_from parsing
     let ingredient = Ingredient::try_from("2 cups flour").unwrap();
     assert_eq!(ingredient.name, "flour");
     assert_eq!(ingredient.amounts.len(), 1);
     assert_eq!(ingredient.modifier, None);
+
+    // Default trait
+    let default = Ingredient::default();
+    assert_eq!(default.name, "");
+    assert_eq!(default.amounts.len(), 0);
+    assert_eq!(default.modifier, None);
+
+    // Clone and PartialEq
+    let ingredient1 = Ingredient::new("flour", vec![Measure::new("cups", 2.0)], Some("sifted"));
+    let ingredient2 = ingredient1.clone();
+    assert_eq!(ingredient1, ingredient2);
+
+    let ingredient3 = Ingredient::new("sugar", vec![Measure::new("cups", 2.0)], Some("sifted"));
+    assert_ne!(ingredient1, ingredient3);
 }
 
 #[test]
 fn test_ingredient_display() {
-    // With amounts
-    let ingredient = Ingredient {
-        name: "flour".to_string(),
-        amounts: vec![Measure::new("cups", 2.0)],
-        modifier: None,
-    };
-    assert_eq!(ingredient.to_string(), "2 cups flour");
+    let test_cases: Vec<(Ingredient, &str)> = vec![
+        // With amounts
+        (
+            Ingredient::new("flour", vec![Measure::new("cups", 2.0)], None),
+            "2 cups flour",
+        ),
+        // With modifier
+        (
+            Ingredient::new("flour", vec![Measure::new("cups", 2.0)], Some("sifted")),
+            "2 cups flour, sifted",
+        ),
+        // Multiple amounts
+        (
+            Ingredient::new(
+                "water",
+                vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)],
+                None,
+            ),
+            "1 cup / 240 ml water",
+        ),
+        // No amounts
+        (
+            Ingredient::new("salt", vec![], Some("to taste")),
+            "n/a salt, to taste",
+        ),
+    ];
 
-    // With modifier
-    let ingredient = Ingredient {
-        name: "flour".to_string(),
-        amounts: vec![Measure::new("cups", 2.0)],
-        modifier: Some("sifted".to_string()),
-    };
-    assert_eq!(ingredient.to_string(), "2 cups flour, sifted");
-
-    // Multiple amounts
-    let ingredient = Ingredient {
-        name: "water".to_string(),
-        amounts: vec![
-            Measure::new("cup", 1.0),
-            Measure::new("ml", 240.0),
-        ],
-        modifier: None,
-    };
-    assert_eq!(ingredient.to_string(), "1 cup / 240 ml water");
-
-    // No amounts
-    let ingredient = Ingredient {
-        name: "salt".to_string(),
-        amounts: vec![],
-        modifier: Some("to taste".to_string()),
-    };
-    assert_eq!(ingredient.to_string(), "n/a salt, to taste");
-}
-
-#[test]
-fn test_ingredient_default() {
-    let ingredient = Ingredient::default();
-    assert_eq!(ingredient.name, "");
-    assert_eq!(ingredient.amounts.len(), 0);
-    assert_eq!(ingredient.modifier, None);
-}
-
-#[test]
-fn test_ingredient_clone_and_partial_eq() {
-    let ingredient1 = Ingredient {
-        name: "flour".to_string(),
-        amounts: vec![Measure::new("cups", 2.0)],
-        modifier: Some("sifted".to_string()),
-    };
-
-    let ingredient2 = ingredient1.clone();
-    assert_eq!(ingredient1, ingredient2);
-
-    let ingredient3 = Ingredient {
-        name: "sugar".to_string(),
-        amounts: vec![Measure::new("cups", 2.0)],
-        modifier: Some("sifted".to_string()),
-    };
-    assert_ne!(ingredient1, ingredient3);
+    for (ingredient, expected) in test_cases {
+        assert_eq!(ingredient.to_string(), expected);
+    }
 }
 
 // ============================================================================
@@ -88,45 +70,43 @@ fn test_ingredient_clone_and_partial_eq() {
 // ============================================================================
 
 #[test]
-fn test_ingredient_error_display() {
-    let err = IngredientError::ParseError {
-        input: "bad input".to_string(),
-        context: "invalid format".to_string(),
-    };
-    assert_eq!(
-        err.to_string(),
-        "Failed to parse ingredient 'bad input': invalid format"
-    );
+fn test_ingredient_error() {
+    // Display for each error variant
+    let error_cases: Vec<(IngredientError, &str)> = vec![
+        (
+            IngredientError::ParseError {
+                input: "bad input".to_string(),
+                context: "invalid format".to_string(),
+            },
+            "Failed to parse ingredient 'bad input': invalid format",
+        ),
+        (
+            IngredientError::AmountParseError {
+                input: "2x cups".to_string(),
+                reason: "unexpected character".to_string(),
+            },
+            "Failed to parse amount '2x cups': unexpected character",
+        ),
+        (
+            IngredientError::MeasureError {
+                operation: "add".to_string(),
+                reason: "incompatible units".to_string(),
+            },
+            "Measure operation 'add' failed: incompatible units",
+        ),
+        (
+            IngredientError::Generic {
+                message: "something went wrong".to_string(),
+            },
+            "Ingredient parsing error: something went wrong",
+        ),
+    ];
 
-    let err = IngredientError::AmountParseError {
-        input: "2x cups".to_string(),
-        reason: "unexpected character".to_string(),
-    };
-    assert_eq!(
-        err.to_string(),
-        "Failed to parse amount '2x cups': unexpected character"
-    );
+    for (err, expected) in error_cases {
+        assert_eq!(err.to_string(), expected);
+    }
 
-    let err = IngredientError::MeasureError {
-        operation: "add".to_string(),
-        reason: "incompatible units".to_string(),
-    };
-    assert_eq!(
-        err.to_string(),
-        "Measure operation 'add' failed: incompatible units"
-    );
-
-    let err = IngredientError::Generic {
-        message: "something went wrong".to_string(),
-    };
-    assert_eq!(
-        err.to_string(),
-        "Ingredient parsing error: something went wrong"
-    );
-}
-
-#[test]
-fn test_ingredient_error_clone_and_partial_eq() {
+    // Clone and PartialEq
     let err1 = IngredientError::ParseError {
         input: "test".to_string(),
         context: "test context".to_string(),
@@ -138,23 +118,16 @@ fn test_ingredient_error_clone_and_partial_eq() {
         message: "different error".to_string(),
     };
     assert_ne!(err1, err3);
-}
 
-#[test]
-fn test_from_anyhow_error() {
+    // From anyhow::Error
     let anyhow_err = anyhow::anyhow!("test error");
     let ingredient_err: IngredientError = anyhow_err.into();
-
     match ingredient_err {
-        IngredientError::Generic { message } => {
-            assert_eq!(message, "test error");
-        }
+        IngredientError::Generic { message } => assert_eq!(message, "test error"),
         _ => panic!("Expected Generic error"),
     }
-}
 
-#[test]
-fn test_ingredient_result_type() {
+    // IngredientResult type alias
     let result: IngredientResult<i32> = Err(IngredientError::Generic {
         message: "error".to_string(),
     });

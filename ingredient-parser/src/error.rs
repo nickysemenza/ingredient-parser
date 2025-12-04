@@ -45,4 +45,3 @@ impl From<anyhow::Error> for IngredientError {
         }
     }
 }
-

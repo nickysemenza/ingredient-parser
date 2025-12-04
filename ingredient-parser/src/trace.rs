@@ -78,7 +78,6 @@ impl TraceNode {
     }
 }
 
-
 /// Outcome of a parse attempt
 #[derive(Debug, Clone)]
 pub enum TraceOutcome {
@@ -149,13 +148,7 @@ impl ParseTrace {
         // Collect spans from tree
         let mut spans = Vec::new();
         let mut span_counter = 0u64;
-        self.collect_spans(
-            &self.root,
-            &trace_id,
-            None,
-            &mut spans,
-            &mut span_counter,
-        );
+        self.collect_spans(&self.root, &trace_id, None, &mut spans, &mut span_counter);
 
         // Build Jaeger JSON structure
         let json = serde_json::json!({
@@ -192,14 +185,13 @@ impl ParseTrace {
             .collect();
 
         // Calculate start time in unix microseconds
-        let start_time = if let (Some(baseline), Some(node_start)) =
-            (self.baseline_instant, node.start_time)
-        {
-            let offset = node_start.duration_since(baseline).as_micros() as u64;
-            self.baseline_unix_micros + offset
-        } else {
-            self.baseline_unix_micros + *span_counter
-        };
+        let start_time =
+            if let (Some(baseline), Some(node_start)) = (self.baseline_instant, node.start_time) {
+                let offset = node_start.duration_since(baseline).as_micros() as u64;
+                self.baseline_unix_micros + offset
+            } else {
+                self.baseline_unix_micros + *span_counter
+            };
 
         // Calculate duration
         let duration = node.duration_micros().unwrap_or(1);
@@ -216,23 +208,35 @@ impl ParseTrace {
             .unwrap_or_default();
 
         // Build tags
-        let mut tags = vec![
-            serde_json::json!({"key": "input", "type": "string", "value": node.input}),
-        ];
+        let mut tags =
+            vec![serde_json::json!({"key": "input", "type": "string", "value": node.input})];
 
         match &node.outcome {
-            TraceOutcome::Success { consumed, output_preview } => {
-                tags.push(serde_json::json!({"key": "status", "type": "string", "value": "success"}));
+            TraceOutcome::Success {
+                consumed,
+                output_preview,
+            } => {
+                tags.push(
+                    serde_json::json!({"key": "status", "type": "string", "value": "success"}),
+                );
                 tags.push(serde_json::json!({"key": "consumed", "type": "int64", "value": *consumed as i64}));
-                tags.push(serde_json::json!({"key": "output", "type": "string", "value": output_preview}));
+                tags.push(
+                    serde_json::json!({"key": "output", "type": "string", "value": output_preview}),
+                );
             }
             TraceOutcome::Failure { error } => {
-                tags.push(serde_json::json!({"key": "status", "type": "string", "value": "failure"}));
+                tags.push(
+                    serde_json::json!({"key": "status", "type": "string", "value": "failure"}),
+                );
                 tags.push(serde_json::json!({"key": "error", "type": "bool", "value": true}));
-                tags.push(serde_json::json!({"key": "error.message", "type": "string", "value": error}));
+                tags.push(
+                    serde_json::json!({"key": "error.message", "type": "string", "value": error}),
+                );
             }
             TraceOutcome::Incomplete => {
-                tags.push(serde_json::json!({"key": "status", "type": "string", "value": "incomplete"}));
+                tags.push(
+                    serde_json::json!({"key": "status", "type": "string", "value": "incomplete"}),
+                );
             }
         }
 
@@ -500,7 +504,9 @@ impl fmt::Display for ParseTrace {
 #[macro_export]
 macro_rules! traced_parser {
     ($name:expr, $input:expr, $parser:expr, $format:expr, $error:expr) => {{
-        use $crate::trace::{is_tracing_enabled, trace_enter, trace_exit_failure, trace_exit_success};
+        use $crate::trace::{
+            is_tracing_enabled, trace_enter, trace_exit_failure, trace_exit_success,
+        };
         let tracing = is_tracing_enabled();
         if tracing {
             trace_enter($name, $input);
@@ -518,4 +524,3 @@ macro_rules! traced_parser {
         result
     }};
 }
-

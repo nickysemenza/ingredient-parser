@@ -54,7 +54,11 @@ async fn main() {
                 println!("{scraped:#?}")
             }
         }
-        Commands::ParseIngredient { name, debug, jaeger_output } => {
+        Commands::ParseIngredient {
+            name,
+            debug,
+            jaeger_output,
+        } => {
             if *debug || jaeger_output.is_some() {
                 // Use parse_with_trace for debug output or Jaeger export
                 let parser = ingredient::IngredientParser::new(false);

@@ -226,55 +226,53 @@ impl eframe::App for MyApp {
             });
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            match self.current_tab {
-                Tab::Test => {
-                    show_test_tab(
-                        ui,
-                        &mut self.test_input,
-                        &mut self.test_trace,
-                        &mut self.test_result,
-                    );
-                }
-                Tab::Recipe => {
-                    if let Some(promise) = &self.promise {
-                        match promise.ready() {
-                            None => {
-                                ui.spinner();
-                            }
-                            Some(Err(err)) => {
-                                ui.colored_label(ui.visuals().error_fg_color, err);
-                            }
-                            Some(Ok(w)) => {
-                                ui.horizontal(|ui| {
-                                    ui.set_min_height(200.0);
-                                    ui.heading(w.recipe.name.clone());
-                                    if let Some(image) = &w.recipe.image {
-                                        ui.add(Image::from_uri(image));
-                                    }
-                                });
+        egui::CentralPanel::default().show(ctx, |ui| match self.current_tab {
+            Tab::Test => {
+                show_test_tab(
+                    ui,
+                    &mut self.test_input,
+                    &mut self.test_trace,
+                    &mut self.test_result,
+                );
+            }
+            Tab::Recipe => {
+                if let Some(promise) = &self.promise {
+                    match promise.ready() {
+                        None => {
+                            ui.spinner();
+                        }
+                        Some(Err(err)) => {
+                            ui.colored_label(ui.visuals().error_fg_color, err);
+                        }
+                        Some(Ok(w)) => {
+                            ui.horizontal(|ui| {
+                                ui.set_min_height(200.0);
+                                ui.heading(w.recipe.name.clone());
+                                if let Some(image) = &w.recipe.image {
+                                    ui.add(Image::from_uri(image));
+                                }
+                            });
+                            ui.separator();
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                show_parsed(ui, &w.parsed);
                                 ui.separator();
-                                egui::ScrollArea::vertical().show(ui, |ui| {
-                                    show_parsed(ui, &w.parsed);
-                                    ui.separator();
-                                    show_raw(ui, &w.recipe);
-                                });
-                            }
+                                show_raw(ui, &w.recipe);
+                            });
                         }
                     }
                 }
-                Tab::Debug => {
-                    if let Some(promise) = &self.promise {
-                        match promise.ready() {
-                            None => {
-                                ui.spinner();
-                            }
-                            Some(Err(err)) => {
-                                ui.colored_label(ui.visuals().error_fg_color, err);
-                            }
-                            Some(Ok(w)) => {
-                                show_debug_tab(ui, &w.traces, &mut self.selected_ingredient_idx);
-                            }
+            }
+            Tab::Debug => {
+                if let Some(promise) = &self.promise {
+                    match promise.ready() {
+                        None => {
+                            ui.spinner();
+                        }
+                        Some(Err(err)) => {
+                            ui.colored_label(ui.visuals().error_fg_color, err);
+                        }
+                        Some(Ok(w)) => {
+                            show_debug_tab(ui, &w.traces, &mut self.selected_ingredient_idx);
                         }
                     }
                 }
@@ -311,7 +309,9 @@ fn show_test_tab(
                 .hint_text("e.g., 2 cups flour, sifted"),
         );
 
-        if ui.button("Parse").clicked() || response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        if ui.button("Parse").clicked()
+            || response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
+        {
             let parser = ingredient::IngredientParser::new(false);
             let result = parser.parse_with_trace(test_input);
             *test_trace = Some(result.trace);
@@ -472,7 +472,8 @@ fn format_node_label_rich(node: &TraceNode) -> RichText {
         node.name,
         truncate_str(&node.input, 25),
         match &node.outcome {
-            TraceOutcome::Success { output_preview, .. } => format!(" -> {}", truncate_str(output_preview, 20)),
+            TraceOutcome::Success { output_preview, .. } =>
+                format!(" -> {}", truncate_str(output_preview, 20)),
             TraceOutcome::Incomplete => " ...".to_string(),
             _ => String::new(),
         }
@@ -481,15 +482,15 @@ fn format_node_label_rich(node: &TraceNode) -> RichText {
     match &node.outcome {
         TraceOutcome::Success { .. } => {
             // Bright green for success path
-            RichText::new(text).color(Color32::from_rgb(100, 200, 100)).strong()
+            RichText::new(text)
+                .color(Color32::from_rgb(100, 200, 100))
+                .strong()
         }
         TraceOutcome::Failure { .. } => {
             // Muted red for failed branches
             RichText::new(text).color(Color32::from_rgb(180, 90, 90))
         }
-        TraceOutcome::Incomplete => {
-            RichText::new(text).color(Color32::from_rgb(180, 180, 100))
-        }
+        TraceOutcome::Incomplete => RichText::new(text).color(Color32::from_rgb(180, 180, 100)),
     }
 }
 

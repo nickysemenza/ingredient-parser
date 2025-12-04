@@ -84,24 +84,69 @@ struct NormalizationRule {
 /// Rules for normalizing units to their base units
 static NORMALIZATION_RULES: &[NormalizationRule] = &[
     // Weight: normalize to grams
-    NormalizationRule { from: Unit::Kilogram, to_base: Unit::Gram, factor: G_TO_K },
-    NormalizationRule { from: Unit::Ounce, to_base: Unit::Gram, factor: GRAM_TO_OZ },
-    NormalizationRule { from: Unit::Pound, to_base: Unit::Gram, factor: GRAM_TO_OZ * OZ_TO_LB },
-
+    NormalizationRule {
+        from: Unit::Kilogram,
+        to_base: Unit::Gram,
+        factor: G_TO_K,
+    },
+    NormalizationRule {
+        from: Unit::Ounce,
+        to_base: Unit::Gram,
+        factor: GRAM_TO_OZ,
+    },
+    NormalizationRule {
+        from: Unit::Pound,
+        to_base: Unit::Gram,
+        factor: GRAM_TO_OZ * OZ_TO_LB,
+    },
     // Volume: normalize to teaspoons (or milliliters)
-    NormalizationRule { from: Unit::Liter, to_base: Unit::Milliliter, factor: G_TO_K },
-    NormalizationRule { from: Unit::Tablespoon, to_base: Unit::Teaspoon, factor: TSP_TO_TBSP },
-    NormalizationRule { from: Unit::Cup, to_base: Unit::Teaspoon, factor: TSP_TO_CUP },
-    NormalizationRule { from: Unit::Quart, to_base: Unit::Teaspoon, factor: CUP_TO_QUART * TSP_TO_CUP },
-    NormalizationRule { from: Unit::FluidOunce, to_base: Unit::Teaspoon, factor: TSP_TO_FL_OZ },
-
+    NormalizationRule {
+        from: Unit::Liter,
+        to_base: Unit::Milliliter,
+        factor: G_TO_K,
+    },
+    NormalizationRule {
+        from: Unit::Tablespoon,
+        to_base: Unit::Teaspoon,
+        factor: TSP_TO_TBSP,
+    },
+    NormalizationRule {
+        from: Unit::Cup,
+        to_base: Unit::Teaspoon,
+        factor: TSP_TO_CUP,
+    },
+    NormalizationRule {
+        from: Unit::Quart,
+        to_base: Unit::Teaspoon,
+        factor: CUP_TO_QUART * TSP_TO_CUP,
+    },
+    NormalizationRule {
+        from: Unit::FluidOunce,
+        to_base: Unit::Teaspoon,
+        factor: TSP_TO_FL_OZ,
+    },
     // Money: normalize to cents
-    NormalizationRule { from: Unit::Dollar, to_base: Unit::Cent, factor: CENTS_TO_DOLLAR },
-
+    NormalizationRule {
+        from: Unit::Dollar,
+        to_base: Unit::Cent,
+        factor: CENTS_TO_DOLLAR,
+    },
     // Time: normalize to seconds
-    NormalizationRule { from: Unit::Minute, to_base: Unit::Second, factor: SEC_TO_MIN },
-    NormalizationRule { from: Unit::Hour, to_base: Unit::Second, factor: SEC_TO_HOUR },
-    NormalizationRule { from: Unit::Day, to_base: Unit::Second, factor: SEC_TO_DAY },
+    NormalizationRule {
+        from: Unit::Minute,
+        to_base: Unit::Second,
+        factor: SEC_TO_MIN,
+    },
+    NormalizationRule {
+        from: Unit::Hour,
+        to_base: Unit::Second,
+        factor: SEC_TO_HOUR,
+    },
+    NormalizationRule {
+        from: Unit::Day,
+        to_base: Unit::Second,
+        factor: SEC_TO_DAY,
+    },
 ];
 
 /// Find the normalization rule for a given unit
@@ -159,7 +204,9 @@ impl Measure {
         if self_kind != b_kind {
             return Err(IngredientError::MeasureError {
                 operation: "add".to_string(),
-                reason: format!("Cannot add measures of different kinds: {self_kind:?} and {b_kind:?}"),
+                reason: format!(
+                    "Cannot add measures of different kinds: {self_kind:?} and {b_kind:?}"
+                ),
             });
         }
         let left = self.normalize();
@@ -207,25 +254,12 @@ impl Measure {
         Measure::from_parts(unit, lower, Some(upper))
     }
 
-    /// Deprecated: use `new` instead
-    #[deprecated(since = "0.4.0", note = "use `new` instead")]
-    pub fn parse_new(unit: &str, value: f64) -> Measure {
-        Measure::new(unit, value)
-    }
-
-    /// Deprecated: use `with_range` instead
-    #[deprecated(since = "0.4.0", note = "use `with_range` instead")]
-    pub fn parse_new_with_upper(unit: &str, value: f64, upper: f64) -> Measure {
-        Measure::with_range(unit, value, upper)
-    }
-
     /// Create a measure from parts (core implementation)
     ///
     /// This is the low-level constructor used by `new` and `with_range`.
     pub fn from_parts(unit: &str, value: f64, upper_value: Option<f64>) -> Measure {
         let normalized_unit = singular(unit);
-        let unit = Unit::from_str(normalized_unit.as_ref())
-            .unwrap_or(Unit::Other(normalized_unit));
+        let unit = Unit::from_str(normalized_unit.as_ref()).unwrap_or(Unit::Other(normalized_unit));
 
         Measure {
             unit,

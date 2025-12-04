@@ -32,9 +32,7 @@ fn normalize_root_recipe(
                 .map(|i| i.text().collect::<Vec<_>>().join(""))
                 .collect::<Vec<_>>()
         }
-        ld_schema::InstructionWrapper::D(d) => {
-            d[0].clone().into_iter().map(|i| i.text).collect()
-        }
+        ld_schema::InstructionWrapper::D(d) => d[0].clone().into_iter().map(|i| i.text).collect(),
     };
 
     Ok(ScrapedRecipe {

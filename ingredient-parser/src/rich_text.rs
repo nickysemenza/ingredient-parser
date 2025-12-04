@@ -1,4 +1,4 @@
-use crate::{unit::Measure, IngredientParser, Res, parser::MeasurementParser};
+use crate::{parser::MeasurementParser, unit::Measure, IngredientParser, Res};
 use itertools::Itertools;
 use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0, Parser};
 
@@ -14,12 +14,10 @@ pub type Rich = Vec<Chunk>;
 fn condense_text(r: Rich) -> Rich {
     // https://www.reddit.com/r/rust/comments/e3mq41/combining_enum_values_with_itertools_coalesce/
     r.into_iter()
-        .coalesce(
-            |previous, current| match (&previous, &current) {
-                (Chunk::Text(a), Chunk::Text(b)) => Ok(Chunk::Text(format!("{a}{b}"))),
-                _ => Err((previous, current)),
-            },
-        )
+        .coalesce(|previous, current| match (&previous, &current) {
+            (Chunk::Text(a), Chunk::Text(b)) => Ok(Chunk::Text(format!("{a}{b}"))),
+            _ => Err((previous, current)),
+        })
         .collect()
 }
 // find any text chunks which have an ingredient name as a substring in them.

@@ -1,5 +1,5 @@
 //! Helper functions for parsing ingredients
-//! 
+//!
 //! This module contains low-level parsing helpers used by the main ingredient parser.
 
 use nom::{

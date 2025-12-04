@@ -2,37 +2,30 @@
 
 #![allow(clippy::unwrap_used)]
 
-mod common;
-
 use ingredient::trace::{
     disable_tracing, enable_tracing, trace_enter, trace_exit_success, ParseTrace, TraceNode,
     TraceOutcome,
 };
 
 #[test]
-fn test_trace_node_creation() {
+fn test_trace_node() {
+    // Creation
     let node = TraceNode::new("test_parser", "some input text");
     assert_eq!(node.name, "test_parser");
     assert_eq!(node.input, "some input text");
     assert!(matches!(node.outcome, TraceOutcome::Incomplete));
-}
 
-#[test]
-fn test_trace_node_success() {
-    let mut node = TraceNode::new("test", "input");
-    node.success(5, "value: 42");
-    assert!(matches!(node.outcome, TraceOutcome::Success { .. }));
-}
+    // Success outcome
+    let mut success_node = TraceNode::new("test", "input");
+    success_node.success(5, "value: 42");
+    assert!(matches!(success_node.outcome, TraceOutcome::Success { .. }));
 
-#[test]
-fn test_trace_node_failure() {
-    let mut node = TraceNode::new("test", "input");
-    node.failure("expected number");
-    assert!(matches!(node.outcome, TraceOutcome::Failure { .. }));
-}
+    // Failure outcome
+    let mut failure_node = TraceNode::new("test", "input");
+    failure_node.failure("expected number");
+    assert!(matches!(failure_node.outcome, TraceOutcome::Failure { .. }));
 
-#[test]
-fn test_format_tree() {
+    // Tree formatting
     let mut root = TraceNode::new("root", "input text");
     root.success(10, "result");
 

@@ -45,10 +45,12 @@ fn v_fraction(input: &str) -> Res<&str, f64> {
             let char_len = input.chars().next().map_or(0, |c| c.len_utf8());
             Ok((&input[char_len..], val))
         }
-        None => Err(nom::Err::Error(nom_language::error::VerboseError::from_error_kind(
-            input,
-            nom::error::ErrorKind::Satisfy,
-        ))),
+        None => Err(nom::Err::Error(
+            nom_language::error::VerboseError::from_error_kind(
+                input,
+                nom::error::ErrorKind::Satisfy,
+            ),
+        )),
     }
 }
 fn n_fraction(input: &str) -> Res<&str, f64> {
@@ -67,14 +69,14 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
 
     // Define parser for unicode vulgar fractions with optional whole number
     let vulgar_fraction_parser = (
-        opt((double, space0)),  // Optional whole number with optional whitespace
-        v_fraction,             // Unicode vulgar fraction like ½, ¼, etc.
+        opt((double, space0)), // Optional whole number with optional whitespace
+        v_fraction,            // Unicode vulgar fraction like ½, ¼, etc.
     );
 
     // Define parser for slash-notation fractions with optional whole number
     let slash_fraction_parser = (
-        opt((double, space1)),  // Optional whole number with required whitespace
-        n_fraction,             // Standard fraction notation like 1/4, 3/8, etc.
+        opt((double, space1)), // Optional whole number with required whitespace
+        n_fraction,            // Standard fraction notation like 1/4, 3/8, etc.
     );
 
     // Try both parsers

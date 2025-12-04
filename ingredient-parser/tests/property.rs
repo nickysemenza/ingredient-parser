@@ -7,8 +7,6 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-mod common;
-
 use ingredient::from_str;
 use proptest::prelude::*;
 
