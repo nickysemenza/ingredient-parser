@@ -431,10 +431,12 @@ fn test_measurement_edge_cases() {
 
     // parse_amount error on invalid input
     assert!(parser.parse_amount("not a valid amount").is_err());
-}
 
-#[test]
-fn test_rich_text_mode_number_parsing() {
+    // Range with mismatched units - handles gracefully
+    let ingredient = parser.from_str("2 cups to 3 tbsp flour");
+    assert!(ingredient.name.contains("flour"));
+    assert!(!ingredient.amounts.is_empty());
+
     // Rich text mode shouldn't parse text numbers like "one"
     let rich_parser = RichParser::new(vec![]);
     let result = rich_parser.parse("add one cup of flour").unwrap();
@@ -442,73 +444,38 @@ fn test_rich_text_mode_number_parsing() {
 }
 
 // ============================================================================
-// Additional coverage tests (require custom parser config or special assertions)
+// Custom Parser Configuration Tests
 // ============================================================================
 
 #[test]
-fn test_measurement_unit_mismatch_in_range() {
-    let parser = IngredientParser::new();
+fn test_custom_adjectives_extraction() {
+    // Test various custom adjective configurations
+    let cases: Vec<(&[&str], &str, &str, Option<&str>)> = vec![
+        // (adjectives, input, expected_name, expected_modifier_contains)
+        (&["fresh", "chopped"], "2 cups fresh chopped basil", "basil", Some("fresh")),
+        (&["large"], "2 large eggs", "eggs", None), // "large" is a unit, not extracted
+        (&["sliced", "thinly sliced"], "2 cups thinly sliced onions", "onions", Some("thinly sliced")),
+    ];
 
-    // Range with mismatched units: "2 cups to 3 tbsp" - units don't match
-    // This should handle the mismatch gracefully by not parsing as a range
-    let ingredient = parser.from_str("2 cups to 3 tbsp flour");
-    // Parser should still produce a result (parses partial, rest goes to name)
-    assert!(ingredient.name.contains("flour"));
-    assert!(!ingredient.amounts.is_empty());
+    for (adjectives, input, expected_name, expected_modifier) in cases {
+        let parser = IngredientParser::new().with_adjectives(adjectives);
+        let ingredient = parser.from_str(input);
+        assert_eq!(ingredient.name, expected_name, "Failed for: {input}");
+        if let Some(modifier_text) = expected_modifier {
+            assert!(
+                ingredient.modifier.as_ref().map_or(false, |m| m.contains(modifier_text)),
+                "Expected modifier containing '{modifier_text}' for: {input}"
+            );
+        }
+    }
 }
 
 #[test]
-fn test_ingredient_with_adjective_extraction() {
-    // Use custom adjectives to test the adjective extraction from name
-    let parser = IngredientParser::new()
-        .with_adjectives(&["fresh", "chopped"]);
-
-    // Adjective in the name should be extracted to modifier
-    let ingredient = parser.from_str("2 cups fresh chopped basil");
-    assert_eq!(ingredient.name, "basil");
-    // "fresh" and "chopped" should be in modifiers
-    assert!(ingredient.modifier.is_some());
-    let modifier = ingredient.modifier.unwrap();
-    assert!(modifier.contains("fresh") || modifier.contains("chopped"));
-}
-
-#[test]
-fn test_parse_with_trace_returns_result() {
+fn test_parse_with_trace() {
     let parser = IngredientParser::new();
-
-    // Normal successful parse with trace
     let traced = parser.parse_with_trace("2 cups flour");
+
     assert!(traced.result.is_ok());
-    let ingredient = traced.result.unwrap();
-    assert_eq!(ingredient.name, "flour");
-
-    // Trace should have content
-    let tree = traced.trace.format_tree(false);
-    assert!(!tree.is_empty());
-}
-
-#[test]
-fn test_adjective_at_start_of_name() {
-    let parser = IngredientParser::new()
-        .with_adjectives(&["large"]);
-
-    // Adjective as a standalone word before ingredient
-    let ingredient = parser.from_str("2 large eggs");
-    assert_eq!(ingredient.name, "eggs");
-    // The adjective extraction may leave "large" in the name or extract it
-    // depending on parser implementation; this tests the with_adjectives path
-    assert!(!ingredient.amounts.is_empty());
-}
-
-#[test]
-fn test_multiple_adjectives_sorted_by_length() {
-    let parser = IngredientParser::new()
-        .with_adjectives(&["sliced", "thinly sliced"]);
-
-    // Longer adjective should match first
-    let ingredient = parser.from_str("2 cups thinly sliced onions");
-    assert_eq!(ingredient.name, "onions");
-    assert!(ingredient.modifier.is_some());
-    // "thinly sliced" should be extracted, not just "sliced"
-    assert!(ingredient.modifier.unwrap().contains("thinly sliced"));
+    assert_eq!(traced.result.unwrap().name, "flour");
+    assert!(!traced.trace.format_tree(false).is_empty());
 }
