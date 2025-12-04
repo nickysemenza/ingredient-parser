@@ -119,6 +119,32 @@ fn test_ingredient_parsing() {
         case("1/8 tsp pepper", "pepper", &[("tsp", 0.125)], None),
         // Large amounts
         case("1000 grams flour", "flour", &[("grams", 1000.0)], None),
+        // Bare slash separator: "1 cup/240ml"
+        case("1 cup/240ml water", "water", &[("cup", 1.0), ("ml", 240.0)], None),
+        // Space-separated amounts
+        case("1 cup 2 tbsp flour", "flour", &[("cup", 1.0), ("tbsp", 2.0)], None),
+        // Plus with incompatible units - parses first amount only (can't add cup + grams)
+        case("1 cup plus 100 grams flour", "flour", &[("cup", 1.0)], None),
+        // Unit with trailing period
+        case("2 tsp. sugar", "sugar", &[("tsp", 2.0)], None),
+        case("1 tbsp. olive oil", "olive oil", &[("tbsp", 1.0)], None),
+        case("2 oz. cheese", "cheese", &[("oz", 2.0)], None),
+        // Unit with "of" keyword
+        case("2 cups of flour", "flour", &[("cups", 2.0)], None),
+        case("pinch of salt", "salt", &[("pinch", 1.0)], None),
+        // Multiplier format
+        case("2 x 100g flour", "flour", &[("g", 200.0)], None),
+        case("3 x 50g butter", "butter", &[("g", 150.0)], None),
+        // Parenthesized amounts with semicolon separator
+        case("flour (1 cup; 120g)", "flour", &[("cup", 1.0), ("g", 120.0)], None),
+        // Amounts only in parentheses
+        case("flour (2 cups)", "flour", &[("cups", 2.0)], None),
+        // Both primary and parenthesized amounts
+        case("2 cups flour (240g)", "flour", &[("cups", 2.0), ("g", 240.0)], None),
+        // Long modifier after comma
+        case("2 cups chicken breast, cooked and diced into small cubes", "chicken breast", &[("cups", 2.0)], Some("cooked and diced into small cubes")),
+        // Ingredient without modifier - modifier should be None
+        case("2 cups water", "water", &[("cups", 2.0)], None),
     ];
 
     for (input, expected) in test_cases {
@@ -142,6 +168,7 @@ fn test_parsing_equivalence() {
         // Multiplier
         ("2 x 200g flour", "400g flour"),
         ("3 x 100g butter", "300g butter"),
+        ("1.5 x 100g flour", "150g flour"),
         // "of" keyword
         ("pinch nutmeg", "pinch of nutmeg"),
         ("1 cup of flour", "1 cup flour"),
@@ -228,6 +255,9 @@ fn test_amount_parsing() {
         ("at most 3 cups", vec![Measure::with_range("cups", 0.0, 3.0)]),
         ("1-2 hours", vec![Measure::with_range("hours", 1.0, 2.0)]),
         ("30-45 minutes", vec![Measure::with_range("minutes", 30.0, 45.0)]),
+        ("2 through 4 cups", vec![Measure::with_range("cups", 2.0, 4.0)]),
+        ("½-1 cup", vec![Measure::with_range("cup", 0.5, 1.0)]),
+        ("1½ to 2 cups", vec![Measure::with_range("cups", 1.5, 2.0)]),
         // Basic amounts
         ("1 cup", vec![Measure::new("cup", 1.0)]),
         ("2 tbsp", vec![Measure::new("tbsp", 2.0)]),
@@ -243,9 +273,20 @@ fn test_amount_parsing() {
         // Decimals
         ("1.5 cups", vec![Measure::new("cups", 1.5)]),
         ("0.25 oz", vec![Measure::new("oz", 0.25)]),
-        // Multiple amounts
+        // Multiple amounts with various separators
         ("1 cup / 240 ml", vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)]),
         ("2 tbsp; 30 ml", vec![Measure::new("tbsp", 2.0), Measure::new("ml", 30.0)]),
+        ("1 cup/240 ml", vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)]),
+        ("1 cup, 2 tbsp", vec![Measure::new("cup", 1.0), Measure::new("tbsp", 2.0)]),
+        // Em-dash range
+        ("1–2 cups", vec![Measure::with_range("cups", 1.0, 2.0)]),
+        // Range keywords
+        ("1 to 2 cups", vec![Measure::with_range("cups", 1.0, 2.0)]),
+        ("1 through 3 cups", vec![Measure::with_range("cups", 1.0, 3.0)]),
+        ("1 or 2 cups", vec![Measure::with_range("cups", 1.0, 2.0)]),
+        // Upper bound formats
+        ("up to 5 cups", vec![Measure::with_range("cups", 0.0, 5.0)]),
+        ("at most 3 tbsp", vec![Measure::with_range("tbsp", 0.0, 3.0)]),
     ];
 
     for (input, expected) in test_cases {
@@ -361,4 +402,113 @@ fn test_rich_text_parsing() {
     // Time durations
     assert_eq!(parse_rich("bake for 25-30 minutes", &[]), vec![text("bake for "), measure_range("minutes", 25.0, 30.0)]);
     assert_eq!(parse_rich("let rest 1-2 hours", &[]), vec![text("let rest "), measure_range("hours", 1.0, 2.0)]);
+}
+
+// ============================================================================
+// Measurement Parser Edge Case Tests
+// ============================================================================
+
+#[test]
+fn test_measurement_edge_cases() {
+    let parser = IngredientParser::new();
+
+    // Unit mismatch in ranges - parser handles gracefully
+    let ingredient = parser.from_str("1 cup to 2 tbsp flour");
+    assert!(ingredient.name.contains("flour") || !ingredient.amounts.is_empty());
+
+    // Plus expression with incompatible units - should still parse something
+    let ingredient = parser.from_str("1 cup plus 2 grams flour");
+    assert!(!ingredient.name.is_empty());
+
+    // Implicit unit defaults to "whole"
+    let ingredient = parser.from_str("2 eggs");
+    assert_eq!(ingredient.amounts[0].values().2, "whole");
+
+    // Standard plus expression combines measurements
+    let ingredient = parser.from_str("1 cup plus 2 tbsp flour");
+    assert_eq!(ingredient.name, "flour");
+    assert_eq!(ingredient.amounts.len(), 1);
+
+    // parse_amount error on invalid input
+    assert!(parser.parse_amount("not a valid amount").is_err());
+}
+
+#[test]
+fn test_rich_text_mode_number_parsing() {
+    // Rich text mode shouldn't parse text numbers like "one"
+    let rich_parser = RichParser::new(vec![]);
+    let result = rich_parser.parse("add one cup of flour").unwrap();
+    assert!(!result.is_empty());
+}
+
+// ============================================================================
+// Additional coverage tests (require custom parser config or special assertions)
+// ============================================================================
+
+#[test]
+fn test_measurement_unit_mismatch_in_range() {
+    let parser = IngredientParser::new();
+
+    // Range with mismatched units: "2 cups to 3 tbsp" - units don't match
+    // This should handle the mismatch gracefully by not parsing as a range
+    let ingredient = parser.from_str("2 cups to 3 tbsp flour");
+    // Parser should still produce a result (parses partial, rest goes to name)
+    assert!(ingredient.name.contains("flour"));
+    assert!(!ingredient.amounts.is_empty());
+}
+
+#[test]
+fn test_ingredient_with_adjective_extraction() {
+    // Use custom adjectives to test the adjective extraction from name
+    let parser = IngredientParser::new()
+        .with_adjectives(&["fresh", "chopped"]);
+
+    // Adjective in the name should be extracted to modifier
+    let ingredient = parser.from_str("2 cups fresh chopped basil");
+    assert_eq!(ingredient.name, "basil");
+    // "fresh" and "chopped" should be in modifiers
+    assert!(ingredient.modifier.is_some());
+    let modifier = ingredient.modifier.unwrap();
+    assert!(modifier.contains("fresh") || modifier.contains("chopped"));
+}
+
+#[test]
+fn test_parse_with_trace_returns_result() {
+    let parser = IngredientParser::new();
+
+    // Normal successful parse with trace
+    let traced = parser.parse_with_trace("2 cups flour");
+    assert!(traced.result.is_ok());
+    let ingredient = traced.result.unwrap();
+    assert_eq!(ingredient.name, "flour");
+
+    // Trace should have content
+    let tree = traced.trace.format_tree(false);
+    assert!(!tree.is_empty());
+}
+
+#[test]
+fn test_adjective_at_start_of_name() {
+    let parser = IngredientParser::new()
+        .with_adjectives(&["large"]);
+
+    // Adjective as a standalone word before ingredient
+    let ingredient = parser.from_str("2 large eggs");
+    assert_eq!(ingredient.name, "eggs");
+    // The adjective extraction may leave "large" in the name or extract it
+    // depending on parser implementation; this tests the with_adjectives path
+    assert!(!ingredient.amounts.is_empty());
+}
+
+#[test]
+fn test_multiple_adjectives_sorted_by_length() {
+    let parser = IngredientParser::new()
+        .with_adjectives(&["sliced", "thinly sliced"]);
+
+    // Longer adjective should match first
+    let ingredient = parser.from_str("2 cups thinly sliced onions");
+    assert_eq!(ingredient.name, "onions");
+    assert!(ingredient.modifier.is_some());
+    // "thinly sliced" should be extracted, not just "sliced"
+    assert!(ingredient.modifier.unwrap().contains("thinly sliced"));
 }

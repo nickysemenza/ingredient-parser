@@ -5,3 +5,6 @@ ignore:
   - "food_web/"
   - "ingredient-wasm/"
   - "ingredient-parser/benches/"
+  - "ingredient-parser/tests/"
+  - "recipe-scraper/tests/"
+  - "recipe_scraper_fetcher/tests/"

@@ -141,4 +141,60 @@ mod tests {
         assert_eq!(v_frac_to_num('½'), Some(0.5));
         assert_eq!(v_frac_to_num('x'), None);
     }
+
+    #[test]
+    fn test_v_fraction_all_unicode() {
+        // Test all supported unicode vulgar fractions
+        assert_eq!(v_frac_to_num('¾'), Some(0.75)); // 3/4
+        assert_eq!(v_frac_to_num('⅓'), Some(1.0 / 3.0)); // 1/3
+        assert_eq!(v_frac_to_num('⅔'), Some(2.0 / 3.0)); // 2/3
+
+        // Fifths
+        assert_eq!(v_frac_to_num('⅕'), Some(0.2)); // 1/5
+        assert_eq!(v_frac_to_num('⅖'), Some(0.4)); // 2/5
+        assert_eq!(v_frac_to_num('⅗'), Some(0.6)); // 3/5
+        assert_eq!(v_frac_to_num('⅘'), Some(0.8)); // 4/5
+
+        // Sixths
+        assert_eq!(v_frac_to_num('⅙'), Some(1.0 / 6.0)); // 1/6
+        assert_eq!(v_frac_to_num('⅚'), Some(5.0 / 6.0)); // 5/6
+
+        // Other fractions
+        assert_eq!(v_frac_to_num('⅐'), Some(1.0 / 7.0)); // 1/7
+        assert_eq!(v_frac_to_num('⅑'), Some(1.0 / 9.0)); // 1/9
+        assert_eq!(v_frac_to_num('⅒'), Some(0.1)); // 1/10
+    }
+
+    #[test]
+    fn test_fraction_number_all_unicode() {
+        // Test fraction_number parser with all unicode fractions
+        assert_eq!(fraction_number("¾"), Ok(("", 0.75)));
+        assert_eq!(fraction_number("⅓"), Ok(("", 1.0 / 3.0)));
+        assert_eq!(fraction_number("⅔"), Ok(("", 2.0 / 3.0)));
+
+        // Fifths
+        assert_eq!(fraction_number("⅕"), Ok(("", 0.2)));
+        assert_eq!(fraction_number("⅖"), Ok(("", 0.4)));
+        assert_eq!(fraction_number("⅗"), Ok(("", 0.6)));
+        assert_eq!(fraction_number("⅘"), Ok(("", 0.8)));
+
+        // Sixths
+        assert_eq!(fraction_number("⅙"), Ok(("", 1.0 / 6.0)));
+        assert_eq!(fraction_number("⅚"), Ok(("", 5.0 / 6.0)));
+
+        // Other fractions
+        assert_eq!(fraction_number("⅐"), Ok(("", 1.0 / 7.0)));
+        assert_eq!(fraction_number("⅑"), Ok(("", 1.0 / 9.0)));
+        assert_eq!(fraction_number("⅒"), Ok(("", 0.1)));
+    }
+
+    #[test]
+    fn test_fraction_number_mixed_with_all_unicode() {
+        // Test mixed numbers with various unicode fractions
+        assert_eq!(fraction_number("1¾"), Ok(("", 1.75)));
+        assert_eq!(fraction_number("2 ⅓"), Ok(("", 2.0 + 1.0 / 3.0)));
+        assert_eq!(fraction_number("3⅕"), Ok(("", 3.2)));
+        assert_eq!(fraction_number("1 ⅙"), Ok(("", 1.0 + 1.0 / 6.0)));
+        assert_eq!(fraction_number("2⅐"), Ok(("", 2.0 + 1.0 / 7.0)));
+    }
 }
