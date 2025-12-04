@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::panic)]
 use ingredient::{from_str, IngredientParser};
 use proptest::prelude::*;
 

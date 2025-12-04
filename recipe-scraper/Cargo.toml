@@ -17,3 +17,6 @@ pretty_assertions = "1"
 # https://github.com/serde-rs/serde/pull/1544#issuecomment-1244798727
 # [patch.crates-io]
 # serde_derive = { git = "https://github.com/kurtbuilds/serde" }
+
+[lints]
+workspace = true

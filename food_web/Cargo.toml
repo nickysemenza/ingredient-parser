@@ -32,3 +32,6 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 
 
 # These configurations are now in the workspace root Cargo.toml
+
+[lints]
+workspace = true

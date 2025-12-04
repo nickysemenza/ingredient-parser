@@ -59,6 +59,17 @@ use tracing::info;
 use unit::Measure;
 use parser::{text, text_number, unitamt, Res};
 
+/// Type alias for the complex parsing result tuple in parse_ingredient
+type ParsedIngredientParts<'a> = (
+    Option<Vec<Measure>>,
+    &'a str,
+    Option<(String, &'a str)>,
+    Option<Vec<String>>,
+    Option<Vec<Measure>>,
+    Option<&'a str>,
+    &'a str,
+);
+
 #[cfg(feature = "serde-derive")]
 #[macro_use]
 extern crate serde;
@@ -281,15 +292,15 @@ impl IngredientParser {
     /// use ingredient::{IngredientParser,unit::Measure};
     /// let ip = IngredientParser::new(false);
     /// assert_eq!(
-    ///    ip.must_parse_amount("120 grams"),
+    ///    ip.parse_amount("120 grams").unwrap(),
     ///    vec![Measure::parse_new("grams",120.0)]
     ///  );
     /// assert_eq!(
-    ///    ip.must_parse_amount("120 grams / 1 cup"),
+    ///    ip.parse_amount("120 grams / 1 cup").unwrap(),
     ///    vec![Measure::parse_new("grams",120.0),Measure::parse_new("cup", 1.0)]
     ///  );
     /// assert_eq!(
-    ///    ip.must_parse_amount("120 grams / 1 cup / 1 whole"),
+    ///    ip.parse_amount("120 grams / 1 cup / 1 whole").unwrap(),
     ///    vec![Measure::parse_new("grams",120.0),Measure::parse_new("cup", 1.0),Measure::parse_new("whole", 1.0)]
     ///  );
     /// ```
@@ -297,24 +308,13 @@ impl IngredientParser {
     ///
     /// Returns a Result with a Vec of Measures, or an error if parsing fails
     #[tracing::instrument(name = "parse_amount")]
-    pub(crate) fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
+    pub fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
         match self.clone().parse_measurement_list(input) {
             Ok((_, measurements)) => Ok(measurements),
             Err(e) => Err(IngredientError::AmountParseError {
                 input: input.to_string(),
                 reason: format!("{e:?}"),
             }),
-        }
-    }
-
-    /// Parse measurements with no error handling (will panic on failure)
-    /// 
-    /// # Panics
-    /// This method will panic if parsing fails. Consider using `parse_amount` for error handling.
-    pub fn must_parse_amount(&self, input: &str) -> Vec<Measure> {
-        match self.parse_amount(input) {
-            Ok(measures) => measures,
-            Err(e) => panic!("Measurement parsing failed for '{input}': {e}"),
         }
     }
 
@@ -360,7 +360,6 @@ impl IngredientParser {
     /// - "3 large eggs"
     /// - "1 cup (240ml) milk, room temperature"
     #[tracing::instrument(name = "parse_ingredient")]
-    #[allow(clippy::type_complexity)]
     pub(crate) fn parse_ingredient(self, input: &str) -> Res<&str, Ingredient> {
         use trace::{trace_enter, trace_exit_failure, trace_exit_success};
 
@@ -395,15 +394,7 @@ impl IngredientParser {
                     parenthesized_amounts, // Measurements in parentheses
                     _,                     // Comma
                     modifier_text,         // Modifier text
-                ): (
-                    Option<Vec<Measure>>,
-                    &str,
-                    Option<(String, &str)>,
-                    Option<Vec<String>>,
-                    Option<Vec<Measure>>,
-                    Option<&str>,
-                    &str,
-                ) = res;
+                ): ParsedIngredientParts<'_> = res;
 
                 // Start with modifier from the trailing text
                 let mut modifiers: String = modifier_text.to_owned();
@@ -1031,6 +1022,7 @@ impl IngredientParser {
 
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use std::convert::TryFrom;
 
@@ -1038,11 +1030,11 @@ mod tests {
     #[test]
     fn test_amount() {
         assert_eq!(
-            (IngredientParser::new(false)).must_parse_amount("350 °"),
+            (IngredientParser::new(false)).parse_amount("350 °").unwrap(),
             vec![Measure::parse_new("°", 350.0)]
         );
         assert_eq!(
-            (IngredientParser::new(false)).must_parse_amount("350 °F"),
+            (IngredientParser::new(false)).parse_amount("350 °F").unwrap(),
             vec![Measure::parse_new("°f", 350.0)]
         );
     }
@@ -1050,7 +1042,7 @@ mod tests {
     #[test]
     fn test_amount_range() {
         assert_eq!(
-            (IngredientParser::new(false)).must_parse_amount("2¼-2.5 cups"),
+            (IngredientParser::new(false)).parse_amount("2¼-2.5 cups").unwrap(),
             vec![Measure::parse_new_with_upper("cups", 2.25, 2.5)]
         );
 
@@ -1063,17 +1055,17 @@ mod tests {
             })
         );
         let amounts = (IngredientParser::new(false))
-            .must_parse_amount("2 ¼ - 2.5 cups");
+            .parse_amount("2 ¼ - 2.5 cups").unwrap();
         assert!(!amounts.is_empty(), "Expected at least one measure");
         assert_eq!(format!("{}", amounts[0]), "2.25 - 2.5 cups");
         assert_eq!(
-            (IngredientParser::new(false)).must_parse_amount("2 to 4 days"),
+            (IngredientParser::new(false)).parse_amount("2 to 4 days").unwrap(),
             vec![Measure::parse_new_with_upper("days", 2.0, 4.0)]
         );
 
         // #30
         assert_eq!(
-            (IngredientParser::new(false)).must_parse_amount("up to 4 days"),
+            (IngredientParser::new(false)).parse_amount("up to 4 days").unwrap(),
             vec![Measure::parse_new_with_upper("days", 0.0, 4.0)]
         );
     }

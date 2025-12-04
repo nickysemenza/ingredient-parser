@@ -270,15 +270,11 @@ impl Measure {
         };
 
         let steps =
-            petgraph::algo::astar(&g, n_a, |finish| finish == n_b, |e| *e.weight(), |_| 0.0)
-                .unwrap()
-                .1;
+            petgraph::algo::astar(&g, n_a, |finish| finish == n_b, |e| *e.weight(), |_| 0.0)?.1;
         let mut factor: f64 = 1.0;
         for x in 0..steps.len() - 1 {
-            let edge = g
-                .find_edge(*steps.get(x).unwrap(), *steps.get(x + 1).unwrap())
-                .unwrap();
-            factor *= g.edge_weight(edge).unwrap();
+            let edge = g.find_edge(*steps.get(x)?, *steps.get(x + 1)?)?;
+            factor *= g.edge_weight(edge)?;
         }
 
         let result = Measure::new_with_upper(
@@ -303,10 +299,10 @@ impl Measure {
 impl fmt::Display for Measure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let measure = self.clone().denormalize();
-        write!(f, "{}", num_without_zeroes(measure.value)).unwrap();
+        write!(f, "{}", num_without_zeroes(measure.value))?;
         if let Some(u) = measure.upper_value {
             if u != 0.0 {
-                write!(f, " - {}", num_without_zeroes(u)).unwrap();
+                write!(f, " - {}", num_without_zeroes(u))?;
             }
         }
         write!(f, " {}", self.unit_as_string())
@@ -314,6 +310,7 @@ impl fmt::Display for Measure {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

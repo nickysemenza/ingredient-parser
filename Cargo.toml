@@ -11,6 +11,11 @@ members = [
     "food_web",
 ]
 
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
 # Shared profile configuration for all workspace members
 [profile.release]
 opt-level = "s"  # Optimize for size (good for wasm)

@@ -121,8 +121,8 @@ impl ParseTrace {
             baseline_instant: None,
             baseline_unix_micros: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_micros() as u64,
+                .map(|d| d.as_micros() as u64)
+                .unwrap_or(0),
         }
     }
 
@@ -291,8 +291,8 @@ impl TraceCollector {
         let baseline_instant = Instant::now();
         let baseline_unix_micros = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_micros() as u64;
+            .map(|d| d.as_micros() as u64)
+            .unwrap_or(0);
         Self {
             stack: Vec::new(),
             baseline_instant,
@@ -470,6 +470,7 @@ impl fmt::Display for ParseTrace {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

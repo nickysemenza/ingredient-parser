@@ -1,3 +1,6 @@
+// UI code uses unwrap for display purposes where panics are acceptable
+#![allow(clippy::unwrap_used)]
+
 use eframe::{
     egui::{self, Image, RichText, TextFormat, WidgetText},
     epaint::{text::LayoutJob, Color32},

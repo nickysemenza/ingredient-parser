@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 use ingredient::{self, ingredient::Ingredient, unit::Measure, IngredientParser};
 macro_rules! test_parse_ingredient {
     ($test_name:ident, $input:expr, $expected_output:expr) => {

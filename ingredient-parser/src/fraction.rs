@@ -1,16 +1,16 @@
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{satisfy, space0, space1},
+    character::complete::{space0, space1},
     combinator::opt,
-    error::context,
+    error::{context, ParseError},
     number::complete::double,
     Parser,
 };
 
 use crate::Res;
 
-fn v_frac_to_num(input: char) -> Result<f64, String> {
+fn v_frac_to_num(input: char) -> Option<f64> {
     // two ranges for unicode fractions
     // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
     let (n, d): (i32, i32) = match input {
@@ -30,20 +30,26 @@ fn v_frac_to_num(input: char) -> Result<f64, String> {
         '⅐' => (1, 7),
         '⅑' => (1, 9),
         '⅒' => (1, 10),
-        _ => return Err(format!("unknown fraction: {input}")),
+        _ => return None,
     };
-    Ok(n as f64 / d as f64)
-}
-
-fn is_frac_char(c: char) -> bool {
-    v_frac_to_num(c).is_ok()
+    Some(n as f64 / d as f64)
 }
 
 /// parses unicode vulgar fractions
 fn v_fraction(input: &str) -> Res<&str, f64> {
-    context("v_fraction", satisfy(is_frac_char))
-        .parse(input)
-        .map(|(next_input, res)| (next_input, v_frac_to_num(res).unwrap()))
+    // Get the first character and try to convert it
+    let mut chars = input.chars();
+    match chars.next().and_then(v_frac_to_num) {
+        Some(val) => {
+            // Advance past the unicode fraction character
+            let char_len = input.chars().next().map_or(0, |c| c.len_utf8());
+            Ok((&input[char_len..], val))
+        }
+        None => Err(nom::Err::Error(nom_language::error::VerboseError::from_error_kind(
+            input,
+            nom::error::ErrorKind::Satisfy,
+        ))),
+    }
 }
 fn n_fraction(input: &str) -> Res<&str, f64> {
     context("n_fraction", (double, tag("/"), double))
@@ -98,6 +104,7 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
 
     use nom::error::ErrorKind;
@@ -128,8 +135,9 @@ mod tests {
 
     #[test]
     fn test_v_fraction() {
-        assert_eq!(v_frac_to_num('⅛'), Ok(0.125));
-        assert_eq!(v_frac_to_num('¼'), Ok(0.25));
-        assert_eq!(v_frac_to_num('½'), Ok(0.5));
+        assert_eq!(v_frac_to_num('⅛'), Some(0.125));
+        assert_eq!(v_frac_to_num('¼'), Some(0.25));
+        assert_eq!(v_frac_to_num('½'), Some(0.5));
+        assert_eq!(v_frac_to_num('x'), None);
     }
 }

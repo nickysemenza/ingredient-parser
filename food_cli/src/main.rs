@@ -1,3 +1,6 @@
+// CLI application - panics are acceptable for fatal errors
+#![allow(clippy::unwrap_used)]
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -60,7 +63,10 @@ async fn main() {
                 // Export to Jaeger JSON if requested
                 if let Some(output_path) = jaeger_output {
                     let jaeger_json = result.trace.to_jaeger_json();
-                    std::fs::write(output_path, &jaeger_json).expect("Failed to write Jaeger JSON");
+                    if let Err(e) = std::fs::write(output_path, &jaeger_json) {
+                        eprintln!("Failed to write Jaeger JSON to {output_path}: {e}");
+                        std::process::exit(1);
+                    }
                     eprintln!("Wrote Jaeger trace to: {output_path}");
                 }
 

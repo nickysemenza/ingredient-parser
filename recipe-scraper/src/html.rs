@@ -2,19 +2,25 @@ use scraper::{Html, Selector};
 
 use crate::{ScrapeError, ScrapedRecipe};
 
+fn parse_selector(selector: &str) -> Result<Selector, ScrapeError> {
+    Selector::parse(selector)
+        .map_err(|e| ScrapeError::Parse(format!("invalid selector '{selector}': {e}")))
+}
+
 pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
-    let title = match dom.select(&Selector::parse("title").unwrap()).next() {
+    let title_selector = parse_selector("title")?;
+    let title = match dom.select(&title_selector).next() {
         Some(x) => x.inner_html(),
         None => "".to_string(),
     };
     // smitten kitchen
-    let ingredient_selector = Selector::parse("li.jetpack-recipe-ingredient").unwrap();
+    let ingredient_selector = parse_selector("li.jetpack-recipe-ingredient")?;
     let ingredients = dom
         .select(&ingredient_selector)
         .map(|i| i.text().collect::<Vec<_>>().join(""))
         .collect::<Vec<String>>();
 
-    let ul_selector = Selector::parse(r#"div.jetpack-recipe-directions"#).unwrap();
+    let ul_selector = parse_selector(r#"div.jetpack-recipe-directions"#)?;
 
     let instruction_list_item_elem = match dom.select(&ul_selector).next() {
         Some(x) => x,
@@ -29,11 +35,11 @@ pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeErr
         .map(|s| s.into())
         .collect::<Vec<String>>();
 
-    let image_selector = Selector::parse(r#"meta[property="og:image"]"#).unwrap();
+    let image_selector = parse_selector(r#"meta[property="og:image"]"#)?;
     let image = dom
         .select(&image_selector)
         .next()
-        .map(|i| i.value().attr("content").unwrap().to_string());
+        .and_then(|i| i.value().attr("content").map(|s| s.to_string()));
 
     Ok(ScrapedRecipe {
         ingredients,

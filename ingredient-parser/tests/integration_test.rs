@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 use ingredient::{self, ingredient::Ingredient, unit::Measure, IngredientParser};
 #[test]
 fn test_many() {

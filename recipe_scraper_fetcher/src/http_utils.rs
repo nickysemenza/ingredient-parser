@@ -21,7 +21,10 @@ impl ReqwestOtelSpanBackend for TimeTrace {
     }
 
     fn on_request_end(span: &Span, outcome: &Result<Response>, extension: &mut Extensions) {
-        let time_elapsed = extension.get::<Instant>().unwrap().elapsed().as_millis() as i64;
+        let time_elapsed = extension
+            .get::<Instant>()
+            .map(|start| start.elapsed().as_millis() as i64)
+            .unwrap_or(0);
         default_on_request_end(span, outcome);
         span.record("time_elapsed", time_elapsed);
     }

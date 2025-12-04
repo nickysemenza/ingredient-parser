@@ -69,6 +69,7 @@ impl fmt::Display for Ingredient {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::unit::Measure;

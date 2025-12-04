@@ -5,6 +5,7 @@ pub fn num_without_zeroes(val: f64) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     #[test]

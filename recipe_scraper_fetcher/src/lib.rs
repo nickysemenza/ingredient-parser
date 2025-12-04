@@ -50,22 +50,25 @@ impl Fetcher {
             Ok(r) => r,
             Err(e) => {
                 return Err(match e {
-                    reqwest_middleware::Error::Middleware(e) => panic!("{}", e),
+                    reqwest_middleware::Error::Middleware(e) => {
+                        ScrapeError::Http(format!("middleware error: {e}"))
+                    }
                     reqwest_middleware::Error::Reqwest(e) => ScrapeError::Http(e.to_string()),
                 })
             }
         };
-        if !r.status().is_success() {
-            let err_string = r.error_for_status_ref().unwrap_err().to_string();
+        if let Err(e) = r.error_for_status_ref() {
+            let err_string = e.to_string();
             error!(
                 "failed to fetch {}: {}",
                 url,
                 r.text().await.unwrap_or_default()
             );
-            let e = Err(ScrapeError::Http(err_string));
-            return e;
+            return Err(ScrapeError::Http(err_string));
         }
-        Ok(r.text().await.unwrap())
+        r.text()
+            .await
+            .map_err(|e| ScrapeError::Http(format!("failed to read response body: {e}")))
     }
 }
 
@@ -76,6 +79,7 @@ impl Default for Fetcher {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

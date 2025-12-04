@@ -39,6 +39,7 @@ pub(crate) fn text_number(input: &str) -> Res<&str, f64> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

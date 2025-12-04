@@ -1,4 +1,6 @@
 #![allow(deprecated)]
+// WASM bindings use unwrap for JsValue serialization which should not fail for well-formed data
+#![allow(clippy::unwrap_used)]
 
 use ingredient::{self, rich_text::RichParser, unit::Measure, IngredientParser};
 use wasm_bindgen::prelude::*;

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use ingredient::IngredientParser;
 use std::hint::black_box;
@@ -39,11 +40,11 @@ fn benchmark_ingredient_parsing(c: &mut Criterion) {
             },
         );
 
-        // Benchmark error handling path
-        group.bench_with_input(BenchmarkId::new("try_from_str", name), input, |b, input| {
+        // Benchmark error handling path (using parse_ingredient which returns Result)
+        group.bench_with_input(BenchmarkId::new("parse_amount", name), input, |b, input| {
             b.iter(|| {
                 let parser = IngredientParser::new(false);
-                parser.try_from_str(black_box(input))
+                parser.parse_amount(black_box(input))
             })
         });
     }
@@ -70,11 +71,11 @@ fn benchmark_amount_parsing(c: &mut Criterion) {
         });
 
         group.bench_with_input(
-            BenchmarkId::new("must_parse_amount", name),
+            BenchmarkId::new("parse_amount_unwrap", name),
             input,
             |b, input| {
                 let parser = IngredientParser::new(false);
-                b.iter(|| parser.clone().must_parse_amount(black_box(input)))
+                b.iter(|| parser.clone().parse_amount(black_box(input)).unwrap())
             },
         );
     }

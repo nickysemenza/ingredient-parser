@@ -3,7 +3,8 @@ use std::fmt;
 use std::str::FromStr;
 
 pub fn is_valid(units: HashSet<String>, s: &str) -> bool {
-    if !matches!(Unit::from_str(&singular(s)).unwrap(), Unit::Other(_)) {
+    // Unit::from_str always returns Ok - check if it's a known unit (not Other)
+    if !matches!(Unit::from_str(&singular(s)), Ok(Unit::Other(_))) {
         // anything other than `other`
         return true;
     }
@@ -145,6 +146,7 @@ pub(crate) fn singular(s: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

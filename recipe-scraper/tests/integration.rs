@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 use pretty_assertions::assert_eq;
 use recipe_scraper::ld_json;
 use recipe_scraper::{scrape, ParsedRecipe, ScrapeError, ScrapedRecipe};

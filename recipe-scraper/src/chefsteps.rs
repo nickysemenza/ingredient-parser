@@ -2,7 +2,7 @@ use crate::{ScrapeError, ScrapedRecipe};
 use serde::{Deserialize, Serialize};
 
 pub(crate) fn parse_chefsteps(json: &str) -> Result<ScrapedRecipe, ScrapeError> {
-    let v: Root = serde_json::from_str(json).expect("failed to parse chefsteps json");
+    let v: Root = serde_json::from_str(json)?;
     let ingredients = v
         .ingredients
         .iter()
