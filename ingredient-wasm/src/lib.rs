@@ -2,7 +2,7 @@
 // WASM bindings use unwrap for JsValue serialization which should not fail for well-formed data
 #![allow(clippy::unwrap_used)]
 
-use ingredient::{self, rich_text::RichParser, unit::Measure, IngredientParser};
+use ingredient::{self, rich_text::RichParser, unit::Measure};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
@@ -31,10 +31,7 @@ pub fn parse_ingredient(input: &str) -> IIngredient {
 #[wasm_bindgen]
 pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> {
     let ings2: Vec<String> = ings.into_serde().unwrap();
-    let rtp = RichParser {
-        ingredient_names: ings2,
-        ip: IngredientParser::new().with_rich_text(),
-    };
+    let rtp = RichParser::new(ings2);
     match rtp.parse(r.as_str()) {
         Ok(r) => Ok(JsValue::from_serde(&r).unwrap().into()),
         Err(e) => Err(JsValue::from_str(&e)),

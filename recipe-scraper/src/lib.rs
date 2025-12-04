@@ -52,10 +52,7 @@ impl ScrapedRecipe {
             .map(|i| ip.from_str(i))
             .collect::<Vec<_>>();
         let names = ingredients.iter().map(|i| i.name.clone()).collect();
-        let rtp = RichParser {
-            ingredient_names: names,
-            ip: IngredientParser::new().with_rich_text(),
-        };
+        let rtp = RichParser::new(names);
         let parsed_instructions = self
             .instructions
             .iter()

@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use ingredient::IngredientParser;
+use ingredient::{rich_text::RichParser, IngredientParser};
 use std::hint::black_box;
 
 fn benchmark_ingredient_parsing(c: &mut Criterion) {
@@ -24,28 +24,26 @@ fn benchmark_ingredient_parsing(c: &mut Criterion) {
     let mut group = c.benchmark_group("ingredient_parsing");
 
     for (name, input) in &test_cases {
-        // Benchmark regular parsing
+        // Benchmark ingredient parsing
         group.bench_with_input(BenchmarkId::new("from_str", name), input, |b, input| {
-            let parser = IngredientParser::new(false);
-            b.iter(|| parser.clone().from_str(black_box(input)))
+            let parser = IngredientParser::new();
+            b.iter(|| parser.from_str(black_box(input)))
         });
 
-        // Benchmark rich text parsing
+        // Benchmark rich text parsing (for instructions)
         group.bench_with_input(
-            BenchmarkId::new("from_str_rich", name),
+            BenchmarkId::new("rich_parse", name),
             input,
             |b, input| {
-                let rich_parser = IngredientParser::new(true);
-                b.iter(|| rich_parser.clone().from_str(black_box(input)))
+                let rich_parser = RichParser::new(vec![]);
+                b.iter(|| rich_parser.parse(black_box(input)))
             },
         );
 
-        // Benchmark error handling path (using parse_ingredient which returns Result)
+        // Benchmark error handling path (using parse_amount which returns Result)
         group.bench_with_input(BenchmarkId::new("parse_amount", name), input, |b, input| {
-            b.iter(|| {
-                let parser = IngredientParser::new(false);
-                parser.parse_amount(black_box(input))
-            })
+            let parser = IngredientParser::new();
+            b.iter(|| parser.parse_amount(black_box(input)))
         });
     }
 
@@ -63,19 +61,18 @@ fn benchmark_amount_parsing(c: &mut Criterion) {
     ];
 
     let mut group = c.benchmark_group("amount_parsing");
+    let parser = IngredientParser::new();
 
     for (name, input) in &amount_cases {
         group.bench_with_input(BenchmarkId::new("parse_amount", name), input, |b, input| {
-            let parser = IngredientParser::new(false);
-            b.iter(|| parser.clone().parse_amount(black_box(input)))
+            b.iter(|| parser.parse_amount(black_box(input)))
         });
 
         group.bench_with_input(
             BenchmarkId::new("parse_amount_unwrap", name),
             input,
             |b, input| {
-                let parser = IngredientParser::new(false);
-                b.iter(|| parser.clone().parse_amount(black_box(input)).unwrap())
+                b.iter(|| parser.parse_amount(black_box(input)).unwrap())
             },
         );
     }
@@ -87,17 +84,17 @@ fn benchmark_parsing_vs_creation(c: &mut Criterion) {
     let test_input = "2¼ cups all-purpose flour, sifted";
 
     c.bench_function("create_parser", |b| {
-        b.iter(|| IngredientParser::new(black_box(false)))
+        b.iter(IngredientParser::new)
     });
 
     c.bench_function("parse_with_existing", |b| {
-        let parser = IngredientParser::new(false);
-        b.iter(|| parser.clone().from_str(black_box(test_input)))
+        let parser = IngredientParser::new();
+        b.iter(|| parser.from_str(black_box(test_input)))
     });
 
     c.bench_function("parse_with_creation", |b| {
         b.iter(|| {
-            let parser = IngredientParser::new(false);
+            let parser = IngredientParser::new();
             parser.from_str(black_box(test_input))
         })
     });
@@ -119,10 +116,10 @@ fn benchmark_batch_parsing(c: &mut Criterion) {
     ];
 
     c.bench_function("batch_parse_recipe", |b| {
-        let parser = IngredientParser::new(false);
+        let parser = IngredientParser::new();
         b.iter(|| {
             for ingredient in &recipe_ingredients {
-                parser.clone().from_str(black_box(ingredient));
+                parser.from_str(black_box(ingredient));
             }
         })
     });
@@ -130,7 +127,7 @@ fn benchmark_batch_parsing(c: &mut Criterion) {
     c.bench_function("batch_parse_with_creation", |b| {
         b.iter(|| {
             for ingredient in &recipe_ingredients {
-                let parser = IngredientParser::new(false);
+                let parser = IngredientParser::new();
                 parser.from_str(black_box(ingredient));
             }
         })

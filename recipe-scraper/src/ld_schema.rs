@@ -113,36 +113,6 @@ pub enum Graph {
     Person(Value),
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IsPartOf {
-    #[serde(rename = "@id")]
-    pub id: String,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Author {
-    #[serde(rename = "@type")]
-    pub type_field: Option<String>,
-    pub name: String,
-    #[serde(rename = "@id")]
-    pub id: Option<String>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PrimaryImageOfPage {
-    #[serde(rename = "@id")]
-    pub id: String,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Breadcrumb {
-    #[serde(rename = "@id")]
-    pub id: String,
-}
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -154,59 +124,6 @@ pub struct ItemListElement {
     pub item: Option<String>,
     pub text: Option<String>,
     pub url: Option<String>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Logo {
-    #[serde(rename = "@type")]
-    pub type_field: String,
-    pub in_language: String,
-    #[serde(rename = "@id")]
-    pub id: String,
-    pub url: String,
-    pub content_url: String,
-    pub width: i64,
-    pub height: i64,
-    pub caption: String,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecipeInstructionC {
-    #[serde(rename = "@type")]
-    pub type_field: String,
-    pub text: String,
-    pub name: String,
-    pub url: String,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AggregateRating {
-    #[serde(rename = "@type")]
-    pub type_field: String,
-    pub rating_value: String,
-    pub rating_count: String,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Nutrition {
-    #[serde(rename = "@type")]
-    pub type_field: String,
-    pub calories: String,
-    pub carbohydrate_content: String,
-    pub protein_content: String,
-    pub fat_content: String,
-    pub saturated_fat_content: String,
-    pub cholesterol_content: String,
-    pub sodium_content: String,
-    pub fiber_content: String,
-    pub sugar_content: String,
-    pub trans_fat_content: String,
-    pub unsaturated_fat_content: String,
-    pub serving_size: String,
 }
 
 #[cfg(test)]

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{parser::MeasurementParser, unit::Measure, IngredientParser, Res};
 use itertools::Itertools;
 use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0, Parser};
@@ -48,8 +50,12 @@ fn extract_ingredients(r: Rich, ingredient_names: &[String]) -> Rich {
         .collect()
 }
 
-fn amounts_chunk<'a>(ip: &IngredientParser, input: &'a str) -> Res<&'a str, Chunk> {
-    let mp = MeasurementParser::new(&ip.units, ip.is_rich_text);
+fn amounts_chunk<'a>(
+    units: &HashSet<String>,
+    input: &'a str,
+) -> Res<&'a str, Chunk> {
+    // Always use rich text mode (true) for instruction parsing
+    let mp = MeasurementParser::new(units, true);
     context("amounts_chunk", |a| mp.parse_measurement_list(a))
         .parse(input)
         .map(|(next_input, res)| (next_input, Chunk::Measure(res)))
@@ -69,12 +75,9 @@ fn text2(input: &str) -> Res<&str, String> {
 /// Parse some rich text that has some parsable [Measure] scattered around in it. Useful for displaying text with fancy formatting.
 /// returns [Rich]
 /// ```
-/// use ingredient::{unit::Measure, IngredientParser, rich_text::{RichParser, Chunk}};
+/// use ingredient::{unit::Measure, rich_text::{RichParser, Chunk}};
 /// assert_eq!(
-/// (RichParser {
-/// ingredient_names: vec![],
-/// ip: IngredientParser::new().with_rich_text(),
-/// }).parse("hello 1 cups foo bar").unwrap(),
+/// RichParser::new(vec![]).parse("hello 1 cups foo bar").unwrap(),
 /// vec![
 ///     Chunk::Text("hello ".to_string()),
 ///     Chunk::Measure(vec![Measure::new("cups", 1.0)]),
@@ -84,15 +87,36 @@ fn text2(input: &str) -> Res<&str, String> {
 /// ```
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct RichParser {
-    pub ingredient_names: Vec<String>,
-    pub ip: IngredientParser,
+    ingredient_names: Vec<String>,
+    ip: IngredientParser,
 }
 impl RichParser {
+    /// Create a new RichParser for parsing recipe instructions
+    ///
+    /// # Arguments
+    ///
+    /// * `ingredient_names` - List of ingredient names to highlight in the text
+    ///
+    /// # Example
+    /// ```
+    /// use ingredient::rich_text::RichParser;
+    ///
+    /// let parser = RichParser::new(vec!["flour".to_string(), "sugar".to_string()]);
+    /// let chunks = parser.parse("Add 2 cups flour").unwrap();
+    /// ```
+    pub fn new(ingredient_names: Vec<String>) -> Self {
+        Self {
+            ingredient_names,
+            ip: IngredientParser::new(),
+        }
+    }
+
     #[tracing::instrument]
     pub fn parse(&self, input: &str) -> Result<Rich, String> {
+        let units = self.ip.units();
         match context(
             "amts",
-            many0(alt((|a| amounts_chunk(&self.ip, a), text_chunk))),
+            many0(alt((|a| amounts_chunk(units, a), text_chunk))),
         )
         .parse(input)
         {

@@ -293,12 +293,9 @@ fn test_display_formatting() {
 // ============================================================================
 
 fn parse_rich(input: &str, ingredient_names: &[&str]) -> Vec<Chunk> {
-    RichParser {
-        ingredient_names: ingredient_names.iter().map(|s| s.to_string()).collect(),
-        ip: IngredientParser::new().with_rich_text(),
-    }
-    .parse(input)
-    .unwrap()
+    RichParser::new(ingredient_names.iter().map(|s| s.to_string()).collect())
+        .parse(input)
+        .unwrap()
 }
 
 fn text(s: &str) -> Chunk {

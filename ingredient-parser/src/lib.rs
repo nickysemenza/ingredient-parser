@@ -107,8 +107,8 @@ pub fn from_str(input: &str) -> Ingredient {
 /// Customizable ingredient parser with configurable units and adjectives
 ///
 /// This parser allows you to customize which units and adjectives are recognized
-/// during parsing. It also supports rich text mode for handling special Unicode
-/// characters like fractions (½, ¼, etc.).
+/// during parsing. For parsing recipe instructions (with rich text support),
+/// use [`RichParser`](crate::rich_text::RichParser) instead.
 ///
 /// # Examples
 ///
@@ -121,11 +121,6 @@ pub fn from_str(input: &str) -> Ingredient {
 ///
 /// let ingredient = parser.from_str("2 handfuls of nuts");
 /// assert_eq!(ingredient.name, "nuts");
-///
-/// // Rich text mode handles Unicode fractions
-/// let rich_parser = IngredientParser::new().with_rich_text();
-/// let ingredient = rich_parser.from_str("½ cup sugar");
-/// // Parser handles the ½ character directly
 /// ```
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct IngredientParser {
@@ -151,9 +146,6 @@ impl IngredientParser {
     ///
     /// // Standard parser
     /// let parser = IngredientParser::new();
-    ///
-    /// // Rich text parser (handles ½, ¼, etc.)
-    /// let rich_parser = IngredientParser::new().with_rich_text();
     ///
     /// // With custom units
     /// let parser = IngredientParser::new()
@@ -192,23 +184,6 @@ impl IngredientParser {
             adjectives: HashSet::from_iter(adjectives.iter().cloned()),
             is_rich_text: false,
         }
-    }
-
-    /// Enable rich text parsing for Unicode characters (chainable)
-    ///
-    /// When enabled, the parser handles Unicode fractions like ½, ¼, ¾, etc.
-    ///
-    /// # Example
-    /// ```
-    /// use ingredient::IngredientParser;
-    ///
-    /// let parser = IngredientParser::new().with_rich_text();
-    /// let ingredient = parser.from_str("½ cup sugar");
-    /// // Parser handles the ½ character directly
-    /// ```
-    pub fn with_rich_text(mut self) -> Self {
-        self.is_rich_text = true;
-        self
     }
 
     /// Add custom units to the parser (chainable)
@@ -252,6 +227,11 @@ impl IngredientParser {
             self.adjectives.insert((*adjective).to_string());
         }
         self
+    }
+
+    /// Get a reference to the units set (crate-internal use only)
+    pub(crate) fn units(&self) -> &HashSet<String> {
+        &self.units
     }
 
     /// wrapper for [self.parse_ingredient]
