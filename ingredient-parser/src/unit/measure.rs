@@ -401,13 +401,27 @@ impl Measure {
 impl fmt::Display for Measure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let measure = self.denormalize();
-        write!(f, "{}", num_without_zeroes(measure.value))?;
         if let Some(u) = measure.upper_value {
             if u != 0.0 {
-                write!(f, " - {}", num_without_zeroes(u))?;
+                if measure.value == 0.0 {
+                    // "up to X" case - just show the upper bound
+                    write!(f, "{} {}", num_without_zeroes(u), self.unit_as_string())
+                } else {
+                    // Normal range "X - Y"
+                    write!(
+                        f,
+                        "{} - {} {}",
+                        num_without_zeroes(measure.value),
+                        num_without_zeroes(u),
+                        self.unit_as_string()
+                    )
+                }
+            } else {
+                write!(f, "{} {}", num_without_zeroes(measure.value), self.unit_as_string())
             }
+        } else {
+            write!(f, "{} {}", num_without_zeroes(measure.value), self.unit_as_string())
         }
-        write!(f, " {}", self.unit_as_string())
     }
 }
 
@@ -439,5 +453,17 @@ mod tests {
         assert_eq!(Measure::new("cup", 1.0).unit_as_string(), "cup");
         assert_eq!(Measure::new("cup", 2.0).unit_as_string(), "cups");
         assert_eq!(Measure::new("grams", 3.0).unit_as_string(), "g");
+    }
+
+    #[test]
+    fn test_display_range() {
+        // Normal range displays as "X - Y unit"
+        assert_eq!(Measure::with_range("days", 1.0, 3.0).to_string(), "1 - 3 day");
+
+        // "up to X" (0 to X) displays as just "X unit" without the "0 -" prefix
+        assert_eq!(Measure::with_range("days", 0.0, 3.0).to_string(), "3 day");
+
+        // Single value displays normally
+        assert_eq!(Measure::new("hours", 2.0).to_string(), "2 hour");
     }
 }

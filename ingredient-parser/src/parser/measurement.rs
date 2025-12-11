@@ -360,13 +360,13 @@ impl<'a> MeasurementParser<'a> {
     /// Parse expressions like "up to 5" or "at most 10"
     fn parse_upper_bound_only<'b>(&self, input: &'b str) -> Res<&'b str, (f64, Option<f64>)> {
         // Format: prefix + number, mapped to (0.0, Some(upper_value))
+        // Note: We don't consume leading space here - let the caller handle spacing
         let format = (
-            opt(space0),                         // Optional space
             alt((tag("up to"), tag("at most"))), // Upper bound keywords
-            space0,                              // Optional space
+            space0,                              // Optional space after keyword
             |a| self.parse_number(a),            // The upper bound value
         )
-            .map(|(_, _, _, upper_value)| (0.0, Some(upper_value)));
+            .map(|(_, _, upper_value)| (0.0, Some(upper_value)));
 
         traced_parser!(
             "parse_upper_bound_only",
