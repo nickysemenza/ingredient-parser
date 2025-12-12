@@ -12,6 +12,9 @@ pub enum MeasureKind {
     Time,
     Temperature,
     Length,
+    /// Target a specific nutrient unit like "g protein", "mg sodium"
+    /// Used for direct conversions: "2 cups flour" → "X g protein"
+    Nutrient(String),
 }
 impl MeasureKind {
     pub fn unit(&self) -> Unit {
@@ -24,6 +27,7 @@ impl MeasureKind {
             MeasureKind::Time => Unit::Second,
             MeasureKind::Temperature => Unit::Fahrenheit,
             MeasureKind::Length => Unit::Inch,
+            MeasureKind::Nutrient(s) => Unit::Other(s.clone()),
         }
     }
     pub fn to_str(&self) -> &str {
@@ -57,6 +61,12 @@ impl FromStr for MeasureKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s_norm = s.to_lowercase();
+
+        // Check for nutrient prefix pattern: "nutrient:g protein"
+        if let Some(nutrient_unit) = s_norm.strip_prefix("nutrient:") {
+            return Ok(MeasureKind::Nutrient(nutrient_unit.to_string()));
+        }
+
         for (str_repr, kind) in MEASURE_KIND_MAPPINGS {
             if s_norm == *str_repr {
                 return Ok(kind.clone());
