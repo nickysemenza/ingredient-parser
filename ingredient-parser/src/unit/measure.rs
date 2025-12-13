@@ -1,6 +1,6 @@
 use crate::unit::singular;
 use crate::unit::{kind::MeasureKind, Unit};
-use crate::util::num_without_zeroes;
+use crate::util::{num_without_zeroes, round_to_int, truncate_3_decimals};
 use crate::{IngredientError, IngredientResult};
 use petgraph::Graph;
 use serde::{Deserialize, Serialize};
@@ -10,12 +10,6 @@ use tracing::{debug, info};
 
 pub type MeasureGraph = Graph<Unit, f64>;
 
-fn truncate2_decimals(f: f64) -> f64 {
-    f64::trunc(f * 1000.0) / 1000.0
-}
-fn round_result(x: f64) -> f64 {
-    x.round()
-}
 pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
     let mut g = Graph::<Unit, f64>::new();
 
@@ -31,7 +25,7 @@ pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
             .find(|i| g[*i] == m_b.unit)
             .unwrap_or_else(|| g.add_node(m_b.unit.clone().normalize()));
 
-        let a_to_b_weight = truncate2_decimals(m_b.value / m_a.value);
+        let a_to_b_weight = truncate_3_decimals(m_b.value / m_a.value);
 
         let exists = match g.find_edge(n_a, n_b) {
             Some(existing_edge) => match g.edge_weight(existing_edge) {
@@ -45,7 +39,7 @@ pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
             // edge from a to b
             g.add_edge(n_a, n_b, a_to_b_weight);
             // edge from b to a
-            g.add_edge(n_b, n_a, truncate2_decimals(m_a.value / m_b.value));
+            g.add_edge(n_b, n_a, truncate_3_decimals(m_a.value / m_b.value));
         }
     }
     g
@@ -162,7 +156,7 @@ impl Measure {
             upper_value,
         }
     }
-    pub(crate) fn unit(&self) -> Unit {
+    pub fn unit(&self) -> Unit {
         self.unit.clone()
     }
     pub fn values(&self) -> (f64, Option<f64>, String) {
@@ -381,8 +375,8 @@ impl Measure {
 
         let result = Measure::new_with_upper(
             unit_b,
-            round_result(input.value * factor),
-            input.upper_value.map(|x| round_result(x * factor)),
+            round_to_int(input.value * factor),
+            input.upper_value.map(|x| round_to_int(x * factor)),
         );
         debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
         Some(result.denormalize())

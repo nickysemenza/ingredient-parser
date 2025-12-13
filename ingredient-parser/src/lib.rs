@@ -64,6 +64,7 @@ pub mod parser;
 pub mod rich_text;
 pub mod trace;
 pub mod unit;
+pub mod unit_mapping;
 pub mod util;
 
 /// Parse an ingredient string using default settings
