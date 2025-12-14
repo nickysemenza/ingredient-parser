@@ -411,10 +411,20 @@ impl fmt::Display for Measure {
                     )
                 }
             } else {
-                write!(f, "{} {}", num_without_zeroes(measure.value), self.unit_as_string())
+                write!(
+                    f,
+                    "{} {}",
+                    num_without_zeroes(measure.value),
+                    self.unit_as_string()
+                )
             }
         } else {
-            write!(f, "{} {}", num_without_zeroes(measure.value), self.unit_as_string())
+            write!(
+                f,
+                "{} {}",
+                num_without_zeroes(measure.value),
+                self.unit_as_string()
+            )
         }
     }
 }
@@ -452,7 +462,10 @@ mod tests {
     #[test]
     fn test_display_range() {
         // Normal range displays as "X - Y unit"
-        assert_eq!(Measure::with_range("days", 1.0, 3.0).to_string(), "1 - 3 day");
+        assert_eq!(
+            Measure::with_range("days", 1.0, 3.0).to_string(),
+            "1 - 3 day"
+        );
 
         // "up to X" (0 to X) displays as just "X unit" without the "0 -" prefix
         assert_eq!(Measure::with_range("days", 0.0, 3.0).to_string(), "3 day");

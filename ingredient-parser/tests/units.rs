@@ -395,43 +395,94 @@ fn test_measure_denormalize_with_upper_value() {
 fn test_measure_kind_all_units() {
     // Test kind() for all unit types
     // Weight
-    assert_eq!(Measure::new("gram", 1.0).kind().unwrap(), MeasureKind::Weight);
+    assert_eq!(
+        Measure::new("gram", 1.0).kind().unwrap(),
+        MeasureKind::Weight
+    );
     assert_eq!(Measure::new("kg", 1.0).kind().unwrap(), MeasureKind::Weight);
     assert_eq!(Measure::new("oz", 1.0).kind().unwrap(), MeasureKind::Weight);
     assert_eq!(Measure::new("lb", 1.0).kind().unwrap(), MeasureKind::Weight);
 
     // Volume
     assert_eq!(Measure::new("ml", 1.0).kind().unwrap(), MeasureKind::Volume);
-    assert_eq!(Measure::new("liter", 1.0).kind().unwrap(), MeasureKind::Volume);
-    assert_eq!(Measure::new("tsp", 1.0).kind().unwrap(), MeasureKind::Volume);
-    assert_eq!(Measure::new("tbsp", 1.0).kind().unwrap(), MeasureKind::Volume);
-    assert_eq!(Measure::new("cup", 1.0).kind().unwrap(), MeasureKind::Volume);
-    assert_eq!(Measure::new("quart", 1.0).kind().unwrap(), MeasureKind::Volume);
-    assert_eq!(Measure::new("fl oz", 1.0).kind().unwrap(), MeasureKind::Volume);
+    assert_eq!(
+        Measure::new("liter", 1.0).kind().unwrap(),
+        MeasureKind::Volume
+    );
+    assert_eq!(
+        Measure::new("tsp", 1.0).kind().unwrap(),
+        MeasureKind::Volume
+    );
+    assert_eq!(
+        Measure::new("tbsp", 1.0).kind().unwrap(),
+        MeasureKind::Volume
+    );
+    assert_eq!(
+        Measure::new("cup", 1.0).kind().unwrap(),
+        MeasureKind::Volume
+    );
+    assert_eq!(
+        Measure::new("quart", 1.0).kind().unwrap(),
+        MeasureKind::Volume
+    );
+    assert_eq!(
+        Measure::new("fl oz", 1.0).kind().unwrap(),
+        MeasureKind::Volume
+    );
 
     // Money
-    assert_eq!(Measure::new("cent", 1.0).kind().unwrap(), MeasureKind::Money);
-    assert_eq!(Measure::new("dollar", 1.0).kind().unwrap(), MeasureKind::Money);
+    assert_eq!(
+        Measure::new("cent", 1.0).kind().unwrap(),
+        MeasureKind::Money
+    );
+    assert_eq!(
+        Measure::new("dollar", 1.0).kind().unwrap(),
+        MeasureKind::Money
+    );
 
     // Time
-    assert_eq!(Measure::new("second", 1.0).kind().unwrap(), MeasureKind::Time);
-    assert_eq!(Measure::new("minute", 1.0).kind().unwrap(), MeasureKind::Time);
+    assert_eq!(
+        Measure::new("second", 1.0).kind().unwrap(),
+        MeasureKind::Time
+    );
+    assert_eq!(
+        Measure::new("minute", 1.0).kind().unwrap(),
+        MeasureKind::Time
+    );
     assert_eq!(Measure::new("hour", 1.0).kind().unwrap(), MeasureKind::Time);
     assert_eq!(Measure::new("day", 1.0).kind().unwrap(), MeasureKind::Time);
 
     // Temperature
-    assert_eq!(Measure::new("fahrenheit", 1.0).kind().unwrap(), MeasureKind::Temperature);
-    assert_eq!(Measure::new("°c", 1.0).kind().unwrap(), MeasureKind::Temperature);
+    assert_eq!(
+        Measure::new("fahrenheit", 1.0).kind().unwrap(),
+        MeasureKind::Temperature
+    );
+    assert_eq!(
+        Measure::new("°c", 1.0).kind().unwrap(),
+        MeasureKind::Temperature
+    );
 
     // Calories
-    assert_eq!(Measure::new("kcal", 1.0).kind().unwrap(), MeasureKind::Calories);
+    assert_eq!(
+        Measure::new("kcal", 1.0).kind().unwrap(),
+        MeasureKind::Calories
+    );
 
     // Length
-    assert_eq!(Measure::new("inch", 1.0).kind().unwrap(), MeasureKind::Length);
+    assert_eq!(
+        Measure::new("inch", 1.0).kind().unwrap(),
+        MeasureKind::Length
+    );
 
     // Other
-    assert!(matches!(Measure::new("whole", 1.0).kind().unwrap(), MeasureKind::Other(_)));
-    assert!(matches!(Measure::new("custom", 1.0).kind().unwrap(), MeasureKind::Other(_)));
+    assert!(matches!(
+        Measure::new("whole", 1.0).kind().unwrap(),
+        MeasureKind::Other(_)
+    ));
+    assert!(matches!(
+        Measure::new("custom", 1.0).kind().unwrap(),
+        MeasureKind::Other(_)
+    ));
 }
 
 #[test]
@@ -613,7 +664,10 @@ fn test_unit_from_str_all_aliases() {
     assert_eq!(Unit::from_str("each").unwrap(), Unit::Whole);
 
     // Unknown units become Other
-    assert_eq!(Unit::from_str("unknown").unwrap(), Unit::Other("unknown".to_string()));
+    assert_eq!(
+        Unit::from_str("unknown").unwrap(),
+        Unit::Other("unknown".to_string())
+    );
 }
 
 #[test]
@@ -621,17 +675,17 @@ fn test_unit_display() {
     // Test Display trait for Unit
     assert_eq!(format!("{}", Unit::Gram), "Gram");
     assert_eq!(format!("{}", Unit::Cup), "Cup");
-    assert_eq!(format!("{}", Unit::Other("custom".to_string())), "Other(\"custom\")");
+    assert_eq!(
+        format!("{}", Unit::Other("custom".to_string())),
+        "Other(\"custom\")"
+    );
 }
 
 #[test]
 fn test_is_addon_unit() {
     use ingredient::unit::is_addon_unit;
 
-    let custom_units: HashSet<String> = HashSet::from([
-        "packet".to_string(),
-        "slice".to_string(),
-    ]);
+    let custom_units: HashSet<String> = HashSet::from(["packet".to_string(), "slice".to_string()]);
 
     // Custom units should match
     assert!(is_addon_unit(&custom_units, "packet"));

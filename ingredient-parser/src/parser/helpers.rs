@@ -50,8 +50,8 @@ pub fn parse_amount_string(input: &str) -> Result<Measure, String> {
     }
 
     // Parse number (supports fractions, decimals)
-    let (remaining, value) = parse_number_nom(input)
-        .map_err(|_| format!("Invalid numeric value in: '{}'", input))?;
+    let (remaining, value) =
+        parse_number_nom(input).map_err(|_| format!("Invalid numeric value in: '{}'", input))?;
 
     // Extract unit from remaining text
     let unit = remaining.trim();
@@ -60,8 +60,8 @@ pub fn parse_amount_string(input: &str) -> Result<Measure, String> {
     }
 
     // Parse the unit text (letters only)
-    let (leftover, unit_str) = unitamt(unit)
-        .map_err(|_| format!("Invalid unit in: '{}'", input))?;
+    let (leftover, unit_str) =
+        unitamt(unit).map_err(|_| format!("Invalid unit in: '{}'", input))?;
 
     if unit_str.is_empty() {
         return Err(format!("Missing unit in: '{}'", input));

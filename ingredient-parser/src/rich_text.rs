@@ -50,10 +50,7 @@ fn extract_ingredients(r: Rich, ingredient_names: &[String]) -> Rich {
         .collect()
 }
 
-fn amounts_chunk<'a>(
-    units: &HashSet<String>,
-    input: &'a str,
-) -> Res<&'a str, Chunk> {
+fn amounts_chunk<'a>(units: &HashSet<String>, input: &'a str) -> Res<&'a str, Chunk> {
     // Always use rich text mode (true) for instruction parsing
     let mp = MeasurementParser::new(units, true);
     context("amounts_chunk", |a| mp.parse_measurement_list(a))

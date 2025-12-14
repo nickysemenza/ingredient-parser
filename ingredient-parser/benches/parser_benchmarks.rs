@@ -31,14 +31,10 @@ fn benchmark_ingredient_parsing(c: &mut Criterion) {
         });
 
         // Benchmark rich text parsing (for instructions)
-        group.bench_with_input(
-            BenchmarkId::new("rich_parse", name),
-            input,
-            |b, input| {
-                let rich_parser = RichParser::new(vec![]);
-                b.iter(|| rich_parser.parse(black_box(input)))
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("rich_parse", name), input, |b, input| {
+            let rich_parser = RichParser::new(vec![]);
+            b.iter(|| rich_parser.parse(black_box(input)))
+        });
 
         // Benchmark error handling path (using parse_amount which returns Result)
         group.bench_with_input(BenchmarkId::new("parse_amount", name), input, |b, input| {
@@ -71,9 +67,7 @@ fn benchmark_amount_parsing(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("parse_amount_unwrap", name),
             input,
-            |b, input| {
-                b.iter(|| parser.parse_amount(black_box(input)).unwrap())
-            },
+            |b, input| b.iter(|| parser.parse_amount(black_box(input)).unwrap()),
         );
     }
 
@@ -83,9 +77,7 @@ fn benchmark_amount_parsing(c: &mut Criterion) {
 fn benchmark_parsing_vs_creation(c: &mut Criterion) {
     let test_input = "2¼ cups all-purpose flour, sifted";
 
-    c.bench_function("create_parser", |b| {
-        b.iter(IngredientParser::new)
-    });
+    c.bench_function("create_parser", |b| b.iter(IngredientParser::new));
 
     c.bench_function("parse_with_existing", |b| {
         let parser = IngredientParser::new();

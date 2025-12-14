@@ -429,7 +429,10 @@ fn test_to_jaeger_json_references() {
     let spans = parsed["data"][0]["spans"].as_array().unwrap();
 
     // Find child span (should have reference to parent)
-    let child_span = spans.iter().find(|s| s["operationName"] == "child").unwrap();
+    let child_span = spans
+        .iter()
+        .find(|s| s["operationName"] == "child")
+        .unwrap();
     let references = child_span["references"].as_array().unwrap();
 
     // Child should have a CHILD_OF reference

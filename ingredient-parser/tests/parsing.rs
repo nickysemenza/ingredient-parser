@@ -201,8 +201,8 @@ fn test_parsing_equivalence() {
 #[test]
 fn test_custom_units() {
     // Must add both singular and plural forms
-    let parser = IngredientParser::new()
-        .with_units(&["handful", "handfuls", "sprig", "sprigs", "knob"]);
+    let parser =
+        IngredientParser::new().with_units(&["handful", "handfuls", "sprig", "sprigs", "knob"]);
 
     // Custom units should be recognized
     assert_eq!(
@@ -221,16 +221,23 @@ fn test_custom_units() {
 
 #[test]
 fn test_custom_adjectives() {
-    let parser = IngredientParser::new()
-        .with_adjectives(&["roughly chopped", "finely diced"]);
+    let parser = IngredientParser::new().with_adjectives(&["roughly chopped", "finely diced"]);
 
     assert_eq!(
         parser.from_str("1 cup roughly chopped onion"),
-        Ingredient::new("onion", vec![Measure::new("cup", 1.0)], Some("roughly chopped"))
+        Ingredient::new(
+            "onion",
+            vec![Measure::new("cup", 1.0)],
+            Some("roughly chopped")
+        )
     );
     assert_eq!(
         parser.from_str("2 cups finely diced tomatoes"),
-        Ingredient::new("tomatoes", vec![Measure::new("cups", 2.0)], Some("finely diced"))
+        Ingredient::new(
+            "tomatoes",
+            vec![Measure::new("cups", 2.0)],
+            Some("finely diced")
+        )
     );
 }
 
@@ -358,50 +365,112 @@ fn ing(name: &str) -> Chunk {
 #[test]
 fn test_rich_text_parsing() {
     // Basic rich text with measure extraction
-    assert_eq!(parse_rich("hello 1 cups foo bar", &[]), vec![text("hello "), measure("cups", 1.0), text(" foo bar")]);
+    assert_eq!(
+        parse_rich("hello 1 cups foo bar", &[]),
+        vec![text("hello "), measure("cups", 1.0), text(" foo bar")]
+    );
 
     // With ingredient name extraction
-    assert_eq!(parse_rich("hello 1 cups foo bar", &["bar"]), vec![text("hello "), measure("cups", 1.0), text(" foo "), ing("bar")]);
+    assert_eq!(
+        parse_rich("hello 1 cups foo bar", &["bar"]),
+        vec![
+            text("hello "),
+            measure("cups", 1.0),
+            text(" foo "),
+            ing("bar")
+        ]
+    );
 
     // Multi-word ingredient names
-    assert_eq!(parse_rich("hello 1 cups foo bar", &["foo bar"]), vec![text("hello "), measure("cups", 1.0), text(" "), ing("foo bar")]);
+    assert_eq!(
+        parse_rich("hello 1 cups foo bar", &["foo bar"]),
+        vec![
+            text("hello "),
+            measure("cups", 1.0),
+            text(" "),
+            ing("foo bar")
+        ]
+    );
 
     // Ranges in rich text
-    assert_eq!(parse_rich("2-2 1/2 cups foo' bar", &[]), vec![measure_range("cups", 2.0, 2.5), text(" foo' bar")]);
+    assert_eq!(
+        parse_rich("2-2 1/2 cups foo' bar", &[]),
+        vec![measure_range("cups", 2.0, 2.5), text(" foo' bar")]
+    );
 
     // "store for X days" pattern
-    assert_eq!(parse_rich("store for 1-2 days", &[]), vec![text("store for "), measure_range("days", 1.0, 2.0)]);
+    assert_eq!(
+        parse_rich("store for 1-2 days", &[]),
+        vec![text("store for "), measure_range("days", 1.0, 2.0)]
+    );
 
     // Complex sentence with ingredient and time
     assert_eq!(
         parse_rich("add 1 cup water and store for at most 2 days", &["water"]),
-        vec![text("add "), measure("cup", 1.0), text(" "), ing("water"), text(" and store for "), measure_range("days", 0.0, 2.0)]
+        vec![
+            text("add "),
+            measure("cup", 1.0),
+            text(" "),
+            ing("water"),
+            text(" and store for "),
+            measure_range("days", 0.0, 2.0)
+        ]
     );
 
     // Dimensions (inches)
-    assert_eq!(parse_rich(r#"9" x 13""#, &[]), vec![measure(r#"""#, 9.0), text(" x "), measure(r#"""#, 13.0)]);
+    assert_eq!(
+        parse_rich(r#"9" x 13""#, &[]),
+        vec![measure(r#"""#, 9.0), text(" x "), measure(r#"""#, 13.0)]
+    );
 
     // Temperature
-    assert_eq!(parse_rich("preheat to 350 °F", &[]), vec![text("preheat to "), measure("°f", 350.0)]);
+    assert_eq!(
+        parse_rich("preheat to 350 °F", &[]),
+        vec![text("preheat to "), measure("°f", 350.0)]
+    );
 
     // Multiple ingredients
     assert_eq!(
         parse_rich("mix 2 cups flour and 1 tsp salt", &["flour", "salt"]),
-        vec![text("mix "), measure("cups", 2.0), text(" "), ing("flour"), text(" and "), measure("tsp", 1.0), text(" "), ing("salt")]
+        vec![
+            text("mix "),
+            measure("cups", 2.0),
+            text(" "),
+            ing("flour"),
+            text(" and "),
+            measure("tsp", 1.0),
+            text(" "),
+            ing("salt")
+        ]
     );
 
     // Unicode fractions
-    assert_eq!(parse_rich("add ½ cup sugar", &["sugar"]), vec![text("add "), measure("cup", 0.5), text(" "), ing("sugar")]);
+    assert_eq!(
+        parse_rich("add ½ cup sugar", &["sugar"]),
+        vec![text("add "), measure("cup", 0.5), text(" "), ing("sugar")]
+    );
 
     // No measures, just text
-    assert_eq!(parse_rich("stir until smooth", &[]), vec![text("stir until smooth")]);
+    assert_eq!(
+        parse_rich("stir until smooth", &[]),
+        vec![text("stir until smooth")]
+    );
 
     // Ingredient at start (note: empty text prefix is expected)
-    assert_eq!(parse_rich("butter should be soft", &["butter"]), vec![text(""), ing("butter"), text(" should be soft")]);
+    assert_eq!(
+        parse_rich("butter should be soft", &["butter"]),
+        vec![text(""), ing("butter"), text(" should be soft")]
+    );
 
     // Time durations
-    assert_eq!(parse_rich("bake for 25-30 minutes", &[]), vec![text("bake for "), measure_range("minutes", 25.0, 30.0)]);
-    assert_eq!(parse_rich("let rest 1-2 hours", &[]), vec![text("let rest "), measure_range("hours", 1.0, 2.0)]);
+    assert_eq!(
+        parse_rich("bake for 25-30 minutes", &[]),
+        vec![text("bake for "), measure_range("minutes", 25.0, 30.0)]
+    );
+    assert_eq!(
+        parse_rich("let rest 1-2 hours", &[]),
+        vec![text("let rest "), measure_range("hours", 1.0, 2.0)]
+    );
 }
 
 // Additional Rich Text Edge Cases
@@ -417,9 +486,15 @@ fn test_rich_text_compound_time_expressions() {
     assert_eq!(result[2], measure_range("days", 0.0, 3.0));
 
     // Full sentence with "at least X and up to Y"
-    let result = parse_rich("Cover and chill for at least 2 hours and up to 3 days before baking.", &[]);
+    let result = parse_rich(
+        "Cover and chill for at least 2 hours and up to 3 days before baking.",
+        &[],
+    );
     // Check that both time values are captured
-    let measures: Vec<_> = result.iter().filter(|c| matches!(c, Chunk::Measure(_))).collect();
+    let measures: Vec<_> = result
+        .iter()
+        .filter(|c| matches!(c, Chunk::Measure(_)))
+        .collect();
     assert_eq!(measures.len(), 2, "Should find two measurements");
 
     // "at least X" should parse X as a single value (lower bound of open-ended range)
@@ -445,7 +520,10 @@ fn test_rich_text_time_patterns() {
     );
 
     // "marinate overnight" - no parsable measure
-    assert_eq!(parse_rich("marinate overnight", &[]), vec![text("marinate overnight")]);
+    assert_eq!(
+        parse_rich("marinate overnight", &[]),
+        vec![text("marinate overnight")]
+    );
 
     // "cook 2-3 hours" without "for"
     assert_eq!(
@@ -455,12 +533,17 @@ fn test_rich_text_time_patterns() {
 
     // "simmer for about 20 minutes"
     let result = parse_rich("simmer for about 20 minutes", &[]);
-    let has_20_min = result.iter().any(|c| matches!(c, Chunk::Measure(m) if m[0].values().0 == 20.0));
+    let has_20_min = result
+        .iter()
+        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().0 == 20.0));
     assert!(has_20_min, "Should parse '20 minutes'");
 
     // Multiple time references
     let result = parse_rich("cook for 5 minutes, then bake for 30 minutes", &[]);
-    let measures: Vec<_> = result.iter().filter(|c| matches!(c, Chunk::Measure(_))).collect();
+    let measures: Vec<_> = result
+        .iter()
+        .filter(|c| matches!(c, Chunk::Measure(_)))
+        .collect();
     assert_eq!(measures.len(), 2, "Should find two time measurements");
 }
 
@@ -474,12 +557,16 @@ fn test_rich_text_temperature_patterns() {
 
     // Fahrenheit with space before symbol
     let result = parse_rich("bake at 400 °F", &[]);
-    let has_temp = result.iter().any(|c| matches!(c, Chunk::Measure(m) if m[0].values().0 == 400.0));
+    let has_temp = result
+        .iter()
+        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().0 == 400.0));
     assert!(has_temp, "Should parse '400 °F'");
 
     // Celsius
     let result = parse_rich("heat to 180°C", &[]);
-    let has_temp = result.iter().any(|c| matches!(c, Chunk::Measure(m) if m[0].values().0 == 180.0));
+    let has_temp = result
+        .iter()
+        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().0 == 180.0));
     assert!(has_temp, "Should parse '180°C'");
 
     // Temperature range
@@ -495,7 +582,13 @@ fn test_rich_text_dimension_patterns() {
     // Pan dimensions with x
     assert_eq!(
         parse_rich(r#"use a 9" x 13" pan"#, &[]),
-        vec![text("use a "), measure(r#"""#, 9.0), text(" x "), measure(r#"""#, 13.0), text(" pan")]
+        vec![
+            text("use a "),
+            measure(r#"""#, 9.0),
+            text(" x "),
+            measure(r#"""#, 13.0),
+            text(" pan")
+        ]
     );
 
     // Single dimension
@@ -506,7 +599,10 @@ fn test_rich_text_dimension_patterns() {
 
     // "2 inch" with space - actually parses correctly as inches!
     let result = parse_rich("cut into 2 inch squares", &[]);
-    assert_eq!(result, vec![text("cut into "), measure("inch", 2.0), text(" squares")]);
+    assert_eq!(
+        result,
+        vec![text("cut into "), measure("inch", 2.0), text(" squares")]
+    );
 
     // "2-inch" hyphenated - hyphen is interpreted as potential range separator
     let result = parse_rich("cut into 2-inch squares", &[]);
@@ -517,7 +613,10 @@ fn test_rich_text_dimension_patterns() {
 #[test]
 fn test_rich_text_quantity_patterns() {
     // "a few" - doesn't parse as number
-    assert_eq!(parse_rich("add a few drops", &[]), vec![text("add a few drops")]);
+    assert_eq!(
+        parse_rich("add a few drops", &[]),
+        vec![text("add a few drops")]
+    );
 
     // Plural units
     assert_eq!(
@@ -540,7 +639,12 @@ fn test_rich_text_quantity_patterns() {
     // Unicode fraction
     assert_eq!(
         parse_rich("add ¼ teaspoon salt", &["salt"]),
-        vec![text("add "), measure("teaspoon", 0.25), text(" "), ing("salt")]
+        vec![
+            text("add "),
+            measure("teaspoon", 0.25),
+            text(" "),
+            ing("salt")
+        ]
     );
 }
 
@@ -549,24 +653,45 @@ fn test_rich_text_ingredient_extraction() {
     // Ingredient in middle of text
     assert_eq!(
         parse_rich("fold in the chocolate chips gently", &["chocolate chips"]),
-        vec![text("fold in the "), ing("chocolate chips"), text(" gently")]
+        vec![
+            text("fold in the "),
+            ing("chocolate chips"),
+            text(" gently")
+        ]
     );
 
     // Multiple ingredients
     assert_eq!(
-        parse_rich("combine flour, sugar, and salt", &["flour", "sugar", "salt"]),
-        vec![text("combine "), ing("flour"), text(", "), ing("sugar"), text(", and "), ing("salt")]
+        parse_rich(
+            "combine flour, sugar, and salt",
+            &["flour", "sugar", "salt"]
+        ),
+        vec![
+            text("combine "),
+            ing("flour"),
+            text(", "),
+            ing("sugar"),
+            text(", and "),
+            ing("salt")
+        ]
     );
 
     // Ingredient with measurement
     assert_eq!(
         parse_rich("whisk in 2 tbsp butter", &["butter"]),
-        vec![text("whisk in "), measure("tbsp", 2.0), text(" "), ing("butter")]
+        vec![
+            text("whisk in "),
+            measure("tbsp", 2.0),
+            text(" "),
+            ing("butter")
+        ]
     );
 
     // Ingredient name that's a substring - should match exact word
     let result = parse_rich("add the cream cheese", &["cream"]);
-    assert!(result.iter().any(|c| matches!(c, Chunk::Ing(s) if s == "cream")));
+    assert!(result
+        .iter()
+        .any(|c| matches!(c, Chunk::Ing(s) if s == "cream")));
 }
 
 #[test]
@@ -578,7 +703,10 @@ fn test_rich_text_edge_cases() {
     assert_eq!(parse_rich("   ", &[]), vec![text("   ")]);
 
     // Numbers without units
-    assert_eq!(parse_rich("step 1", &[]), vec![text("step "), measure("whole", 1.0)]);
+    assert_eq!(
+        parse_rich("step 1", &[]),
+        vec![text("step "), measure("whole", 1.0)]
+    );
 
     // Punctuation handling
     assert_eq!(
@@ -591,7 +719,11 @@ fn test_rich_text_edge_cases() {
     // Result is: [Text(""), Ing("butter"), Text(" "), Measure([Tablespoon, 2.0])]
     // Note: "(about" and ")" are stripped - parentheses are consumed as separators
     let has_tbsp = result.iter().any(|c| matches!(c, Chunk::Measure(_)));
-    assert!(has_tbsp, "Should parse '2 tablespoons' in parentheses: {:?}", result);
+    assert!(
+        has_tbsp,
+        "Should parse '2 tablespoons' in parentheses: {:?}",
+        result
+    );
 
     // Hyphenated time (should be range)
     assert_eq!(
@@ -617,14 +749,16 @@ fn test_rich_text_parentheses() {
 
     // Parentheses with content before and after
     let result = parse_rich("add butter (softened) to bowl", &["butter"]);
-    assert!(result.iter().any(|c| matches!(c, Chunk::Ing(s) if s == "butter")));
+    assert!(result
+        .iter()
+        .any(|c| matches!(c, Chunk::Ing(s) if s == "butter")));
     // Note: "softened" in parens becomes a text chunk
 
     // Nested parenthetical with measurement
     let result = parse_rich("use oil (about 1/4 cup) for frying", &[]);
-    let has_quarter_cup = result.iter().any(|c| {
-        matches!(c, Chunk::Measure(m) if (m[0].values().0 - 0.25).abs() < 0.01)
-    });
+    let has_quarter_cup = result
+        .iter()
+        .any(|c| matches!(c, Chunk::Measure(m) if (m[0].values().0 - 0.25).abs() < 0.01));
     assert!(has_quarter_cup, "Should parse '1/4 cup' in parentheses");
 }
 
@@ -637,7 +771,9 @@ fn test_rich_text_parentheses() {
 fn test_rich_text_hyphenated_units() {
     // "2-inch" should parse as 2 inches, not "2" with "-inch" as leftover text
     let result = parse_rich("cut into 2-inch pieces", &[]);
-    let has_inch = result.iter().any(|c| matches!(c, Chunk::Measure(m) if m[0].values().2 == "inch"));
+    let has_inch = result
+        .iter()
+        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().2 == "inch"));
     assert!(has_inch, "Should parse '2-inch' as 2 inches: {:?}", result);
 
     // Same with fractions
@@ -645,7 +781,11 @@ fn test_rich_text_hyphenated_units() {
     let has_half_inch = result.iter().any(|c| {
         matches!(c, Chunk::Measure(m) if m[0].values().2 == "inch" && (m[0].values().0 - 0.5).abs() < 0.01)
     });
-    assert!(has_half_inch, "Should parse '1/2-inch' as 0.5 inches: {:?}", result);
+    assert!(
+        has_half_inch,
+        "Should parse '1/2-inch' as 0.5 inches: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -654,12 +794,22 @@ fn test_rich_text_number_followed_by_non_unit() {
     // "12 cookies" should preserve the space: ["12 whole"][" cookies"]
     // Currently produces: ["12 whole"]["cookies"] (missing space)
     let result = parse_rich("makes 12 cookies", &[]);
-    let text_chunks: Vec<_> = result.iter().filter_map(|c| {
-        if let Chunk::Text(s) = c { Some(s.as_str()) } else { None }
-    }).collect();
+    let text_chunks: Vec<_> = result
+        .iter()
+        .filter_map(|c| {
+            if let Chunk::Text(s) = c {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
     assert!(
-        text_chunks.iter().any(|s| s.starts_with(" cookies") || s == &" cookies"),
-        "Space before 'cookies' should be preserved: {:?}", result
+        text_chunks
+            .iter()
+            .any(|s| s.starts_with(" cookies") || s == &" cookies"),
+        "Space before 'cookies' should be preserved: {:?}",
+        result
     );
 }
 
@@ -727,9 +877,19 @@ fn test_custom_adjectives_extraction() {
     // Test various custom adjective configurations
     let cases: Vec<(&[&str], &str, &str, Option<&str>)> = vec![
         // (adjectives, input, expected_name, expected_modifier_contains)
-        (&["fresh", "chopped"], "2 cups fresh chopped basil", "basil", Some("fresh")),
+        (
+            &["fresh", "chopped"],
+            "2 cups fresh chopped basil",
+            "basil",
+            Some("fresh"),
+        ),
         (&["large"], "2 large eggs", "eggs", None), // "large" is a unit, not extracted
-        (&["sliced", "thinly sliced"], "2 cups thinly sliced onions", "onions", Some("thinly sliced")),
+        (
+            &["sliced", "thinly sliced"],
+            "2 cups thinly sliced onions",
+            "onions",
+            Some("thinly sliced"),
+        ),
     ];
 
     for (adjectives, input, expected_name, expected_modifier) in cases {
@@ -738,7 +898,10 @@ fn test_custom_adjectives_extraction() {
         assert_eq!(ingredient.name, expected_name, "Failed for: {input}");
         if let Some(modifier_text) = expected_modifier {
             assert!(
-                ingredient.modifier.as_ref().map_or(false, |m| m.contains(modifier_text)),
+                ingredient
+                    .modifier
+                    .as_ref()
+                    .map_or(false, |m| m.contains(modifier_text)),
                 "Expected modifier containing '{modifier_text}' for: {input}"
             );
         }
@@ -754,4 +917,3 @@ fn test_parse_with_trace() {
     assert_eq!(traced.result.unwrap().name, "flour");
     assert!(!traced.trace.format_tree(false).is_empty());
 }
-

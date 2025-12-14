@@ -512,8 +512,21 @@ mod tests {
 
     fn make_parser() -> HashSet<String> {
         [
-            "cup", "cups", "tbsp", "tsp", "gram", "grams", "g", "whole", "lb", "oz", "ml",
-            "tablespoon", "tablespoons", "teaspoon", "teaspoons",
+            "cup",
+            "cups",
+            "tbsp",
+            "tsp",
+            "gram",
+            "grams",
+            "g",
+            "whole",
+            "lb",
+            "oz",
+            "ml",
+            "tablespoon",
+            "tablespoons",
+            "teaspoon",
+            "teaspoons",
         ]
         .iter()
         .map(|&s| s.to_string())
