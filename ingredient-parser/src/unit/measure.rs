@@ -3,7 +3,7 @@ use crate::unit::{kind::MeasureKind, Unit};
 use crate::util::{num_without_zeroes, round_to_int, truncate_3_decimals};
 use crate::{IngredientError, IngredientResult};
 use petgraph::Graph;
-use serde::{Deserialize, Serialize};
+use serde::{de::Deserializer, ser::Serializer, Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use tracing::{debug, info};
@@ -50,9 +50,24 @@ pub fn print_graph(g: MeasureGraph) -> String {
 
 #[derive(Clone, PartialEq, PartialOrd, Debug, Serialize, Deserialize)]
 pub struct Measure {
+    #[serde(
+        serialize_with = "serialize_unit",
+        deserialize_with = "deserialize_unit"
+    )]
     unit: Unit,
     value: f64,
     upper_value: Option<f64>,
+}
+
+/// Serialize Unit as its canonical string form (e.g., "cup", "g", "$")
+fn serialize_unit<S: Serializer>(unit: &Unit, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&unit.to_str())
+}
+
+/// Deserialize Unit from a string
+fn deserialize_unit<'de, D: Deserializer<'de>>(d: D) -> Result<Unit, D::Error> {
+    let s = String::deserialize(d)?;
+    Ok(Unit::from_str(&s).unwrap_or(Unit::Other(singular(&s))))
 }
 
 // Multiplication factors for unit conversions
