@@ -163,6 +163,45 @@ fn find_normalization_rule(unit: &Unit) -> Option<&'static NormalizationRule> {
     NORMALIZATION_RULES.iter().find(|rule| &rule.from == unit)
 }
 
+/// Known nutrient unit prefixes (mass/energy units used for nutrients)
+static NUTRIENT_UNIT_PREFIXES: &[&str] = &["g", "mg", "ug", "µg", "mcg", "kcal", "iu"];
+
+/// Known nutrient names that follow the unit prefix
+static NUTRIENT_NAMES: &[&str] = &[
+    "protein",
+    "fat",
+    "carbs",
+    "fiber",
+    "calcium",
+    "iron",
+    "magnesium",
+    "potassium",
+    "sodium",
+    "zinc",
+    "selenium",
+    "cholesterol",
+    "saturated_fat",
+    "vitamin_a",
+    "vitamin_b6",
+    "vitamin_b12",
+    "vitamin_c",
+    "vitamin_d",
+    "vitamin_e",
+    "vitamin_k",
+    "folate",
+];
+
+/// Check if a unit string represents a nutrient (e.g., "g protein", "mg sodium")
+fn is_nutrient_unit(s: &str) -> bool {
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let prefix = parts[0].to_lowercase();
+    let name = parts[1].to_lowercase();
+    NUTRIENT_UNIT_PREFIXES.contains(&prefix.as_str()) && NUTRIENT_NAMES.contains(&name.as_str())
+}
+
 impl Measure {
     pub(crate) fn new_with_upper(unit: Unit, value: f64, upper_value: Option<f64>) -> Measure {
         Measure {
@@ -311,7 +350,14 @@ impl Measure {
 
             // Other/custom units
             Unit::Whole => MeasureKind::Other("whole".to_string()),
-            Unit::Other(s) => MeasureKind::Other(s.clone()),
+            Unit::Other(s) => {
+                // Check if this is a nutrient unit pattern like "g protein", "mg sodium", "ug vitamin_b12"
+                if is_nutrient_unit(s) {
+                    MeasureKind::Nutrient(s.clone())
+                } else {
+                    MeasureKind::Other(s.clone())
+                }
+            }
         })
     }
 
@@ -487,5 +533,57 @@ mod tests {
 
         // Single value displays normally
         assert_eq!(Measure::new("hours", 2.0).to_string(), "2 hour");
+    }
+
+    #[test]
+    fn test_is_nutrient_unit() {
+        // Valid nutrient units
+        assert!(is_nutrient_unit("g protein"));
+        assert!(is_nutrient_unit("mg sodium"));
+        assert!(is_nutrient_unit("ug vitamin_b12"));
+        assert!(is_nutrient_unit("G PROTEIN")); // case insensitive
+        assert!(is_nutrient_unit("MG Calcium"));
+        assert!(is_nutrient_unit("kcal fat")); // kcal is a valid prefix for nutrients
+
+        // Invalid - not nutrient patterns
+        assert!(!is_nutrient_unit("g")); // no nutrient name
+        assert!(!is_nutrient_unit("protein")); // no unit prefix
+        assert!(!is_nutrient_unit("cups")); // regular unit
+        assert!(!is_nutrient_unit("g unknown")); // unknown nutrient name
+        assert!(!is_nutrient_unit("xyz protein")); // unknown unit prefix
+        assert!(!is_nutrient_unit("g protein extra")); // too many parts
+    }
+
+    #[test]
+    fn test_measure_kind_nutrients() {
+        // Nutrient units should return MeasureKind::Nutrient
+        let m_protein = Measure::new("g protein", 12.5);
+        assert!(matches!(m_protein.kind().unwrap(), MeasureKind::Nutrient(_)));
+        assert_eq!(
+            m_protein.kind().unwrap(),
+            MeasureKind::Nutrient("g protein".to_string())
+        );
+
+        let m_sodium = Measure::new("mg sodium", 500.0);
+        assert_eq!(
+            m_sodium.kind().unwrap(),
+            MeasureKind::Nutrient("mg sodium".to_string())
+        );
+
+        let m_b12 = Measure::new("ug vitamin_b12", 2.4);
+        assert_eq!(
+            m_b12.kind().unwrap(),
+            MeasureKind::Nutrient("ug vitamin_b12".to_string())
+        );
+
+        // Non-nutrient "Other" units should still be Other
+        let m_whole = Measure::new("whole", 1.0);
+        assert!(matches!(m_whole.kind().unwrap(), MeasureKind::Other(_)));
+
+        let m_slice = Measure::new("slice", 2.0);
+        assert_eq!(
+            m_slice.kind().unwrap(),
+            MeasureKind::Other("slice".to_string())
+        );
     }
 }
