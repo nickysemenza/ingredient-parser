@@ -721,8 +721,7 @@ fn test_rich_text_edge_cases() {
     let has_tbsp = result.iter().any(|c| matches!(c, Chunk::Measure(_)));
     assert!(
         has_tbsp,
-        "Should parse '2 tablespoons' in parentheses: {:?}",
-        result
+        "Should parse '2 tablespoons' in parentheses: {result:?}"
     );
 
     // Hyphenated time (should be range)
@@ -774,7 +773,7 @@ fn test_rich_text_hyphenated_units() {
     let has_inch = result
         .iter()
         .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().2 == "inch"));
-    assert!(has_inch, "Should parse '2-inch' as 2 inches: {:?}", result);
+    assert!(has_inch, "Should parse '2-inch' as 2 inches: {result:?}");
 
     // Same with fractions
     let result = parse_rich("roll to 1/2-inch thick", &[]);
@@ -783,8 +782,7 @@ fn test_rich_text_hyphenated_units() {
     });
     assert!(
         has_half_inch,
-        "Should parse '1/2-inch' as 0.5 inches: {:?}",
-        result
+        "Should parse '1/2-inch' as 0.5 inches: {result:?}"
     );
 }
 
@@ -808,8 +806,7 @@ fn test_rich_text_number_followed_by_non_unit() {
         text_chunks
             .iter()
             .any(|s| s.starts_with(" cookies") || s == &" cookies"),
-        "Space before 'cookies' should be preserved: {:?}",
-        result
+        "Space before 'cookies' should be preserved: {result:?}"
     );
 }
 
@@ -901,7 +898,7 @@ fn test_custom_adjectives_extraction() {
                 ingredient
                     .modifier
                     .as_ref()
-                    .map_or(false, |m| m.contains(modifier_text)),
+                    .is_some_and(|m| m.contains(modifier_text)),
                 "Expected modifier containing '{modifier_text}' for: {input}"
             );
         }

@@ -558,7 +558,10 @@ mod tests {
     fn test_measure_kind_nutrients() {
         // Nutrient units should return MeasureKind::Nutrient
         let m_protein = Measure::new("g protein", 12.5);
-        assert!(matches!(m_protein.kind().unwrap(), MeasureKind::Nutrient(_)));
+        assert!(matches!(
+            m_protein.kind().unwrap(),
+            MeasureKind::Nutrient(_)
+        ));
         assert_eq!(
             m_protein.kind().unwrap(),
             MeasureKind::Nutrient("g protein".to_string())
@@ -585,5 +588,22 @@ mod tests {
             m_slice.kind().unwrap(),
             MeasureKind::Other("slice".to_string())
         );
+    }
+
+    #[test]
+    fn test_measure_kind_is_scalable() {
+        // Scalable kinds (should increase when doubling a recipe)
+        assert!(MeasureKind::Weight.is_scalable());
+        assert!(MeasureKind::Volume.is_scalable());
+        assert!(MeasureKind::Other("pinch".to_string()).is_scalable());
+        assert!(MeasureKind::Other("clove".to_string()).is_scalable());
+
+        // Non-scalable kinds (should stay constant when scaling)
+        assert!(!MeasureKind::Time.is_scalable());
+        assert!(!MeasureKind::Temperature.is_scalable());
+        assert!(!MeasureKind::Calories.is_scalable());
+        assert!(!MeasureKind::Money.is_scalable());
+        assert!(!MeasureKind::Length.is_scalable());
+        assert!(!MeasureKind::Nutrient("g protein".to_string()).is_scalable());
     }
 }

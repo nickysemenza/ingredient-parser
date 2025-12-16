@@ -489,18 +489,18 @@ fn test_measure_kind_all_units() {
 fn test_measure_display() {
     // Test Display trait
     let m1 = Measure::new("cups", 2.0);
-    assert_eq!(format!("{}", m1), "2 cups");
+    assert_eq!(format!("{m1}"), "2 cups");
 
     let m2 = Measure::new("cup", 1.0);
-    assert_eq!(format!("{}", m2), "1 cup");
+    assert_eq!(format!("{m2}"), "1 cup");
 
     // With range
     let m3 = Measure::with_range("cups", 1.0, 2.0);
-    assert_eq!(format!("{}", m3), "1 - 2 cups");
+    assert_eq!(format!("{m3}"), "1 - 2 cups");
 
     // Decimal values
     let m4 = Measure::new("g", 100.5);
-    assert!(format!("{}", m4).contains("100.5"));
+    assert!(format!("{m4}").contains("100.5"));
 }
 
 #[test]

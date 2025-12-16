@@ -57,8 +57,7 @@ pub fn parse_unit_mapping(input: &str) -> Result<ParsedUnitMapping, String> {
     }
 
     Err(format!(
-        "Invalid unit mapping format: '{}'. Expected format: '4 lb = $5' or '$5/4lb'",
-        input
+        "Invalid unit mapping format: '{input}'. Expected format: '4 lb = $5' or '$5/4lb'"
     ))
 }
 
@@ -97,6 +96,7 @@ fn try_parse_price_per(input: &str) -> Option<Result<(Measure, Measure), String>
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

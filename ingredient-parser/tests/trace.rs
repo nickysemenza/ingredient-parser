@@ -127,7 +127,7 @@ fn test_parse_trace_display() {
     let trace = ParseTrace::new("test input");
 
     // Display trait should produce formatted output
-    let output = format!("{}", trace);
+    let output = format!("{trace}");
     assert!(output.contains("parse_ingredient"));
 }
 

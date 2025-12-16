@@ -32,7 +32,7 @@ cargo bench -- --baseline my-baseline
 The benchmarks test various aspects of the ingredient parser:
 
 ### Ingredient Parsing Benchmarks
-- **Simple ingredients**: "2 cups flour"  
+- **Simple ingredients**: "2 cups flour"
 - **Fractions**: "1½ cups milk"
 - **Ranges**: "2-3 tablespoons olive oil"
 - **Multiple units**: "1 cup / 240ml water"
@@ -45,12 +45,12 @@ The benchmarks test various aspects of the ingredient parser:
 
 Each test case is run against:
 - `from_str()` - normal parsing
-- `from_str_rich()` - rich text parsing  
+- `from_str_rich()` - rich text parsing
 - `try_from_str()` - error handling path
 
 ### Amount Parsing Benchmarks
 - **Single amounts**: "2 cups"
-- **Fractions**: "1½ tablespoons"  
+- **Fractions**: "1½ tablespoons"
 - **Ranges**: "2-3 ounces"
 - **Multiple formats**: "1 cup / 240ml"
 - **Decimals**: "2.5 grams"
@@ -71,10 +71,10 @@ When you run benchmarks locally, Criterion generates detailed HTML reports:
    ```bash
    # macOS
    brew install gnuplot
-   
-   # Ubuntu/Debian  
+
+   # Ubuntu/Debian
    sudo apt-get install gnuplot
-   
+
    # Windows
    # Download from http://www.gnuplot.info/
    ```
@@ -85,13 +85,13 @@ When you run benchmarks locally, Criterion generates detailed HTML reports:
 
 ### Benchmark Output
 - **Time**: Lower is better
-- **Change**: Shows performance change from previous run  
+- **Change**: Shows performance change from previous run
 - **Throughput**: Higher is better for throughput measurements
 - **HTML Reports**: Detailed charts and statistical analysis
 
 ### Performance Targets
 - **Parse simple ingredients**: < 1μs
-- **Parse complex ingredients**: < 5μs  
+- **Parse complex ingredients**: < 5μs
 - **Batch parse recipe (10 ingredients)**: < 50μs
 - **Parser creation**: < 100ns
 
@@ -99,12 +99,12 @@ When you run benchmarks locally, Criterion generates detailed HTML reports:
 
 ### Common Issues
 1. **Benchmarks too slow**: Reduce sample size in criterion configuration
-2. **Inconsistent results**: Check for background processes affecting CPU  
+2. **Inconsistent results**: Check for background processes affecting CPU
 3. **Missing baseline**: Run `cargo bench` locally to establish baseline
 4. **No HTML reports**: Install gnuplot for visual charts
 
 ### Performance Analysis
 1. **Compare baselines**: Use `cargo bench -- --save-baseline` and `--baseline` flags
-2. **Profile detailed timing**: Use `cargo bench -- --profile-time=5` 
+2. **Profile detailed timing**: Use `cargo bench -- --profile-time=5`
 3. **Verbose output**: Use `cargo bench -- --verbose` for debug information
 4. **Targeted benchmarks**: Run specific tests with `cargo bench <pattern>`

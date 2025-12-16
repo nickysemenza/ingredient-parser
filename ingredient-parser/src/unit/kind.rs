@@ -38,6 +38,17 @@ impl MeasureKind {
         }
         "other"
     }
+
+    /// Returns whether this measure kind should scale when adjusting recipe quantities.
+    ///
+    /// Scalable: Weight, Volume, Other (pinch, clove, etc.)
+    /// Not scalable: Time, Temperature, Calories, Money, Length, Nutrient
+    pub fn is_scalable(&self) -> bool {
+        matches!(
+            self,
+            MeasureKind::Weight | MeasureKind::Volume | MeasureKind::Other(_)
+        )
+    }
 }
 
 impl fmt::Display for MeasureKind {

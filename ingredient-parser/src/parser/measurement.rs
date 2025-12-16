@@ -723,7 +723,7 @@ mod tests {
         assert!(result.is_ok());
         let (_, measure) = result.unwrap();
         // Default unit should be "whole" - check via Display
-        let measure_str = format!("{}", measure);
+        let measure_str = format!("{measure}");
         assert!(measure_str.contains("whole") || measure.values().0 == 2.0);
     }
 }

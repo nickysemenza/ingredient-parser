@@ -9,7 +9,7 @@ export const Demo: React.FC = () => {
 
   const exampleIngredients = [
     "2 cups all-purpose flour, sifted",
-    "1/2 cup butter, softened", 
+    "1/2 cup butter, softened",
     "3 large eggs, beaten",
     "1 tsp vanilla extract",
     "2 tbsp olive oil, extra virgin"
@@ -57,7 +57,7 @@ export const Demo: React.FC = () => {
                       onChange={(e) => setText(e.target.value)}
                     />
                   </div>
-                  
+
                   <div className="text-center">
                     <p className="text-white text-xs mb-2 opacity-80">Try these examples:</p>
                     <div className="flex flex-wrap gap-1 justify-center">
@@ -72,7 +72,7 @@ export const Demo: React.FC = () => {
                       ))}
                     </div>
                   </div>
-                  
+
                   <div className="bg-white bg-opacity-90 backdrop-blur-sm rounded-lg p-3">
                     <Debug data={parsed} compact />
                   </div>
@@ -143,7 +143,7 @@ export const Demo: React.FC = () => {
                 © {new Date().getFullYear()} Nicky Semenza
               </p>
             </div>
-            
+
             <div className="flex flex-wrap items-center gap-4">
               <a
                 href="https://github.com/nickysemenza/ingredient-parser"
@@ -177,9 +177,9 @@ export const Demo: React.FC = () => {
                 className="inline-flex items-center px-4 py-2 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-lg transition-all duration-300 backdrop-blur-sm"
               >
                 <span className="mr-2">📚</span>
-                <img 
-                  alt="docs.rs" 
-                  src="https://docs.rs/ingredient/badge.svg" 
+                <img
+                  alt="docs.rs"
+                  src="https://docs.rs/ingredient/badge.svg"
                 />
               </a>
             </div>
@@ -297,7 +297,7 @@ const Scraper: React.FC = () => {
                 scrapedRecipe.ingredients.map((i, index) => {
                   const p = w.parse_ingredient(i);
                   return (
-                    <div 
+                    <div
                       key={index}
                       className="flex items-center justify-between py-3 px-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200"
                     >
@@ -323,7 +323,7 @@ const Scraper: React.FC = () => {
                 })}
             </div>
           </div>
-          
+
           <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
             <h4 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
               <span className="mr-2">👩‍🍳</span>
@@ -332,7 +332,7 @@ const Scraper: React.FC = () => {
             <ol className="space-y-4">
               {w &&
                 scrapedRecipe.instructions.map((instruction, index) => (
-                  <li 
+                  <li
                     key={index}
                     className="flex items-start p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200"
                   >
@@ -355,9 +355,9 @@ const Scraper: React.FC = () => {
 const Debug: React.FC<{ data: any; compact?: boolean }> = ({ data, compact }) =>
   !compact ? (
     <div className="bg-gray-900 rounded-xl p-4 overflow-auto">
-      <ReactJson 
-        src={data} 
-        theme="monokai" 
+      <ReactJson
+        src={data}
+        theme="monokai"
         displayDataTypes={false}
         displayObjectSize={false}
         collapsed={1}

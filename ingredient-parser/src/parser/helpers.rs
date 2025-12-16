@@ -46,25 +46,24 @@ pub fn parse_amount_string(input: &str) -> Result<Measure, String> {
     if let Some(price_str) = input.strip_prefix('$') {
         return parse_number_only(price_str.trim())
             .map(|value| Measure::new("dollar", value))
-            .map_err(|_| format!("Invalid price value: '{}'", input));
+            .map_err(|_| format!("Invalid price value: '{input}'"));
     }
 
     // Parse number (supports fractions, decimals)
     let (remaining, value) =
-        parse_number_nom(input).map_err(|_| format!("Invalid numeric value in: '{}'", input))?;
+        parse_number_nom(input).map_err(|_| format!("Invalid numeric value in: '{input}'"))?;
 
     // Extract unit from remaining text
     let unit = remaining.trim();
     if unit.is_empty() {
-        return Err(format!("Missing unit in: '{}'", input));
+        return Err(format!("Missing unit in: '{input}'"));
     }
 
     // Parse the unit text (letters only)
-    let (leftover, unit_str) =
-        unitamt(unit).map_err(|_| format!("Invalid unit in: '{}'", input))?;
+    let (leftover, unit_str) = unitamt(unit).map_err(|_| format!("Invalid unit in: '{input}'"))?;
 
     if unit_str.is_empty() {
-        return Err(format!("Missing unit in: '{}'", input));
+        return Err(format!("Missing unit in: '{input}'"));
     }
 
     // Warn if there's unexpected leftover text (but still succeed)

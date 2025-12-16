@@ -18,32 +18,32 @@
   ::file-selector-button {
     border-color: var(--color-gray-200, currentColor);
   }
-  
+
   body {
     font-family: 'Inter', sans-serif;
   }
-  
+
   /* Custom gradient backgrounds */
   .gradient-hero {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   }
-  
+
   .gradient-card {
     background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
   }
-  
+
   /* Glass morphism effect */
   .glass {
     background: rgba(255, 255, 255, 0.25);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.18);
   }
-  
+
   /* Smooth transitions */
   .transition-all {
     transition: all 0.3s ease;
   }
-  
+
   /* Animations */
   @keyframes fadeInUp {
     from {
@@ -55,11 +55,11 @@
       transform: translateY(0);
     }
   }
-  
+
   .animate-fade-in-up {
     animation: fadeInUp 0.6s ease-out;
   }
-  
+
   /* Hover effects */
   .hover-lift:hover {
     transform: translateY(-2px);
