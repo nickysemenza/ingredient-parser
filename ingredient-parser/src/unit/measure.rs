@@ -1,52 +1,14 @@
 use crate::unit::singular;
 use crate::unit::{kind::MeasureKind, Unit};
-use crate::util::{num_without_zeroes, round_to_int, truncate_3_decimals};
+use crate::util::num_without_zeroes;
 use crate::{IngredientError, IngredientResult};
-use petgraph::Graph;
 use serde::{de::Deserializer, ser::Serializer, Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
-use tracing::{debug, info};
+use tracing::info;
 
-pub type MeasureGraph = Graph<Unit, f64>;
-
-pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
-    let mut g = Graph::<Unit, f64>::new();
-
-    for (mut m_a, mut m_b) in mappings.into_iter() {
-        m_a = m_a.normalize();
-        m_b = m_b.normalize();
-        let n_a = g
-            .node_indices()
-            .find(|i| g[*i] == m_a.unit)
-            .unwrap_or_else(|| g.add_node(m_a.unit.clone().normalize()));
-        let n_b = g
-            .node_indices()
-            .find(|i| g[*i] == m_b.unit)
-            .unwrap_or_else(|| g.add_node(m_b.unit.clone().normalize()));
-
-        let a_to_b_weight = truncate_3_decimals(m_b.value / m_a.value);
-
-        let exists = match g.find_edge(n_a, n_b) {
-            Some(existing_edge) => match g.edge_weight(existing_edge) {
-                Some(weight) => *weight == a_to_b_weight,
-                None => false,
-            },
-            None => false,
-        };
-        if !exists {
-            // if a to b exists with the right weight, then b to a likely exists too
-            // edge from a to b
-            g.add_edge(n_a, n_b, a_to_b_weight);
-            // edge from b to a
-            g.add_edge(n_b, n_a, truncate_3_decimals(m_a.value / m_b.value));
-        }
-    }
-    g
-}
-pub fn print_graph(g: MeasureGraph) -> String {
-    format!("{}", petgraph::dot::Dot::new(&g))
-}
+// Re-export conversion types and functions for backward compatibility
+pub use super::conversion::{convert_measure_via_mappings, make_graph, print_graph, MeasureGraph};
 
 #[derive(Clone, PartialEq, PartialOrd, Debug, Serialize, Deserialize)]
 pub struct Measure {
@@ -406,41 +368,15 @@ impl Measure {
         }
     }
 
-    #[tracing::instrument]
+    /// Convert this measure to a target kind using user-provided mappings.
+    ///
+    /// This is a convenience wrapper around `convert_measure_via_mappings`.
     pub fn convert_measure_via_mappings(
         &self,
         target: MeasureKind,
         mappings: Vec<(Measure, Measure)>,
     ) -> Option<Measure> {
-        let g = make_graph(mappings);
-        let input = self.normalize();
-        let unit_a = input.unit.clone();
-        let unit_b = target.unit();
-
-        let n_a = g.node_indices().find(|i| g[*i] == unit_a)?;
-        let n_b = g.node_indices().find(|i| g[*i] == unit_b)?;
-
-        debug!("calculating {:?} to {:?}", n_a, n_b);
-        if !petgraph::algo::has_path_connecting(&g, n_a, n_b, None) {
-            debug!("convert failed for {:?}", input);
-            return None;
-        };
-
-        let steps =
-            petgraph::algo::astar(&g, n_a, |finish| finish == n_b, |e| *e.weight(), |_| 0.0)?.1;
-        let mut factor: f64 = 1.0;
-        for x in 0..steps.len() - 1 {
-            let edge = g.find_edge(*steps.get(x)?, *steps.get(x + 1)?)?;
-            factor *= g.edge_weight(edge)?;
-        }
-
-        let result = Measure::new_with_upper(
-            unit_b,
-            round_to_int(input.value * factor),
-            input.upper_value.map(|x| round_to_int(x * factor)),
-        );
-        debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
-        Some(result.denormalize())
+        convert_measure_via_mappings(self, target, mappings)
     }
     fn unit_as_string(&self) -> String {
         let mut s = singular(&self.unit().to_str());

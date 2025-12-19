@@ -96,7 +96,13 @@ fn parse_number_only(input: &str) -> Result<f64, ()> {
         .map_err(|_| ())
 }
 
-/// Parse text that can contain various characters common in ingredient names
+/// Parse text characters for ingredient names.
+///
+/// Allows: alphanumeric, whitespace, hyphens, apostrophes, periods, backslashes.
+///
+/// Note: This is more restrictive than `rich_text::text2()` which also allows
+/// punctuation like commas, parentheses, semicolons, etc. for parsing recipe
+/// instructions rather than ingredient names.
 pub(crate) fn text(input: &str) -> Res<&str, String> {
     satisfy(|c| match c {
         '-' | '—' | '\'' | '\u{2019}' | '.' | '\\' => true,

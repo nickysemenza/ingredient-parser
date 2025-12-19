@@ -16,3 +16,16 @@ pub fn truncate_3_decimals(f: f64) -> f64 {
 pub fn round_to_int(x: f64) -> f64 {
     x.round()
 }
+
+/// Truncate a string to a maximum length, adding "..." if truncated.
+///
+/// Uses character count, not byte count, to handle unicode correctly.
+pub fn truncate_str(s: &str, max_len: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_len {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_len).collect();
+        format!("{truncated}...")
+    }
+}

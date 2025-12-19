@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 // WASM bindings use unwrap for JsValue serialization which should not fail for well-formed data
 #![allow(clippy::unwrap_used)]
 
@@ -18,29 +17,24 @@ pub fn start() -> Result<(), JsValue> {
     Ok(())
 }
 
-// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
-// allocator.
-#[cfg(feature = "wee_alloc")]
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[wasm_bindgen]
 pub fn parse_ingredient(input: &str) -> IIngredient {
     let si = ingredient::from_str(input);
-    JsValue::from_serde(&si).unwrap().into()
+    serde_wasm_bindgen::to_value(&si).unwrap().into()
 }
 #[wasm_bindgen]
 pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> {
-    let ings2: Vec<String> = ings.into_serde().unwrap();
+    let ings2: Vec<String> = serde_wasm_bindgen::from_value(ings.clone()).unwrap();
     let rtp = RichParser::new(ings2);
     match rtp.parse(r.as_str()) {
-        Ok(r) => Ok(JsValue::from_serde(&r).unwrap().into()),
+        Ok(r) => Ok(serde_wasm_bindgen::to_value(&r).unwrap().into()),
         Err(e) => Err(JsValue::from_str(&e)),
     }
 }
 
 #[wasm_bindgen]
 pub fn format_amount(amount: &IMeasure) -> String {
-    let a1: Result<Measure, _> = amount.into_serde();
+    let a1: Result<Measure, _> = serde_wasm_bindgen::from_value(amount.into());
     match a1 {
         Ok(a) => format!("{a}"),
         Err(e) => {
@@ -52,7 +46,7 @@ pub fn format_amount(amount: &IMeasure) -> String {
 #[wasm_bindgen]
 pub fn scrape(body: String, url: String) -> Result<IScrapedRecipe, JsValue> {
     match recipe_scraper::scrape(body.as_str(), &url) {
-        Ok(r) => Ok(JsValue::from_serde(&r).unwrap().into()),
+        Ok(r) => Ok(serde_wasm_bindgen::to_value(&r).unwrap().into()),
         Err(x) => Err(JsValue::from_str(&format!("failed to get recipe: {x:?}"))),
     }
 }

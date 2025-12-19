@@ -5,10 +5,9 @@ members = [
     "ingredient-wasm",
     "ingredient-parser",
     "recipe-scraper",
-    "recipe_scraper_fetcher",
-    "food_cli",
-    "food_ui",
-    "food_web",
+    "recipe-scraper-fetcher",
+    "food-cli",
+    "food-app",
 ]
 
 [workspace.lints.clippy]

@@ -60,10 +60,16 @@ fn amounts_chunk<'a>(units: &HashSet<String>, input: &'a str) -> Res<&'a str, Ch
 fn text_chunk(input: &str) -> Res<&str, Chunk> {
     text2(input).map(|(next_input, res)| (next_input, Chunk::Text(res)))
 }
-// text2 is like text, but allows for more ambiguous characters when parsing text but not caring about ingredient names
+/// Parse text characters for rich text (recipe instructions).
+///
+/// Allows: alphanumeric, whitespace, plus additional punctuation
+/// (commas, parentheses, semicolons, colons, slashes, etc.)
+///
+/// Note: This is more permissive than `parser::helpers::text()` which is
+/// designed for ingredient names only.
 fn text2(input: &str) -> Res<&str, String> {
     (satisfy(|c| match c {
-        '-' | '—' | '\'' | '’' | '.' | '\\' => true,
+        '-' | '—' | '\'' | '\u{2019}' | '.' | '\\' => true,
         ',' | '(' | ')' | ';' | '#' | '/' | ':' | '!' => true, // in text2 but not text
         c => c.is_alphanumeric() || c.is_whitespace(),
     }))(input)
