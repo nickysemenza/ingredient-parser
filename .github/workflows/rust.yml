@@ -33,19 +33,21 @@ jobs:
   coverage:
     name: code coverage
     runs-on: ubuntu-latest
-    # https://github.com/xd009642/tarpaulin#github-actions
-    container:
-      image: xd009642/tarpaulin:develop-nightly
-      options: --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
       - name: Generate code coverage
         run: |
-          cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out xml \
+          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info \
             --exclude food_cli --exclude food_ui --exclude food_web --exclude ingredient-wasm
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v5
         with:
+          files: lcov.info
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
   deploy:
