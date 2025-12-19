@@ -91,122 +91,92 @@ impl FromStr for MeasureKind {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
-    fn test_measure_kind_unit() {
-        // Test unit() for all kinds
-        assert_eq!(MeasureKind::Weight.unit(), Unit::Gram);
-        assert_eq!(MeasureKind::Volume.unit(), Unit::Milliliter);
-        assert_eq!(MeasureKind::Money.unit(), Unit::Cent);
-        assert_eq!(MeasureKind::Calories.unit(), Unit::KCal);
-        assert_eq!(MeasureKind::Time.unit(), Unit::Second);
-        assert_eq!(MeasureKind::Temperature.unit(), Unit::Fahrenheit);
-        assert_eq!(MeasureKind::Length.unit(), Unit::Inch);
-        assert_eq!(
-            MeasureKind::Other("pinch".to_string()).unit(),
-            Unit::Other("pinch".to_string())
-        );
-        // Test Nutrient.unit() - this is the missing coverage
-        assert_eq!(
-            MeasureKind::Nutrient("g protein".to_string()).unit(),
-            Unit::Other("g protein".to_string())
-        );
+    // ============================================================================
+    // MeasureKind::unit() Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::weight(MeasureKind::Weight, Unit::Gram)]
+    #[case::volume(MeasureKind::Volume, Unit::Milliliter)]
+    #[case::money(MeasureKind::Money, Unit::Cent)]
+    #[case::calories(MeasureKind::Calories, Unit::KCal)]
+    #[case::time(MeasureKind::Time, Unit::Second)]
+    #[case::temperature(MeasureKind::Temperature, Unit::Fahrenheit)]
+    #[case::length(MeasureKind::Length, Unit::Inch)]
+    #[case::other(MeasureKind::Other("pinch".to_string()), Unit::Other("pinch".to_string()))]
+    #[case::nutrient(MeasureKind::Nutrient("g protein".to_string()), Unit::Other("g protein".to_string()))]
+    fn test_measure_kind_unit(#[case] kind: MeasureKind, #[case] expected: Unit) {
+        assert_eq!(kind.unit(), expected);
     }
 
-    #[test]
-    fn test_measure_kind_to_str() {
-        assert_eq!(MeasureKind::Weight.to_str(), "weight");
-        assert_eq!(MeasureKind::Volume.to_str(), "volume");
-        assert_eq!(MeasureKind::Money.to_str(), "money");
-        assert_eq!(MeasureKind::Calories.to_str(), "calories");
-        assert_eq!(MeasureKind::Time.to_str(), "time");
-        assert_eq!(MeasureKind::Temperature.to_str(), "temperature");
-        assert_eq!(MeasureKind::Length.to_str(), "length");
-        // Other and Nutrient fall through to "other"
-        assert_eq!(MeasureKind::Other("pinch".to_string()).to_str(), "other");
-        assert_eq!(
-            MeasureKind::Nutrient("g protein".to_string()).to_str(),
-            "other"
-        );
+    // ============================================================================
+    // MeasureKind::to_str() Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::weight(MeasureKind::Weight, "weight")]
+    #[case::volume(MeasureKind::Volume, "volume")]
+    #[case::money(MeasureKind::Money, "money")]
+    #[case::calories(MeasureKind::Calories, "calories")]
+    #[case::time(MeasureKind::Time, "time")]
+    #[case::temperature(MeasureKind::Temperature, "temperature")]
+    #[case::length(MeasureKind::Length, "length")]
+    #[case::other(MeasureKind::Other("pinch".to_string()), "other")]
+    #[case::nutrient(MeasureKind::Nutrient("g protein".to_string()), "other")]
+    fn test_measure_kind_to_str(#[case] kind: MeasureKind, #[case] expected: &str) {
+        assert_eq!(kind.to_str(), expected);
     }
 
-    #[test]
-    fn test_measure_kind_from_str() {
-        // Test standard kinds
-        assert_eq!(
-            MeasureKind::from_str("weight").unwrap(),
-            MeasureKind::Weight
-        );
-        assert_eq!(
-            MeasureKind::from_str("volume").unwrap(),
-            MeasureKind::Volume
-        );
-        assert_eq!(MeasureKind::from_str("money").unwrap(), MeasureKind::Money);
-        assert_eq!(
-            MeasureKind::from_str("calories").unwrap(),
-            MeasureKind::Calories
-        );
-        assert_eq!(MeasureKind::from_str("time").unwrap(), MeasureKind::Time);
-        assert_eq!(
-            MeasureKind::from_str("temperature").unwrap(),
-            MeasureKind::Temperature
-        );
-        assert_eq!(
-            MeasureKind::from_str("length").unwrap(),
-            MeasureKind::Length
-        );
+    // ============================================================================
+    // MeasureKind::from_str() Tests
+    // ============================================================================
 
-        // Test case insensitivity
-        assert_eq!(
-            MeasureKind::from_str("WEIGHT").unwrap(),
-            MeasureKind::Weight
-        );
-        assert_eq!(
-            MeasureKind::from_str("Volume").unwrap(),
-            MeasureKind::Volume
-        );
-
-        // Test nutrient prefix pattern
-        assert_eq!(
-            MeasureKind::from_str("nutrient:g protein").unwrap(),
-            MeasureKind::Nutrient("g protein".to_string())
-        );
-        assert_eq!(
-            MeasureKind::from_str("NUTRIENT:mg sodium").unwrap(),
-            MeasureKind::Nutrient("mg sodium".to_string())
-        );
-
-        // Test unknown falls back to Other
-        assert_eq!(
-            MeasureKind::from_str("unknown").unwrap(),
-            MeasureKind::Other("unknown".to_string())
-        );
+    #[rstest]
+    #[case::weight("weight", MeasureKind::Weight)]
+    #[case::volume("volume", MeasureKind::Volume)]
+    #[case::money("money", MeasureKind::Money)]
+    #[case::calories("calories", MeasureKind::Calories)]
+    #[case::time("time", MeasureKind::Time)]
+    #[case::temperature("temperature", MeasureKind::Temperature)]
+    #[case::length("length", MeasureKind::Length)]
+    #[case::weight_uppercase("WEIGHT", MeasureKind::Weight)]
+    #[case::volume_mixed_case("Volume", MeasureKind::Volume)]
+    #[case::nutrient("nutrient:g protein", MeasureKind::Nutrient("g protein".to_string()))]
+    #[case::nutrient_uppercase("NUTRIENT:mg sodium", MeasureKind::Nutrient("mg sodium".to_string()))]
+    #[case::unknown("unknown", MeasureKind::Other("unknown".to_string()))]
+    fn test_measure_kind_from_str(#[case] input: &str, #[case] expected: MeasureKind) {
+        assert_eq!(MeasureKind::from_str(input).unwrap(), expected);
     }
 
-    #[test]
-    fn test_measure_kind_display() {
-        // Test Display trait
-        assert_eq!(format!("{}", MeasureKind::Weight), "Weight");
-        assert_eq!(format!("{}", MeasureKind::Volume), "Volume");
-        assert_eq!(
-            format!("{}", MeasureKind::Nutrient("g protein".to_string())),
-            "Nutrient(\"g protein\")"
-        );
+    // ============================================================================
+    // MeasureKind Display Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::weight(MeasureKind::Weight, "Weight")]
+    #[case::volume(MeasureKind::Volume, "Volume")]
+    #[case::nutrient(MeasureKind::Nutrient("g protein".to_string()), "Nutrient(\"g protein\")")]
+    fn test_measure_kind_display(#[case] kind: MeasureKind, #[case] expected: &str) {
+        assert_eq!(format!("{kind}"), expected);
     }
 
-    #[test]
-    fn test_measure_kind_is_scalable() {
-        // Scalable kinds
-        assert!(MeasureKind::Weight.is_scalable());
-        assert!(MeasureKind::Volume.is_scalable());
-        assert!(MeasureKind::Other("pinch".to_string()).is_scalable());
+    // ============================================================================
+    // MeasureKind::is_scalable() Tests
+    // ============================================================================
 
-        // Non-scalable kinds
-        assert!(!MeasureKind::Time.is_scalable());
-        assert!(!MeasureKind::Temperature.is_scalable());
-        assert!(!MeasureKind::Calories.is_scalable());
-        assert!(!MeasureKind::Money.is_scalable());
-        assert!(!MeasureKind::Length.is_scalable());
-        assert!(!MeasureKind::Nutrient("g protein".to_string()).is_scalable());
+    #[rstest]
+    #[case::weight(MeasureKind::Weight, true)]
+    #[case::volume(MeasureKind::Volume, true)]
+    #[case::other(MeasureKind::Other("pinch".to_string()), true)]
+    #[case::time(MeasureKind::Time, false)]
+    #[case::temperature(MeasureKind::Temperature, false)]
+    #[case::calories(MeasureKind::Calories, false)]
+    #[case::money(MeasureKind::Money, false)]
+    #[case::length(MeasureKind::Length, false)]
+    #[case::nutrient(MeasureKind::Nutrient("g protein".to_string()), false)]
+    fn test_measure_kind_is_scalable(#[case] kind: MeasureKind, #[case] expected: bool) {
+        assert_eq!(kind.is_scalable(), expected);
     }
 }
