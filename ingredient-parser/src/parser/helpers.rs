@@ -130,51 +130,70 @@ pub(crate) fn text_number(input: &str) -> Res<&str, f64> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
-    fn test_text() {
-        // text() parses a single character, so it returns one char and the remaining input
-        assert_eq!(text("a"), Ok(("", "a".to_string())));
-        assert_eq!(text("flour"), Ok(("lour", "f".to_string())));
-        assert_eq!(text("-"), Ok(("", "-".to_string())));
-        assert_eq!(text("—"), Ok(("", "—".to_string())));
-        assert_eq!(text("'"), Ok(("", "'".to_string())));
-        assert_eq!(text("\u{2019}"), Ok(("", "\u{2019}".to_string())));
-        assert_eq!(text("."), Ok(("", ".".to_string())));
-        assert_eq!(text("\\"), Ok(("", "\\".to_string())));
-        assert_eq!(text(" "), Ok(("", " ".to_string())));
+    // ============================================================================
+    // text() Parser Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::letter("a", "", "a")]
+    #[case::word("flour", "lour", "f")]
+    #[case::hyphen("-", "", "-")]
+    #[case::em_dash("—", "", "—")]
+    #[case::apostrophe("'", "", "'")]
+    #[case::right_quote("\u{2019}", "", "\u{2019}")]
+    #[case::period(".", "", ".")]
+    #[case::backslash("\\", "", "\\")]
+    #[case::space(" ", "", " ")]
+    fn test_text(#[case] input: &str, #[case] remaining: &str, #[case] expected: &str) {
+        assert_eq!(text(input), Ok((remaining, expected.to_string())));
     }
 
-    #[test]
-    fn test_unitamt() {
-        assert_eq!(unitamt("cups"), Ok(("", "cups".to_string())));
-        assert_eq!(unitamt("°F"), Ok(("", "°F".to_string())));
-        assert_eq!(unitamt("\""), Ok(("", "\"".to_string())));
-        assert_eq!(unitamt("oz"), Ok(("", "oz".to_string())));
-        assert_eq!(unitamt(""), Ok(("", "".to_string())));
+    // ============================================================================
+    // unitamt() Parser Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::unit("cups", "", "cups")]
+    #[case::degrees("°F", "", "°F")]
+    #[case::quote("\"", "", "\"")]
+    #[case::short_unit("oz", "", "oz")]
+    #[case::empty("", "", "")]
+    fn test_unitamt(#[case] input: &str, #[case] remaining: &str, #[case] expected: &str) {
+        assert_eq!(unitamt(input), Ok((remaining, expected.to_string())));
     }
 
-    #[test]
-    fn test_text_number() {
-        assert_eq!(text_number("one"), Ok(("", 1.0)));
-        assert_eq!(text_number("a "), Ok(("", 1.0)));
-        assert!(text_number("two").is_err());
-        assert!(text_number("1").is_err());
+    // ============================================================================
+    // text_number() Parser Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::one("one", 1.0)]
+    #[case::a("a ", 1.0)]
+    fn test_text_number_success(#[case] input: &str, #[case] expected: f64) {
+        assert_eq!(text_number(input), Ok(("", expected)));
     }
 
-    #[test]
-    fn test_parse_amount_string_basic() {
-        let measure = parse_amount_string("4 lb").unwrap();
-        assert_eq!(measure.values().0, 4.0);
+    #[rstest]
+    #[case::two("two")]
+    #[case::digit("1")]
+    fn test_text_number_fail(#[case] input: &str) {
+        assert!(text_number(input).is_err());
     }
 
-    #[test]
-    fn test_parse_amount_string_currency() {
-        let measure = parse_amount_string("$5").unwrap();
-        assert_eq!(measure.values().0, 5.0);
+    // ============================================================================
+    // parse_amount_string() Success Tests
+    // ============================================================================
 
-        let measure = parse_amount_string("$3.50").unwrap();
-        assert_eq!(measure.values().0, 3.5);
+    #[rstest]
+    #[case::basic("4 lb", 4.0)]
+    #[case::currency("$5", 5.0)]
+    #[case::currency_decimal("$3.50", 3.5)]
+    #[case::extra_text("4 lb extra", 4.0)]
+    fn test_parse_amount_string_success(#[case] input: &str, #[case] expected: f64) {
+        let measure = parse_amount_string(input).unwrap();
+        assert_eq!(measure.values().0, expected);
     }
 
     #[test]
@@ -183,49 +202,23 @@ mod tests {
         assert!((measure.values().0 - 0.5).abs() < 0.001);
     }
 
-    #[test]
-    fn test_parse_amount_string_empty() {
-        // Empty input should return error
-        let result = parse_amount_string("");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Empty"));
+    // ============================================================================
+    // parse_amount_string() Error Tests
+    // ============================================================================
 
-        let result = parse_amount_string("   ");
+    #[rstest]
+    #[case::empty("", "Empty")]
+    #[case::whitespace("   ", "Empty")]
+    #[case::missing_unit("4", "Missing unit")]
+    #[case::missing_unit_space("4 ", "Missing unit")]
+    #[case::invalid_number("abc lb", "Invalid")]
+    #[case::invalid_currency("$abc", "Invalid price")]
+    fn test_parse_amount_string_error(#[case] input: &str, #[case] expected_error: &str) {
+        let result = parse_amount_string(input);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_parse_amount_string_missing_unit() {
-        // Just a number without unit should return error
-        let result = parse_amount_string("4");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing unit"));
-
-        let result = parse_amount_string("4 ");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing unit"));
-    }
-
-    #[test]
-    fn test_parse_amount_string_invalid_number() {
-        // Invalid number should return error
-        let result = parse_amount_string("abc lb");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid"));
-    }
-
-    #[test]
-    fn test_parse_amount_string_invalid_currency() {
-        // Invalid currency value should return error
-        let result = parse_amount_string("$abc");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid price"));
-    }
-
-    #[test]
-    fn test_parse_amount_string_extra_text() {
-        // Extra text after unit is allowed (warning only)
-        let measure = parse_amount_string("4 lb extra");
-        assert!(measure.is_ok());
+        assert!(
+            result.unwrap_err().contains(expected_error),
+            "Expected error containing '{expected_error}'"
+        );
     }
 }

@@ -99,99 +99,103 @@ fn try_parse_price_per(input: &str) -> Option<Result<(Measure, Measure), String>
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
-    fn test_conversion_format() {
-        let result = parse_unit_mapping("4 lb = $5").unwrap();
-        assert_eq!(result.a.values().0, 4.0);
-        assert_eq!(result.a.values().2, "lb");
-        assert_eq!(result.b.values().0, 5.0);
-        assert_eq!(result.b.values().2, "$"); // Dollar's canonical form is "$"
+    // ============================================================================
+    // Conversion Format Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::with_spaces("4 lb = $5", 4.0, "lb", 5.0, "$")]
+    #[case::no_spaces("4lb=$5", 4.0, "lb", 5.0, "$")]
+    #[case::weight_conversion("1 cup = 120g", 1.0, "cup", 120.0, "g")]
+    #[case::decimal_values("2.5 cups = $3.50", 2.5, "cups", 3.5, "$")]
+    fn test_conversion_format(
+        #[case] input: &str,
+        #[case] a_val: f64,
+        #[case] a_unit: &str,
+        #[case] b_val: f64,
+        #[case] b_unit: &str,
+    ) {
+        let result = parse_unit_mapping(input).unwrap();
+        assert_eq!(result.a.values().0, a_val);
+        assert_eq!(result.a.values().2, a_unit);
+        assert_eq!(result.b.values().0, b_val);
+        assert_eq!(result.b.values().2, b_unit);
         assert_eq!(result.source, None);
     }
 
-    #[test]
-    fn test_conversion_format_no_spaces() {
-        let result = parse_unit_mapping("4lb=$5").unwrap();
-        assert_eq!(result.a.values().0, 4.0);
-        assert_eq!(result.a.values().2, "lb");
-        assert_eq!(result.b.values().0, 5.0);
+    // ============================================================================
+    // Price-per Format Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::no_space("$5/4lb", 4.0, "lb", 5.0)]
+    #[case::with_space("$5/4 lb", 4.0, "lb", 5.0)]
+    fn test_price_per_format(
+        #[case] input: &str,
+        #[case] a_val: f64,
+        #[case] a_unit: &str,
+        #[case] b_val: f64,
+    ) {
+        let result = parse_unit_mapping(input).unwrap();
+        assert_eq!(result.a.values().0, a_val);
+        assert_eq!(result.a.values().2, a_unit);
+        assert_eq!(result.b.values().0, b_val);
+        assert_eq!(result.b.values().2, "$");
     }
 
-    #[test]
-    fn test_price_per_format() {
-        let result = parse_unit_mapping("$5/4lb").unwrap();
-        // Note: a is the amount, b is the price (normalized order)
-        assert_eq!(result.a.values().0, 4.0);
-        assert_eq!(result.a.values().2, "lb");
-        assert_eq!(result.b.values().0, 5.0);
-        assert_eq!(result.b.values().2, "$"); // Dollar's canonical form is "$"
+    // ============================================================================
+    // Source Extraction Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::conversion_with_source("4 lb = $5 @ costco", 4.0, 5.0, "costco")]
+    #[case::price_per_with_source("$5/4lb @ whole foods", 4.0, 5.0, "whole foods")]
+    fn test_with_source(
+        #[case] input: &str,
+        #[case] a_val: f64,
+        #[case] b_val: f64,
+        #[case] source: &str,
+    ) {
+        let result = parse_unit_mapping(input).unwrap();
+        assert_eq!(result.a.values().0, a_val);
+        assert_eq!(result.b.values().0, b_val);
+        assert_eq!(result.source, Some(source.to_string()));
     }
 
-    #[test]
-    fn test_price_per_format_with_space() {
-        let result = parse_unit_mapping("$5/4 lb").unwrap();
-        assert_eq!(result.a.values().0, 4.0);
-        assert_eq!(result.a.values().2, "lb");
+    #[rstest]
+    #[case::with_source("4 lb = $5 @ costco", "4 lb = $5", Some("costco".to_string()))]
+    #[case::no_source("4 lb = $5", "4 lb = $5", None)]
+    #[case::price_per_source("$5/4lb @ whole foods", "$5/4lb", Some("whole foods".to_string()))]
+    fn test_extract_source(
+        #[case] input: &str,
+        #[case] mapping: &str,
+        #[case] source: Option<String>,
+    ) {
+        assert_eq!(extract_source(input), (mapping, source));
     }
 
-    #[test]
-    fn test_with_source() {
-        let result = parse_unit_mapping("4 lb = $5 @ costco").unwrap();
-        assert_eq!(result.a.values().0, 4.0);
-        assert_eq!(result.b.values().0, 5.0);
-        assert_eq!(result.source, Some("costco".to_string()));
+    // ============================================================================
+    // Invalid Format Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::invalid("invalid")]
+    #[case::missing_equals("4 lb")]
+    #[case::missing_left("= $5")]
+    #[case::empty("")]
+    fn test_invalid_format(#[case] input: &str) {
+        assert!(parse_unit_mapping(input).is_err());
     }
 
-    #[test]
-    fn test_price_per_with_source() {
-        let result = parse_unit_mapping("$5/4lb @ whole foods").unwrap();
-        assert_eq!(result.a.values().0, 4.0);
-        assert_eq!(result.b.values().0, 5.0);
-        assert_eq!(result.source, Some("whole foods".to_string()));
-    }
-
-    #[test]
-    fn test_weight_conversion() {
-        let result = parse_unit_mapping("1 cup = 120g").unwrap();
-        assert_eq!(result.a.values().0, 1.0);
-        assert_eq!(result.a.values().2, "cup");
-        assert_eq!(result.b.values().0, 120.0);
-        assert_eq!(result.b.values().2, "g");
-    }
-
-    #[test]
-    fn test_decimal_values() {
-        let result = parse_unit_mapping("2.5 cups = $3.50").unwrap();
-        assert_eq!(result.a.values().0, 2.5);
-        assert_eq!(result.b.values().0, 3.5);
-    }
-
-    #[test]
-    fn test_invalid_format() {
-        assert!(parse_unit_mapping("invalid").is_err());
-        assert!(parse_unit_mapping("4 lb").is_err());
-        assert!(parse_unit_mapping("= $5").is_err());
-        assert!(parse_unit_mapping("").is_err());
-    }
-
-    #[test]
-    fn test_extract_source() {
-        assert_eq!(
-            extract_source("4 lb = $5 @ costco"),
-            ("4 lb = $5", Some("costco".to_string()))
-        );
-        assert_eq!(extract_source("4 lb = $5"), ("4 lb = $5", None));
-        assert_eq!(
-            extract_source("$5/4lb @ whole foods"),
-            ("$5/4lb", Some("whole foods".to_string()))
-        );
-    }
+    // ============================================================================
+    // Unit Singularization Test
+    // ============================================================================
 
     #[test]
     fn test_unit_singularization() {
         let result = parse_unit_mapping("2.5 cups = $3.50").unwrap();
-        // Use unit().to_str() which returns canonical singular form
         assert_eq!(result.a.unit().to_str(), "cup");
         assert_eq!(result.b.unit().to_str(), "$");
     }
