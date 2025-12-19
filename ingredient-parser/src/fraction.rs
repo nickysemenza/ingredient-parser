@@ -111,16 +111,101 @@ mod tests {
     use nom::error::ErrorKind;
     use nom::Err as NomErr;
     use nom_language::error::{VerboseError, VerboseErrorKind};
+    use rstest::rstest;
 
     use super::{fraction_number, v_frac_to_num};
 
+    // ============================================================================
+    // Unicode Vulgar Fraction Character Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::half('½', 0.5)]
+    #[case::quarter('¼', 0.25)]
+    #[case::three_quarter('¾', 0.75)]
+    #[case::eighth('⅛', 0.125)]
+    #[case::third('⅓', 1.0 / 3.0)]
+    #[case::two_thirds('⅔', 2.0 / 3.0)]
+    #[case::fifth('⅕', 0.2)]
+    #[case::two_fifths('⅖', 0.4)]
+    #[case::three_fifths('⅗', 0.6)]
+    #[case::four_fifths('⅘', 0.8)]
+    #[case::sixth('⅙', 1.0 / 6.0)]
+    #[case::five_sixths('⅚', 5.0 / 6.0)]
+    #[case::seventh('⅐', 1.0 / 7.0)]
+    #[case::ninth('⅑', 1.0 / 9.0)]
+    #[case::tenth('⅒', 0.1)]
+    fn test_v_frac_to_num(#[case] char: char, #[case] expected: f64) {
+        assert_eq!(v_frac_to_num(char), Some(expected));
+    }
+
     #[test]
-    fn test_fraction() {
-        assert_eq!(fraction_number("1 ⅛"), Ok(("", 1.125)));
-        assert_eq!(fraction_number("1 1/8"), Ok(("", 1.125)));
-        assert_eq!(fraction_number("1⅓"), Ok(("", 1.3333333333333333)));
-        assert_eq!(fraction_number("¼"), Ok(("", 0.25)));
-        assert_eq!(fraction_number("1/4"), Ok(("", 0.25)));
+    fn test_v_frac_to_num_invalid() {
+        assert_eq!(v_frac_to_num('x'), None);
+        assert_eq!(v_frac_to_num('1'), None);
+    }
+
+    // ============================================================================
+    // Fraction Parser Tests - Unicode Fractions
+    // ============================================================================
+
+    #[rstest]
+    #[case::half("½", 0.5)]
+    #[case::quarter("¼", 0.25)]
+    #[case::three_quarter("¾", 0.75)]
+    #[case::third("⅓", 1.0 / 3.0)]
+    #[case::two_thirds("⅔", 2.0 / 3.0)]
+    #[case::fifth("⅕", 0.2)]
+    #[case::two_fifths("⅖", 0.4)]
+    #[case::three_fifths("⅗", 0.6)]
+    #[case::four_fifths("⅘", 0.8)]
+    #[case::sixth("⅙", 1.0 / 6.0)]
+    #[case::five_sixths("⅚", 5.0 / 6.0)]
+    #[case::seventh("⅐", 1.0 / 7.0)]
+    #[case::ninth("⅑", 1.0 / 9.0)]
+    #[case::tenth("⅒", 0.1)]
+    fn test_fraction_number_unicode(#[case] input: &str, #[case] expected: f64) {
+        assert_eq!(fraction_number(input), Ok(("", expected)));
+    }
+
+    // ============================================================================
+    // Fraction Parser Tests - Slash Notation
+    // ============================================================================
+
+    #[rstest]
+    #[case::quarter("1/4", 0.25)]
+    #[case::half("1/2", 0.5)]
+    #[case::eighth("1/8", 0.125)]
+    #[case::third("1/3", 1.0 / 3.0)]
+    #[case::three_quarters("3/4", 0.75)]
+    fn test_fraction_number_slash(#[case] input: &str, #[case] expected: f64) {
+        assert_eq!(fraction_number(input), Ok(("", expected)));
+    }
+
+    // ============================================================================
+    // Fraction Parser Tests - Mixed Numbers
+    // ============================================================================
+
+    #[rstest]
+    #[case::one_and_eighth_unicode("1 ⅛", 1.125)]
+    #[case::one_and_eighth_slash("1 1/8", 1.125)]
+    #[case::one_and_third_no_space("1⅓", 1.0 + 1.0 / 3.0)]
+    #[case::one_and_three_quarter("1¾", 1.75)]
+    #[case::two_and_third("2 ⅓", 2.0 + 1.0 / 3.0)]
+    #[case::three_and_fifth("3⅕", 3.2)]
+    #[case::one_and_sixth("1 ⅙", 1.0 + 1.0 / 6.0)]
+    #[case::two_and_seventh("2⅐", 2.0 + 1.0 / 7.0)]
+    fn test_fraction_number_mixed(#[case] input: &str, #[case] expected: f64) {
+        assert_eq!(fraction_number(input), Ok(("", expected)));
+    }
+
+    // ============================================================================
+    // Fraction Parser Tests - Error Cases
+    // ============================================================================
+
+    #[test]
+    fn test_fraction_number_error() {
+        // Just a number without fraction should fail
         assert_eq!(
             fraction_number("1"),
             Err(NomErr::Error(VerboseError {
@@ -132,69 +217,5 @@ mod tests {
                 ]
             }))
         );
-    }
-
-    #[test]
-    fn test_v_fraction() {
-        assert_eq!(v_frac_to_num('⅛'), Some(0.125));
-        assert_eq!(v_frac_to_num('¼'), Some(0.25));
-        assert_eq!(v_frac_to_num('½'), Some(0.5));
-        assert_eq!(v_frac_to_num('x'), None);
-    }
-
-    #[test]
-    fn test_v_fraction_all_unicode() {
-        // Test all supported unicode vulgar fractions
-        assert_eq!(v_frac_to_num('¾'), Some(0.75)); // 3/4
-        assert_eq!(v_frac_to_num('⅓'), Some(1.0 / 3.0)); // 1/3
-        assert_eq!(v_frac_to_num('⅔'), Some(2.0 / 3.0)); // 2/3
-
-        // Fifths
-        assert_eq!(v_frac_to_num('⅕'), Some(0.2)); // 1/5
-        assert_eq!(v_frac_to_num('⅖'), Some(0.4)); // 2/5
-        assert_eq!(v_frac_to_num('⅗'), Some(0.6)); // 3/5
-        assert_eq!(v_frac_to_num('⅘'), Some(0.8)); // 4/5
-
-        // Sixths
-        assert_eq!(v_frac_to_num('⅙'), Some(1.0 / 6.0)); // 1/6
-        assert_eq!(v_frac_to_num('⅚'), Some(5.0 / 6.0)); // 5/6
-
-        // Other fractions
-        assert_eq!(v_frac_to_num('⅐'), Some(1.0 / 7.0)); // 1/7
-        assert_eq!(v_frac_to_num('⅑'), Some(1.0 / 9.0)); // 1/9
-        assert_eq!(v_frac_to_num('⅒'), Some(0.1)); // 1/10
-    }
-
-    #[test]
-    fn test_fraction_number_all_unicode() {
-        // Test fraction_number parser with all unicode fractions
-        assert_eq!(fraction_number("¾"), Ok(("", 0.75)));
-        assert_eq!(fraction_number("⅓"), Ok(("", 1.0 / 3.0)));
-        assert_eq!(fraction_number("⅔"), Ok(("", 2.0 / 3.0)));
-
-        // Fifths
-        assert_eq!(fraction_number("⅕"), Ok(("", 0.2)));
-        assert_eq!(fraction_number("⅖"), Ok(("", 0.4)));
-        assert_eq!(fraction_number("⅗"), Ok(("", 0.6)));
-        assert_eq!(fraction_number("⅘"), Ok(("", 0.8)));
-
-        // Sixths
-        assert_eq!(fraction_number("⅙"), Ok(("", 1.0 / 6.0)));
-        assert_eq!(fraction_number("⅚"), Ok(("", 5.0 / 6.0)));
-
-        // Other fractions
-        assert_eq!(fraction_number("⅐"), Ok(("", 1.0 / 7.0)));
-        assert_eq!(fraction_number("⅑"), Ok(("", 1.0 / 9.0)));
-        assert_eq!(fraction_number("⅒"), Ok(("", 0.1)));
-    }
-
-    #[test]
-    fn test_fraction_number_mixed_with_all_unicode() {
-        // Test mixed numbers with various unicode fractions
-        assert_eq!(fraction_number("1¾"), Ok(("", 1.75)));
-        assert_eq!(fraction_number("2 ⅓"), Ok(("", 2.0 + 1.0 / 3.0)));
-        assert_eq!(fraction_number("3⅕"), Ok(("", 3.2)));
-        assert_eq!(fraction_number("1 ⅙"), Ok(("", 1.0 + 1.0 / 6.0)));
-        assert_eq!(fraction_number("2⅐"), Ok(("", 2.0 + 1.0 / 7.0)));
     }
 }

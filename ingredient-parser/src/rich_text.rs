@@ -136,24 +136,60 @@ impl RichParser {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use rstest::{fixture, rstest};
 
-    #[test]
-    fn test_rich_parser_basic() {
-        let parser = RichParser::new(vec![]);
+    #[fixture]
+    fn parser() -> RichParser {
+        RichParser::new(vec![])
+    }
+
+    #[fixture]
+    fn parser_with_ingredients() -> RichParser {
+        RichParser::new(vec!["flour".to_string(), "sugar".to_string()])
+    }
+
+    // ============================================================================
+    // RichParser Basic Tests
+    // ============================================================================
+
+    #[rstest]
+    fn test_rich_parser_basic(parser: RichParser) {
         let result = parser.parse("hello 1 cup foo bar").unwrap();
-
         assert_eq!(result.len(), 3);
         assert!(matches!(result[0], Chunk::Text(_)));
         assert!(matches!(result[1], Chunk::Measure(_)));
         assert!(matches!(result[2], Chunk::Text(_)));
     }
 
-    #[test]
-    fn test_rich_parser_with_ingredients() {
-        let parser = RichParser::new(vec!["flour".to_string(), "sugar".to_string()]);
-        let result = parser.parse("Add 2 cups flour and sugar").unwrap();
+    #[rstest]
+    fn test_rich_parser_empty_input(parser: RichParser) {
+        let result = parser.parse("").unwrap();
+        assert!(result.is_empty());
+    }
 
-        // Should have chunks for text, measure, text, ingredient, text, ingredient
+    #[rstest]
+    fn test_rich_parser_only_text(parser: RichParser) {
+        let result = parser.parse("just some text").unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(&result[0], Chunk::Text(s) if s == "just some text"));
+    }
+
+    #[rstest]
+    fn test_rich_parser_multiple_measures(parser: RichParser) {
+        let result = parser.parse("Mix 1 cup flour with 2 tbsp sugar").unwrap();
+        let measures: Vec<_> = result
+            .iter()
+            .filter(|c| matches!(c, Chunk::Measure(_)))
+            .collect();
+        assert_eq!(measures.len(), 2);
+    }
+
+    #[rstest]
+    fn test_rich_parser_with_ingredients(parser_with_ingredients: RichParser) {
+        let result = parser_with_ingredients
+            .parse("Add 2 cups flour and sugar")
+            .unwrap();
+
         let has_flour = result
             .iter()
             .any(|c| matches!(c, Chunk::Ing(s) if s == "flour"));
@@ -165,36 +201,18 @@ mod tests {
     }
 
     #[test]
-    fn test_rich_parser_empty_input() {
-        let parser = RichParser::new(vec![]);
-        let result = parser.parse("").unwrap();
-        assert!(result.is_empty());
+    fn test_rich_parser_default() {
+        let parser: RichParser = Default::default();
+        let result = parser.parse("1 cup").unwrap();
+        assert!(!result.is_empty());
     }
 
-    #[test]
-    fn test_rich_parser_only_text() {
-        let parser = RichParser::new(vec![]);
-        let result = parser.parse("just some text").unwrap();
-
-        assert_eq!(result.len(), 1);
-        assert!(matches!(&result[0], Chunk::Text(s) if s == "just some text"));
-    }
+    // ============================================================================
+    // Condense Text Tests
+    // ============================================================================
 
     #[test]
-    fn test_rich_parser_multiple_measures() {
-        let parser = RichParser::new(vec![]);
-        let result = parser.parse("Mix 1 cup flour with 2 tbsp sugar").unwrap();
-
-        let measures: Vec<_> = result
-            .iter()
-            .filter(|c| matches!(c, Chunk::Measure(_)))
-            .collect();
-        assert_eq!(measures.len(), 2);
-    }
-
-    #[test]
-    fn test_condense_text() {
-        // Test that adjacent Text chunks are combined
+    fn test_condense_text_adjacent() {
         let chunks = vec![
             Chunk::Text("hello ".to_string()),
             Chunk::Text("world".to_string()),
@@ -206,7 +224,6 @@ mod tests {
 
     #[test]
     fn test_condense_text_mixed() {
-        // Test that non-adjacent Text chunks aren't combined
         let chunks = vec![
             Chunk::Text("hello ".to_string()),
             Chunk::Measure(vec![Measure::new("cup", 1.0)]),
@@ -215,6 +232,10 @@ mod tests {
         let condensed = condense_text(chunks);
         assert_eq!(condensed.len(), 3);
     }
+
+    // ============================================================================
+    // Extract Ingredients Tests
+    // ============================================================================
 
     #[test]
     fn test_extract_ingredients() {
@@ -234,37 +255,31 @@ mod tests {
 
     #[test]
     fn test_extract_ingredients_empty_name() {
-        // Empty ingredient names should be filtered out
         let chunks = vec![Chunk::Text("some text".to_string())];
         let names = vec!["".to_string(), "flour".to_string()];
         let result = extract_ingredients(chunks, &names);
-        // Should not crash with empty name
         assert!(!result.is_empty());
     }
 
-    #[test]
-    fn test_rich_parser_default() {
-        // Test Default impl
-        let parser: RichParser = Default::default();
-        let result = parser.parse("1 cup").unwrap();
-        assert!(!result.is_empty());
+    // ============================================================================
+    // Text2 Parser Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::exclamation("hello!")]
+    #[case::parenthesis("(test)")]
+    #[case::semicolon(";")]
+    #[case::colon(":")]
+    #[case::comma(",")]
+    #[case::slash("/")]
+    #[case::hash("#")]
+    fn test_text2_special_chars(#[case] input: &str) {
+        assert!(text2(input).is_ok());
     }
 
-    #[test]
-    fn test_text2_special_chars() {
-        // Test text2 handles special characters
-        let result = text2("hello!");
-        assert!(result.is_ok());
-
-        let result = text2("(test)");
-        assert!(result.is_ok());
-
-        let result = text2(";");
-        assert!(result.is_ok());
-
-        let result = text2(":");
-        assert!(result.is_ok());
-    }
+    // ============================================================================
+    // Chunk Tests
+    // ============================================================================
 
     #[test]
     fn test_chunk_clone() {
