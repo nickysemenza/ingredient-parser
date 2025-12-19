@@ -41,13 +41,10 @@ pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
         let (b_val, _, _) = m_b.values();
         let a_to_b_weight = crate::util::truncate_3_decimals(b_val / a_val);
 
-        let exists = match g.find_edge(n_a, n_b) {
-            Some(existing_edge) => match g.edge_weight(existing_edge) {
-                Some(weight) => *weight == a_to_b_weight,
-                None => false,
-            },
-            None => false,
-        };
+        let exists = g
+            .find_edge(n_a, n_b)
+            .and_then(|e| g.edge_weight(e))
+            .is_some_and(|w| *w == a_to_b_weight);
         if !exists {
             // if a to b exists with the right weight, then b to a likely exists too
             // edge from a to b

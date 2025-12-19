@@ -213,6 +213,7 @@ mod tests {
     #[case::missing_unit_space("4 ", "Missing unit")]
     #[case::invalid_number("abc lb", "Invalid")]
     #[case::invalid_currency("$abc", "Invalid price")]
+    #[case::non_alpha_unit("5 !!!", "Missing unit")]
     fn test_parse_amount_string_error(#[case] input: &str, #[case] expected_error: &str) {
         let result = parse_amount_string(input);
         assert!(result.is_err());
@@ -220,5 +221,14 @@ mod tests {
             result.unwrap_err().contains(expected_error),
             "Expected error containing '{expected_error}'"
         );
+    }
+
+    #[test]
+    fn test_parse_number_only_with_leftover() {
+        // Tests the leftover text branch in parse_number_only (line 93)
+        // "$5x" parses "5", leaving "x" as leftover but still succeeds
+        // This hits the else branch where remaining.trim() is not empty
+        let measure = parse_amount_string("$5x").unwrap();
+        assert_eq!(measure.values().0, 5.0);
     }
 }

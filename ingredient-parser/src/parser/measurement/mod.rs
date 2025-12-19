@@ -420,15 +420,20 @@ mod tests {
         assert_eq!(measure.values().0, 1.0);
     }
 
+    /// Test that unit mismatch in ranges returns None
+    /// Note: This only works for dash-style ranges where both units are adjacent to numbers
+    /// (e.g., "1g-2tbsp"). Word-style ranges like "1 cup to 2 tbsp" don't detect mismatch
+    /// because the space before the second unit prevents it from being parsed.
     #[rstest]
-    fn test_range_unit_mismatch(units: HashSet<String>) {
+    #[case::dash_mismatch("1g-2tbsp")]
+    fn test_range_unit_mismatch(units: HashSet<String>, #[case] input: &str) {
         let parser = MeasurementParser::new(&units, false);
-        let result = parser.parse_range_with_units("1g-2tbsp");
-        assert!(result.is_ok());
+        let result = parser.parse_range_with_units(input);
+        assert!(result.is_ok(), "Failed to parse: {input}");
         let (remaining, opt_measure) = result.unwrap();
         assert!(
             opt_measure.is_none(),
-            "Expected None for unit mismatch, got {opt_measure:?}, remaining: '{remaining}'",
+            "Expected None for unit mismatch on '{input}', got {opt_measure:?}, remaining: '{remaining}'",
         );
     }
 

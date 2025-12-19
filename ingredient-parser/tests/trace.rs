@@ -552,3 +552,43 @@ fn test_trace_collector_default() {
     let trace = disable_tracing("input");
     assert_eq!(trace.root.name, "test");
 }
+
+// ============================================================================
+// Edge Case Tests - Parser Robustness
+// ============================================================================
+
+/// Test that parse_with_trace handles various edge cases gracefully.
+/// Note: The parser is designed to be very permissive - most inputs parse
+/// successfully (possibly with empty name). These tests document this behavior.
+#[rstest]
+#[case::empty("", "")]
+#[case::whitespace("   ", "")]
+#[case::newline_only("\n", "")]
+#[case::numbers_only("12345", "")] // Numbers parsed as measurement, name is empty
+#[case::special_chars("@#$%", "")]
+fn test_parse_with_trace_edge_cases(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected_name: &str,
+) {
+    let result = parser.parse_with_trace(input);
+    // The parser is permissive - it should succeed even with unusual input
+    assert!(
+        result.result.is_ok(),
+        "Unexpected parse failure for: {input:?}"
+    );
+    assert_eq!(result.result.unwrap().name, expected_name);
+}
+
+/// Test that unit mismatch in ranges is handled gracefully with tracing enabled.
+/// This exercises the trace formatting code path for range unit mismatch.
+#[rstest]
+fn test_parse_with_trace_range_unit_mismatch(parser: IngredientParser) {
+    // "1g-2tbsp" has mismatched units which should be detected
+    let result = parser.parse_with_trace("1g-2tbsp flour");
+    assert!(result.result.is_ok());
+    // The trace should have captured timing info
+    assert!(result.trace.baseline_instant.is_some());
+    // The trace should have the input
+    assert_eq!(result.trace.input, "1g-2tbsp flour");
+}

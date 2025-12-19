@@ -168,6 +168,8 @@ mod tests {
     #[case::with_source("4 lb = $5 @ costco", "4 lb = $5", Some("costco".to_string()))]
     #[case::no_source("4 lb = $5", "4 lb = $5", None)]
     #[case::price_per_source("$5/4lb @ whole foods", "$5/4lb", Some("whole foods".to_string()))]
+    #[case::empty_source("4 lb = $5 @ ", "4 lb = $5 @ ", None)]
+    #[case::whitespace_only_source("4 lb = $5 @   ", "4 lb = $5 @   ", None)]
     fn test_extract_source(
         #[case] input: &str,
         #[case] mapping: &str,

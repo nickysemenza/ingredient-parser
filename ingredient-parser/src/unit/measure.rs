@@ -578,4 +578,28 @@ mod tests {
         let measure: Measure = serde_json::from_str(json).unwrap();
         assert!(matches!(measure.unit(), Unit::Other(_)));
     }
+
+    // ============================================================================
+    // Display Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::simple_cup("cup", 2.0, None, "2 cups")]
+    #[case::simple_gram("g", 100.0, None, "100 g")]
+    #[case::range("cup", 1.0, Some(2.0), "1 - 2 cups")]
+    #[case::whole_unit("whole", 3.0, None, "3 whole")]
+    #[case::whole_range("whole", 2.0, Some(4.0), "2 - 4 whole")]
+    #[case::zero_upper_bound("cup", 1.0, Some(0.0), "1 cup")]
+    fn test_measure_display(
+        #[case] unit: &str,
+        #[case] value: f64,
+        #[case] upper: Option<f64>,
+        #[case] expected: &str,
+    ) {
+        let measure = match upper {
+            Some(u) => Measure::with_range(unit, value, u),
+            None => Measure::new(unit, value),
+        };
+        assert_eq!(format!("{measure}"), expected);
+    }
 }

@@ -66,8 +66,8 @@ impl Unit {
         }
         match self {
             Unit::Other(s) => singular(s),
-            // Fallback: use Debug representation if unit is somehow missing from mapping
-            _ => format!("{self:?}").to_lowercase(),
+            // All Unit variants (except Other) are in UNIT_TO_STR, so this is unreachable
+            _ => unreachable!("All Unit variants should be in UNIT_TO_STR"),
         }
     }
 }
