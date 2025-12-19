@@ -143,3 +143,69 @@ pub fn trace_exit_failure(error: &str) {
 pub fn is_tracing_enabled() -> bool {
     TRACE_COLLECTOR.with(|tc| tc.borrow().is_some())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_trace_collector_default_impl() {
+        // Test the Default trait impl for TraceCollector
+        let collector: TraceCollector = Default::default();
+
+        // Should have an empty stack initially
+        assert!(collector.stack.is_empty());
+
+        // Should have valid timestamps
+        assert!(collector.baseline_unix_micros > 0);
+    }
+
+    #[test]
+    fn test_trace_collector_lifecycle() {
+        let mut collector = TraceCollector::new();
+
+        // Enter a parser
+        collector.enter("test_parser", "input text");
+
+        // Exit with success
+        collector.exit_success(5, "output");
+
+        // Finish and get the trace
+        let trace = collector.finish("input text");
+
+        assert_eq!(trace.root.name, "test_parser");
+    }
+
+    #[test]
+    fn test_trace_collector_nested() {
+        let mut collector = TraceCollector::new();
+
+        // Enter outer parser
+        collector.enter("outer", "full input");
+
+        // Enter inner parser
+        collector.enter("inner", "full input");
+
+        // Exit inner with failure
+        collector.exit_failure("no match");
+
+        // Exit outer with success
+        collector.exit_success(10, "result");
+
+        let trace = collector.finish("full input");
+
+        assert_eq!(trace.root.name, "outer");
+        assert_eq!(trace.root.children.len(), 1);
+        assert_eq!(trace.root.children[0].name, "inner");
+    }
+
+    #[test]
+    fn test_trace_collector_empty_finish() {
+        // Test finishing with no entries
+        let collector = TraceCollector::new();
+        let trace = collector.finish("input");
+
+        // Should create a default root node
+        assert_eq!(trace.root.name, "parse_ingredient");
+    }
+}

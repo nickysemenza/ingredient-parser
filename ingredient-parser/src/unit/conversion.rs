@@ -115,3 +115,151 @@ pub fn convert_measure_via_mappings(
     debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
     Some(result.denormalize())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_make_graph_basic() {
+        // Test basic graph creation
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+
+        let graph = make_graph(mappings);
+
+        // Should have 2 nodes (cup normalized to tsp, g)
+        assert_eq!(graph.node_count(), 2);
+        // Should have 2 edges (bidirectional)
+        assert_eq!(graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn test_make_graph_duplicate_edges() {
+        // Test that duplicate edges with same weight are not added
+        let mappings = vec![
+            (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
+            // Same mapping again - should not add duplicate edges
+            (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
+        ];
+
+        let graph = make_graph(mappings);
+
+        // Should still have just 2 edges (duplicates not added)
+        assert_eq!(graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn test_make_graph_different_weights() {
+        // Test that edges with different weights ARE added
+        let mappings = vec![
+            (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
+            // Different weight - should add new edges
+            (Measure::new("cup", 2.0), Measure::new("g", 240.0)),
+        ];
+
+        let graph = make_graph(mappings);
+
+        // Same weight ratio (120g/cup), so still just 2 edges
+        assert_eq!(graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn test_print_graph() {
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+
+        let graph = make_graph(mappings);
+        let dot = print_graph(graph);
+
+        // Should produce DOT format output
+        assert!(dot.contains("digraph"));
+    }
+
+    #[test]
+    fn test_convert_measure_success() {
+        // Test successful conversion
+        let measure = Measure::new("cup", 2.0);
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, mappings);
+
+        assert!(result.is_some());
+        let converted = result.unwrap();
+        // 2 cups * 120g/cup = 240g
+        assert_eq!(converted.values().0, 240.0);
+    }
+
+    #[test]
+    fn test_convert_measure_no_source_node() {
+        // Test when source unit is not in the graph
+        let measure = Measure::new("pinch", 1.0);
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, mappings);
+
+        // Should return None - source unit not in graph
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_convert_measure_no_target_node() {
+        // Test when target unit is not in the graph
+        let measure = Measure::new("cup", 1.0);
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+
+        // Try to convert to Money (Cent) which isn't in the mappings
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Money, mappings);
+
+        // Should return None - target unit not in graph
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_convert_measure_no_path() {
+        // Test when there's no path between source and target
+        // Create disconnected graph components
+        let mappings = vec![
+            (Measure::new("cup", 1.0), Measure::new("ml", 240.0)),
+            // Disconnected: dollars to cents (no path to volume)
+            (Measure::new("dollar", 1.0), Measure::new("cent", 100.0)),
+        ];
+
+        let measure = Measure::new("cup", 1.0);
+        // Try to convert volume to money - no path exists
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Money, mappings);
+
+        // Should return None - no path connecting volume to money
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_convert_measure_with_range() {
+        // Test conversion preserves range values
+        let measure = Measure::with_range("cup", 1.0, 2.0);
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, mappings);
+
+        assert!(result.is_some());
+        let converted = result.unwrap();
+        assert_eq!(converted.values().0, 120.0);
+        assert_eq!(converted.values().1, Some(240.0));
+    }
+
+    #[test]
+    fn test_convert_measure_multi_hop() {
+        // Test conversion that requires multiple hops
+        let mappings = vec![
+            (Measure::new("cup", 1.0), Measure::new("tbsp", 16.0)),
+            (Measure::new("tbsp", 1.0), Measure::new("g", 15.0)),
+        ];
+
+        let measure = Measure::new("cup", 1.0);
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, mappings);
+
+        assert!(result.is_some());
+        // 1 cup -> 16 tbsp -> 240g
+        let converted = result.unwrap();
+        assert_eq!(converted.values().0, 240.0);
+    }
+}

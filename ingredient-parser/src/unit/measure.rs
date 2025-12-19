@@ -542,4 +542,99 @@ mod tests {
         assert!(!MeasureKind::Length.is_scalable());
         assert!(!MeasureKind::Nutrient("g protein".to_string()).is_scalable());
     }
+
+    #[test]
+    fn test_measure_serialization() {
+        // Test serialize_unit and deserialize_unit via serde
+        let measure = Measure::new("cup", 2.0);
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&measure).unwrap();
+        assert!(json.contains("\"cup\"")); // Unit should be serialized as string
+
+        // Deserialize back
+        let deserialized: Measure = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.unit(), measure.unit());
+        assert_eq!(deserialized.values().0, measure.values().0);
+    }
+
+    #[test]
+    fn test_measure_serialization_with_range() {
+        let measure = Measure::with_range("tablespoon", 1.0, 2.0);
+
+        let json = serde_json::to_string(&measure).unwrap();
+        let deserialized: Measure = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.values().0, 1.0);
+        assert_eq!(deserialized.values().1, Some(2.0));
+    }
+
+    #[test]
+    fn test_measure_serialization_other_unit() {
+        // Test serialization of Other(custom) units
+        let measure = Measure::new("pinch", 1.0);
+
+        let json = serde_json::to_string(&measure).unwrap();
+        assert!(json.contains("\"pinch\""));
+
+        let deserialized: Measure = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.unit(), Unit::Other("pinch".to_string()));
+    }
+
+    #[test]
+    fn test_measure_deserialization_unknown_unit() {
+        // Test deserialization falls back to Unit::Other for unknown units
+        let json = r#"{"unit":"weird_unit","value":1.0,"upper_value":null}"#;
+        let measure: Measure = serde_json::from_str(json).unwrap();
+        assert!(matches!(measure.unit(), Unit::Other(_)));
+    }
+
+    #[test]
+    fn test_inch_denormalize() {
+        // Test that Inch units denormalize correctly
+        let measure = Measure::new("inch", 5.0);
+        let denormalized = measure.denormalize();
+        assert_eq!(denormalized.unit(), Unit::Inch);
+        assert_eq!(denormalized.values().0, 5.0);
+    }
+
+    #[test]
+    fn test_teaspoon_denormalize_ranges() {
+        // Test teaspoon denormalization to different units based on value
+        // < 3 tsp stays as tsp
+        let m1 = Measure::new_with_upper(Unit::Teaspoon, 2.0, None);
+        assert_eq!(m1.denormalize().unit(), Unit::Teaspoon);
+
+        // 3-12 tsp becomes tbsp
+        let m2 = Measure::new_with_upper(Unit::Teaspoon, 6.0, None);
+        assert_eq!(m2.denormalize().unit(), Unit::Tablespoon);
+
+        // 12-192 tsp becomes cup
+        let m3 = Measure::new_with_upper(Unit::Teaspoon, 48.0, None);
+        assert_eq!(m3.denormalize().unit(), Unit::Cup);
+
+        // >= 192 tsp becomes quart
+        let m4 = Measure::new_with_upper(Unit::Teaspoon, 200.0, None);
+        assert_eq!(m4.denormalize().unit(), Unit::Quart);
+    }
+
+    #[test]
+    fn test_second_denormalize_ranges() {
+        // Test second denormalization to different time units
+        // < 60 sec stays as sec
+        let m1 = Measure::new_with_upper(Unit::Second, 30.0, None);
+        assert_eq!(m1.denormalize().unit(), Unit::Second);
+
+        // 60-3600 sec becomes minute
+        let m2 = Measure::new_with_upper(Unit::Second, 120.0, None);
+        assert_eq!(m2.denormalize().unit(), Unit::Minute);
+
+        // 3600-86400 sec becomes hour
+        let m3 = Measure::new_with_upper(Unit::Second, 7200.0, None);
+        assert_eq!(m3.denormalize().unit(), Unit::Hour);
+
+        // >= 86400 sec becomes day
+        let m4 = Measure::new_with_upper(Unit::Second, 90000.0, None);
+        assert_eq!(m4.denormalize().unit(), Unit::Day);
+    }
 }

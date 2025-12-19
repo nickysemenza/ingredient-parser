@@ -161,4 +161,71 @@ mod tests {
         assert!(text_number("two").is_err());
         assert!(text_number("1").is_err());
     }
+
+    #[test]
+    fn test_parse_amount_string_basic() {
+        let measure = parse_amount_string("4 lb").unwrap();
+        assert_eq!(measure.values().0, 4.0);
+    }
+
+    #[test]
+    fn test_parse_amount_string_currency() {
+        let measure = parse_amount_string("$5").unwrap();
+        assert_eq!(measure.values().0, 5.0);
+
+        let measure = parse_amount_string("$3.50").unwrap();
+        assert_eq!(measure.values().0, 3.5);
+    }
+
+    #[test]
+    fn test_parse_amount_string_fraction() {
+        let measure = parse_amount_string("1/2 cup").unwrap();
+        assert!((measure.values().0 - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_parse_amount_string_empty() {
+        // Empty input should return error
+        let result = parse_amount_string("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Empty"));
+
+        let result = parse_amount_string("   ");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_amount_string_missing_unit() {
+        // Just a number without unit should return error
+        let result = parse_amount_string("4");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing unit"));
+
+        let result = parse_amount_string("4 ");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing unit"));
+    }
+
+    #[test]
+    fn test_parse_amount_string_invalid_number() {
+        // Invalid number should return error
+        let result = parse_amount_string("abc lb");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid"));
+    }
+
+    #[test]
+    fn test_parse_amount_string_invalid_currency() {
+        // Invalid currency value should return error
+        let result = parse_amount_string("$abc");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid price"));
+    }
+
+    #[test]
+    fn test_parse_amount_string_extra_text() {
+        // Extra text after unit is allowed (warning only)
+        let measure = parse_amount_string("4 lb extra");
+        assert!(measure.is_ok());
+    }
 }

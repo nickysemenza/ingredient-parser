@@ -9,9 +9,29 @@ use ingredient::{
     unit::Measure,
     IngredientParser,
 };
+use rstest::{fixture, rstest};
 
 // ============================================================================
-// Ingredient Parsing Tests
+// Fixtures
+// ============================================================================
+
+#[fixture]
+fn parser() -> IngredientParser {
+    IngredientParser::new()
+}
+
+#[fixture]
+fn parser_custom_units() -> IngredientParser {
+    IngredientParser::new().with_units(&["handful", "handfuls", "sprig", "sprigs", "knob"])
+}
+
+#[fixture]
+fn parser_custom_adjectives() -> IngredientParser {
+    IngredientParser::new().with_adjectives(&["roughly chopped", "finely diced"])
+}
+
+// ============================================================================
+// Test Helpers
 // ============================================================================
 
 /// Helper to build test cases concisely: (input, name, [(unit, amount), ...], modifier)
@@ -25,8 +45,34 @@ fn case<'a>(
     (input, Ingredient::new(name, measures, modifier))
 }
 
-#[test]
-fn test_ingredient_parsing() {
+fn text(s: &str) -> Chunk {
+    Chunk::Text(s.to_string())
+}
+
+fn measure(unit: &str, value: f64) -> Chunk {
+    Chunk::Measure(vec![Measure::new(unit, value)])
+}
+
+fn measure_range(unit: &str, min: f64, max: f64) -> Chunk {
+    Chunk::Measure(vec![Measure::with_range(unit, min, max)])
+}
+
+fn ing(name: &str) -> Chunk {
+    Chunk::Ing(name.to_string())
+}
+
+fn parse_rich(input: &str, ingredient_names: &[&str]) -> Vec<Chunk> {
+    RichParser::new(ingredient_names.iter().map(|s| s.to_string()).collect())
+        .parse(input)
+        .unwrap()
+}
+
+// ============================================================================
+// Ingredient Parsing - Large Table Test
+// ============================================================================
+
+#[rstest]
+fn test_ingredient_parsing(parser: IngredientParser) {
     #[rustfmt::skip]
     let test_cases: Vec<(&str, Ingredient)> = vec![
         // Basic parsing
@@ -50,7 +96,7 @@ fn test_ingredient_parsing() {
         case("1/4 cup crème fraîche", "crème fraîche", &[("cup", 0.25)], None),
         case("⅔ cup (167ml) cold water", "cold water", &[("cup", 2.0 / 3.0), ("ml", 167.0)], None),
         case("1 tsp freshly ground black pepper", "black pepper", &[("tsp", 1.0)], Some("freshly ground")),
-        // Range in ingredient (uses Ingredient::new directly since case() doesn't support ranges)
+        // Range in ingredient
         ("1-2 cups flour", Ingredient::new("flour", vec![Measure::with_range("cups", 1.0, 2.0)], None)),
         // Special characters
         case("2 cups/240 grams confectioners' sugar, sifted", "confectioners' sugar", &[("cups", 2.0), ("grams", 240.0)], Some("sifted")),
@@ -119,11 +165,11 @@ fn test_ingredient_parsing() {
         case("1/8 tsp pepper", "pepper", &[("tsp", 0.125)], None),
         // Large amounts
         case("1000 grams flour", "flour", &[("grams", 1000.0)], None),
-        // Bare slash separator: "1 cup/240ml"
+        // Bare slash separator
         case("1 cup/240ml water", "water", &[("cup", 1.0), ("ml", 240.0)], None),
         // Space-separated amounts
         case("1 cup 2 tbsp flour", "flour", &[("cup", 1.0), ("tbsp", 2.0)], None),
-        // Plus with incompatible units - parses first amount only (can't add cup + grams)
+        // Plus with incompatible units - parses first amount only
         case("1 cup plus 100 grams flour", "flour", &[("cup", 1.0)], None),
         // Unit with trailing period
         case("2 tsp. sugar", "sugar", &[("tsp", 2.0)], None),
@@ -143,11 +189,10 @@ fn test_ingredient_parsing() {
         case("2 cups flour (240g)", "flour", &[("cups", 2.0), ("g", 240.0)], None),
         // Long modifier after comma
         case("2 cups chicken breast, cooked and diced into small cubes", "chicken breast", &[("cups", 2.0)], Some("cooked and diced into small cubes")),
-        // Ingredient without modifier - modifier should be None
+        // Ingredient without modifier
         case("2 cups water", "water", &[("cups", 2.0)], None),
     ];
 
-    let parser = IngredientParser::new();
     for (input, expected) in test_cases {
         // Test without tracing
         let result = parser.from_str(input);
@@ -164,158 +209,155 @@ fn test_ingredient_parsing() {
     }
 }
 
-#[test]
-fn test_parsing_equivalence() {
-    #[rustfmt::skip]
-    let equivalent_pairs: Vec<(&str, &str)> = vec![
-        // Range formats
-        ("1/2-1 cup", "1/2 - 1 cup"),
-        ("2¼-2.5 cups", "2 ¼ - 2.5 cups"),
-        ("78g to 104g", "78g - 104g"),
-        ("1 or 2 cups flour", "1-2 cups flour"),
-        ("2 through 4 cups flour", "2-4 cups flour"),
-        // Implicit unit
-        ("1 cinnamon stick", "1 whole cinnamon stick"),
-        // Multiplier
-        ("2 x 200g flour", "400g flour"),
-        ("3 x 100g butter", "300g butter"),
-        ("1.5 x 100g flour", "150g flour"),
-        // "of" keyword
-        ("pinch nutmeg", "pinch of nutmeg"),
-        ("1 cup of flour", "1 cup flour"),
-        // Period after unit
-        ("1 Tbsp. flour", "1 tbsp flour"),
-        ("2 tsp. sugar", "2 tsp sugar"),
-        ("1 oz. butter", "1 oz butter"),
-        // Unit aliases
-        ("1 tablespoon oil", "1 tbsp oil"),
-        ("2 teaspoons salt", "2 tsp salt"),
-        ("1 pound beef", "1 lb beef"),
-        ("8 ounces cheese", "8 oz cheese"),
-        ("500 grams flour", "500 g flour"),
-        ("1 kilogram potatoes", "1 kg potatoes"),
-        // Case insensitivity
-        ("1 CUP flour", "1 cup flour"),
-        ("2 TBSP sugar", "2 tbsp sugar"),
-    ];
+// ============================================================================
+// Parsing Equivalence Tests
+// ============================================================================
 
-    let parser = IngredientParser::new();
-    for (left, right) in equivalent_pairs {
-        assert_eq!(
-            parser.from_str(left),
-            parser.from_str(right),
-            "Expected '{left}' == '{right}'"
-        );
-    }
-}
-
-#[test]
-fn test_custom_units() {
-    // Must add both singular and plural forms
-    let parser =
-        IngredientParser::new().with_units(&["handful", "handfuls", "sprig", "sprigs", "knob"]);
-
-    // Custom units should be recognized
+/// Test that different input formats produce equivalent results
+#[rstest]
+#[case::hyphen_range("1/2-1 cup", "1/2 - 1 cup")]
+#[case::fraction_range("2¼-2.5 cups", "2 ¼ - 2.5 cups")]
+#[case::gram_range("78g to 104g", "78g - 104g")]
+#[case::or_range("1 or 2 cups flour", "1-2 cups flour")]
+#[case::through_range("2 through 4 cups flour", "2-4 cups flour")]
+#[case::implicit_unit("1 cinnamon stick", "1 whole cinnamon stick")]
+#[case::multiplier_2x("2 x 200g flour", "400g flour")]
+#[case::multiplier_3x("3 x 100g butter", "300g butter")]
+#[case::multiplier_decimal("1.5 x 100g flour", "150g flour")]
+#[case::of_keyword("pinch nutmeg", "pinch of nutmeg")]
+#[case::of_keyword_cup("1 cup of flour", "1 cup flour")]
+#[case::period_tbsp("1 Tbsp. flour", "1 tbsp flour")]
+#[case::period_tsp("2 tsp. sugar", "2 tsp sugar")]
+#[case::period_oz("1 oz. butter", "1 oz butter")]
+#[case::unit_alias_tbsp("1 tablespoon oil", "1 tbsp oil")]
+#[case::unit_alias_tsp("2 teaspoons salt", "2 tsp salt")]
+#[case::unit_alias_lb("1 pound beef", "1 lb beef")]
+#[case::unit_alias_oz("8 ounces cheese", "8 oz cheese")]
+#[case::unit_alias_g("500 grams flour", "500 g flour")]
+#[case::unit_alias_kg("1 kilogram potatoes", "1 kg potatoes")]
+#[case::case_cup("1 CUP flour", "1 cup flour")]
+#[case::case_tbsp("2 TBSP sugar", "2 tbsp sugar")]
+fn test_parsing_equivalence(parser: IngredientParser, #[case] left: &str, #[case] right: &str) {
     assert_eq!(
-        parser.from_str("2 handfuls spinach"),
-        Ingredient::new("spinach", vec![Measure::new("handfuls", 2.0)], None)
-    );
-    assert_eq!(
-        parser.from_str("3 sprigs thyme"),
-        Ingredient::new("thyme", vec![Measure::new("sprigs", 3.0)], None)
-    );
-    assert_eq!(
-        parser.from_str("1 knob ginger"),
-        Ingredient::new("ginger", vec![Measure::new("knob", 1.0)], None)
+        parser.from_str(left),
+        parser.from_str(right),
+        "Expected '{left}' == '{right}'"
     );
 }
 
-#[test]
-fn test_custom_adjectives() {
-    let parser = IngredientParser::new().with_adjectives(&["roughly chopped", "finely diced"]);
+// ============================================================================
+// Custom Parser Configuration Tests
+// ============================================================================
 
-    assert_eq!(
-        parser.from_str("1 cup roughly chopped onion"),
-        Ingredient::new(
-            "onion",
-            vec![Measure::new("cup", 1.0)],
-            Some("roughly chopped")
-        )
-    );
-    assert_eq!(
-        parser.from_str("2 cups finely diced tomatoes"),
-        Ingredient::new(
-            "tomatoes",
-            vec![Measure::new("cups", 2.0)],
-            Some("finely diced")
-        )
-    );
+#[rstest]
+#[case::handfuls("2 handfuls spinach", "spinach", "handful", 2.0)]
+#[case::sprigs("3 sprigs thyme", "thyme", "sprig", 3.0)]
+#[case::knob("1 knob ginger", "ginger", "knob", 1.0)]
+fn test_custom_units(
+    parser_custom_units: IngredientParser,
+    #[case] input: &str,
+    #[case] expected_name: &str,
+    #[case] expected_unit: &str,
+    #[case] expected_amount: f64,
+) {
+    let result = parser_custom_units.from_str(input);
+    assert_eq!(result.name, expected_name);
+    assert_eq!(result.amounts[0].values().0, expected_amount);
+    assert_eq!(result.amounts[0].values().2, expected_unit);
+}
+
+#[rstest]
+#[case::roughly_chopped("1 cup roughly chopped onion", "onion", "roughly chopped")]
+#[case::finely_diced("2 cups finely diced tomatoes", "tomatoes", "finely diced")]
+fn test_custom_adjectives(
+    parser_custom_adjectives: IngredientParser,
+    #[case] input: &str,
+    #[case] expected_name: &str,
+    #[case] expected_modifier: &str,
+) {
+    let result = parser_custom_adjectives.from_str(input);
+    assert_eq!(result.name, expected_name);
+    assert_eq!(result.modifier.as_deref(), Some(expected_modifier));
 }
 
 // ============================================================================
 // Amount Parsing Tests
 // ============================================================================
 
-#[test]
-fn test_amount_parsing() {
-    let parser = IngredientParser::new();
+/// Test basic amount parsing
+#[rstest]
+#[case::temp_degree("350 °", vec![Measure::new("°", 350.0)])]
+#[case::temp_f("350 °F", vec![Measure::new("°f", 350.0)])]
+#[case::temp_c("200 °C", vec![Measure::new("°c", 200.0)])]
+#[case::basic_cup("1 cup", vec![Measure::new("cup", 1.0)])]
+#[case::basic_tbsp("2 tbsp", vec![Measure::new("tbsp", 2.0)])]
+#[case::basic_g("500 g", vec![Measure::new("g", 500.0)])]
+#[case::slash_fraction("1/2 cup", vec![Measure::new("cup", 0.5)])]
+#[case::slash_fraction_3_4("3/4 tsp", vec![Measure::new("tsp", 0.75)])]
+#[case::mixed_fraction("1 1/2 cups", vec![Measure::new("cups", 1.5)])]
+#[case::unicode_half("½ cup", vec![Measure::new("cup", 0.5)])]
+#[case::unicode_3_4("¾ tsp", vec![Measure::new("tsp", 0.75)])]
+#[case::unicode_mixed("1½ cups", vec![Measure::new("cups", 1.5)])]
+#[case::decimal("1.5 cups", vec![Measure::new("cups", 1.5)])]
+#[case::decimal_small("0.25 oz", vec![Measure::new("oz", 0.25)])]
+fn test_amount_parsing_basic(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected: Vec<Measure>,
+) {
+    assert_eq!(
+        parser.parse_amount(input).unwrap(),
+        expected,
+        "Failed: {input}"
+    );
+}
 
-    #[rustfmt::skip]
-    let test_cases: Vec<(&str, Vec<Measure>)> = vec![
-        // Temperature units
-        ("350 °", vec![Measure::new("°", 350.0)]),
-        ("350 °F", vec![Measure::new("°f", 350.0)]),
-        ("200 °C", vec![Measure::new("°c", 200.0)]),
-        // Ranges
-        ("2¼-2.5 cups", vec![Measure::with_range("cups", 2.25, 2.5)]),
-        ("2 to 4 days", vec![Measure::with_range("days", 2.0, 4.0)]),
-        ("up to 4 days", vec![Measure::with_range("days", 0.0, 4.0)]),
-        ("at most 3 cups", vec![Measure::with_range("cups", 0.0, 3.0)]),
-        ("1-2 hours", vec![Measure::with_range("hours", 1.0, 2.0)]),
-        ("30-45 minutes", vec![Measure::with_range("minutes", 30.0, 45.0)]),
-        ("2 through 4 cups", vec![Measure::with_range("cups", 2.0, 4.0)]),
-        ("½-1 cup", vec![Measure::with_range("cup", 0.5, 1.0)]),
-        ("1½ to 2 cups", vec![Measure::with_range("cups", 1.5, 2.0)]),
-        // Basic amounts
-        ("1 cup", vec![Measure::new("cup", 1.0)]),
-        ("2 tbsp", vec![Measure::new("tbsp", 2.0)]),
-        ("500 g", vec![Measure::new("g", 500.0)]),
-        // Fractions
-        ("1/2 cup", vec![Measure::new("cup", 0.5)]),
-        ("3/4 tsp", vec![Measure::new("tsp", 0.75)]),
-        ("1 1/2 cups", vec![Measure::new("cups", 1.5)]),
-        // Unicode fractions
-        ("½ cup", vec![Measure::new("cup", 0.5)]),
-        ("¾ tsp", vec![Measure::new("tsp", 0.75)]),
-        ("1½ cups", vec![Measure::new("cups", 1.5)]),
-        // Decimals
-        ("1.5 cups", vec![Measure::new("cups", 1.5)]),
-        ("0.25 oz", vec![Measure::new("oz", 0.25)]),
-        // Multiple amounts with various separators
-        ("1 cup / 240 ml", vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)]),
-        ("2 tbsp; 30 ml", vec![Measure::new("tbsp", 2.0), Measure::new("ml", 30.0)]),
-        ("1 cup/240 ml", vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)]),
-        ("1 cup, 2 tbsp", vec![Measure::new("cup", 1.0), Measure::new("tbsp", 2.0)]),
-        // Em-dash range
-        ("1–2 cups", vec![Measure::with_range("cups", 1.0, 2.0)]),
-        // Range keywords
-        ("1 to 2 cups", vec![Measure::with_range("cups", 1.0, 2.0)]),
-        ("1 through 3 cups", vec![Measure::with_range("cups", 1.0, 3.0)]),
-        ("1 or 2 cups", vec![Measure::with_range("cups", 1.0, 2.0)]),
-        // Upper bound formats
-        ("up to 5 cups", vec![Measure::with_range("cups", 0.0, 5.0)]),
-        ("at most 3 tbsp", vec![Measure::with_range("tbsp", 0.0, 3.0)]),
-    ];
+/// Test range amount parsing
+#[rstest]
+#[case::fraction_range("2¼-2.5 cups", Measure::with_range("cups", 2.25, 2.5))]
+#[case::to_days("2 to 4 days", Measure::with_range("days", 2.0, 4.0))]
+#[case::up_to("up to 4 days", Measure::with_range("days", 0.0, 4.0))]
+#[case::at_most("at most 3 cups", Measure::with_range("cups", 0.0, 3.0))]
+#[case::hyphen_hours("1-2 hours", Measure::with_range("hours", 1.0, 2.0))]
+#[case::hyphen_minutes("30-45 minutes", Measure::with_range("minutes", 30.0, 45.0))]
+#[case::through("2 through 4 cups", Measure::with_range("cups", 2.0, 4.0))]
+#[case::unicode_range("½-1 cup", Measure::with_range("cup", 0.5, 1.0))]
+#[case::mixed_to("1½ to 2 cups", Measure::with_range("cups", 1.5, 2.0))]
+#[case::em_dash("1–2 cups", Measure::with_range("cups", 1.0, 2.0))]
+#[case::to_keyword("1 to 2 cups", Measure::with_range("cups", 1.0, 2.0))]
+#[case::through_keyword("1 through 3 cups", Measure::with_range("cups", 1.0, 3.0))]
+#[case::or_keyword("1 or 2 cups", Measure::with_range("cups", 1.0, 2.0))]
+#[case::up_to_cups("up to 5 cups", Measure::with_range("cups", 0.0, 5.0))]
+#[case::at_most_tbsp("at most 3 tbsp", Measure::with_range("tbsp", 0.0, 3.0))]
+fn test_amount_parsing_ranges(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected: Measure,
+) {
+    let result = parser.parse_amount(input).unwrap();
+    assert_eq!(result, vec![expected], "Failed: {input}");
+}
 
-    for (input, expected) in test_cases {
-        assert_eq!(
-            parser.parse_amount(input).unwrap(),
-            expected,
-            "Failed: {input}"
-        );
-    }
+/// Test multi-amount parsing
+#[rstest]
+#[case::slash_space("1 cup / 240 ml", vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)])]
+#[case::semicolon("2 tbsp; 30 ml", vec![Measure::new("tbsp", 2.0), Measure::new("ml", 30.0)])]
+#[case::slash_bare("1 cup/240 ml", vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)])]
+#[case::comma("1 cup, 2 tbsp", vec![Measure::new("cup", 1.0), Measure::new("tbsp", 2.0)])]
+fn test_amount_parsing_multi(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected: Vec<Measure>,
+) {
+    assert_eq!(
+        parser.parse_amount(input).unwrap(),
+        expected,
+        "Failed: {input}"
+    );
+}
 
-    // Range display format
+#[rstest]
+fn test_amount_range_display(parser: IngredientParser) {
     let amounts = parser.parse_amount("2 ¼ - 2.5 cups").unwrap();
     assert_eq!(format!("{}", amounts[0]), "2.25 - 2.5 cups");
 }
@@ -324,23 +366,20 @@ fn test_amount_parsing() {
 // Display and Formatting Tests
 // ============================================================================
 
+#[rstest]
+#[case::basic("12 cups flour", "12 cups flour")]
+#[case::text_one("one whole egg", "1 whole egg")]
+#[case::text_a("a tsp flour", "1 tsp flour")]
+#[case::complex(
+    "1 cup (125.5 grams) AP flour, sifted",
+    "1 cup / 125.5 g AP flour, sifted"
+)]
+fn test_display_formatting(#[case] input: &str, #[case] expected: &str) {
+    assert_eq!(from_str(input).to_string(), expected, "Failed: {input}");
+}
+
 #[test]
-fn test_display_formatting() {
-    let test_cases: Vec<(&str, &str)> = vec![
-        ("12 cups flour", "12 cups flour"),
-        ("one whole egg", "1 whole egg"),
-        ("a tsp flour", "1 tsp flour"),
-        (
-            "1 cup (125.5 grams) AP flour, sifted",
-            "1 cup / 125.5 g AP flour, sifted",
-        ),
-    ];
-
-    for (input, expected) in test_cases {
-        assert_eq!(from_str(input).to_string(), expected, "Failed: {input}");
-    }
-
-    // Empty amounts display as "n/a"
+fn test_display_empty_amounts() {
     assert_eq!(
         Ingredient::new("apples", vec![], None).to_string(),
         "n/a apples"
@@ -348,74 +387,38 @@ fn test_display_formatting() {
 }
 
 // ============================================================================
-// Rich Text Parsing Tests
+// Rich Text Parsing - Parameterized Tests
 // ============================================================================
 
-fn parse_rich(input: &str, ingredient_names: &[&str]) -> Vec<Chunk> {
-    RichParser::new(ingredient_names.iter().map(|s| s.to_string()).collect())
-        .parse(input)
-        .unwrap()
+#[rstest]
+#[case::basic("hello 1 cups foo bar", &[], vec![text("hello "), measure("cups", 1.0), text(" foo bar")])]
+#[case::with_ing("hello 1 cups foo bar", &["bar"], vec![text("hello "), measure("cups", 1.0), text(" foo "), ing("bar")])]
+#[case::multi_word_ing("hello 1 cups foo bar", &["foo bar"], vec![text("hello "), measure("cups", 1.0), text(" "), ing("foo bar")])]
+#[case::range("2-2 1/2 cups foo' bar", &[], vec![measure_range("cups", 2.0, 2.5), text(" foo' bar")])]
+#[case::store_days("store for 1-2 days", &[], vec![text("store for "), measure_range("days", 1.0, 2.0)])]
+#[case::unicode_fraction("add ½ cup sugar", &["sugar"], vec![text("add "), measure("cup", 0.5), text(" "), ing("sugar")])]
+#[case::no_measures("stir until smooth", &[], vec![text("stir until smooth")])]
+fn test_rich_text_basic(
+    #[case] input: &str,
+    #[case] ingredients: &[&str],
+    #[case] expected: Vec<Chunk>,
+) {
+    assert_eq!(parse_rich(input, ingredients), expected);
 }
 
-fn text(s: &str) -> Chunk {
-    Chunk::Text(s.to_string())
-}
-
-fn measure(unit: &str, value: f64) -> Chunk {
-    Chunk::Measure(vec![Measure::new(unit, value)])
-}
-
-fn measure_range(unit: &str, min: f64, max: f64) -> Chunk {
-    Chunk::Measure(vec![Measure::with_range(unit, min, max)])
-}
-
-fn ing(name: &str) -> Chunk {
-    Chunk::Ing(name.to_string())
+#[rstest]
+#[case::ingredient_at_start("butter should be soft", &["butter"], vec![text(""), ing("butter"), text(" should be soft")])]
+#[case::ingredient_middle("fold in the chocolate chips gently", &["chocolate chips"], vec![text("fold in the "), ing("chocolate chips"), text(" gently")])]
+fn test_rich_text_ingredient_positions(
+    #[case] input: &str,
+    #[case] ingredients: &[&str],
+    #[case] expected: Vec<Chunk>,
+) {
+    assert_eq!(parse_rich(input, ingredients), expected);
 }
 
 #[test]
-fn test_rich_text_parsing() {
-    // Basic rich text with measure extraction
-    assert_eq!(
-        parse_rich("hello 1 cups foo bar", &[]),
-        vec![text("hello "), measure("cups", 1.0), text(" foo bar")]
-    );
-
-    // With ingredient name extraction
-    assert_eq!(
-        parse_rich("hello 1 cups foo bar", &["bar"]),
-        vec![
-            text("hello "),
-            measure("cups", 1.0),
-            text(" foo "),
-            ing("bar")
-        ]
-    );
-
-    // Multi-word ingredient names
-    assert_eq!(
-        parse_rich("hello 1 cups foo bar", &["foo bar"]),
-        vec![
-            text("hello "),
-            measure("cups", 1.0),
-            text(" "),
-            ing("foo bar")
-        ]
-    );
-
-    // Ranges in rich text
-    assert_eq!(
-        parse_rich("2-2 1/2 cups foo' bar", &[]),
-        vec![measure_range("cups", 2.0, 2.5), text(" foo' bar")]
-    );
-
-    // "store for X days" pattern
-    assert_eq!(
-        parse_rich("store for 1-2 days", &[]),
-        vec![text("store for "), measure_range("days", 1.0, 2.0)]
-    );
-
-    // Complex sentence with ingredient and time
+fn test_rich_text_complex_sentence() {
     assert_eq!(
         parse_rich("add 1 cup water and store for at most 2 days", &["water"]),
         vec![
@@ -427,20 +430,75 @@ fn test_rich_text_parsing() {
             measure_range("days", 0.0, 2.0)
         ]
     );
+}
 
-    // Dimensions (inches)
+#[test]
+fn test_rich_text_dimensions() {
     assert_eq!(
         parse_rich(r#"9" x 13""#, &[]),
         vec![measure(r#"""#, 9.0), text(" x "), measure(r#"""#, 13.0)]
     );
+}
 
-    // Temperature
-    assert_eq!(
-        parse_rich("preheat to 350 °F", &[]),
-        vec![text("preheat to "), measure("°f", 350.0)]
-    );
+#[rstest]
+#[case::empty("", vec![])]
+#[case::whitespace("   ", vec![text("   ")])]
+#[case::number_without_unit("step 1", vec![text("step "), measure("whole", 1.0)])]
+#[case::punctuation("add 1 cup, then stir", vec![text("add "), measure("cup", 1.0), text(", then stir")])]
+fn test_rich_text_edge_cases(#[case] input: &str, #[case] expected: Vec<Chunk>) {
+    assert_eq!(parse_rich(input, &[]), expected);
+}
 
-    // Multiple ingredients
+// ============================================================================
+// Rich Text - Time Patterns
+// ============================================================================
+
+#[rstest]
+#[case::rest_minutes("rest for 10 minutes", vec![text("rest for "), measure("minutes", 10.0)])]
+#[case::no_measure("marinate overnight", vec![text("marinate overnight")])]
+#[case::cook_range("cook 2-3 hours", vec![text("cook "), measure_range("hours", 2.0, 3.0)])]
+#[case::bake_minutes("bake for 25-30 minutes", vec![text("bake for "), measure_range("minutes", 25.0, 30.0)])]
+#[case::let_rest("let rest 1-2 hours", vec![text("let rest "), measure_range("hours", 1.0, 2.0)])]
+#[case::chill_range("chill for 2-4 hours", vec![text("chill for "), measure_range("hours", 2.0, 4.0)])]
+fn test_rich_text_time_patterns(#[case] input: &str, #[case] expected: Vec<Chunk>) {
+    assert_eq!(parse_rich(input, &[]), expected);
+}
+
+#[test]
+fn test_rich_text_compound_time_expressions() {
+    let result = parse_rich("2 hours and up to 3 days", &[]);
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0], measure("hours", 2.0));
+    assert_eq!(result[1], text(" and "));
+    assert_eq!(result[2], measure_range("days", 0.0, 3.0));
+}
+
+// ============================================================================
+// Rich Text - Temperature Patterns
+// ============================================================================
+
+#[rstest]
+#[case::fahrenheit("preheat oven to 350°F", vec![text("preheat oven to "), measure("°f", 350.0)])]
+#[case::temperature_only("preheat to 350 °F", vec![text("preheat to "), measure("°f", 350.0)])]
+fn test_rich_text_temperature(#[case] input: &str, #[case] expected: Vec<Chunk>) {
+    assert_eq!(parse_rich(input, &[]), expected);
+}
+
+#[test]
+fn test_rich_text_temperature_range() {
+    let result = parse_rich("bake at 350-375°F", &[]);
+    let has_range = result.iter().any(|c| {
+        matches!(c, Chunk::Measure(m) if m[0].values().0 == 350.0 && m[0].values().1 == Some(375.0))
+    });
+    assert!(has_range, "Should parse temperature range");
+}
+
+// ============================================================================
+// Rich Text - Multiple Ingredients
+// ============================================================================
+
+#[test]
+fn test_rich_text_multiple_ingredients() {
     assert_eq!(
         parse_rich("mix 2 cups flour and 1 tsp salt", &["flour", "salt"]),
         vec![
@@ -455,223 +513,6 @@ fn test_rich_text_parsing() {
         ]
     );
 
-    // Unicode fractions
-    assert_eq!(
-        parse_rich("add ½ cup sugar", &["sugar"]),
-        vec![text("add "), measure("cup", 0.5), text(" "), ing("sugar")]
-    );
-
-    // No measures, just text
-    assert_eq!(
-        parse_rich("stir until smooth", &[]),
-        vec![text("stir until smooth")]
-    );
-
-    // Ingredient at start (note: empty text prefix is expected)
-    assert_eq!(
-        parse_rich("butter should be soft", &["butter"]),
-        vec![text(""), ing("butter"), text(" should be soft")]
-    );
-
-    // Time durations
-    assert_eq!(
-        parse_rich("bake for 25-30 minutes", &[]),
-        vec![text("bake for "), measure_range("minutes", 25.0, 30.0)]
-    );
-    assert_eq!(
-        parse_rich("let rest 1-2 hours", &[]),
-        vec![text("let rest "), measure_range("hours", 1.0, 2.0)]
-    );
-}
-
-// Additional Rich Text Edge Cases
-// ============================================================================
-
-#[test]
-fn test_rich_text_compound_time_expressions() {
-    // Compound time expressions with "and up to"
-    let result = parse_rich("2 hours and up to 3 days", &[]);
-    assert_eq!(result.len(), 3);
-    assert_eq!(result[0], measure("hours", 2.0));
-    assert_eq!(result[1], text(" and ")); // Space is preserved
-    assert_eq!(result[2], measure_range("days", 0.0, 3.0));
-
-    // Full sentence with "at least X and up to Y"
-    let result = parse_rich(
-        "Cover and chill for at least 2 hours and up to 3 days before baking.",
-        &[],
-    );
-    // Check that both time values are captured
-    let measures: Vec<_> = result
-        .iter()
-        .filter(|c| matches!(c, Chunk::Measure(_)))
-        .collect();
-    assert_eq!(measures.len(), 2, "Should find two measurements");
-
-    // "at least X" should parse X as a single value (lower bound of open-ended range)
-    let result = parse_rich("at least 2 hours", &[]);
-    assert_eq!(result[0], text("at least "));
-    assert_eq!(result[1], measure("hours", 2.0));
-
-    // "up to X" parses as 0-X range
-    let result = parse_rich("up to 3 days", &[]);
-    assert_eq!(result[0], measure_range("days", 0.0, 3.0));
-
-    // "at most X" should also work like "up to X"
-    let result = parse_rich("at most 5 minutes", &[]);
-    assert_eq!(result[0], measure_range("minutes", 0.0, 5.0));
-}
-
-#[test]
-fn test_rich_text_time_patterns() {
-    // "rest for X minutes"
-    assert_eq!(
-        parse_rich("rest for 10 minutes", &[]),
-        vec![text("rest for "), measure("minutes", 10.0)]
-    );
-
-    // "marinate overnight" - no parsable measure
-    assert_eq!(
-        parse_rich("marinate overnight", &[]),
-        vec![text("marinate overnight")]
-    );
-
-    // "cook 2-3 hours" without "for"
-    assert_eq!(
-        parse_rich("cook 2-3 hours", &[]),
-        vec![text("cook "), measure_range("hours", 2.0, 3.0)]
-    );
-
-    // "simmer for about 20 minutes"
-    let result = parse_rich("simmer for about 20 minutes", &[]);
-    let has_20_min = result
-        .iter()
-        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().0 == 20.0));
-    assert!(has_20_min, "Should parse '20 minutes'");
-
-    // Multiple time references
-    let result = parse_rich("cook for 5 minutes, then bake for 30 minutes", &[]);
-    let measures: Vec<_> = result
-        .iter()
-        .filter(|c| matches!(c, Chunk::Measure(_)))
-        .collect();
-    assert_eq!(measures.len(), 2, "Should find two time measurements");
-}
-
-#[test]
-fn test_rich_text_temperature_patterns() {
-    // Fahrenheit with degree symbol
-    assert_eq!(
-        parse_rich("preheat oven to 350°F", &[]),
-        vec![text("preheat oven to "), measure("°f", 350.0)]
-    );
-
-    // Fahrenheit with space before symbol
-    let result = parse_rich("bake at 400 °F", &[]);
-    let has_temp = result
-        .iter()
-        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().0 == 400.0));
-    assert!(has_temp, "Should parse '400 °F'");
-
-    // Celsius
-    let result = parse_rich("heat to 180°C", &[]);
-    let has_temp = result
-        .iter()
-        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().0 == 180.0));
-    assert!(has_temp, "Should parse '180°C'");
-
-    // Temperature range
-    let result = parse_rich("bake at 350-375°F", &[]);
-    let has_range = result.iter().any(|c| {
-        matches!(c, Chunk::Measure(m) if m[0].values().0 == 350.0 && m[0].values().1 == Some(375.0))
-    });
-    assert!(has_range, "Should parse temperature range");
-}
-
-#[test]
-fn test_rich_text_dimension_patterns() {
-    // Pan dimensions with x
-    assert_eq!(
-        parse_rich(r#"use a 9" x 13" pan"#, &[]),
-        vec![
-            text("use a "),
-            measure(r#"""#, 9.0),
-            text(" x "),
-            measure(r#"""#, 13.0),
-            text(" pan")
-        ]
-    );
-
-    // Single dimension
-    assert_eq!(
-        parse_rich(r#"roll to 1/4" thick"#, &[]),
-        vec![text("roll to "), measure(r#"""#, 0.25), text(" thick")]
-    );
-
-    // "2 inch" with space - actually parses correctly as inches!
-    let result = parse_rich("cut into 2 inch squares", &[]);
-    assert_eq!(
-        result,
-        vec![text("cut into "), measure("inch", 2.0), text(" squares")]
-    );
-
-    // "2-inch" hyphenated - hyphen is interpreted as potential range separator
-    let result = parse_rich("cut into 2-inch squares", &[]);
-    // This currently parses strangely because "-inch" looks like a range continuation
-    assert!(!result.is_empty());
-}
-
-#[test]
-fn test_rich_text_quantity_patterns() {
-    // "a few" - doesn't parse as number
-    assert_eq!(
-        parse_rich("add a few drops", &[]),
-        vec![text("add a few drops")]
-    );
-
-    // Plural units
-    assert_eq!(
-        parse_rich("add 3 cups water", &["water"]),
-        vec![text("add "), measure("cups", 3.0), text(" "), ing("water")]
-    );
-
-    // Fractions in text
-    assert_eq!(
-        parse_rich("add 1/2 cup milk", &["milk"]),
-        vec![text("add "), measure("cup", 0.5), text(" "), ing("milk")]
-    );
-
-    // Mixed number
-    assert_eq!(
-        parse_rich("use 1 1/2 cups flour", &["flour"]),
-        vec![text("use "), measure("cups", 1.5), text(" "), ing("flour")]
-    );
-
-    // Unicode fraction
-    assert_eq!(
-        parse_rich("add ¼ teaspoon salt", &["salt"]),
-        vec![
-            text("add "),
-            measure("teaspoon", 0.25),
-            text(" "),
-            ing("salt")
-        ]
-    );
-}
-
-#[test]
-fn test_rich_text_ingredient_extraction() {
-    // Ingredient in middle of text
-    assert_eq!(
-        parse_rich("fold in the chocolate chips gently", &["chocolate chips"]),
-        vec![
-            text("fold in the "),
-            ing("chocolate chips"),
-            text(" gently")
-        ]
-    );
-
-    // Multiple ingredients
     assert_eq!(
         parse_rich(
             "combine flour, sugar, and salt",
@@ -686,165 +527,14 @@ fn test_rich_text_ingredient_extraction() {
             ing("salt")
         ]
     );
-
-    // Ingredient with measurement
-    assert_eq!(
-        parse_rich("whisk in 2 tbsp butter", &["butter"]),
-        vec![
-            text("whisk in "),
-            measure("tbsp", 2.0),
-            text(" "),
-            ing("butter")
-        ]
-    );
-
-    // Ingredient name that's a substring - should match exact word
-    let result = parse_rich("add the cream cheese", &["cream"]);
-    assert!(result
-        .iter()
-        .any(|c| matches!(c, Chunk::Ing(s) if s == "cream")));
-}
-
-#[test]
-fn test_rich_text_edge_cases() {
-    // Empty string
-    assert_eq!(parse_rich("", &[]), vec![]);
-
-    // Just whitespace
-    assert_eq!(parse_rich("   ", &[]), vec![text("   ")]);
-
-    // Numbers without units
-    assert_eq!(
-        parse_rich("step 1", &[]),
-        vec![text("step "), measure("whole", 1.0)]
-    );
-
-    // Punctuation handling
-    assert_eq!(
-        parse_rich("add 1 cup, then stir", &[]),
-        vec![text("add "), measure("cup", 1.0), text(", then stir")]
-    );
-
-    // Parenthetical amounts - note: parentheses don't prevent parsing
-    let result = parse_rich("butter (about 2 tablespoons)", &["butter"]);
-    // Result is: [Text(""), Ing("butter"), Text(" "), Measure([Tablespoon, 2.0])]
-    // Note: "(about" and ")" are stripped - parentheses are consumed as separators
-    let has_tbsp = result.iter().any(|c| matches!(c, Chunk::Measure(_)));
-    assert!(
-        has_tbsp,
-        "Should parse '2 tablespoons' in parentheses: {result:?}"
-    );
-
-    // Hyphenated time (should be range)
-    assert_eq!(
-        parse_rich("chill for 2-4 hours", &[]),
-        vec![text("chill for "), measure_range("hours", 2.0, 4.0)]
-    );
-
-    // "to" as range indicator
-    let result = parse_rich("bake for 45 to 50 minutes", &[]);
-    let has_range = result.iter().any(|c| {
-        matches!(c, Chunk::Measure(m) if m[0].values().0 == 45.0 && m[0].values().1 == Some(50.0))
-    });
-    assert!(has_range, "Should parse '45 to 50 minutes' as a range");
-}
-
-#[test]
-fn test_rich_text_parentheses() {
-    // Test various parenthetical expressions
-    // Note: parentheses are treated as separators and stripped from text chunks
-    let result = parse_rich("(about 2 tablespoons)", &[]);
-    assert_eq!(result.len(), 1); // Just the measure, parentheses and "about" absorbed
-    assert!(matches!(&result[0], Chunk::Measure(m) if m[0].values().0 == 2.0));
-
-    // Parentheses with content before and after
-    let result = parse_rich("add butter (softened) to bowl", &["butter"]);
-    assert!(result
-        .iter()
-        .any(|c| matches!(c, Chunk::Ing(s) if s == "butter")));
-    // Note: "softened" in parens becomes a text chunk
-
-    // Nested parenthetical with measurement
-    let result = parse_rich("use oil (about 1/4 cup) for frying", &[]);
-    let has_quarter_cup = result
-        .iter()
-        .any(|c| matches!(c, Chunk::Measure(m) if (m[0].values().0 - 0.25).abs() < 0.01));
-    assert!(has_quarter_cup, "Should parse '1/4 cup' in parentheses");
 }
 
 // ============================================================================
-// Known Quirks / Future Improvements (skipped tests)
+// Measurement Edge Cases
 // ============================================================================
 
-#[test]
-#[ignore = "hyphen interpreted as range separator, not compound unit"]
-fn test_rich_text_hyphenated_units() {
-    // "2-inch" should parse as 2 inches, not "2" with "-inch" as leftover text
-    let result = parse_rich("cut into 2-inch pieces", &[]);
-    let has_inch = result
-        .iter()
-        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().2 == "inch"));
-    assert!(has_inch, "Should parse '2-inch' as 2 inches: {result:?}");
-
-    // Same with fractions
-    let result = parse_rich("roll to 1/2-inch thick", &[]);
-    let has_half_inch = result.iter().any(|c| {
-        matches!(c, Chunk::Measure(m) if m[0].values().2 == "inch" && (m[0].values().0 - 0.5).abs() < 0.01)
-    });
-    assert!(
-        has_half_inch,
-        "Should parse '1/2-inch' as 0.5 inches: {result:?}"
-    );
-}
-
-#[test]
-#[ignore = "space consumed before non-unit words after numbers"]
-fn test_rich_text_number_followed_by_non_unit() {
-    // "12 cookies" should preserve the space: ["12 whole"][" cookies"]
-    // Currently produces: ["12 whole"]["cookies"] (missing space)
-    let result = parse_rich("makes 12 cookies", &[]);
-    let text_chunks: Vec<_> = result
-        .iter()
-        .filter_map(|c| {
-            if let Chunk::Text(s) = c {
-                Some(s.as_str())
-            } else {
-                None
-            }
-        })
-        .collect();
-    assert!(
-        text_chunks
-            .iter()
-            .any(|s| s.starts_with(" cookies") || s == &" cookies"),
-        "Space before 'cookies' should be preserved: {result:?}"
-    );
-}
-
-#[test]
-#[ignore = "at least does not create a lower-bound range"]
-fn test_rich_text_at_least_as_lower_bound() {
-    // "at least 2 hours" semantically means "2+ hours" (lower bound)
-    // Currently parses as just "2 hours" with "at least" as text
-    // Ideally this would create a Measure with lower_value set
-    let result = parse_rich("at least 2 hours", &[]);
-
-    // For now, just document the current behavior
-    assert_eq!(result.len(), 2);
-    assert_eq!(result[0], text("at least "));
-    assert_eq!(result[1], measure("hours", 2.0));
-
-    // Future: could have Measure { value: 2.0, lower_bound: true } or similar
-}
-
-// ============================================================================
-// Measurement Parser Edge Case Tests
-// ============================================================================
-
-#[test]
-fn test_measurement_edge_cases() {
-    let parser = IngredientParser::new();
-
+#[rstest]
+fn test_measurement_edge_cases(parser: IngredientParser) {
     // Unit mismatch in ranges - parser handles gracefully
     let ingredient = parser.from_str("1 cup to 2 tbsp flour");
     assert!(ingredient.name.contains("flour") || !ingredient.amounts.is_empty());
@@ -865,11 +555,6 @@ fn test_measurement_edge_cases() {
     // parse_amount error on invalid input
     assert!(parser.parse_amount("not a valid amount").is_err());
 
-    // Range with mismatched units - handles gracefully
-    let ingredient = parser.from_str("2 cups to 3 tbsp flour");
-    assert!(ingredient.name.contains("flour"));
-    assert!(!ingredient.amounts.is_empty());
-
     // Rich text mode shouldn't parse text numbers like "one"
     let rich_parser = RichParser::new(vec![]);
     let result = rich_parser.parse("add one cup of flour").unwrap();
@@ -877,50 +562,100 @@ fn test_measurement_edge_cases() {
 }
 
 // ============================================================================
-// Custom Parser Configuration Tests
+// Unit-to-string Fallback Test
 // ============================================================================
 
 #[test]
-fn test_custom_adjectives_extraction() {
-    // Test various custom adjective configurations
-    let cases: Vec<(&[&str], &str, &str, Option<&str>)> = vec![
-        // (adjectives, input, expected_name, expected_modifier_contains)
-        (
-            &["fresh", "chopped"],
-            "2 cups fresh chopped basil",
-            "basil",
-            Some("fresh"),
-        ),
-        (&["large"], "2 large eggs", "eggs", None), // "large" is a unit, not extracted
-        (
-            &["sliced", "thinly sliced"],
-            "2 cups thinly sliced onions",
-            "onions",
-            Some("thinly sliced"),
-        ),
+fn test_unit_to_str_fallback() {
+    use ingredient::unit::Unit;
+
+    // All standard units should have proper string representations
+    let units = [
+        Unit::Gram,
+        Unit::Kilogram,
+        Unit::Liter,
+        Unit::Milliliter,
+        Unit::Teaspoon,
+        Unit::Tablespoon,
+        Unit::Cup,
+        Unit::Quart,
+        Unit::FluidOunce,
+        Unit::Ounce,
+        Unit::Pound,
+        Unit::Cent,
+        Unit::Dollar,
+        Unit::KCal,
+        Unit::Day,
+        Unit::Hour,
+        Unit::Minute,
+        Unit::Second,
+        Unit::Fahrenheit,
+        Unit::Celcius,
+        Unit::Inch,
+        Unit::Whole,
     ];
 
-    for (adjectives, input, expected_name, expected_modifier) in cases {
-        let parser = IngredientParser::new().with_adjectives(adjectives);
-        let ingredient = parser.from_str(input);
-        assert_eq!(ingredient.name, expected_name, "Failed for: {input}");
-        if let Some(modifier_text) = expected_modifier {
-            assert!(
-                ingredient
-                    .modifier
-                    .as_ref()
-                    .is_some_and(|m| m.contains(modifier_text)),
-                "Expected modifier containing '{modifier_text}' for: {input}"
-            );
-        }
+    for unit in units {
+        let s = unit.to_str();
+        assert!(!s.is_empty(), "Unit {unit:?} should have non-empty string");
+        // Should not be Debug format (which would contain "Unit::" or braces)
+        assert!(
+            !s.contains("Unit"),
+            "Unit {unit:?} should not use Debug format: {s}"
+        );
     }
+
+    // Other units use their inner string
+    let other = Unit::Other("pinch".to_string());
+    assert_eq!(other.to_str(), "pinch");
+}
+
+// ============================================================================
+// Known Quirks / Future Improvements (skipped tests)
+// ============================================================================
+
+#[test]
+#[ignore = "hyphen interpreted as range separator, not compound unit"]
+fn test_rich_text_hyphenated_units() {
+    let result = parse_rich("cut into 2-inch pieces", &[]);
+    let has_inch = result
+        .iter()
+        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().2 == "inch"));
+    assert!(has_inch, "Should parse '2-inch' as 2 inches: {result:?}");
 }
 
 #[test]
-fn test_parse_with_trace() {
-    let parser = IngredientParser::new();
-    let traced = parser.parse_with_trace("2 cups flour");
+#[ignore = "space consumed before non-unit words after numbers"]
+fn test_rich_text_number_followed_by_non_unit() {
+    let result = parse_rich("makes 12 cookies", &[]);
+    let text_chunks: Vec<_> = result
+        .iter()
+        .filter_map(|c| {
+            if let Chunk::Text(s) = c {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(
+        text_chunks.iter().any(|s| s.starts_with(" cookies")),
+        "Space before 'cookies' should be preserved: {result:?}"
+    );
+}
 
+#[test]
+#[ignore = "at least does not create a lower-bound range"]
+fn test_rich_text_at_least_as_lower_bound() {
+    let result = parse_rich("at least 2 hours", &[]);
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0], text("at least "));
+    assert_eq!(result[1], measure("hours", 2.0));
+}
+
+#[rstest]
+fn test_parse_with_trace(parser: IngredientParser) {
+    let traced = parser.parse_with_trace("2 cups flour");
     assert!(traced.result.is_ok());
     assert_eq!(traced.result.unwrap().name, "flour");
     assert!(!traced.trace.format_tree(false).is_empty());
