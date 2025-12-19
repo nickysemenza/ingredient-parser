@@ -1,7 +1,21 @@
 import { createContext, useEffect, useState } from "react";
 
-export type { RichItem, ScrapedRecipe, Measure } from "./wasm/pkg";
+export type { RichItem } from "./wasm/pkg";
 export type wasm = typeof import("./wasm/pkg/ingredient_wasm");
+
+export interface Measure {
+  unit: string;
+  value: number;
+  upper_value?: number;
+}
+
+export interface ScrapedRecipe {
+  image?: string;
+  ingredients: string[];
+  instructions: string[];
+  name?: string;
+  url?: string;
+}
 
 export const WasmContext = createContext<wasm | undefined>(undefined);
 

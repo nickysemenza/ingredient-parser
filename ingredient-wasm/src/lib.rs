@@ -1,95 +1,218 @@
-// WASM bindings use unwrap for JsValue serialization which should not fail for well-formed data
-#![allow(clippy::unwrap_used)]
+use std::{collections::HashSet, str::FromStr};
 
-use ingredient::{self, rich_text::RichParser, unit::Measure};
+use ingredient::{
+    from_str as parse_ingredient_str,
+    rich_text::RichParser,
+    unit::{is_valid, make_graph, print_graph, Measure, MeasureKind},
+    unit_mapping::{parse_unit_mapping as parse_unit_mapping_internal, ParsedUnitMapping},
+    util::truncate_3_decimals,
+};
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
-pub fn start() -> Result<(), JsValue> {
-    // print pretty errors in wasm https://github.com/rustwasm/console_error_panic_hook
-    // This is not needed for tracing_wasm to work, but it is a common tool for getting proper error line numbers for panics.
+pub fn init() {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    // Add this line:
-    tracing_wasm::set_as_global_default();
-
-    Ok(())
+    let mut config = wasm_tracing::WasmLayerConfig::new();
+    config.set_max_level(tracing::Level::INFO);
+    let _ = wasm_tracing::set_as_global_default_with_config(config);
 }
 
-#[wasm_bindgen]
-pub fn parse_ingredient(input: &str) -> IIngredient {
-    let si = ingredient::from_str(input);
-    serde_wasm_bindgen::to_value(&si).unwrap().into()
-}
-#[wasm_bindgen]
-pub fn parse_rich_text(r: String, ings: &JsValue) -> Result<RichItems, JsValue> {
-    let ings2: Vec<String> = serde_wasm_bindgen::from_value(ings.clone()).unwrap();
-    let rtp = RichParser::new(ings2);
-    match rtp.parse(r.as_str()) {
-        Ok(r) => Ok(serde_wasm_bindgen::to_value(&r).unwrap().into()),
-        Err(e) => Err(JsValue::from_str(&e)),
-    }
-}
-
-#[wasm_bindgen]
-pub fn format_amount(amount: &IMeasure) -> String {
-    let a1: Result<Measure, _> = serde_wasm_bindgen::from_value(amount.into());
-    match a1 {
-        Ok(a) => format!("{a}"),
-        Err(e) => {
-            format!("failed to format {amount:#?}: {e:?}")
-        }
-    }
-}
-
-#[wasm_bindgen]
-pub fn scrape(body: String, url: String) -> Result<IScrapedRecipe, JsValue> {
-    match recipe_scraper::scrape(body.as_str(), &url) {
-        Ok(r) => Ok(serde_wasm_bindgen::to_value(&r).unwrap().into()),
-        Err(x) => Err(JsValue::from_str(&format!("failed to get recipe: {x:?}"))),
-    }
-}
+type UnitMappingPairs = Vec<(Measure, Measure)>;
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(typescript_type = "Ingredient")]
-    #[derive(Debug)]
-    pub type IIngredient;
-    #[wasm_bindgen(typescript_type = "Measure")]
-    #[derive(Debug)]
-    pub type IMeasure;
-    #[wasm_bindgen(typescript_type = "Measure[]")]
-    pub type IMeasures;
+    #[wasm_bindgen(typescript_type = "WIngredient")]
+    pub type WIngredient;
+    #[wasm_bindgen(typescript_type = "WAmount")]
+    pub type WAmount;
+    #[wasm_bindgen(typescript_type = "WUnitMapping")]
+    pub type WUnitMapping;
+    #[wasm_bindgen(typescript_type = "WScrapedRecipe")]
+    pub type WScrapedRecipe;
     #[wasm_bindgen(typescript_type = "RichItem[]")]
     pub type RichItems;
-    #[wasm_bindgen(typescript_type = "ScrapedRecipe")]
-    pub type IScrapedRecipe;
+    #[wasm_bindgen(typescript_type = "AmountKind")]
+    pub type WAmountKind;
+}
+
+fn from_js<T: for<'de> Deserialize<'de>>(v: impl Into<JsValue>, ctx: &str) -> Result<T, String> {
+    serde_wasm_bindgen::from_value(v.into()).map_err(|e| format!("Failed to parse {ctx}: {e}"))
+}
+
+fn to_js<T: Serialize>(v: &T, ctx: &str) -> Result<JsValue, String> {
+    serde_wasm_bindgen::to_value(v).map_err(|e| format!("Failed to serialize {ctx}: {e}"))
+}
+
+fn parse_mappings(mappings: Vec<WUnitMapping>) -> Result<UnitMappingPairs, String> {
+    mappings
+        .iter()
+        .map(|m| from_js::<ParsedUnitMapping>(m, "unit mapping"))
+        .collect::<Result<Vec<_>, _>>()
+        .map(|v| v.into_iter().map(|m| (m.a, m.b)).collect())
+}
+
+#[wasm_bindgen]
+pub fn parse_ingredient(input: &str) -> Result<WIngredient, String> {
+    to_js(&parse_ingredient_str(input), "ingredient").map(Into::into)
+}
+
+#[wasm_bindgen]
+pub fn format_amount(amount: &WAmount) -> Result<String, String> {
+    Ok(from_js::<Measure>(amount, "amount")?.to_string())
+}
+
+#[wasm_bindgen]
+pub fn format_amount_value(amount: &WAmount) -> Result<f64, String> {
+    let v = from_js::<Measure>(amount, "amount")?.values().0;
+    Ok(truncate_3_decimals(v))
+}
+
+#[wasm_bindgen]
+pub fn amount_kind(amount: &WAmount) -> Result<WAmountKind, String> {
+    from_js::<Measure>(amount, "amount")?
+        .kind()
+        .map_err(|_| "Unknown unit kind".to_string())
+        .and_then(|k| to_js(&k.to_str(), "amount kind").map(Into::into))
+}
+
+#[wasm_bindgen]
+pub fn is_valid_unit(unit: &str, extra_units: Vec<String>) -> bool {
+    is_valid(&HashSet::from_iter(extra_units), unit)
+}
+
+#[wasm_bindgen]
+pub fn conv_amount_to_kind(
+    mappings: Vec<WUnitMapping>,
+    target_kind: WAmountKind,
+    amount: WAmount,
+) -> Result<WAmount, String> {
+    let pairs = parse_mappings(mappings)?;
+    let measure: Measure = from_js(&amount, "amount")?;
+    let kind_str: String = from_js(target_kind, "amount kind")?;
+    let kind =
+        MeasureKind::from_str(&kind_str).map_err(|_| format!("Invalid amount kind: {kind_str}"))?;
+
+    measure
+        .convert_measure_via_mappings(kind.clone(), pairs)
+        .ok_or_else(|| format!("Failed to convert '{measure}' to '{kind}'"))
+        .and_then(|m| to_js(&m, "amount").map(Into::into))
+}
+
+#[wasm_bindgen]
+pub fn conv_amount_to_unit(
+    mappings: Vec<WUnitMapping>,
+    target_unit: String,
+    amount: WAmount,
+) -> Result<WAmount, String> {
+    let pairs = parse_mappings(mappings)?;
+    let measure: Measure = from_js(&amount, "amount")?;
+    let kind = MeasureKind::Nutrient(target_unit.clone());
+
+    measure
+        .convert_measure_via_mappings(kind, pairs)
+        .ok_or_else(|| format!("Failed to convert to '{target_unit}'"))
+        .and_then(|m| to_js(&m, "amount").map(Into::into))
+}
+
+#[wasm_bindgen]
+pub fn conv_amount_to_nutrients(
+    mappings: Vec<WUnitMapping>,
+    nutrient_targets: Vec<String>,
+    amount: WAmount,
+) -> Result<JsValue, String> {
+    let pairs = parse_mappings(mappings)?;
+    let measure: Measure = from_js(&amount, "amount")?;
+
+    let result = js_sys::Object::new();
+    for target in nutrient_targets {
+        let kind = MeasureKind::Nutrient(target.clone());
+        let converted = measure
+            .clone()
+            .convert_measure_via_mappings(kind, pairs.clone());
+
+        let js_value = match converted {
+            Some(m) => to_js(&m, "amount")?,
+            None => JsValue::NULL,
+        };
+
+        js_sys::Reflect::set(&result, &JsValue::from_str(&target), &js_value)
+            .map_err(|_| "Failed to set property on result object")?;
+    }
+
+    Ok(result.into())
+}
+
+#[wasm_bindgen]
+pub fn graph_unit_mappings(mappings: Vec<WUnitMapping>) -> Result<String, String> {
+    parse_mappings(mappings).map(|p| print_graph(make_graph(p)))
+}
+
+#[wasm_bindgen]
+pub fn parse_unit_mapping(input: String) -> Result<JsValue, String> {
+    to_js(&parse_unit_mapping_internal(&input)?, "parsed unit mapping")
+}
+
+#[wasm_bindgen]
+pub fn scrape(body: String, url: String) -> Result<WScrapedRecipe, String> {
+    recipe_scraper::scrape(body.as_str(), &url)
+        .map_err(|e| format!("Failed to scrape recipe: {e}"))
+        .and_then(|r| to_js(&r, "recipe").map(Into::into))
+}
+
+#[wasm_bindgen]
+pub fn parse_rich_text(text: String, ingredient_names: Vec<String>) -> Result<RichItems, String> {
+    RichParser::new(ingredient_names)
+        .parse(&text)
+        .map_err(|e| e.to_string())
+        .and_then(|r| to_js(&r, "rich text").map(Into::into))
 }
 
 #[wasm_bindgen(typescript_custom_section)]
-const ITEXT_STYLE: &'static str = r#"
-interface Ingredient {
-    amounts: Measure[];
+const TS_TYPES: &str = r#"
+interface WIngredient {
+    amounts: WAmount[];
     modifier?: string;
     name: string;
 }
-interface Measure {
-  unit: string;
-  value: number;
-  upper_value?: number;
+
+interface WAmount {
+    unit: string;
+    value: number;
+    upper_value?: number;
 }
 
-interface ScrapedRecipe {
-    image: string;
+interface WUnitMapping {
+    a: WAmount;
+    b: WAmount;
+    source?: string | null;
+}
+
+interface WScrapedRecipe {
     ingredients: string[];
     instructions: string[];
-    name: string;
-    url: string;
+    name?: string;
+    url?: string;
+    image?: string;
 }
 
-export type RichItem =
-  | { kind: "Text"; value: string }
-  | { kind: "Ing"; value: string }
-  | { kind: "Measure"; value: Measure[] }
+type AmountKind =
+    | "weight"
+    | "volume"
+    | "money"
+    | "calories"
+    | "time"
+    | "temperature"
+    | "length"
+    | "other"
+    | `nutrient:${string}`;
+
+type NutrientConversionResult = Record<string, WAmount | null>;
+
+type RichItem =
+    | { kind: "Text"; value: string }
+    | { kind: "Ing"; value: string }
+    | { kind: "Measure"; value: WAmount[] };
 "#;
