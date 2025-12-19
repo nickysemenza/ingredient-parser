@@ -243,8 +243,10 @@ impl<'a> MeasurementParser<'a> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use rstest::{fixture, rstest};
 
-    fn make_parser() -> HashSet<String> {
+    #[fixture]
+    fn units() -> HashSet<String> {
         [
             "cup",
             "cups",
@@ -267,12 +269,13 @@ mod tests {
         .collect()
     }
 
-    #[test]
-    fn test_measurement_parser() {
-        let units = make_parser();
-        let parser = MeasurementParser::new(&units, false);
+    // ============================================================================
+    // Basic Measurement Tests
+    // ============================================================================
 
-        // Test basic measurement
+    #[rstest]
+    fn test_measurement_parser(units: HashSet<String>) {
+        let parser = MeasurementParser::new(&units, false);
         let result = parser.parse_measurement_list("2 cups");
         assert!(result.is_ok());
         let (remaining, measures) = result.unwrap();
@@ -280,210 +283,170 @@ mod tests {
         assert_eq!(measures.len(), 1);
     }
 
-    #[test]
-    fn test_range_with_units() {
-        let units = make_parser();
-        let parser = MeasurementParser::new(&units, false);
+    // ============================================================================
+    // Range Format Tests
+    // ============================================================================
 
-        // Test via parse_measurement_list which handles ranges correctly
-        // Basic range: "2-3 cups"
-        let result = parser.parse_measurement_list("2-3 cups");
-        assert!(result.is_ok());
+    #[rstest]
+    #[case::hyphen("2-3 cups")]
+    #[case::to("2 to 3 cups")]
+    #[case::through("2 through 3 cups")]
+    #[case::or("2 or 3 cups")]
+    fn test_range_formats(units: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units, false);
+        let result = parser.parse_measurement_list(input);
+        assert!(result.is_ok(), "Failed to parse: {input}");
         let (_, measures) = result.unwrap();
         assert!(!measures.is_empty());
-
-        // Range with "to": "2 to 3 cups"
-        let result = parser.parse_measurement_list("2 to 3 cups");
-        assert!(result.is_ok());
-
-        // Range with "through": "2 through 3 cups"
-        let result = parser.parse_measurement_list("2 through 3 cups");
-        assert!(result.is_ok());
-
-        // Range with "or": "2 or 3 cups"
-        let result = parser.parse_measurement_list("2 or 3 cups");
-        assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_parenthesized_amounts() {
-        let units = make_parser();
+    // ============================================================================
+    // Parenthesized Amounts Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::single("(2 cups)", 1)]
+    #[case::multiple("(1 cup / 240 ml)", 2)]
+    fn test_parenthesized_amounts(
+        units: HashSet<String>,
+        #[case] input: &str,
+        #[case] expected_count: usize,
+    ) {
         let parser = MeasurementParser::new(&units, false);
-
-        // Parenthesized: "(2 cups)"
-        let result = parser.parse_parenthesized_amounts("(2 cups)");
-        assert!(result.is_ok());
-        let (remaining, measures) = result.unwrap();
-        assert_eq!(remaining, "");
-        assert_eq!(measures.len(), 1);
-
-        // Multiple inside parens: "(1 cup / 240 ml)"
-        let result = parser.parse_parenthesized_amounts("(1 cup / 240 ml)");
+        let result = parser.parse_parenthesized_amounts(input);
         assert!(result.is_ok());
         let (_, measures) = result.unwrap();
-        assert_eq!(measures.len(), 2);
+        assert_eq!(measures.len(), expected_count);
     }
 
-    #[test]
-    fn test_plus_expression() {
-        let units = make_parser();
-        let parser = MeasurementParser::new(&units, false);
+    // ============================================================================
+    // Upper Bound Tests
+    // ============================================================================
 
-        // Plus expression: "1 cup plus 2 tbsp"
+    #[rstest]
+    #[case::up_to("up to 5", 5.0)]
+    #[case::at_most("at most 10", 10.0)]
+    fn test_upper_bound_only(units: HashSet<String>, #[case] input: &str, #[case] expected: f64) {
+        let parser = MeasurementParser::new(&units, false);
+        let result = parser.parse_upper_bound_only(input);
+        assert!(result.is_ok());
+        let (_, (lower, upper)) = result.unwrap();
+        assert_eq!(lower, 0.0);
+        assert_eq!(upper, Some(expected));
+    }
+
+    // ============================================================================
+    // Separator Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::semicolon("2 cups; 1 tbsp", 2)]
+    #[case::slash("1 cup / 240 ml", 2)]
+    #[case::comma("1 cup, 2 tbsp", 2)]
+    fn test_measurement_list_separators(
+        units: HashSet<String>,
+        #[case] input: &str,
+        #[case] expected_count: usize,
+    ) {
+        let parser = MeasurementParser::new(&units, false);
+        let result = parser.parse_measurement_list(input);
+        assert!(result.is_ok());
+        let (_, measures) = result.unwrap();
+        assert_eq!(measures.len(), expected_count);
+    }
+
+    // ============================================================================
+    // Rich Text Mode Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::decimal("2.5", 2.5)]
+    #[case::fraction("1/2", 0.5)]
+    #[case::unicode_fraction("½", 0.5)]
+    fn test_rich_text_mode(units: HashSet<String>, #[case] input: &str, #[case] expected: f64) {
+        let parser = MeasurementParser::new(&units, true);
+        let result = parser.parse_number(input);
+        assert!(result.is_ok());
+        let (_, val) = result.unwrap();
+        assert!((val - expected).abs() < 0.001);
+    }
+
+    // ============================================================================
+    // optional_period_or_of Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::period(".")]
+    #[case::of(" of")]
+    #[case::something("something")]
+    fn test_optional_period_or_of(#[case] input: &str) {
+        let result = optional_period_or_of(input);
+        assert!(result.is_ok());
+    }
+
+    // ============================================================================
+    // Other Tests
+    // ============================================================================
+
+    #[rstest]
+    fn test_plus_expression(units: HashSet<String>) {
+        let parser = MeasurementParser::new(&units, false);
         let result = parser.parse_plus_expression("1 cup plus 2 tbsp");
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_upper_bound_only() {
-        let units = make_parser();
+    #[rstest]
+    fn test_multiplier(units: HashSet<String>) {
         let parser = MeasurementParser::new(&units, false);
-
-        // "up to 5"
-        let result = parser.parse_upper_bound_only("up to 5");
-        assert!(result.is_ok());
-        let (_, (lower, upper)) = result.unwrap();
-        assert_eq!(lower, 0.0);
-        assert_eq!(upper, Some(5.0));
-
-        // "at most 10"
-        let result = parser.parse_upper_bound_only("at most 10");
-        assert!(result.is_ok());
-        let (_, (lower, upper)) = result.unwrap();
-        assert_eq!(lower, 0.0);
-        assert_eq!(upper, Some(10.0));
-    }
-
-    #[test]
-    fn test_multiplier() {
-        let units = make_parser();
-        let parser = MeasurementParser::new(&units, false);
-
-        // "2 x 3 cups" - multiplier expression
         let result = parser.parse_multiplier("2 x ");
         assert!(result.is_ok());
         let (_, mult) = result.unwrap();
         assert_eq!(mult, 2.0);
     }
 
-    #[test]
-    fn test_measurement_with_about() {
-        let units = make_parser();
+    #[rstest]
+    fn test_measurement_with_about(units: HashSet<String>) {
         let parser = MeasurementParser::new(&units, false);
-
-        // "about 2 cups"
         let result = parser.parse_single_measurement("about 2 cups");
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_measurement_list_separators() {
-        let units = make_parser();
+    #[rstest]
+    fn test_unit_only(units: HashSet<String>) {
         let parser = MeasurementParser::new(&units, false);
-
-        // Semicolon separator: "2 cups; 1 tbsp"
-        let result = parser.parse_measurement_list("2 cups; 1 tbsp");
-        assert!(result.is_ok());
-        let (_, measures) = result.unwrap();
-        assert_eq!(measures.len(), 2);
-
-        // Slash separator: "1 cup / 240 ml"
-        let result = parser.parse_measurement_list("1 cup / 240 ml");
-        assert!(result.is_ok());
-        let (_, measures) = result.unwrap();
-        assert_eq!(measures.len(), 2);
-
-        // Comma separator: "1 cup, 2 tbsp"
-        let result = parser.parse_measurement_list("1 cup, 2 tbsp");
-        assert!(result.is_ok());
-        let (_, measures) = result.unwrap();
-        assert_eq!(measures.len(), 2);
-    }
-
-    #[test]
-    fn test_unit_only() {
-        let units = make_parser();
-        let parser = MeasurementParser::new(&units, false);
-
-        // Just a unit with implicit 1: "cup "
         let result = parser.parse_unit_only(" cup ");
         assert!(result.is_ok());
         let (_, measure) = result.unwrap();
         assert_eq!(measure.values().0, 1.0);
     }
 
-    #[test]
-    fn test_rich_text_mode() {
-        let units = make_parser();
-        let parser = MeasurementParser::new(&units, true);
-
-        // In rich text mode, text numbers like "one" shouldn't be parsed
-        let result = parser.parse_number("2.5");
-        assert!(result.is_ok());
-
-        // Rich text mode should parse fractions
-        let result = parser.parse_number("1/2");
-        assert!(result.is_ok());
-        let (_, val) = result.unwrap();
-        assert!((val - 0.5).abs() < 0.001);
-
-        // Rich text mode should parse unicode fractions
-        let result = parser.parse_number("½");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_range_unit_mismatch() {
-        let units = make_parser();
+    #[rstest]
+    fn test_range_unit_mismatch(units: HashSet<String>) {
         let parser = MeasurementParser::new(&units, false);
-
-        // When lower and upper units differ, should return None
-        // "1g-2tbsp" has different units on each side (no spaces)
         let result = parser.parse_range_with_units("1g-2tbsp");
         assert!(result.is_ok());
         let (remaining, opt_measure) = result.unwrap();
-        // Should be None due to unit mismatch
         assert!(
             opt_measure.is_none(),
             "Expected None for unit mismatch, got {opt_measure:?}, remaining: '{remaining}'",
         );
     }
 
-    #[test]
-    fn test_em_dash_range() {
-        let units = make_parser();
+    #[rstest]
+    fn test_em_dash_range(units: HashSet<String>) {
         let parser = MeasurementParser::new(&units, false);
-
-        // Em-dash range: "2–3 cups" (using – not -)
         let result = parser.parse_range_end("–3");
         assert!(result.is_ok());
         let (_, upper) = result.unwrap();
         assert_eq!(upper, 3.0);
     }
 
-    #[test]
-    fn test_optional_period_or_of() {
-        // Test the optional_period_or_of function
-        let result = optional_period_or_of(".");
-        assert!(result.is_ok());
-
-        let result = optional_period_or_of(" of");
-        assert!(result.is_ok());
-
-        let result = optional_period_or_of("something");
-        assert!(result.is_ok()); // Returns None but still Ok
-    }
-
-    #[test]
-    fn test_no_unit_defaults_to_whole() {
-        let units = make_parser();
+    #[rstest]
+    fn test_no_unit_defaults_to_whole(units: HashSet<String>) {
         let parser = MeasurementParser::new(&units, false);
-
-        // Just a number without unit: "2"
         let result = parser.parse_single_measurement("2 ");
         assert!(result.is_ok());
         let (_, measure) = result.unwrap();
-        // Default unit should be "whole" - check via Display
         let measure_str = format!("{measure}");
         assert!(measure_str.contains("whole") || measure.values().0 == 2.0);
     }
