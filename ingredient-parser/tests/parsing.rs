@@ -147,9 +147,20 @@ fn test_ingredient_parsing() {
         case("2 cups water", "water", &[("cups", 2.0)], None),
     ];
 
+    let parser = IngredientParser::new();
     for (input, expected) in test_cases {
-        let result = IngredientParser::new().from_str(input);
+        // Test without tracing
+        let result = parser.from_str(input);
         assert_eq!(result, expected, "Failed to parse: {input}");
+
+        // Test with tracing enabled (exercises trace formatter callbacks)
+        let traced = parser.parse_with_trace(input);
+        assert!(traced.result.is_ok(), "Failed to parse with trace: {input}");
+        assert_eq!(
+            traced.result.unwrap(),
+            expected,
+            "Trace result mismatch: {input}"
+        );
     }
 }
 

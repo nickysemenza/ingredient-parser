@@ -249,6 +249,55 @@ fn test_parse_with_trace_range() {
     assert_eq!(ingredient.amounts.len(), 1);
 }
 
+#[test]
+fn test_parse_with_trace_custom_adjectives() {
+    // Test with custom adjectives to cover the adjective parsing trace path
+    let parser = IngredientParser::new().with_adjectives(&["freshly ground", "finely chopped"]);
+    let result = parser.parse_with_trace("1 cup freshly ground pepper");
+
+    assert!(result.result.is_ok());
+    let ingredient = result.result.unwrap();
+    assert_eq!(ingredient.name, "pepper");
+    assert!(ingredient.modifier.is_some());
+    assert!(ingredient
+        .modifier
+        .as_ref()
+        .unwrap()
+        .contains("freshly ground"));
+
+    // Trace should contain adjective parser info
+    let tree = result.trace.format_tree(false);
+    assert!(!tree.is_empty());
+}
+
+#[test]
+fn test_parse_with_trace_plus_expression() {
+    // Test plus expression to cover composite parsing trace path
+    let parser = IngredientParser::new();
+    let result = parser.parse_with_trace("1 cup plus 2 tablespoons flour");
+
+    assert!(result.result.is_ok());
+    let ingredient = result.result.unwrap();
+    assert_eq!(ingredient.name, "flour");
+    // Should have combined the measurements
+    assert!(!ingredient.amounts.is_empty());
+}
+
+#[test]
+fn test_parse_with_trace_upper_bound() {
+    // Test upper bound expressions like "up to 5 cups"
+    let parser = IngredientParser::new();
+    let result = parser.parse_with_trace("up to 5 cups flour");
+
+    assert!(result.result.is_ok());
+    let ingredient = result.result.unwrap();
+    assert_eq!(ingredient.name, "flour");
+    assert_eq!(ingredient.amounts.len(), 1);
+    // The amount should be a range from 0 to 5
+    let amount = &ingredient.amounts[0];
+    assert!(amount.values().1.is_some());
+}
+
 // ============================================================================
 // Jaeger JSON Export Tests
 // ============================================================================

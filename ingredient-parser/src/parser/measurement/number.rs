@@ -131,10 +131,8 @@ impl<'a> MeasurementParser<'a> {
             "parse_upper_bound_only",
             input,
             context("upper_bound_only", format).parse(input),
-            |(_, upper): &(f64, Option<f64>)| match upper {
-                Some(u) => format!("up to {u}"),
-                None => String::new(),
-            },
+            // Note: upper is always Some when this succeeds (see line 128 above)
+            |(_, upper): &(f64, Option<f64>)| format!("up to {}", upper.unwrap_or(0.0)),
             "no upper bound"
         )
     }

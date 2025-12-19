@@ -420,6 +420,33 @@ mod tests {
         // In rich text mode, text numbers like "one" shouldn't be parsed
         let result = parser.parse_number("2.5");
         assert!(result.is_ok());
+
+        // Rich text mode should parse fractions
+        let result = parser.parse_number("1/2");
+        assert!(result.is_ok());
+        let (_, val) = result.unwrap();
+        assert!((val - 0.5).abs() < 0.001);
+
+        // Rich text mode should parse unicode fractions
+        let result = parser.parse_number("½");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_range_unit_mismatch() {
+        let units = make_parser();
+        let parser = MeasurementParser::new(&units, false);
+
+        // When lower and upper units differ, should return None
+        // "1g-2tbsp" has different units on each side (no spaces)
+        let result = parser.parse_range_with_units("1g-2tbsp");
+        assert!(result.is_ok());
+        let (remaining, opt_measure) = result.unwrap();
+        // Should be None due to unit mismatch
+        assert!(
+            opt_measure.is_none(),
+            "Expected None for unit mismatch, got {opt_measure:?}, remaining: '{remaining}'",
+        );
     }
 
     #[test]
