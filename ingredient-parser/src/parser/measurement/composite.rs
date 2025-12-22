@@ -1,7 +1,8 @@
 //! Composite measurement parsing (plus expressions, parenthesized amounts)
 
 use nom::{
-    bytes::complete::tag, character::complete::char, error::context, sequence::delimited, Parser,
+    branch::alt, bytes::complete::tag, character::complete::char, error::context,
+    sequence::delimited, Parser,
 };
 
 use crate::parser::Res;
@@ -34,15 +35,42 @@ impl<'a> MeasurementParser<'a> {
         )
     }
 
-    /// Parse expressions with "plus" that combine two measurements
+    /// Parse measurements enclosed in square brackets: [56 G]
     ///
-    /// For example: "1 cup plus 2 tablespoons"
+    /// Common in professional cookbooks like American Sfoglino where
+    /// alternate measurements are shown in brackets: "4 TBSP [56 G] BUTTER"
+    pub fn parse_bracketed_amounts<'b>(&self, input: &'b str) -> Res<&'b str, Vec<Measure>> {
+        traced_parser!(
+            "parse_bracketed_amounts",
+            input,
+            context(
+                "bracketed_amounts",
+                delimited(
+                    char('['),                          // Opening bracket
+                    |a| self.parse_measurement_list(a), // Parse measurements inside brackets
+                    char(']'),                          // Closing bracket
+                ),
+            )
+            .parse(input),
+            |measures: &Vec<Measure>| measures
+                .iter()
+                .map(|m| m.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+            "no bracketed amounts"
+        )
+    }
+
+    /// Parse expressions with "plus" or "+" that combine two measurements
+    ///
+    /// For example: "1 cup plus 2 tablespoons" or "½ cup + 2 tablespoons"
     pub(super) fn parse_plus_expression<'b>(&self, input: &'b str) -> Res<&'b str, Measure> {
         // Define the structure of a plus expression
+        // Accept either the word "plus" or the "+" symbol
         let plus_parser = (
             |a| self.parse_single_measurement(a), // First measurement
             nom::character::complete::space1,     // Required whitespace
-            tag("plus"),                          // The "plus" keyword
+            alt((tag("plus"), tag("+"))),         // The "plus" keyword or "+" symbol
             nom::character::complete::space1,     // Required whitespace
             |a| self.parse_single_measurement(a), // Second measurement
         );

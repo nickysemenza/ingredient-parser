@@ -175,6 +175,18 @@ mod tests {
     }
 
     #[rstest]
+    fn test_rich_parser_bullet_proof_text(parser: RichParser) {
+        // "bullet-proof" should NOT be parsed as containing a measurement
+        let result = parser.parse("This bullet-proof recipe translates").unwrap();
+        // Should be a single text chunk with no measurements extracted
+        let has_measure = result.iter().any(|c| matches!(c, Chunk::Measure(_)));
+        assert!(
+            !has_measure,
+            "bullet-proof should not extract measurements: {result:?}"
+        );
+    }
+
+    #[rstest]
     fn test_rich_parser_multiple_measures(parser: RichParser) {
         let result = parser.parse("Mix 1 cup flour with 2 tbsp sugar").unwrap();
         let measures: Vec<_> = result
@@ -278,6 +290,35 @@ mod tests {
     }
 
     // ============================================================================
+    // Cooking Terms Should Not Be Measurements
+    // ============================================================================
+
+    #[rstest]
+    #[case::medium_speed("on medium speed until done")]
+    #[case::high_heat("over high heat for 5 minutes")]
+    #[case::low_heat("simmer on low heat")]
+    #[case::medium_high_heat("cook over medium heat")]
+    #[case::small_sheet_tray("on a small sheet tray")]
+    #[case::large_pot("in a large pot")]
+    #[case::medium_bowl("in a medium bowl")]
+    #[case::small_saucepan("in a small saucepan")]
+    fn test_cooking_terms_not_measurements(parser: RichParser, #[case] input: &str) {
+        let result = parser.parse(input).unwrap();
+        // "medium speed", "high heat", etc. should NOT produce a Measure chunk
+        // with units like "medium" or "high"
+        let has_size_measure = result.iter().any(|c| {
+            matches!(c, Chunk::Measure(measures) if measures.iter().any(|m| {
+                let unit_str = m.unit().to_string().to_lowercase();
+                matches!(unit_str.as_str(), "small" | "medium" | "large" | "high" | "low")
+            }))
+        });
+        assert!(
+            !has_size_measure,
+            "Should not parse cooking terms as measurements: {input:?} -> {result:?}"
+        );
+    }
+
+    // ============================================================================
     // Chunk Tests
     // ============================================================================
 
@@ -286,5 +327,21 @@ mod tests {
         let chunk = Chunk::Text("test".to_string());
         let cloned = chunk.clone();
         assert_eq!(chunk, cloned);
+    }
+
+    // Regression test: numbers followed by periods and capitalized words (like oven temps)
+    // should be parsed as measurements, not rejected as step numbers
+    #[test]
+    fn test_oven_temperature_parsing() {
+        let parser = RichParser::new(vec![]);
+        let result = parser.parse("Heat oven to 375. Combine flour").unwrap();
+        // "375" should be parsed as a Measure with Whole unit
+        let has_375 = result.iter().any(|c| match c {
+            Chunk::Measure(measures) => {
+                measures.iter().any(|m| (m.values().0 - 375.0).abs() < 0.01)
+            }
+            _ => false,
+        });
+        assert!(has_375, "Should parse 375 as a measurement: {result:?}");
     }
 }

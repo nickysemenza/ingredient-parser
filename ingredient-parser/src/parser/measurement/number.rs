@@ -11,6 +11,32 @@ use crate::traced_parser;
 
 use super::MeasurementParser;
 
+/// Parse a double but don't consume trailing periods that aren't part of decimals.
+///
+/// The standard `nom::double` parser treats "375." as a valid number and consumes
+/// the trailing period. This causes issues in rich text mode where "375. Combine"
+/// would have the period consumed, leaving " Combine" which (after space0)
+/// becomes "Combine" and triggers step number detection.
+///
+/// This parser ensures trailing periods are only consumed if followed by a digit.
+fn double_no_trailing_period(input: &str) -> Res<&str, f64> {
+    let (remaining, value) = double(input)?;
+
+    // Calculate what was consumed
+    let consumed_len = input.len() - remaining.len();
+    let consumed = &input[..consumed_len];
+
+    // Check if we consumed a trailing period (like "375.")
+    // A true decimal like "375.5" wouldn't end with a period after parsing
+    if consumed.ends_with('.') {
+        // Give back the period - return the input from one character earlier
+        let new_remaining = &input[consumed_len - 1..];
+        return Ok((new_remaining, value));
+    }
+
+    Ok((remaining, value))
+}
+
 impl<'a> MeasurementParser<'a> {
     /// Parse numeric values including fractions, decimals, and text numbers like "one"
     pub(super) fn parse_number<'b>(&self, input: &'b str) -> Res<&'b str, f64> {
@@ -20,11 +46,12 @@ impl<'a> MeasurementParser<'a> {
             input,
             if self.is_rich_text {
                 // Rich text mode: try fraction or decimal number
+                // Use double_no_trailing_period to avoid consuming sentence-ending periods
                 context(
                     "number",
                     alt((
-                        fraction_number, // Parse fractions like "½" or "1/2"
-                        double,          // Parse decimal numbers like "2.5"
+                        fraction_number,           // Parse fractions like "½" or "1/2"
+                        double_no_trailing_period, // Parse decimals without eating trailing periods
                     )),
                 )
                 .parse(input)
@@ -48,6 +75,8 @@ impl<'a> MeasurementParser<'a> {
     /// Parse a multiplier expression like "2 x" (meaning multiply the following value by 2)
     pub(super) fn parse_multiplier<'b>(&self, input: &'b str) -> Res<&'b str, f64> {
         // Define the format of a multiplier: number + space + "x" + space
+        // Note: We intentionally DON'T include × (multiplication sign) here because
+        // in UK cookbook format "1 × 400g tin" the × is a separator, not a multiplier.
         let multiplier_format = (
             |a| self.parse_number(a), // The multiplier value
             space1,                   // Required whitespace

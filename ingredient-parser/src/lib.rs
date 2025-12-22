@@ -12,6 +12,91 @@
 //! - Support for Unicode fractions (½, ¼, etc.) in rich text mode
 //! - Customizable units and adjectives
 //!
+//! ## Design Decisions
+//!
+//! ### Size descriptors are part of the ingredient name, not units
+//!
+//! Words like "large", "medium", "small" are treated as part of the ingredient name
+//! rather than as units of measurement:
+//!
+//! ```text
+//! "2 large eggs" → qty=2, unit=whole, name="large eggs"
+//! "3 small potatoes" → qty=3, unit=whole, name="small potatoes"
+//! ```
+//!
+//! **Rationale:**
+//! - Size describes *which* variant of an ingredient, not *how much* (like "red onion" vs "yellow onion")
+//! - "Large eggs" is a distinct product (different SKU, nutrition facts) from "medium eggs"
+//! - Avoids needing blocklists for phrases like "medium heat" or "large pot"
+//! - Normalization (e.g., "large eggs" → "eggs") is a separate concern for downstream consumers
+//!
+//! ### The "whole" unit means individual countable items
+//!
+//! When no unit is specified, items default to the "whole" unit meaning individual items:
+//!
+//! ```text
+//! "2 eggs" → qty=2, unit=whole, name="eggs"
+//! "1 whole chicken" → qty=1, unit=whole, name="chicken"
+//! ```
+//!
+//! Note: "1 whole chicken" consumes "whole" as the unit, while "whole chicken" (no number)
+//! keeps "whole" in the name. This is usually fine since "1 whole chicken" and "1 chicken"
+//! mean the same thing.
+//!
+//! ### Preparation words become modifiers, not part of the name
+//!
+//! Words like "chopped", "diced", "minced", "sifted" are extracted into the `modifier` field:
+//!
+//! ```text
+//! "2 cups flour, sifted" → name="flour", modifier="sifted"
+//! "1 cup chopped onion" → name="onion", modifier="chopped"
+//! ```
+//!
+//! This keeps the ingredient name clean for matching/normalization while preserving
+//! preparation instructions.
+//!
+//! ### Multiple units are preserved as separate amounts
+//!
+//! When a recipe provides multiple unit formats, each becomes a separate entry in `amounts`:
+//!
+//! ```text
+//! "1 cup / 240ml flour" → amounts=[1 cup, 240 ml], name="flour"
+//! "150g | 1 cup sugar" → amounts=[150 g, 1 cup], name="sugar"
+//! ```
+//!
+//! This preserves both metric and imperial measurements for downstream use.
+//!
+//! ### Ranges are a single Measure with upper bound
+//!
+//! Range expressions become one `Measure` with both `value` and `upper_value`:
+//!
+//! ```text
+//! "2-3 cups flour" → amounts=[Measure { value: 2.0, upper_value: Some(3.0), unit: cup }]
+//! "1 to 2 tablespoons" → same structure
+//! ```
+//!
+//! This preserves the range semantics rather than creating two separate amounts.
+//!
+//! ### Parsing never fails - graceful fallback
+//!
+//! If an input can't be parsed as a structured ingredient, the entire input becomes the
+//! ingredient name with empty amounts:
+//!
+//! ```text
+//! "mystery ingredient xyz" → name="mystery ingredient xyz", amounts=[]
+//! ```
+//!
+//! This ensures the parser always returns something useful rather than erroring.
+//!
+//! ### Rich text mode for parsing prose
+//!
+//! Two parsing modes exist:
+//! - **Ingredient list mode** (default): Expects "amount unit ingredient" format
+//! - **Rich text mode**: Parses measurements from recipe prose/instructions
+//!
+//! Rich text mode handles things like step numbers ("1. Bring a pot...") and embedded
+//! measurements ("cook for 30 minutes at 350°F"). See [`rich_text::RichParser`] for details.
+//!
 //! ## Quick Start
 //!
 //! The simplest way to parse an ingredient is using [`from_str`]:
@@ -40,7 +125,7 @@
 use std::collections::HashSet;
 
 pub use crate::error::{IngredientError, IngredientResult};
-pub use crate::ingredient::Ingredient;
+pub use crate::ingredient::{Ingredient, ParseQuality};
 #[allow(deprecated)]
 use nom::{
     bytes::complete::tag,
@@ -57,8 +142,46 @@ use unit::Measure;
 #[macro_use]
 extern crate serde;
 
+// =============================================================================
+// Default Adjective/Modifier Constants
+// =============================================================================
+
+/// Default preparation adjectives that get extracted to the modifier field.
+/// These describe how an ingredient is prepared before use.
+const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
+    "chopped",
+    "minced",
+    "diced",
+    "freshly ground",
+    "freshly grated",
+    "finely chopped",
+    "thinly sliced",
+    "sliced",
+    "plain",
+    "to taste",
+];
+
+/// Default purpose phrases that get extracted to the modifier field.
+/// These describe what the ingredient is used for (e.g., "for garnish").
+/// Use `with_purpose_phrases()` to add custom purpose phrases.
+const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
+    "for dusting",
+    "for garnish",
+    "for garnishing",
+    "for serving",
+    "for decoration",
+    "for topping",
+    "for dipping",
+    "for drizzling",
+    "for sprinkling",
+    "for rolling",
+    "for coating",
+    "for frying",
+    "for greasing",
+];
+
 pub mod error;
-mod fraction;
+pub mod fraction;
 pub mod ingredient;
 pub mod parser;
 pub mod rich_text;
@@ -153,36 +276,28 @@ impl IngredientParser {
     ///     .with_units(&["sprig", "sprigs"]);
     /// ```
     pub fn new() -> Self {
-        let units: Vec<String> = vec![
-            // Non-standard units that aren't really convertible for the most part.
-            // Note: "whole" is NOT included here because it's a built-in Unit::Whole.
-            // Including it here would cause unit_extra() to incorrectly parse "whole wheat flour"
-            // as having unit "whole" instead of treating "whole wheat" as part of the name.
-            "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "large", "pinch",
-            "small", "medium", "package", "recipe", "slice", "standard", "can", "leaf", "leaves",
-            "strand", "tin",
+        // Non-standard units that aren't really convertible for the most part.
+        // Note: "whole" is NOT included here because it's a built-in Unit::Whole.
+        // Including it here would cause unit_extra() to incorrectly parse "whole wheat flour"
+        // as having unit "whole" instead of treating "whole wheat" as part of the name.
+        let units: HashSet<String> = [
+            "recipe", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch",
+            "package", "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin",
         ]
         .iter()
         .map(|&s| s.into())
         .collect();
-        let adjectives: Vec<String> = [
-            "chopped",
-            "minced",
-            "diced",
-            "freshly ground",
-            "freshly grated",
-            "finely chopped",
-            "thinly sliced",
-            "sliced",
-            "plain",
-            "to taste",
-        ]
-        .iter()
-        .map(|&s| s.into())
-        .collect();
+
+        // Combine preparation adjectives and purpose phrases
+        let adjectives: HashSet<String> = DEFAULT_PREPARATION_ADJECTIVES
+            .iter()
+            .chain(DEFAULT_PURPOSE_PHRASES.iter())
+            .map(|&s| s.into())
+            .collect();
+
         IngredientParser {
-            units: HashSet::from_iter(units.iter().cloned()),
-            adjectives: HashSet::from_iter(adjectives.iter().cloned()),
+            units,
+            adjectives,
             is_rich_text: false,
         }
     }
@@ -230,6 +345,29 @@ impl IngredientParser {
         self
     }
 
+    /// Add custom purpose phrases to the parser (chainable)
+    ///
+    /// Purpose phrases like "for garnish" describe what the ingredient is used for.
+    /// They are extracted from ingredient names and moved to the modifier field.
+    ///
+    /// # Example
+    /// ```
+    /// use ingredient::IngredientParser;
+    ///
+    /// let parser = IngredientParser::new()
+    ///     .with_purpose_phrases(&["for blooming", "for tempering"]);
+    ///
+    /// let ingredient = parser.from_str("1 tbsp butter, for blooming");
+    /// assert_eq!(ingredient.name, "butter");
+    /// assert_eq!(ingredient.modifier, Some("for blooming".to_string()));
+    /// ```
+    pub fn with_purpose_phrases(mut self, phrases: &[&str]) -> Self {
+        for phrase in phrases {
+            self.adjectives.insert((*phrase).to_string());
+        }
+        self
+    }
+
     /// Get a reference to the units set (crate-internal use only)
     pub(crate) fn units(&self) -> &HashSet<String> {
         &self.units
@@ -244,17 +382,124 @@ impl IngredientParser {
     ///
     /// This method never panics and provides fallback behavior for unparseable input
     pub fn from_str(&self, input: &str) -> Ingredient {
+        // Normalize NBSP to regular space and collapse extra whitespace
+        let normalized = input.replace('\u{a0}', " ");
+        let input = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+        let input = input.as_str();
+
+        // Check for optional ingredient format: entire input wrapped in parentheses
+        // e.g., "(½ cup chopped walnuts)" indicates an optional ingredient
+        if let Some(ingredient) = self.try_parse_optional_ingredient(input) {
+            return ingredient;
+        }
+
+        // Check for trailing amount format first (common in professional cookbooks)
+        // Format: "Ingredient name — AMOUNT" or "Ingredient (info) — AMOUNT"
+        if let Some(ingredient) = self.try_parse_trailing_amount_format(input) {
+            return ingredient;
+        }
+
         match self.parse_ingredient(input) {
-            Ok((_, ingredient)) => ingredient,
+            Ok((_, mut ingredient)) => {
+                // Extract secondary amounts from modifier if present
+                if let Some(ref modifier) = ingredient.modifier {
+                    let (secondary_amounts, cleaned_modifier) =
+                        extract_secondary_amounts(modifier, &self.units);
+
+                    // Add any extracted secondary amounts
+                    ingredient.amounts.extend(secondary_amounts);
+
+                    // Update modifier (could be empty now)
+                    ingredient.modifier = if cleaned_modifier.is_empty() {
+                        None
+                    } else {
+                        Some(cleaned_modifier)
+                    };
+                }
+                ingredient
+            }
             Err(_) => {
                 // Fallback: create an ingredient with just the name if parsing fails completely
                 Ingredient {
                     name: input.trim().to_string(),
                     amounts: vec![],
                     modifier: None,
+                    optional: false,
                 }
             }
         }
+    }
+
+    /// Try to parse an optional ingredient format: "(amount ingredient, modifier)"
+    ///
+    /// When an entire ingredient line is wrapped in parentheses, it indicates
+    /// the ingredient is optional. This is common in cookbooks like Joy of Cooking.
+    fn try_parse_optional_ingredient(&self, input: &str) -> Option<Ingredient> {
+        let trimmed = input.trim();
+
+        // Must start with '(' and end with ')'
+        if !trimmed.starts_with('(') || !trimmed.ends_with(')') {
+            return None;
+        }
+
+        // Extract content between parentheses
+        let inner = &trimmed[1..trimmed.len() - 1];
+
+        // Try to parse the inner content as an ingredient
+        match self.parse_ingredient(inner) {
+            Ok((_, mut ingredient)) => {
+                // Only use this if we successfully parsed something meaningful
+                // (not just putting everything in modifier)
+                if !ingredient.name.is_empty() || !ingredient.amounts.is_empty() {
+                    ingredient.optional = true;
+                    Some(ingredient)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
+    }
+
+    /// Try to parse ingredient with trailing amount format: "Name — AMOUNT"
+    ///
+    /// This handles professional/European cookbook formats where the amount
+    /// comes at the end after an em-dash, en-dash, or double hyphen.
+    fn try_parse_trailing_amount_format(&self, input: &str) -> Option<Ingredient> {
+        // Look for em-dash (—), en-dash (–), or double hyphen (--)
+        let separators = [" — ", " – ", " -- "];
+
+        for sep in separators {
+            if let Some(pos) = input.rfind(sep) {
+                let name_part = &input[..pos];
+                let amount_part = &input[pos + sep.len()..];
+
+                // Try to parse the amount part
+                let mp = MeasurementParser::new(&self.units, self.is_rich_text);
+                if let Ok((remaining, amounts)) = mp.parse_measurement_list(amount_part) {
+                    // Only use this format if:
+                    // 1. We successfully parsed amounts
+                    // 2. The remaining part is empty or just whitespace
+                    // 3. At least one amount has a non-temperature unit
+                    if !amounts.is_empty()
+                        && remaining.trim().is_empty()
+                        && amounts.iter().any(|m| !is_temperature_unit(&m.unit()))
+                    {
+                        // Clean up the name part - it may contain parenthesized info
+                        let name = name_part.trim().to_string();
+
+                        return Some(Ingredient {
+                            name,
+                            amounts,
+                            modifier: None,
+                            optional: false,
+                        });
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Parse an ingredient string with debug tracing enabled
@@ -291,6 +536,11 @@ impl IngredientParser {
     /// ```
     pub fn parse_with_trace(&self, input: &str) -> trace::ParseWithTrace<Ingredient> {
         use trace::{disable_tracing, enable_tracing};
+
+        // Normalize NBSP to regular space and collapse extra whitespace
+        let normalized = input.replace('\u{a0}', " ");
+        let input = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+        let input = input.as_str();
 
         // Enable trace collection
         enable_tracing();
@@ -373,6 +623,10 @@ impl IngredientParser {
             opt(|a| mp.parse_measurement_list(a)),
             // Space between measurements and name
             space0,
+            // Optional measurements in square brackets (American Sfoglino format: "4 TBSP [56 G] BUTTER")
+            opt(|a| mp.parse_bracketed_amounts(a)),
+            // Space after bracketed amounts
+            space0,
             // Optional adjective with required space after it
             opt((|a| self.adjective(a), space1)),
             // Name component - can be multiple words
@@ -388,7 +642,17 @@ impl IngredientParser {
         let result = context("ingredient", ingredient_format).parse(input).map(
             |(
                 next_input,
-                (primary_amounts, _, adjective, name_chunks, paren_amounts, _, modifier_text),
+                (
+                    primary_amounts,
+                    _,
+                    bracketed_amounts,
+                    _,
+                    adjective,
+                    name_chunks,
+                    paren_amounts,
+                    _,
+                    modifier_text,
+                ),
             )| {
                 // Start with modifier from the trailing text
                 let mut modifiers: String = modifier_text.to_owned();
@@ -408,36 +672,57 @@ impl IngredientParser {
                 // Extract any adjectives from the name and move them to modifiers
                 // Sort by length descending to match longer adjectives first
                 // (e.g., "thinly sliced" before "sliced")
+                // Use case-insensitive matching
+                let name_lower = name.to_lowercase();
                 let mut found_adjectives: Vec<&String> = self
                     .adjectives
                     .iter()
-                    .filter(|adj| name.contains(adj.as_str()))
+                    .filter(|adj| name_lower.contains(adj.as_str()))
                     .collect();
                 found_adjectives.sort_by_key(|a| std::cmp::Reverse(a.len()));
 
                 for adj in found_adjectives {
-                    // Only extract if the adjective is still in the name
+                    // Only extract if the adjective is still in the name (case-insensitive)
                     // (it may have been removed as part of a longer adjective)
-                    if name.contains(adj.as_str()) {
+                    let name_lower = name.to_lowercase();
+                    if let Some(pos) = name_lower.find(adj.as_str()) {
                         if !modifiers.is_empty() {
                             modifiers.push_str(", ");
                         }
                         modifiers.push_str(adj);
-                        name = name.replace(adj.as_str(), " ");
+                        // Remove the matched text using the position found
+                        name = format!(
+                            "{} {}",
+                            &name[..pos].trim(),
+                            &name[pos + adj.len()..].trim()
+                        )
+                        .trim()
+                        .to_string();
                     }
                 }
                 // Clean up multiple spaces
                 let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
 
-                // Combine all measurements
-                let amounts = match (primary_amounts, paren_amounts) {
-                    (Some(primary), Some(parenthesized)) => {
-                        primary.into_iter().chain(parenthesized).collect()
+                // Extract alternatives like "or 1 teaspoon dried thyme" to modifier
+                let (name, alternative) = extract_alternative(&name);
+                if let Some(alt) = alternative {
+                    if !modifiers.is_empty() {
+                        modifiers.push_str(", ");
                     }
-                    (Some(primary), None) => primary,
-                    (None, Some(parenthesized)) => parenthesized,
-                    (None, None) => Vec::new(),
-                };
+                    modifiers.push_str(&alt);
+                }
+
+                // Combine all measurements (primary, bracketed, and parenthesized)
+                let mut amounts: Vec<Measure> = Vec::new();
+                if let Some(primary) = primary_amounts {
+                    amounts.extend(primary);
+                }
+                if let Some(bracketed) = bracketed_amounts {
+                    amounts.extend(bracketed);
+                }
+                if let Some(parenthesized) = paren_amounts {
+                    amounts.extend(parenthesized);
+                }
 
                 // Create the Ingredient
                 (
@@ -451,6 +736,7 @@ impl IngredientParser {
                         } else {
                             Some(modifiers)
                         },
+                        optional: false,
                     },
                 )
             },
@@ -486,4 +772,102 @@ impl IngredientParser {
             "not an adjective"
         )
     }
+}
+
+/// Extract alternative ingredients from the name (e.g., "garlic or 1 teaspoon garlic powder")
+///
+/// Returns (cleaned_name, optional_alternative) where:
+/// - cleaned_name: The ingredient name with alternative removed
+/// - optional_alternative: The alternative portion to be added to modifier
+fn extract_alternative(name: &str) -> (String, Option<String>) {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+
+    // Pattern to match " or [number/a/an] ..." at the end of an ingredient name
+    // This captures cases like:
+    // - "fresh thyme or 1 teaspoon dried thyme"
+    // - "butter or a splash of oil"
+    static ALTERNATIVE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"(?i)\s+or\s+(\d+|a\s+|an\s+)").expect("invalid alternative pattern regex")
+    });
+
+    if let Some(m) = ALTERNATIVE_PATTERN.find(name) {
+        let (ingredient_part, alternative_part) = name.split_at(m.start());
+        let alternative = alternative_part.trim();
+        if !alternative.is_empty() {
+            return (
+                ingredient_part.trim().to_string(),
+                Some(alternative.to_string()),
+            );
+        }
+    }
+
+    (name.to_string(), None)
+}
+
+/// Extract secondary amounts from modifier patterns like "(from about 15 sprigs)"
+///
+/// Returns (extracted_amounts, cleaned_modifier) where:
+/// - extracted_amounts: Vec of Measure parsed from the pattern
+/// - cleaned_modifier: The modifier with the pattern removed (or original if no pattern found)
+fn extract_secondary_amounts(
+    modifier: &str,
+    units: &std::collections::HashSet<String>,
+) -> (Vec<unit::Measure>, String) {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+
+    // Pattern to match "(from about X)", "(about X)", "(approximately X)"
+    static SECONDARY_AMOUNT_PATTERN: Lazy<Regex> = Lazy::new(|| {
+        // This regex is a compile-time constant, so we can safely use expect
+        #[allow(clippy::expect_used)]
+        Regex::new(r"\((?:from\s+)?(?:about|approximately|roughly|around)\s+([^)]+)\)")
+            .expect("invalid secondary amount regex")
+    });
+
+    let Some(caps) = SECONDARY_AMOUNT_PATTERN.captures(modifier) else {
+        return (vec![], modifier.to_string());
+    };
+
+    // Group 0 (full match) and group 1 are guaranteed to exist when captures succeeds
+    let Some(full_match) = caps.get(0) else {
+        return (vec![], modifier.to_string());
+    };
+    let Some(amount_match) = caps.get(1) else {
+        return (vec![], modifier.to_string());
+    };
+    let amount_text = amount_match.as_str().trim();
+
+    // Try to parse the amount text
+    let mp = MeasurementParser::new(units, false);
+    if let Ok((remaining, measures)) = mp.parse_measurement_list(amount_text) {
+        // Accept if we got at least one measure and remaining is either empty
+        // or just a single word (the countable item like "sprigs")
+        let remaining_trimmed = remaining.trim();
+        let is_simple_remaining = remaining_trimmed.is_empty()
+            || (remaining_trimmed.split_whitespace().count() == 1
+                && remaining_trimmed.chars().all(|c| c.is_alphabetic()));
+
+        if is_simple_remaining && !measures.is_empty() {
+            // Remove the matched pattern from modifier
+            let cleaned = format!(
+                "{}{}",
+                &modifier[..full_match.start()],
+                &modifier[full_match.end()..]
+            )
+            .trim()
+            .to_string();
+
+            return (measures, cleaned);
+        }
+    }
+
+    // Couldn't parse - return original
+    (vec![], modifier.to_string())
+}
+
+/// Check if a unit represents a temperature
+fn is_temperature_unit(unit: &unit::Unit) -> bool {
+    matches!(unit, unit::Unit::Fahrenheit | unit::Unit::Celcius)
 }

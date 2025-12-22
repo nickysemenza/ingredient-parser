@@ -4,7 +4,7 @@
       "name": "all-purpose flour",
       "amounts": [
         {
-          "unit": "Cup",
+          "unit": "cup",
           "value": 2.25,
           "upper_value": null
         }
@@ -15,7 +15,7 @@
       "name": "baking soda",
       "amounts": [
         {
-          "unit": "Teaspoon",
+          "unit": "tsp",
           "value": 1.0,
           "upper_value": null
         }
@@ -26,7 +26,7 @@
       "name": "salt",
       "amounts": [
         {
-          "unit": "Teaspoon",
+          "unit": "tsp",
           "value": 1.0,
           "upper_value": null
         }
@@ -37,7 +37,7 @@
       "name": "butter",
       "amounts": [
         {
-          "unit": "Cup",
+          "unit": "cup",
           "value": 1.0,
           "upper_value": null
         },
@@ -53,7 +53,7 @@
       "name": "granulated sugar",
       "amounts": [
         {
-          "unit": "Cup",
+          "unit": "cup",
           "value": 0.75,
           "upper_value": null
         }
@@ -64,7 +64,7 @@
       "name": "packed brown sugar",
       "amounts": [
         {
-          "unit": "Cup",
+          "unit": "cup",
           "value": 0.75,
           "upper_value": null
         }
@@ -75,7 +75,7 @@
       "name": "vanilla extract",
       "amounts": [
         {
-          "unit": "Teaspoon",
+          "unit": "tsp",
           "value": 1.0,
           "upper_value": null
         }
@@ -83,10 +83,10 @@
       "modifier": null
     },
     {
-      "name": "eggs",
+      "name": "large eggs",
       "amounts": [
         {
-          "unit": "large",
+          "unit": "whole",
           "value": 2.0,
           "upper_value": null
         }
@@ -97,12 +97,12 @@
       "name": "semisweet chocolate chips",
       "amounts": [
         {
-          "unit": "Cup",
+          "unit": "cup",
           "value": 2.0,
           "upper_value": null
         },
         {
-          "unit": "Ounce",
+          "unit": "oz",
           "value": 12.0,
           "upper_value": null
         }
@@ -113,7 +113,7 @@
       "name": "nuts",
       "amounts": [
         {
-          "unit": "Cup",
+          "unit": "cup",
           "value": 1.0,
           "upper_value": null
         }
@@ -131,7 +131,7 @@
         "kind": "Measure",
         "value": [
           {
-            "unit": "Whole",
+            "unit": "whole",
             "value": 375.0,
             "upper_value": null
           }
@@ -155,21 +155,7 @@
       },
       {
         "kind": "Text",
-        "value": " in"
-      },
-      {
-        "kind": "Measure",
-        "value": [
-          {
-            "unit": "small",
-            "value": 1.0,
-            "upper_value": null
-          }
-        ]
-      },
-      {
-        "kind": "Text",
-        "value": "bowl. Beat "
+        "value": " in small bowl. Beat "
       },
       {
         "kind": "Ing",
@@ -193,29 +179,7 @@
       },
       {
         "kind": "Text",
-        "value": " in"
-      },
-      {
-        "kind": "Measure",
-        "value": [
-          {
-            "unit": "large",
-            "value": 1.0,
-            "upper_value": null
-          }
-        ]
-      },
-      {
-        "kind": "Text",
-        "value": "mixing bowl until creamy. Add "
-      },
-      {
-        "kind": "Ing",
-        "value": "eggs"
-      },
-      {
-        "kind": "Text",
-        "value": ", one at a time, beating well after each addition. Gradually beat in flour mixture. Stir in chocolate chips and "
+        "value": " in large mixing bowl until creamy. Add eggs, one at a time, beating well after each addition. Gradually beat in flour mixture. Stir in chocolate chips and "
       },
       {
         "kind": "Ing",
@@ -235,7 +199,7 @@
         "kind": "Measure",
         "value": [
           {
-            "unit": "Minute",
+            "unit": "minute",
             "value": 9.0,
             "upper_value": 11.0
           }
@@ -249,7 +213,7 @@
         "kind": "Measure",
         "value": [
           {
-            "unit": "Minute",
+            "unit": "minute",
             "value": 2.0,
             "upper_value": null
           }

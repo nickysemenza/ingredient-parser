@@ -10,6 +10,11 @@ use nom::{
 
 use crate::Res;
 
+/// Check if a character is a unicode vulgar fraction (½, ¼, ¾, etc.)
+pub fn is_unicode_fraction(c: char) -> bool {
+    v_frac_to_num(c).is_some()
+}
+
 fn v_frac_to_num(input: char) -> Option<f64> {
     // two ranges for unicode fractions
     // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
@@ -30,6 +35,9 @@ fn v_frac_to_num(input: char) -> Option<f64> {
         '⅐' => (1, 7),
         '⅑' => (1, 9),
         '⅒' => (1, 10),
+        '⅜' => (3, 8),
+        '⅝' => (5, 8),
+        '⅞' => (7, 8),
         _ => return None,
     };
     Some(n as f64 / d as f64)
@@ -124,6 +132,9 @@ mod tests {
     #[case::quarter('¼', 0.25)]
     #[case::three_quarter('¾', 0.75)]
     #[case::eighth('⅛', 0.125)]
+    #[case::three_eighths('⅜', 0.375)]
+    #[case::five_eighths('⅝', 0.625)]
+    #[case::seven_eighths('⅞', 0.875)]
     #[case::third('⅓', 1.0 / 3.0)]
     #[case::two_thirds('⅔', 2.0 / 3.0)]
     #[case::fifth('⅕', 0.2)]
@@ -153,6 +164,10 @@ mod tests {
     #[case::half("½", 0.5)]
     #[case::quarter("¼", 0.25)]
     #[case::three_quarter("¾", 0.75)]
+    #[case::eighth("⅛", 0.125)]
+    #[case::three_eighths("⅜", 0.375)]
+    #[case::five_eighths("⅝", 0.625)]
+    #[case::seven_eighths("⅞", 0.875)]
     #[case::third("⅓", 1.0 / 3.0)]
     #[case::two_thirds("⅔", 2.0 / 3.0)]
     #[case::fifth("⅕", 0.2)]

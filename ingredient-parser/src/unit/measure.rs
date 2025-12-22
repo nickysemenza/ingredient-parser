@@ -5,7 +5,7 @@ use crate::{IngredientError, IngredientResult};
 use serde::{de::Deserializer, ser::Serializer, Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
-use tracing::info;
+use tracing::debug;
 
 // Re-export conversion types and functions for backward compatibility
 pub use super::conversion::{convert_measure_via_mappings, make_graph, print_graph, MeasureGraph};
@@ -201,7 +201,7 @@ impl Measure {
         self.clone()
     }
     pub fn add(&self, b: Measure) -> IngredientResult<Measure> {
-        info!("adding {:?} to {:?}", self, b);
+        debug!("adding {:?} to {:?}", self, b);
 
         // Get kinds with proper error handling
         let b_kind = b.kind()?;

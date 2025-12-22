@@ -1,5 +1,11 @@
 import { useCallback, useContext, useEffect, useState } from "react";
-import { RichItem, wasm, WasmContext, ScrapedRecipe, Measure } from "./wasmContext";
+import {
+  RichItem,
+  wasm,
+  WasmContext,
+  ScrapedRecipe,
+  Measure,
+} from "./wasmContext";
 import ReactJson from "react-json-view";
 export const Demo: React.FC = () => {
   const w = useContext(WasmContext);
@@ -12,7 +18,7 @@ export const Demo: React.FC = () => {
     "1/2 cup butter, softened",
     "3 large eggs, beaten",
     "1 tsp vanilla extract",
-    "2 tbsp olive oil, extra virgin"
+    "2 tbsp olive oil, extra virgin",
   ];
 
   const [richText, setRichText] = useState(
@@ -37,8 +43,10 @@ export const Demo: React.FC = () => {
             </h1>
             <p className="text-lg md:text-xl text-purple-100 max-w-2xl mx-auto leading-relaxed">
               Parse recipe ingredients into structured data.
-              <br className="hidden md:block"/>
-              <span className="font-semibold text-white">Built with Rust + WASM</span>
+              <br className="hidden md:block" />
+              <span className="font-semibold text-white">
+                Built with Rust + WASM
+              </span>
             </p>
           </div>
           <div className="flex justify-center">
@@ -59,7 +67,9 @@ export const Demo: React.FC = () => {
                   </div>
 
                   <div className="text-center">
-                    <p className="text-white text-xs mb-2 opacity-80">Try these examples:</p>
+                    <p className="text-white text-xs mb-2 opacity-80">
+                      Try these examples:
+                    </p>
                     <div className="flex flex-wrap gap-1 justify-center">
                       {exampleIngredients.map((ingredient, index) => (
                         <button
@@ -104,7 +114,8 @@ export const Demo: React.FC = () => {
                 📝 Rich Text Parser
               </h2>
               <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-4">
-                Parse ingredient names and amounts from freeform recipe instructions.
+                Parse ingredient names and amounts from freeform recipe
+                instructions.
               </p>
               <div className="flex justify-center">
                 <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
@@ -246,18 +257,20 @@ const Scraper: React.FC = () => {
                     <span>Recipe successfully scraped!</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600 font-medium">Scale:</span>
+                    <span className="text-sm text-gray-600 font-medium">
+                      Scale:
+                    </span>
                     {[0.5, 1, 2, 3].map((scale) => (
                       <button
                         key={scale}
                         onClick={() => setScaleFactor(scale)}
                         className={`px-3 py-1 text-sm font-medium rounded-lg transition-all duration-200 ${
                           scaleFactor === scale
-                            ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-md'
-                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                            ? "bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-md"
+                            : "bg-white text-gray-700 hover:bg-gray-100 border border-gray-300"
                         }`}
                       >
-                        {scale === 0.5 ? '½' : scale}x
+                        {scale === 0.5 ? "½" : scale}x
                       </button>
                     ))}
                     <input
@@ -265,7 +278,9 @@ const Scraper: React.FC = () => {
                       min="0.1"
                       step="0.1"
                       value={scaleFactor}
-                      onChange={(e) => setScaleFactor(parseFloat(e.target.value) || 1)}
+                      onChange={(e) =>
+                        setScaleFactor(parseFloat(e.target.value) || 1)
+                      }
                       className="w-16 px-2 py-1 text-sm text-center border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:outline-none"
                     />
                   </div>
@@ -340,7 +355,10 @@ const Scraper: React.FC = () => {
                       {index + 1}
                     </div>
                     <div className="flex-1 text-gray-700 leading-relaxed">
-                      {formatRichText(w, w.parse_rich_text(instruction, ingredientNames))}
+                      {formatRichText(
+                        w,
+                        w.parse_rich_text(instruction, ingredientNames)
+                      )}
                     </div>
                   </li>
                 ))}

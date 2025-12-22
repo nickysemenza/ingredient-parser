@@ -77,6 +77,8 @@ fn test_ingredient_parsing(parser: IngredientParser) {
     let test_cases: Vec<(&str, Ingredient)> = vec![
         // Basic parsing
         case("egg", "egg", &[], None),
+        // Ingredient with adjectives but no amount
+        case("Finely chopped toasted almonds", "toasted almonds", &[], Some("finely chopped")),
         case("1 egg", "egg", &[("whole", 1.0)], None),
         case("1 cinnamon stick, crushed", "cinnamon stick", &[("whole", 1.0)], Some("crushed")),
         case("1 tablespoon plus 1 teaspoon olive oil", "olive oil", &[("teaspoon", 4.0)], None),
@@ -85,12 +87,16 @@ fn test_ingredient_parsing(parser: IngredientParser) {
         case("1 clove garlic, grated", "garlic", &[("clove", 1.0)], Some("grated")),
         case("12 cloves of garlic, peeled", "garlic", &[("cloves", 12.0)], Some("peeled")),
         // Multi-amount parsing
+        // Sunflower seeds with parenthesized alternate amount
+        case("4 ounces raw or roasted and salted shelled sunflower seeds (about ¾ cup)", "raw or roasted and salted shelled sunflower seeds", &[("ounces", 4.0), ("cup", 0.75)], None),
         case("12 cups all purpose flour, lightly sifted", "all purpose flour", &[("cups", 12.0)], Some("lightly sifted")),
         case("1¼  cups / 155.5 grams flour", "flour", &[("cups", 1.25), ("grams", 155.5)], None),
         case("0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast", "instant or rapid rise yeast", &[("ounces", 0.25), ("packet", 1.0), ("teaspoons", 2.0)], None),
         case("6 ounces unsalted butter (1½ sticks; 168.75g)", "unsalted butter", &[("ounces", 6.0), ("sticks", 1.5), ("g", 168.75)], None),
         case("½ pound 2 sticks; 227 g unsalted butter, room temperature", "unsalted butter", &[("pound", 0.5), ("sticks", 2.0), ("g", 227.0)], Some("room temperature")),
         // Real-world examples
+        // Pork belly format: "4 (description) slices NAME"
+        case("4 (13-millimeter/½-inch) slices PORK BELLY CHASHU, warmed", "PORK BELLY CHASHU", &[("slices", 4.0)], Some("warmed")),
         case("14 tablespoons/200 grams unsalted butter, cut into pieces", "unsalted butter", &[("tablespoons", 14.0), ("grams", 200.0)], Some("cut into pieces")),
         case("6 cups vegetable stock, more if needed", "vegetable stock", &[("cups", 6.0)], Some("more if needed")),
         case("1/4 cup crème fraîche", "crème fraîche", &[("cup", 0.25)], None),
@@ -127,6 +133,8 @@ fn test_ingredient_parsing(parser: IngredientParser) {
         case("1 cup minced garlic", "garlic", &[("cup", 1.0)], Some("minced")),
         case("1 cup diced tomatoes", "tomatoes", &[("cup", 1.0)], Some("diced")),
         case("salt to taste", "salt", &[], Some("to taste")),
+        case("Confectioners' sugar for dusting", "Confectioners' sugar", &[], Some("for dusting")),
+        case("Fresh parsley for garnish", "Fresh parsley", &[], Some("for garnish")),
         // Hyphenated ingredient names
         case("2 cups all-purpose flour", "all-purpose flour", &[("cups", 2.0)], None),
         case("1 tsp five-spice powder", "five-spice powder", &[("tsp", 1.0)], None),
@@ -140,9 +148,10 @@ fn test_ingredient_parsing(parser: IngredientParser) {
         case("1 bunch parsley", "parsley", &[("bunch", 1.0)], None),
         case("1 head garlic", "garlic", &[("head", 1.0)], None),
         case("2 leaves basil", "basil", &[("leaves", 2.0)], None),
-        case("1 large egg", "egg", &[("large", 1.0)], None),
-        case("2 medium onions", "onions", &[("medium", 2.0)], None),
-        case("3 small potatoes", "potatoes", &[("small", 3.0)], None),
+        // Size descriptors are part of the ingredient name, not units
+        case("1 large egg", "large egg", &[("whole", 1.0)], None),
+        case("2 medium onions", "medium onions", &[("whole", 2.0)], None),
+        case("3 small potatoes", "small potatoes", &[("whole", 3.0)], None),
         // Parenthesized amounts after name
         case("butter (2 sticks), melted", "butter", &[("sticks", 2.0)], Some("melted")),
         case("sugar (1 cup / 200g)", "sugar", &[("cup", 1.0), ("g", 200.0)], None),
@@ -191,6 +200,14 @@ fn test_ingredient_parsing(parser: IngredientParser) {
         case("2 cups chicken breast, cooked and diced into small cubes", "chicken breast", &[("cups", 2.0)], Some("cooked and diced into small cubes")),
         // Ingredient without modifier
         case("2 cups water", "water", &[("cups", 2.0)], None),
+        // Em-dash between range and unit (Cook's Illustrated format)
+        ("3–4 — tablespoons lemon juice", Ingredient::new("lemon juice", vec![Measure::with_range("tbsp", 3.0, 4.0)], None)),
+        // UK format with multiplication sign (1 × 400g = 1 count + 400g)
+        case("1 × 400g tin pinto beans", "pinto beans", &[("whole", 1.0), ("g", 400.0), ("tin", 1.0)], None),
+        // American Sfoglino format with square brackets for alternate amounts
+        case("4 TBSP [56 G] UNSALTED BUTTER", "UNSALTED BUTTER", &[("tbsp", 4.0), ("g", 56.0)], None),
+        // NBSP normalization (Cook's Illustrated format with non-breaking spaces)
+        case("3/4 \u{a0}\u{a0} cups whole milk", "whole milk", &[("cups", 0.75)], None),
     ];
 
     for (input, expected) in test_cases {
@@ -207,6 +224,134 @@ fn test_ingredient_parsing(parser: IngredientParser) {
             "Trace result mismatch: {input}"
         );
     }
+}
+
+// ============================================================================
+// Optional Ingredients Tests
+// ============================================================================
+
+/// Test that parenthesized ingredients are parsed as optional
+#[rstest]
+#[case::basic_optional("(½ cup chopped walnuts)", "walnuts", &[("cup", 0.5)], Some("chopped"))]
+#[case::optional_with_multiple_amounts("(2 cups / 240g flour)", "flour", &[("cups", 2.0), ("g", 240.0)], None)]
+#[case::optional_simple("(1 egg)", "egg", &[("whole", 1.0)], None)]
+fn test_optional_ingredients(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected_name: &str,
+    #[case] expected_amounts: &[(&str, f64)],
+    #[case] expected_modifier: Option<&str>,
+) {
+    let result = parser.from_str(input);
+    assert_eq!(result.name, expected_name, "Name mismatch for: {input}");
+    assert!(result.optional, "Expected optional=true for: {input}");
+    assert_eq!(
+        result.amounts.len(),
+        expected_amounts.len(),
+        "Amount count mismatch for: {input}"
+    );
+    for (i, (unit, value)) in expected_amounts.iter().enumerate() {
+        assert_eq!(
+            result.amounts[i].values().0,
+            *value,
+            "Amount value mismatch for: {input}"
+        );
+        assert_eq!(
+            result.amounts[i].values().2,
+            *unit,
+            "Unit mismatch for: {input}"
+        );
+    }
+    assert_eq!(
+        result.modifier.as_deref(),
+        expected_modifier,
+        "Modifier mismatch for: {input}"
+    );
+}
+
+// ============================================================================
+// Secondary Amounts Tests
+// ============================================================================
+
+/// Test that secondary amounts are extracted from "(from about X)" patterns
+#[rstest]
+#[case::from_about_sprigs(
+    "60 cilantro leaves (from about 15 sprigs)",
+    "cilantro leaves",
+    2,
+    None
+)]
+#[case::about_bunches(
+    "1 cup chopped parsley (about 2 bunches)",
+    "parsley",
+    2,
+    Some("chopped")
+)]
+#[case::approximately_lemon(
+    "3 tbsp fresh lemon juice (from approximately 1 lemon)",
+    "fresh lemon juice",
+    2,
+    None
+)]
+fn test_secondary_amounts(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected_name: &str,
+    #[case] expected_amount_count: usize,
+    #[case] expected_modifier: Option<&str>,
+) {
+    let result = parser.from_str(input);
+    assert_eq!(result.name, expected_name, "Name mismatch for: {input}");
+    assert_eq!(
+        result.amounts.len(),
+        expected_amount_count,
+        "Amount count mismatch for: {input}"
+    );
+    assert_eq!(
+        result.modifier.as_deref(),
+        expected_modifier,
+        "Modifier mismatch for: {input}"
+    );
+}
+
+// ============================================================================
+// Alternative Ingredient Tests
+// ============================================================================
+
+/// Test that "or X" alternatives are extracted to modifier
+#[rstest]
+#[case::or_number(
+    "4 cloves garlic or 1 teaspoon garlic powder",
+    "garlic",
+    1,
+    Some("or 1 teaspoon garlic powder")
+)]
+#[case::or_a(
+    "1 cup butter or a splash of oil",
+    "butter",
+    1,
+    Some("or a splash of oil")
+)]
+#[case::no_alternative("4 cloves garlic", "garlic", 1, None)]
+fn test_alternative_ingredients(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected_name: &str,
+    #[case] expected_amount_count: usize,
+    #[case] expected_modifier: Option<&str>,
+) {
+    let result = parser.from_str(input);
+    assert_eq!(result.name, expected_name, "Name mismatch for: {input}");
+    assert_eq!(
+        result.amounts.len(),
+        expected_amount_count,
+        "Amount count mismatch for: {input}"
+    );
+    assert_eq!(
+        result.modifier.as_deref(),
+        expected_modifier,
+        "Modifier mismatch for: {input}"
+    );
 }
 
 // ============================================================================
@@ -445,6 +590,9 @@ fn test_rich_text_dimensions() {
 #[case::whitespace("   ", vec![text("   ")])]
 #[case::number_without_unit("step 1", vec![text("step "), measure("whole", 1.0)])]
 #[case::punctuation("add 1 cup, then stir", vec![text("add "), measure("cup", 1.0), text(", then stir")])]
+// Numbered instructions should NOT parse step numbers as measurements
+#[case::numbered_step("1 Bring a large pot of water to a boil.", vec![text("1 Bring a large pot of water to a boil.")])]
+#[case::numbered_step_2("2 Set out 4 ramen bowls.", vec![text("2 Set out "), measure("whole", 4.0), text("ramen bowls.")])]
 fn test_rich_text_edge_cases(#[case] input: &str, #[case] expected: Vec<Chunk>) {
     assert_eq!(parse_rich(input, &[]), expected);
 }
@@ -659,4 +807,72 @@ fn test_parse_with_trace(parser: IngredientParser) {
     assert!(traced.result.is_ok());
     assert_eq!(traced.result.unwrap().name, "flour");
     assert!(!traced.trace.format_tree(false).is_empty());
+}
+
+// ============================================================================
+// Trailing Amount Format Tests (European/Professional Cookbook Style)
+// ============================================================================
+
+/// Test the trailing amount format: "Ingredient — AMOUNT"
+/// Common in professional cookbooks where amounts come at the end after an em-dash
+#[rstest]
+#[case::em_dash_grams("All-purpose flour — 630 g", "All-purpose flour", &[("g", 630.0)], None)]
+#[case::em_dash_with_temp("Warm water (100°F/38°C) — 472 g", "Warm water (100°F/38°C)", &[("g", 472.0)], None)]
+#[case::en_dash("Salt – 14 g", "Salt", &[("g", 14.0)], None)]
+#[case::double_hyphen("Sugar -- 200 g", "Sugar", &[("g", 200.0)], None)]
+#[case::trailing_multiple_units("Butter — 1 cup / 227 g", "Butter", &[("cup", 1.0), ("g", 227.0)], None)]
+#[case::bouchon_pipe_format("Heavy cream — 150 grams | ½ cup", "Heavy cream", &[("g", 150.0), ("cup", 0.5)], None)]
+#[case::bouchon_pipe_with_plus("Heavy cream — 150 grams | ½ cup + 2 tablespoons", "Heavy cream", &[("g", 150.0), ("tsp", 30.0)], None)]
+fn test_trailing_amount_format(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected_name: &str,
+    #[case] expected_amounts: &[(&str, f64)],
+    #[case] expected_modifier: Option<&str>,
+) {
+    let result = parser.from_str(input);
+    assert_eq!(result.name, expected_name, "Name mismatch for: {input}");
+    assert_eq!(
+        result.amounts.len(),
+        expected_amounts.len(),
+        "Amount count mismatch for: {input}"
+    );
+    for (i, (unit, value)) in expected_amounts.iter().enumerate() {
+        assert_eq!(
+            result.amounts[i].values().0,
+            *value,
+            "Amount value mismatch for: {input}"
+        );
+        assert_eq!(
+            result.amounts[i].values().2,
+            *unit,
+            "Unit mismatch for: {input}"
+        );
+    }
+    assert_eq!(
+        result.modifier.as_deref(),
+        expected_modifier,
+        "Modifier mismatch for: {input}"
+    );
+}
+
+/// Test that temperature-only trailing amounts are NOT used
+/// (because they describe a property, not a quantity)
+#[rstest]
+#[case::temp_only_f("Water — 100°F")]
+#[case::temp_only_c("Milk — 37°C")]
+fn test_trailing_temp_only_not_used(parser: IngredientParser, #[case] input: &str) {
+    let result = parser.from_str(input);
+    // Temperature-only trailing amounts should NOT be parsed as the primary amount
+    // The result should either have no amounts or fall back to normal parsing
+    let has_non_temp_amount = result.amounts.iter().any(|m| {
+        !matches!(
+            m.unit(),
+            ingredient::unit::Unit::Fahrenheit | ingredient::unit::Unit::Celcius
+        )
+    });
+    assert!(
+        !has_non_temp_amount || result.amounts.is_empty(),
+        "Temperature-only trailing should not be used as amount: {input} -> {result:?}"
+    );
 }

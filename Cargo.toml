@@ -23,5 +23,8 @@ opt-level = "s"  # Optimize for size (good for wasm)
 [profile.dev.package."*"]
 opt-level = 2
 
+[profile.test]
+opt-level = 1  # Light optimization for faster test execution
+
 [patch.crates-io]
 # Add any crates-io patches here if needed
