@@ -1,6 +1,20 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Wrapper for recipeYield which can be a string, number, or array
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RecipeYieldWrapper {
+    /// Single string like "4 servings" or "12 cookies"
+    String(String),
+    /// Single number like 4
+    Number(f64),
+    /// Array of strings like ["4 servings", "12 pancakes"]
+    StringArray(Vec<String>),
+    /// Array of numbers
+    NumberArray(Vec<f64>),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "recipe")]
 pub struct RootRecipe {
@@ -13,7 +27,7 @@ pub struct RootRecipe {
     // pub author: Author,
     pub image: Option<ImageOrList>,
     // pub total_time: String,
-    // pub recipe_yield: String,
+    pub recipe_yield: Option<RecipeYieldWrapper>,
     // pub recipe_cuisine: String,
     // pub recipe_category: String,
     // pub keywords: String,

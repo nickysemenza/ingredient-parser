@@ -29,6 +29,13 @@ pub enum ScrapeError {
     #[error("could not parse `{0}`")]
     Parse(String),
 }
+/// Structured yield from a recipe (e.g., "12 pancakes")
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct RecipeYield {
+    pub value: f64,
+    pub unit: String,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ScrapedRecipe {
     pub ingredients: Vec<String>,
@@ -36,6 +43,10 @@ pub struct ScrapedRecipe {
     pub name: String,
     pub url: String,
     pub image: Option<String>,
+    /// Parsed yield (e.g., value=12, unit="pancakes")
+    pub recipe_yield: Option<RecipeYield>,
+    /// Servings as integer (extracted from yield if unit is "serving(s)")
+    pub servings: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]

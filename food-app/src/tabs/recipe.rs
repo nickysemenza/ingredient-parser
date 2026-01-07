@@ -80,6 +80,23 @@ pub fn show_parsed(ui: &mut egui::Ui, parsed: &ParsedRecipe) {
 }
 
 pub fn show_raw(ui: &mut egui::Ui, recipe: &ScrapedRecipe) {
+    // Show yield/servings metadata in raw view too
+    ui.horizontal(|ui| {
+        if let Some(recipe_yield) = &recipe.recipe_yield {
+            ui.label(
+                RichText::new(format!(
+                    "Yield: {} {}",
+                    recipe_yield.value, recipe_yield.unit
+                ))
+                .color(Color32::GOLD),
+            );
+            ui.separator();
+        }
+        if let Some(servings) = &recipe.servings {
+            ui.label(RichText::new(format!("Servings: {servings}")).color(Color32::GOLD));
+        }
+    });
+    ui.separator();
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             recipe.ingredients.iter().for_each(|x| {

@@ -155,7 +155,19 @@ impl eframe::App for MyApp {
                         Some(Ok(w)) => {
                             ui.horizontal(|ui| {
                                 ui.set_min_height(200.0);
-                                ui.heading(w.recipe.name.clone());
+                                ui.vertical(|ui| {
+                                    ui.heading(w.recipe.name.clone());
+                                    // Display yield and servings if present
+                                    if let Some(recipe_yield) = &w.recipe.recipe_yield {
+                                        ui.label(format!(
+                                            "📊 Yield: {} {}",
+                                            recipe_yield.value, recipe_yield.unit
+                                        ));
+                                    }
+                                    if let Some(servings) = &w.recipe.servings {
+                                        ui.label(format!("🍽️ Servings: {servings}"));
+                                    }
+                                });
                                 if let Some(image) = &w.recipe.image {
                                     ui.add(Image::from_uri(image));
                                 }

@@ -47,6 +47,8 @@ pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeErr
         name: title,
         url: url.to_string(),
         image,
+        recipe_yield: None, // HTML fallback doesn't have yield data
+        servings: None,
     })
     // Err(ScrapeError::Parse("foo".to_string()))
 }

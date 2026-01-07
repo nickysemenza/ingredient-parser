@@ -27,6 +27,8 @@ pub(crate) fn parse_chefsteps(json: &str) -> Result<ScrapedRecipe, ScrapeError> 
         name: v.title,
         url: v.url,
         image: Some(v.image),
+        recipe_yield: None, // ChefSteps API doesn't provide yield in the parsed format
+        servings: None,
     })
 }
 
