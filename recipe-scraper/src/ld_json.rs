@@ -123,15 +123,12 @@ fn normalize_root_recipe(
         instructions,
         name: ld_schema.name,
         url: url.to_string(),
-        image: match ld_schema.image {
-            Some(image) => match image {
-                ld_schema::ImageOrList::Url(i) => Some(i),
-                ld_schema::ImageOrList::List(l) => Some(l[0].url.clone()),
-                ld_schema::ImageOrList::UrlList(i) => Some(i[0].clone()),
-                ld_schema::ImageOrList::Image(i) => Some(i.url),
-            },
-            None => None,
-        },
+        image: ld_schema.image.map(|image| match image {
+            ld_schema::ImageOrList::Url(i) => i,
+            ld_schema::ImageOrList::List(l) => l[0].url.clone(),
+            ld_schema::ImageOrList::UrlList(i) => i[0].clone(),
+            ld_schema::ImageOrList::Image(i) => i.url,
+        }),
         recipe_yield,
         servings,
     })

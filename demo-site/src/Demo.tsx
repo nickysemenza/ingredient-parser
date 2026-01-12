@@ -395,36 +395,36 @@ const Debug: React.FC<{ data: any; compact?: boolean }> = ({ data, compact }) =>
   );
 
 export const formatRichText = (w: wasm, text: RichItem[]) => {
-  return text.map((t, x) => {
-    if (t.kind === "Text") {
-      return t.value;
-    } else if (t.kind === "Ing") {
-      return (
-        <span
-          className="inline px-2 py-1 bg-orange-100 text-orange-800 rounded-md font-semibold mx-1 border border-orange-200"
-          key={x + "a"}
-        >
-          {t.value}
-        </span>
-      );
-    } else if (t.kind === "Measure") {
-      let val = t.value.pop();
-      if (!val) {
+  return text.map((t, index) => {
+    switch (t.kind) {
+      case "Text":
+        return t.value;
+      case "Ing":
+        return (
+          <span
+            className="inline px-2 py-1 bg-orange-100 text-orange-800 rounded-md font-semibold mx-1 border border-orange-200"
+            key={`ing-${index}`}
+          >
+            {t.value}
+          </span>
+        );
+      case "Measure": {
+        const val = t.value[t.value.length - 1];
+        if (!val) {
+          return null;
+        }
+        const displayAmount = val.unit === "whole" ? { ...val, unit: "" } : val;
+        return (
+          <span
+            className="inline px-2 py-1 bg-green-100 text-green-800 rounded-md font-semibold mx-1 border border-green-200"
+            key={`measure-${index}`}
+          >
+            {w.format_amount(displayAmount)}
+          </span>
+        );
+      }
+      default:
         return null;
-      }
-      if (val.unit === "whole") {
-        val.unit = "";
-      }
-      return (
-        <span
-          className="inline px-2 py-1 bg-green-100 text-green-800 rounded-md font-semibold mx-1 border border-green-200"
-          key={x}
-        >
-          {w.format_amount(val)}
-        </span>
-      );
-    } else {
-      return null;
     }
   });
 };

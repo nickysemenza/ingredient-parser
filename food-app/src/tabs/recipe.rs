@@ -7,15 +7,14 @@ use eframe::epaint::text::LayoutJob;
 
 fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
     let amounts: Vec<String> = i.amounts.iter().map(|id| id.to_string()).collect();
-    let modifier = match i.modifier.clone() {
-        Some(m) => {
-            format!(", {m}")
-        }
-        None => "".to_string(),
-    };
-    let amount_list = match amounts.len() {
-        0 => "n/a ".to_string(),
-        _ => format!("{} ", amounts.join(" / ")),
+    let modifier = i
+        .modifier
+        .as_ref()
+        .map_or_else(String::new, |m| format!(", {m}"));
+    let amount_list = if amounts.is_empty() {
+        "n/a ".to_string()
+    } else {
+        format!("{} ", amounts.join(" / "))
     };
     let name = i.name.clone();
 

@@ -105,14 +105,11 @@ pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
             _ => Err(e),
         },
     };
-    match res {
-        Ok(mut r) => {
-            r.ingredients = r.ingredients.into_iter().map(clean_string).collect();
-            r.instructions = r.instructions.into_iter().map(clean_string).collect();
-            Ok(r)
-        }
-        Err(e) => Err(e),
-    }
+    res.map(|mut r| {
+        r.ingredients = r.ingredients.into_iter().map(clean_string).collect();
+        r.instructions = r.instructions.into_iter().map(clean_string).collect();
+        r
+    })
 }
 fn clean_string(i: String) -> String {
     i.replace("&nbsp;", " ").replace('\n', " ")
