@@ -31,6 +31,33 @@ enum Commands {
         #[arg(long)]
         jaeger_output: Option<String>,
     },
+    /// Parse a measurement/amount string (without ingredient name)
+    ParseAmount {
+        /// The amount to parse (e.g., "2 cups", "1/2 tsp")
+        text: String,
+        /// Output as JSON
+        #[arg(short, long)]
+        json: bool,
+    },
+    /// Parse rich text (recipe instructions) with embedded measurements
+    ParseRichText {
+        /// The text to parse (e.g., "Add 1 cup flour and mix")
+        text: String,
+        /// Ingredient names to recognize (comma-separated)
+        #[arg(short, long)]
+        ingredients: String,
+        /// Output as JSON
+        #[arg(short, long)]
+        json: bool,
+    },
+    /// Validate if a unit string is recognized
+    ValidateUnit {
+        /// The unit to validate (e.g., "cup", "tablespoon")
+        unit: String,
+        /// Additional custom units (comma-separated)
+        #[arg(short = 'e', long)]
+        extra_units: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -95,6 +122,72 @@ async fn main() {
                 println!("{}", serde_json::to_string_pretty(&res).unwrap());
                 println!("{res}")
             }
+        }
+        Commands::ParseAmount { text, json } => {
+            let parser = ingredient::IngredientParser::new();
+            match parser.parse_amount(text) {
+                Ok(amounts) => {
+                    if *json {
+                        println!("{}", serde_json::to_string_pretty(&amounts).unwrap());
+                    } else {
+                        for amount in amounts {
+                            println!("{amount}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Parse error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::ParseRichText {
+            text,
+            ingredients,
+            json,
+        } => {
+            let ingredient_names: Vec<String> = ingredients
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
+
+            let parser = ingredient::rich_text::RichParser::new(ingredient_names);
+            match parser.parse(text) {
+                Ok(rich) => {
+                    if *json {
+                        println!("{}", serde_json::to_string_pretty(&rich).unwrap());
+                    } else {
+                        println!("{rich:?}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Parse error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::ValidateUnit { unit, extra_units } => {
+            // Validate by attempting to parse a simple measurement with this unit
+            let mut parser = ingredient::IngredientParser::new();
+
+            // Add extra units if provided
+            if let Some(units_str) = extra_units {
+                let extra: Vec<&str> = units_str.split(',').map(|s| s.trim()).collect();
+                parser = parser.with_units(&extra);
+            }
+
+            // Try to parse a simple amount with the unit and check if the parsed unit matches
+            let test_input = format!("1 {unit}");
+            let is_valid = parser
+                .parse_amount(&test_input)
+                .map(|amounts| {
+                    !amounts.is_empty()
+                        && amounts[0].unit().to_str().to_lowercase() == unit.to_lowercase()
+                })
+                .unwrap_or(false);
+
+            println!("{}", if is_valid { "valid" } else { "invalid" });
+            std::process::exit(if is_valid { 0 } else { 1 });
         }
     }
 }

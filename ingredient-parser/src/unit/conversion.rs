@@ -123,12 +123,12 @@ pub fn convert_measure_via_mappings(
     let n_b = g.node_indices().find(|i| g[*i] == unit_b)?;
 
     debug!("calculating {:?} to {:?}", n_a, n_b);
-    if !petgraph::algo::has_path_connecting(&g, n_a, n_b, None) {
+    let Some((_, steps)) =
+        petgraph::algo::astar(&g, n_a, |finish| finish == n_b, |e| *e.weight(), |_| 0.0)
+    else {
         debug!("convert failed for {:?}", input);
         return None;
     };
-
-    let steps = petgraph::algo::astar(&g, n_a, |finish| finish == n_b, |e| *e.weight(), |_| 0.0)?.1;
     let mut factor: f64 = 1.0;
     for x in 0..steps.len() - 1 {
         let edge = g.find_edge(*steps.get(x)?, *steps.get(x + 1)?)?;

@@ -122,6 +122,7 @@
 //! assert_eq!(ingredient.amounts.len(), 2); // Multiple units parsed
 //! ```
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 pub use crate::error::{IngredientError, IngredientResult};
@@ -383,8 +384,23 @@ impl IngredientParser {
     /// This method never panics and provides fallback behavior for unparseable input
     pub fn from_str(&self, input: &str) -> Ingredient {
         // Normalize NBSP to regular space and collapse extra whitespace
-        let normalized = input.replace('\u{a0}', " ");
-        let input = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+        // Use Cow to avoid allocating when input is already normalized
+        let normalized = if input.contains('\u{a0}') {
+            Cow::Owned(input.replace('\u{a0}', " "))
+        } else {
+            Cow::Borrowed(input)
+        };
+
+        let has_multiple_spaces = normalized
+            .as_bytes()
+            .windows(2)
+            .any(|w| w[0] == b' ' && w[1] == b' ');
+
+        let input = if has_multiple_spaces {
+            normalized.split_whitespace().collect::<Vec<_>>().join(" ")
+        } else {
+            normalized.into_owned()
+        };
         let input = input.as_str();
 
         // Check for optional ingredient format: entire input wrapped in parentheses
@@ -691,13 +707,20 @@ impl IngredientParser {
                         }
                         modifiers.push_str(adj);
                         // Remove the matched text using the position found
-                        name = format!(
-                            "{} {}",
-                            &name[..pos].trim(),
-                            &name[pos + adj.len()..].trim()
-                        )
-                        .trim()
-                        .to_string();
+                        // Use pre-allocated String to avoid format! allocation
+                        let mut new_name = String::with_capacity(name.len());
+                        let before = name[..pos].trim();
+                        let after = name[pos + adj.len()..].trim();
+                        if !before.is_empty() {
+                            new_name.push_str(before);
+                            if !after.is_empty() {
+                                new_name.push(' ');
+                            }
+                        }
+                        if !after.is_empty() {
+                            new_name.push_str(after);
+                        }
+                        name = new_name.trim().to_string();
                     }
                 }
                 // Clean up multiple spaces
