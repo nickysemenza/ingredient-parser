@@ -4,8 +4,11 @@
 //! using user-provided mappings (e.g., "1 cup flour = 120g"). The conversion algorithm
 //! finds the shortest path in the conversion graph to transform between units.
 
+use std::collections::HashMap;
+
 use super::{kind::MeasureKind, measure::Measure, Unit};
 use crate::util::round_to_int;
+use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use tracing::debug;
 
@@ -18,27 +21,30 @@ pub type MeasureGraph = Graph<Unit, f64>;
 /// Both directions (A→B and B→A) are added for bidirectional conversion.
 ///
 /// # Arguments
-/// * `mappings` - List of (from, to) measurement pairs
+/// * `mappings` - Slice of (from, to) measurement pairs
 ///
 /// # Returns
 /// A directed graph where nodes are units and edges are conversion factors
-pub fn make_graph(mappings: Vec<(Measure, Measure)>) -> MeasureGraph {
+pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
     let mut g = Graph::<Unit, f64>::new();
+    let mut unit_index: HashMap<Unit, NodeIndex> = HashMap::new();
 
-    for (mut m_a, mut m_b) in mappings.into_iter() {
-        m_a = m_a.normalize();
-        m_b = m_b.normalize();
-        let n_a = g
-            .node_indices()
-            .find(|i| g[*i] == m_a.unit())
-            .unwrap_or_else(|| g.add_node(m_a.unit().normalize()));
-        let n_b = g
-            .node_indices()
-            .find(|i| g[*i] == m_b.unit())
-            .unwrap_or_else(|| g.add_node(m_b.unit().normalize()));
+    for (m_a, m_b) in mappings.iter() {
+        let m_a = m_a.normalize();
+        let m_b = m_b.normalize();
 
-        let (a_val, _, _) = m_a.values();
-        let (b_val, _, _) = m_b.values();
+        let unit_a = m_a.unit().clone().normalize();
+        let unit_b = m_b.unit().clone().normalize();
+
+        let n_a = *unit_index
+            .entry(unit_a.clone())
+            .or_insert_with(|| g.add_node(unit_a));
+        let n_b = *unit_index
+            .entry(unit_b.clone())
+            .or_insert_with(|| g.add_node(unit_b));
+
+        let a_val = m_a.value();
+        let b_val = m_b.value();
         let a_to_b_weight = crate::util::truncate_3_decimals(b_val / a_val);
 
         let exists = g
@@ -95,47 +101,50 @@ pub fn find_connected_components(graph: &MeasureGraph) -> Vec<Vec<String>> {
     result
 }
 
-/// Convert a measure to a target kind using user-provided mappings.
+/// Convert a measure to a target kind using a pre-built conversion graph.
 ///
 /// This uses the A* algorithm to find the shortest path in the conversion graph
 /// from the source unit to a unit of the target kind. The conversion factor
 /// is computed by multiplying all edge weights along the path.
 ///
+/// Use this when converting multiple measures to avoid rebuilding the graph
+/// each time. Build the graph once with [`make_graph`] and reuse it.
+///
 /// # Arguments
 /// * `measure` - The measure to convert
 /// * `target` - The target measurement kind (e.g., Weight, Volume)
-/// * `mappings` - List of known conversions between measurements
+/// * `graph` - A pre-built conversion graph from [`make_graph`]
 ///
 /// # Returns
 /// `Some(converted_measure)` if a conversion path exists, `None` otherwise
 #[tracing::instrument]
-pub fn convert_measure_via_mappings(
+pub fn convert_measure_with_graph(
     measure: &Measure,
     target: MeasureKind,
-    mappings: Vec<(Measure, Measure)>,
+    graph: &MeasureGraph,
 ) -> Option<Measure> {
-    let g = make_graph(mappings);
     let input = measure.normalize();
-    let unit_a = input.unit();
+    let unit_a = input.unit().clone();
     let unit_b = target.unit();
 
-    let n_a = g.node_indices().find(|i| g[*i] == unit_a)?;
-    let n_b = g.node_indices().find(|i| g[*i] == unit_b)?;
+    let n_a = graph.node_indices().find(|i| graph[*i] == unit_a)?;
+    let n_b = graph.node_indices().find(|i| graph[*i] == unit_b)?;
 
     debug!("calculating {:?} to {:?}", n_a, n_b);
     let Some((_, steps)) =
-        petgraph::algo::astar(&g, n_a, |finish| finish == n_b, |e| *e.weight(), |_| 0.0)
+        petgraph::algo::astar(graph, n_a, |finish| finish == n_b, |e| *e.weight(), |_| 0.0)
     else {
         debug!("convert failed for {:?}", input);
         return None;
     };
     let mut factor: f64 = 1.0;
     for x in 0..steps.len() - 1 {
-        let edge = g.find_edge(*steps.get(x)?, *steps.get(x + 1)?)?;
-        factor *= g.edge_weight(edge)?;
+        let edge = graph.find_edge(*steps.get(x)?, *steps.get(x + 1)?)?;
+        factor *= graph.edge_weight(edge)?;
     }
 
-    let (input_val, input_upper, _) = input.values();
+    let input_val = input.value();
+    let input_upper = input.upper_value();
     let result = Measure::new_with_upper(
         unit_b,
         round_to_int(input_val * factor),
@@ -145,6 +154,28 @@ pub fn convert_measure_via_mappings(
     Some(result.denormalize())
 }
 
+/// Convert a measure to a target kind using user-provided mappings.
+///
+/// Convenience wrapper that builds the graph and converts in one call.
+/// If converting multiple measures, prefer [`convert_measure_with_graph`]
+/// with a pre-built graph from [`make_graph`].
+///
+/// # Arguments
+/// * `measure` - The measure to convert
+/// * `target` - The target measurement kind (e.g., Weight, Volume)
+/// * `mappings` - Slice of known conversions between measurements
+///
+/// # Returns
+/// `Some(converted_measure)` if a conversion path exists, `None` otherwise
+pub fn convert_measure_via_mappings(
+    measure: &Measure,
+    target: MeasureKind,
+    mappings: &[(Measure, Measure)],
+) -> Option<Measure> {
+    let g = make_graph(mappings);
+    convert_measure_with_graph(measure, target, &g)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -152,44 +183,35 @@ mod tests {
 
     #[test]
     fn test_make_graph_basic() {
-        // Test basic graph creation
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
 
-        let graph = make_graph(mappings);
+        let graph = make_graph(&mappings);
 
-        // Should have 2 nodes (cup normalized to tsp, g)
         assert_eq!(graph.node_count(), 2);
-        // Should have 2 edges (bidirectional)
         assert_eq!(graph.edge_count(), 2);
     }
 
     #[test]
     fn test_make_graph_duplicate_edges() {
-        // Test that duplicate edges with same weight are not added
         let mappings = vec![
             (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
-            // Same mapping again - should not add duplicate edges
             (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
         ];
 
-        let graph = make_graph(mappings);
+        let graph = make_graph(&mappings);
 
-        // Should still have just 2 edges (duplicates not added)
         assert_eq!(graph.edge_count(), 2);
     }
 
     #[test]
     fn test_make_graph_different_weights() {
-        // Test that edges with different weights ARE added
         let mappings = vec![
             (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
-            // Different weight - should add new edges
             (Measure::new("cup", 2.0), Measure::new("g", 240.0)),
         ];
 
-        let graph = make_graph(mappings);
+        let graph = make_graph(&mappings);
 
-        // Same weight ratio (120g/cup), so still just 2 edges
         assert_eq!(graph.edge_count(), 2);
     }
 
@@ -197,98 +219,98 @@ mod tests {
     fn test_print_graph() {
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
 
-        let graph = make_graph(mappings);
+        let graph = make_graph(&mappings);
         let dot = print_graph(graph);
 
-        // Should produce DOT format output
         assert!(dot.contains("digraph"));
     }
 
     #[test]
     fn test_convert_measure_success() {
-        // Test successful conversion
         let measure = Measure::new("cup", 2.0);
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
 
-        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, mappings);
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, &mappings);
 
         assert!(result.is_some());
         let converted = result.unwrap();
-        // 2 cups * 120g/cup = 240g
-        assert_eq!(converted.values().0, 240.0);
+        assert_eq!(converted.value(), 240.0);
     }
 
     #[test]
     fn test_convert_measure_no_source_node() {
-        // Test when source unit is not in the graph
         let measure = Measure::new("pinch", 1.0);
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
 
-        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, mappings);
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, &mappings);
 
-        // Should return None - source unit not in graph
         assert!(result.is_none());
     }
 
     #[test]
     fn test_convert_measure_no_target_node() {
-        // Test when target unit is not in the graph
         let measure = Measure::new("cup", 1.0);
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
 
-        // Try to convert to Money (Cent) which isn't in the mappings
-        let result = convert_measure_via_mappings(&measure, MeasureKind::Money, mappings);
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Money, &mappings);
 
-        // Should return None - target unit not in graph
         assert!(result.is_none());
     }
 
     #[test]
     fn test_convert_measure_no_path() {
-        // Test when there's no path between source and target
-        // Create disconnected graph components
         let mappings = vec![
             (Measure::new("cup", 1.0), Measure::new("ml", 240.0)),
-            // Disconnected: dollars to cents (no path to volume)
             (Measure::new("dollar", 1.0), Measure::new("cent", 100.0)),
         ];
 
         let measure = Measure::new("cup", 1.0);
-        // Try to convert volume to money - no path exists
-        let result = convert_measure_via_mappings(&measure, MeasureKind::Money, mappings);
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Money, &mappings);
 
-        // Should return None - no path connecting volume to money
         assert!(result.is_none());
     }
 
     #[test]
     fn test_convert_measure_with_range() {
-        // Test conversion preserves range values
         let measure = Measure::with_range("cup", 1.0, 2.0);
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
 
-        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, mappings);
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, &mappings);
 
         assert!(result.is_some());
         let converted = result.unwrap();
-        assert_eq!(converted.values().0, 120.0);
-        assert_eq!(converted.values().1, Some(240.0));
+        assert_eq!(converted.value(), 120.0);
+        assert_eq!(converted.upper_value(), Some(240.0));
     }
 
     #[test]
     fn test_convert_measure_multi_hop() {
-        // Test conversion that requires multiple hops
         let mappings = vec![
             (Measure::new("cup", 1.0), Measure::new("tbsp", 16.0)),
             (Measure::new("tbsp", 1.0), Measure::new("g", 15.0)),
         ];
 
         let measure = Measure::new("cup", 1.0);
-        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, mappings);
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, &mappings);
 
         assert!(result.is_some());
-        // 1 cup -> 16 tbsp -> 240g
         let converted = result.unwrap();
-        assert_eq!(converted.values().0, 240.0);
+        assert_eq!(converted.value(), 240.0);
+    }
+
+    #[test]
+    fn test_convert_measure_with_graph_reuse() {
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+        let graph = make_graph(&mappings);
+
+        // Convert multiple measures using the same graph
+        let m1 = Measure::new("cup", 1.0);
+        let m2 = Measure::new("cup", 3.0);
+
+        let r1 = convert_measure_with_graph(&m1, MeasureKind::Weight, &graph);
+        let r2 = convert_measure_with_graph(&m2, MeasureKind::Weight, &graph);
+
+        assert_eq!(r1.unwrap().value(), 120.0);
+        assert_eq!(r2.unwrap().value(), 360.0);
     }
 }

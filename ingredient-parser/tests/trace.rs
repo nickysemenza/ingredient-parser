@@ -287,7 +287,7 @@ fn test_separator_formats(
 fn test_fraction_formats(parser: IngredientParser, #[case] input: &str, #[case] expected: f64) {
     let result = parser.parse_with_trace(input);
     assert!(result.result.is_ok(), "Failed to parse: {input}");
-    let amount = result.result.unwrap().amounts[0].values().0;
+    let amount = result.result.unwrap().amounts[0].value();
     assert!(
         (amount - expected).abs() < 0.001,
         "Expected {expected}, got {amount}"
@@ -317,7 +317,7 @@ fn test_upper_bound_has_range(parser: IngredientParser, #[case] input: &str) {
     assert!(result.result.is_ok());
     let amount = &result.result.unwrap().amounts[0];
     assert!(
-        amount.values().1.is_some(),
+        amount.upper_value().is_some(),
         "Expected upper value for: {input}"
     );
 }

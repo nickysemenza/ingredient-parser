@@ -13,7 +13,7 @@ fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
         Ok(amounts) if !amounts.is_empty() => {
             let first = &amounts[0];
             let unit = first.unit().to_str(); // Use to_str() for proper string, not Debug format
-            let value = first.values().0;
+            let value = first.value();
 
             // Check if this is servings
             let servings = if unit == "serving" || unit == "servings" {

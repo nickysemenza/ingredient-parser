@@ -36,12 +36,3 @@ impl std::error::Error for IngredientError {}
 
 /// Result type for ingredient parsing operations
 pub type IngredientResult<T> = Result<T, IngredientError>;
-
-/// Convert anyhow::Error to IngredientError
-impl From<anyhow::Error> for IngredientError {
-    fn from(err: anyhow::Error) -> Self {
-        IngredientError::Generic {
-            message: err.to_string(),
-        }
-    }
-}

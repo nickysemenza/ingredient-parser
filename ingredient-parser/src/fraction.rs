@@ -10,11 +10,6 @@ use nom::{
 
 use crate::Res;
 
-/// Check if a character is a unicode vulgar fraction (½, ¼, ¾, etc.)
-pub fn is_unicode_fraction(c: char) -> bool {
-    v_frac_to_num(c).is_some()
-}
-
 fn v_frac_to_num(input: char) -> Option<f64> {
     // two ranges for unicode fractions
     // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
@@ -64,7 +59,18 @@ fn v_fraction(input: &str) -> Res<&str, f64> {
 fn n_fraction(input: &str) -> Res<&str, f64> {
     context("n_fraction", (double, tag("/"), double))
         .parse(input)
-        .map(|(next_input, res)| (next_input, res.0 / res.2))
+        .and_then(|(next_input, res)| {
+            if res.2 == 0.0 {
+                Err(nom::Err::Error(
+                    nom_language::error::VerboseError::from_error_kind(
+                        input,
+                        nom::error::ErrorKind::Verify,
+                    ),
+                ))
+            } else {
+                Ok((next_input, res.0 / res.2))
+            }
+        })
 }
 
 /// Parses mixed number formats like `1 ⅛` or `1 1/8` into `1.125`
@@ -217,6 +223,18 @@ mod tests {
     // ============================================================================
     // Fraction Parser Tests - Error Cases
     // ============================================================================
+
+    #[rstest]
+    #[case::one_over_zero("1/0")]
+    #[case::zero_over_zero("0/0")]
+    fn test_fraction_zero_denominator(#[case] input: &str) {
+        assert!(fraction_number(input).is_err(), "should reject {input}");
+    }
+
+    #[test]
+    fn test_fraction_zero_numerator() {
+        assert_eq!(fraction_number("0/1"), Ok(("", 0.0)));
+    }
 
     #[test]
     fn test_fraction_number_error() {

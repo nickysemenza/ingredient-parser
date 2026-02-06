@@ -10,7 +10,10 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(npm audit:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(cargo check:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cargo nextest run:*)"
     ]
   }
 }

@@ -252,12 +252,12 @@ fn test_optional_ingredients(
     );
     for (i, (unit, value)) in expected_amounts.iter().enumerate() {
         assert_eq!(
-            result.amounts[i].values().0,
+            result.amounts[i].value(),
             *value,
             "Amount value mismatch for: {input}"
         );
         assert_eq!(
-            result.amounts[i].values().2,
+            result.amounts[i].unit_as_string(),
             *unit,
             "Unit mismatch for: {input}"
         );
@@ -407,8 +407,8 @@ fn test_custom_units(
 ) {
     let result = parser_custom_units.from_str(input);
     assert_eq!(result.name, expected_name);
-    assert_eq!(result.amounts[0].values().0, expected_amount);
-    assert_eq!(result.amounts[0].values().2, expected_unit);
+    assert_eq!(result.amounts[0].value(), expected_amount);
+    assert_eq!(result.amounts[0].unit_as_string(), expected_unit);
 }
 
 #[rstest]
@@ -636,7 +636,7 @@ fn test_rich_text_temperature(#[case] input: &str, #[case] expected: Vec<Chunk>)
 fn test_rich_text_temperature_range() {
     let result = parse_rich("bake at 350-375°F", &[]);
     let has_range = result.iter().any(|c| {
-        matches!(c, Chunk::Measure(m) if m[0].values().0 == 350.0 && m[0].values().1 == Some(375.0))
+        matches!(c, Chunk::Measure(m) if m[0].value() == 350.0 && m[0].upper_value() == Some(375.0))
     });
     assert!(has_range, "Should parse temperature range");
 }
@@ -693,7 +693,7 @@ fn test_measurement_edge_cases(parser: IngredientParser) {
 
     // Implicit unit defaults to "whole"
     let ingredient = parser.from_str("2 eggs");
-    assert_eq!(ingredient.amounts[0].values().2, "whole");
+    assert_eq!(ingredient.amounts[0].unit_as_string(), "whole");
 
     // Standard plus expression combines measurements
     let ingredient = parser.from_str("1 cup plus 2 tbsp flour");
@@ -768,7 +768,7 @@ fn test_rich_text_hyphenated_units() {
     let result = parse_rich("cut into 2-inch pieces", &[]);
     let has_inch = result
         .iter()
-        .any(|c| matches!(c, Chunk::Measure(m) if m[0].values().2 == "inch"));
+        .any(|c| matches!(c, Chunk::Measure(m) if m[0].unit_as_string() == "inch"));
     assert!(has_inch, "Should parse '2-inch' as 2 inches: {result:?}");
 }
 
@@ -839,12 +839,12 @@ fn test_trailing_amount_format(
     );
     for (i, (unit, value)) in expected_amounts.iter().enumerate() {
         assert_eq!(
-            result.amounts[i].values().0,
+            result.amounts[i].value(),
             *value,
             "Amount value mismatch for: {input}"
         );
         assert_eq!(
-            result.amounts[i].values().2,
+            result.amounts[i].unit_as_string(),
             *unit,
             "Unit mismatch for: {input}"
         );

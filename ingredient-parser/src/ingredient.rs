@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fmt};
+use std::fmt;
 
 use crate::{from_str, unit::Measure};
 
@@ -182,10 +182,9 @@ impl Ingredient {
     }
 }
 
-impl TryFrom<&str> for Ingredient {
-    type Error = String;
-    fn try_from(value: &str) -> Result<Ingredient, Self::Error> {
-        Ok(from_str(value))
+impl From<&str> for Ingredient {
+    fn from(value: &str) -> Ingredient {
+        from_str(value)
     }
 }
 

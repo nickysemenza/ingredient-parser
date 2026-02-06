@@ -646,7 +646,7 @@ mod tests {
         let result = parser.parse_unit_only(" cup ");
         assert!(result.is_ok());
         let (_, measure) = result.unwrap();
-        assert_eq!(measure.values().0, 1.0);
+        assert_eq!(measure.value(), 1.0);
     }
 
     /// Test that unit mismatch in ranges returns None
@@ -682,7 +682,7 @@ mod tests {
         assert!(result.is_ok());
         let (_, measure) = result.unwrap();
         let measure_str = format!("{measure}");
-        assert!(measure_str.contains("whole") || measure.values().0 == 2.0);
+        assert!(measure_str.contains("whole") || measure.value() == 2.0);
     }
 
     // ============================================================================

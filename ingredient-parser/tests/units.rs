@@ -204,7 +204,7 @@ fn test_measure_kind_unit(#[case] kind: MeasureKind, #[case] expected: Unit) {
 #[case::quart(250.0, "quart")]
 fn test_teaspoon_denormalize(#[case] tsp_value: f64, #[case] expected_unit: &str) {
     let m = Measure::new("tsp", tsp_value);
-    assert_eq!(m.denormalize().values().2, expected_unit);
+    assert_eq!(m.denormalize().unit_as_string(), expected_unit);
 }
 
 #[rstest]
@@ -214,7 +214,7 @@ fn test_teaspoon_denormalize(#[case] tsp_value: f64, #[case] expected_unit: &str
 #[case::day(100000.0, "day")]
 fn test_second_denormalize(#[case] sec_value: f64, #[case] expected_unit: &str) {
     let m = Measure::new("second", sec_value);
-    assert_eq!(m.denormalize().values().2, expected_unit);
+    assert_eq!(m.denormalize().unit_as_string(), expected_unit);
 }
 
 #[rstest]
@@ -234,14 +234,14 @@ fn test_second_denormalize(#[case] sec_value: f64, #[case] expected_unit: &str) 
 #[case("day")]
 fn test_denormalize_passthrough(#[case] unit: &str) {
     let m = Measure::new(unit, 1.0);
-    assert_eq!(m.denormalize().values().0, 1.0);
+    assert_eq!(m.denormalize().value(), 1.0);
 }
 
 #[test]
 fn test_denormalize_with_upper_value() {
     let m = Measure::with_range("tsp", 6.0, 12.0);
     let d = m.denormalize();
-    assert!(d.values().1.is_some());
+    assert!(d.upper_value().is_some());
 }
 
 // ============================================================================
@@ -256,7 +256,7 @@ fn test_denormalize_with_upper_value() {
 #[case::minute_two("minute", 2.0, "minutes")]
 #[case::gram("gram", 100.0, "g")]
 fn test_measure_pluralization(#[case] unit: &str, #[case] value: f64, #[case] expected: &str) {
-    assert_eq!(Measure::new(unit, value).values().2, expected);
+    assert_eq!(Measure::new(unit, value).unit_as_string(), expected);
 }
 
 // ============================================================================
@@ -298,7 +298,7 @@ fn test_measure_add_same_kind() {
     let m2 = Measure::new("tbsp", 2.0);
     let result = m1.add(m2);
     assert!(result.is_ok());
-    assert!(result.unwrap().values().0 > 0.0);
+    assert!(result.unwrap().value() > 0.0);
 }
 
 #[rstest]
@@ -311,7 +311,7 @@ fn test_measure_add_same_kind() {
 #[case::second_range(Measure::new("cups", 1.0), Measure::with_range("cups", 0.5, 1.0), true)]
 fn test_measure_add_ranges(#[case] m1: Measure, #[case] m2: Measure, #[case] has_upper: bool) {
     let result = m1.add(m2).unwrap();
-    assert_eq!(result.values().1.is_some(), has_upper);
+    assert_eq!(result.upper_value().is_some(), has_upper);
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn test_measure_add_other_unit() {
     let m1 = Measure::new("cups", 1.0);
     let m2 = Measure::new("unknown_unit", 2.0);
     let result = m1.add(m2).unwrap();
-    assert_eq!(result.values().0, 1.0);
+    assert_eq!(result.value(), 1.0);
 }
 
 // ============================================================================
@@ -333,13 +333,13 @@ fn test_measure_conversions() {
     let tbsp_dollars = (Measure::new("tbsp", 2.0), Measure::new("dollars", 4.0));
     assert_eq!(
         Measure::new("dollars", 2.0),
-        m.convert_measure_via_mappings(MeasureKind::Money, vec![tbsp_dollars.clone()])
+        m.convert_measure_via_mappings(MeasureKind::Money, &[tbsp_dollars.clone()])
             .unwrap()
     );
 
     // Conversion to incompatible kind fails
     assert!(m
-        .convert_measure_via_mappings(MeasureKind::Volume, vec![tbsp_dollars])
+        .convert_measure_via_mappings(MeasureKind::Volume, &[tbsp_dollars])
         .is_none());
 }
 
@@ -355,7 +355,7 @@ fn test_weight_to_money_conversion(
 ) {
     let grams_dollars = (Measure::new("gram", 1.0), Measure::new("dollar", 1.0));
     let result = Measure::new(unit, amount)
-        .convert_measure_via_mappings(MeasureKind::Money, vec![grams_dollars])
+        .convert_measure_via_mappings(MeasureKind::Money, &[grams_dollars])
         .unwrap();
     assert_eq!(result, Measure::new("dollars", expected_dollars));
 }
@@ -367,7 +367,7 @@ fn test_measure_convert_custom_unit() {
         Measure::new("whole", 1.0)
             .convert_measure_via_mappings(
                 MeasureKind::Money,
-                vec![(Measure::new("whole", 12.0), Measure::new("dollar", 1.20))]
+                &[(Measure::new("whole", 12.0), Measure::new("dollar", 1.20))]
             )
             .unwrap()
     );
@@ -380,7 +380,7 @@ fn test_measure_convert_range() {
         Measure::with_range("whole", 1.0, 2.0)
             .convert_measure_via_mappings(
                 MeasureKind::Money,
-                vec![(Measure::new("whole", 4.0), Measure::new("dollar", 20.0))]
+                &[(Measure::new("whole", 4.0), Measure::new("dollar", 20.0))]
             )
             .unwrap()
     );
@@ -394,7 +394,7 @@ fn test_measure_convert_transitive() {
         Measure::new("grams", 1.0)
             .convert_measure_via_mappings(
                 MeasureKind::Money,
-                vec![
+                &[
                     (Measure::new("cent", 1.0), Measure::new("tsp", 1.0)),
                     (Measure::new("grams", 1.0), Measure::new("tsp", 1.0)),
                 ]
@@ -408,7 +408,7 @@ fn test_measure_convert_no_path() {
     let m = Measure::new("inch", 1.0);
     let result = m.convert_measure_via_mappings(
         MeasureKind::Money,
-        vec![(Measure::new("gram", 1.0), Measure::new("dollar", 1.0))],
+        &[(Measure::new("gram", 1.0), Measure::new("dollar", 1.0))],
     );
     assert!(result.is_none());
 }
@@ -443,12 +443,9 @@ fn test_unit_normalize() {
 
 #[test]
 fn test_unit_display() {
-    assert_eq!(format!("{}", Unit::Gram), "Gram");
-    assert_eq!(format!("{}", Unit::Cup), "Cup");
-    assert_eq!(
-        format!("{}", Unit::Other("custom".to_string())),
-        "Other(\"custom\")"
-    );
+    assert_eq!(format!("{}", Unit::Gram), "g");
+    assert_eq!(format!("{}", Unit::Cup), "cup");
+    assert_eq!(format!("{}", Unit::Other("custom".to_string())), "custom");
 }
 
 #[test]
@@ -503,16 +500,16 @@ fn test_unit_and_kind_mapping() {
 
 #[test]
 fn test_graph_creation_and_printing() {
-    let g = make_graph(vec![
+    let g = make_graph(&[
         (Measure::new("tbsp", 1.0), Measure::new("dollar", 30.0)),
         (Measure::new("tsp", 1.0), Measure::new("gram", 1.0)),
     ]);
     assert_eq!(
         print_graph(g),
         r#"digraph {
-    0 [ label = "Teaspoon" ]
-    1 [ label = "Cent" ]
-    2 [ label = "Gram" ]
+    0 [ label = "tsp" ]
+    1 [ label = "cent" ]
+    2 [ label = "g" ]
     0 -> 1 [ label = "1000" ]
     1 -> 0 [ label = "0.001" ]
     0 -> 2 [ label = "1" ]
@@ -525,5 +522,5 @@ fn test_graph_creation_and_printing() {
 #[test]
 fn test_measure_custom_unit_singularized() {
     let m = Measure::new("packets", 2.0);
-    assert_eq!(m.values().2, "packet");
+    assert_eq!(m.unit_as_string(), "packet");
 }

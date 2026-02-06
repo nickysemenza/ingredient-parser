@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
@@ -55,19 +56,35 @@ impl Unit {
     pub fn normalize(self) -> Unit {
         //todo
         match self {
-            Unit::Other(x) => Unit::Other(singular(&x)),
+            Unit::Other(x) => Unit::Other(singular(&x).into_owned()),
             _ => self,
         }
     }
     pub fn to_str(&self) -> String {
-        // O(1) lookup using HashMap
-        if let Some(s) = UNIT_TO_STR.get(self) {
-            return (*s).to_string();
-        }
         match self {
-            Unit::Other(s) => singular(s),
-            // All Unit variants (except Other) are in UNIT_TO_STR, so this is unreachable
-            _ => unreachable!("All Unit variants should be in UNIT_TO_STR"),
+            Unit::Gram => "g".to_string(),
+            Unit::Kilogram => "kg".to_string(),
+            Unit::Liter => "l".to_string(),
+            Unit::Milliliter => "ml".to_string(),
+            Unit::Teaspoon => "tsp".to_string(),
+            Unit::Tablespoon => "tbsp".to_string(),
+            Unit::Cup => "cup".to_string(),
+            Unit::Quart => "quart".to_string(),
+            Unit::FluidOunce => "fl oz".to_string(),
+            Unit::Ounce => "oz".to_string(),
+            Unit::Pound => "lb".to_string(),
+            Unit::Cent => "cent".to_string(),
+            Unit::Dollar => "$".to_string(),
+            Unit::KCal => "kcal".to_string(),
+            Unit::Second => "second".to_string(),
+            Unit::Minute => "minute".to_string(),
+            Unit::Hour => "hour".to_string(),
+            Unit::Day => "day".to_string(),
+            Unit::Fahrenheit => "fahrenheit".to_string(),
+            Unit::Celcius => "celcius".to_string(),
+            Unit::Inch => "\"".to_string(),
+            Unit::Whole => "whole".to_string(),
+            Unit::Other(s) => singular(s).into_owned(),
         }
     }
 }
@@ -133,24 +150,14 @@ static UNIT_MAP: LazyLock<HashMap<&'static str, Unit>> = LazyLock::new(|| {
         .collect()
 });
 
-/// O(1) lookup from Unit to its canonical string representation
-/// Uses the first mapping found for each unit
-static UNIT_TO_STR: LazyLock<HashMap<Unit, &'static str>> = LazyLock::new(|| {
-    let mut map = HashMap::new();
-    // Iterate in reverse so earlier (preferred) mappings win
-    for &(s, ref u) in UNIT_MAPPINGS.iter().rev() {
-        map.insert(u.clone(), s);
-    }
-    map
-});
-
 impl FromStr for Unit {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s_norm = singular(&s.to_lowercase());
+        let lowered = s.to_lowercase();
+        let s_norm = singular(&lowered);
         // O(1) lookup using HashMap
-        if let Some(unit) = UNIT_MAP.get(s_norm.as_str()) {
+        if let Some(unit) = UNIT_MAP.get(&*s_norm) {
             return Ok(unit.clone());
         }
         Ok(Unit::Other(s.to_string()))
@@ -158,11 +165,23 @@ impl FromStr for Unit {
 }
 impl fmt::Display for Unit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
+        write!(f, "{}", self.to_str())
     }
 }
 
-pub(crate) fn singular(s: &str) -> String {
-    let s2 = s.to_lowercase();
-    s2.strip_suffix('s').unwrap_or(&s2).to_string()
+pub(crate) fn singular(s: &str) -> Cow<'_, str> {
+    // Fast path: if already lowercase ASCII with no trailing 's', borrow directly
+    if s.bytes().all(|b| !b.is_ascii_uppercase()) {
+        match s.strip_suffix('s') {
+            Some(stripped) => Cow::Borrowed(stripped),
+            None => Cow::Borrowed(s),
+        }
+    } else {
+        // Slow path: needs lowercasing
+        let lowered = s.to_lowercase();
+        match lowered.strip_suffix('s') {
+            Some(stripped) => Cow::Owned(stripped.to_string()),
+            None => Cow::Owned(lowered),
+        }
+    }
 }

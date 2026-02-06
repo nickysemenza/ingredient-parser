@@ -182,9 +182,9 @@ const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
 ];
 
 pub mod error;
-pub mod fraction;
+pub(crate) mod fraction;
 pub mod ingredient;
-pub mod parser;
+pub(crate) mod parser;
 pub mod rich_text;
 pub mod trace;
 pub mod unit;
@@ -396,12 +396,12 @@ impl IngredientParser {
             .windows(2)
             .any(|w| w[0] == b' ' && w[1] == b' ');
 
-        let input = if has_multiple_spaces {
-            normalized.split_whitespace().collect::<Vec<_>>().join(" ")
+        let normalized = if has_multiple_spaces {
+            Cow::Owned(normalized.split_whitespace().collect::<Vec<_>>().join(" "))
         } else {
-            normalized.into_owned()
+            normalized
         };
-        let input = input.as_str();
+        let input = &*normalized;
 
         // Check for optional ingredient format: entire input wrapped in parentheses
         // e.g., "(½ cup chopped walnuts)" indicates an optional ingredient
@@ -499,7 +499,7 @@ impl IngredientParser {
                     // 3. At least one amount has a non-temperature unit
                     if !amounts.is_empty()
                         && remaining.trim().is_empty()
-                        && amounts.iter().any(|m| !is_temperature_unit(&m.unit()))
+                        && amounts.iter().any(|m| !is_temperature_unit(m.unit()))
                     {
                         // Clean up the name part - it may contain parenthesized info
                         let name = name_part.trim().to_string();
@@ -697,10 +697,10 @@ impl IngredientParser {
                     .collect();
                 found_adjectives.sort_by_key(|a| std::cmp::Reverse(a.len()));
 
+                let mut name_lower = name_lower;
                 for adj in found_adjectives {
                     // Only extract if the adjective is still in the name (case-insensitive)
                     // (it may have been removed as part of a longer adjective)
-                    let name_lower = name.to_lowercase();
                     if let Some(pos) = name_lower.find(adj.as_str()) {
                         if !modifiers.is_empty() {
                             modifiers.push_str(", ");
@@ -721,6 +721,7 @@ impl IngredientParser {
                             new_name.push_str(after);
                         }
                         name = new_name.trim().to_string();
+                        name_lower = name.to_lowercase();
                     }
                 }
                 // Clean up multiple spaces

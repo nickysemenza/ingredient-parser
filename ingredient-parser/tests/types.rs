@@ -11,7 +11,7 @@ use ingredient::{ingredient::Ingredient, unit::Measure, IngredientError, Ingredi
 #[test]
 fn test_ingredient_struct() {
     // try_from parsing
-    let ingredient = Ingredient::try_from("2 cups flour").unwrap();
+    let ingredient = Ingredient::from("2 cups flour");
     assert_eq!(ingredient.name, "flour");
     assert_eq!(ingredient.amounts.len(), 1);
     assert_eq!(ingredient.modifier, None);
@@ -118,14 +118,6 @@ fn test_ingredient_error() {
         message: "different error".to_string(),
     };
     assert_ne!(err1, err3);
-
-    // From anyhow::Error
-    let anyhow_err = anyhow::anyhow!("test error");
-    let ingredient_err: IngredientError = anyhow_err.into();
-    match ingredient_err {
-        IngredientError::Generic { message } => assert_eq!(message, "test error"),
-        _ => panic!("Expected Generic error"),
-    }
 
     // IngredientResult type alias
     let result: IngredientResult<i32> = Err(IngredientError::Generic {

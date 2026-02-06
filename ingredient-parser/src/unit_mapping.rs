@@ -27,8 +27,8 @@ pub struct ParsedUnitMapping {
 /// use ingredient::unit_mapping::parse_unit_mapping;
 ///
 /// let result = parse_unit_mapping("4 lb = $5").unwrap();
-/// assert_eq!(result.a.values().0, 4.0);
-/// assert_eq!(result.b.values().0, 5.0);
+/// assert_eq!(result.a.value(), 4.0);
+/// assert_eq!(result.b.value(), 5.0);
 /// ```
 pub fn parse_unit_mapping(input: &str) -> Result<ParsedUnitMapping, String> {
     let input = input.trim();
@@ -118,10 +118,10 @@ mod tests {
         #[case] b_unit: &str,
     ) {
         let result = parse_unit_mapping(input).unwrap();
-        assert_eq!(result.a.values().0, a_val);
-        assert_eq!(result.a.values().2, a_unit);
-        assert_eq!(result.b.values().0, b_val);
-        assert_eq!(result.b.values().2, b_unit);
+        assert_eq!(result.a.value(), a_val);
+        assert_eq!(result.a.unit_as_string(), a_unit);
+        assert_eq!(result.b.value(), b_val);
+        assert_eq!(result.b.unit_as_string(), b_unit);
         assert_eq!(result.source, None);
     }
 
@@ -139,10 +139,10 @@ mod tests {
         #[case] b_val: f64,
     ) {
         let result = parse_unit_mapping(input).unwrap();
-        assert_eq!(result.a.values().0, a_val);
-        assert_eq!(result.a.values().2, a_unit);
-        assert_eq!(result.b.values().0, b_val);
-        assert_eq!(result.b.values().2, "$");
+        assert_eq!(result.a.value(), a_val);
+        assert_eq!(result.a.unit_as_string(), a_unit);
+        assert_eq!(result.b.value(), b_val);
+        assert_eq!(result.b.unit_as_string(), "$");
     }
 
     // ============================================================================
@@ -159,8 +159,8 @@ mod tests {
         #[case] source: &str,
     ) {
         let result = parse_unit_mapping(input).unwrap();
-        assert_eq!(result.a.values().0, a_val);
-        assert_eq!(result.b.values().0, b_val);
+        assert_eq!(result.a.value(), a_val);
+        assert_eq!(result.b.value(), b_val);
         assert_eq!(result.source, Some(source.to_string()));
     }
 

@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use crate::{parser::MeasurementParser, unit::Measure, IngredientParser, Res};
-use itertools::Itertools;
 use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0, Parser};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -14,13 +13,16 @@ pub enum Chunk {
 }
 pub type Rich = Vec<Chunk>;
 fn condense_text(r: Rich) -> Rich {
-    // https://www.reddit.com/r/rust/comments/e3mq41/combining_enum_values_with_itertools_coalesce/
-    r.into_iter()
-        .coalesce(|previous, current| match (&previous, &current) {
-            (Chunk::Text(a), Chunk::Text(b)) => Ok(Chunk::Text(format!("{a}{b}"))),
-            _ => Err((previous, current)),
-        })
-        .collect()
+    let mut result = Vec::with_capacity(r.len());
+    for chunk in r {
+        match (&mut result.last_mut(), &chunk) {
+            (Some(Chunk::Text(prev)), Chunk::Text(new)) => {
+                prev.push_str(new);
+            }
+            _ => result.push(chunk),
+        }
+    }
+    result
 }
 // find any text chunks which have an ingredient name as a substring in them.
 // if so, split on the ingredient name, giving it it's own `Chunk::Ing`.
@@ -60,7 +62,7 @@ fn amounts_chunk<'a>(units: &HashSet<String>, input: &'a str) -> Res<&'a str, Ch
 fn text_chunk(input: &str) -> Res<&str, Chunk> {
     text2(input).map(|(next_input, res)| (next_input, Chunk::Text(res)))
 }
-/// Parse text characters for rich text (recipe instructions).
+/// Parse a single text character for rich text (recipe instructions).
 ///
 /// Allows: alphanumeric, whitespace, plus additional punctuation
 /// (commas, parentheses, semicolons, colons, slashes, etc.)
@@ -68,11 +70,12 @@ fn text_chunk(input: &str) -> Res<&str, Chunk> {
 /// Note: This is more permissive than `parser::helpers::text()` which is
 /// designed for ingredient names only.
 fn text2(input: &str) -> Res<&str, String> {
-    (satisfy(|c| match c {
-        '-' | '—' | '\'' | '\u{2019}' | '.' | '\\' => true,
-        ',' | '(' | ')' | ';' | '#' | '/' | ':' | '!' => true, // in text2 but not text
+    satisfy(|c| match c {
+        '-' | '\u{2014}' | '\'' | '\u{2019}' | '.' | '\\' => true,
+        ',' | '(' | ')' | ';' | '#' | '/' | ':' | '!' => true,
         c => c.is_alphanumeric() || c.is_whitespace(),
-    }))(input)
+    })
+    .parse(input)
     .map(|(next_input, res)| (next_input, res.to_string()))
 }
 /// Parse some rich text that has some parsable [Measure] scattered around in it. Useful for displaying text with fancy formatting.
@@ -337,9 +340,7 @@ mod tests {
         let result = parser.parse("Heat oven to 375. Combine flour").unwrap();
         // "375" should be parsed as a Measure with Whole unit
         let has_375 = result.iter().any(|c| match c {
-            Chunk::Measure(measures) => {
-                measures.iter().any(|m| (m.values().0 - 375.0).abs() < 0.01)
-            }
+            Chunk::Measure(measures) => measures.iter().any(|m| (m.value() - 375.0).abs() < 0.01),
             _ => false,
         });
         assert!(has_375, "Should parse 375 as a measurement: {result:?}");

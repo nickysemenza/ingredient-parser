@@ -4,8 +4,8 @@
 
 use nom::{
     branch::alt,
-    bytes::complete::tag,
-    character::complete::{alpha1, satisfy},
+    bytes::complete::{tag, take_while1},
+    character::complete::alpha1,
     error::context,
     multi::many0,
     number::complete::double,
@@ -27,14 +27,13 @@ pub(crate) type Res<T, U> = IResult<T, U, VerboseError<T>>;
 /// - Fractions: "1/2 cup", "1 ½ lb"
 ///
 /// # Examples
-/// ```
-/// use ingredient::parser::helpers::parse_amount_string;
 ///
+/// ```ignore
 /// let measure = parse_amount_string("4 lb").unwrap();
-/// assert_eq!(measure.values().0, 4.0);
+/// assert_eq!(measure.value(), 4.0);
 ///
 /// let price = parse_amount_string("$5").unwrap();
-/// assert_eq!(price.values().0, 5.0);
+/// assert_eq!(price.value(), 5.0);
 /// ```
 pub fn parse_amount_string(input: &str) -> Result<Measure, String> {
     let input = input.trim();
@@ -98,18 +97,18 @@ fn parse_number_only(input: &str) -> Result<f64, ()> {
 
 /// Parse text characters for ingredient names.
 ///
-/// Allows: alphanumeric, whitespace, hyphens, apostrophes, periods, backslashes.
+/// Consumes a contiguous run of: alphanumeric, whitespace, hyphens, apostrophes,
+/// periods, backslashes, em-dashes, and right single quotes.
 ///
 /// Note: This is more restrictive than `rich_text::text2()` which also allows
 /// punctuation like commas, parentheses, semicolons, etc. for parsing recipe
 /// instructions rather than ingredient names.
-pub(crate) fn text(input: &str) -> Res<&str, String> {
-    satisfy(|c| match c {
-        '-' | '—' | '\'' | '\u{2019}' | '.' | '\\' => true,
+pub(crate) fn text(input: &str) -> Res<&str, &str> {
+    take_while1(|c: char| match c {
+        '-' | '\u{2014}' | '\'' | '\u{2019}' | '.' | '\\' => true,
         c => c.is_alphanumeric() || c.is_whitespace(),
     })
     .parse(input)
-    .map(|(next_input, res)| (next_input, res.to_string()))
 }
 
 /// Parse unit/amount text including degrees and quotes
@@ -138,7 +137,7 @@ mod tests {
 
     #[rstest]
     #[case::letter("a", "", "a")]
-    #[case::word("flour", "lour", "f")]
+    #[case::word("flour", "", "flour")]
     #[case::hyphen("-", "", "-")]
     #[case::em_dash("—", "", "—")]
     #[case::apostrophe("'", "", "'")]
@@ -146,8 +145,9 @@ mod tests {
     #[case::period(".", "", ".")]
     #[case::backslash("\\", "", "\\")]
     #[case::space(" ", "", " ")]
+    #[case::multiword("all-purpose flour", "", "all-purpose flour")]
     fn test_text(#[case] input: &str, #[case] remaining: &str, #[case] expected: &str) {
-        assert_eq!(text(input), Ok((remaining, expected.to_string())));
+        assert_eq!(text(input), Ok((remaining, expected)));
     }
 
     // ============================================================================
@@ -193,13 +193,13 @@ mod tests {
     #[case::extra_text("4 lb extra", 4.0)]
     fn test_parse_amount_string_success(#[case] input: &str, #[case] expected: f64) {
         let measure = parse_amount_string(input).unwrap();
-        assert_eq!(measure.values().0, expected);
+        assert_eq!(measure.value(), expected);
     }
 
     #[test]
     fn test_parse_amount_string_fraction() {
         let measure = parse_amount_string("1/2 cup").unwrap();
-        assert!((measure.values().0 - 0.5).abs() < 0.001);
+        assert!((measure.value() - 0.5).abs() < 0.001);
     }
 
     // ============================================================================
@@ -229,6 +229,6 @@ mod tests {
         // "$5x" parses "5", leaving "x" as leftover but still succeeds
         // This hits the else branch where remaining.trim() is not empty
         let measure = parse_amount_string("$5x").unwrap();
-        assert_eq!(measure.values().0, 5.0);
+        assert_eq!(measure.value(), 5.0);
     }
 }

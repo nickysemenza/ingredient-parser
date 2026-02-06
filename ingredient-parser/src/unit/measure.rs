@@ -29,7 +29,7 @@ fn serialize_unit<S: Serializer>(unit: &Unit, s: S) -> Result<S::Ok, S::Error> {
 /// Deserialize Unit from a string
 fn deserialize_unit<'de, D: Deserializer<'de>>(d: D) -> Result<Unit, D::Error> {
     let s = String::deserialize(d)?;
-    Ok(Unit::from_str(&s).unwrap_or(Unit::Other(singular(&s))))
+    Ok(Unit::from_str(&s).unwrap_or(Unit::Other(singular(&s).into_owned())))
 }
 
 // Multiplication factors for unit conversions
@@ -172,11 +172,16 @@ impl Measure {
             upper_value,
         }
     }
-    pub fn unit(&self) -> Unit {
-        self.unit.clone()
+    pub fn unit(&self) -> &Unit {
+        &self.unit
     }
-    pub fn values(&self) -> (f64, Option<f64>, String) {
-        (self.value, self.upper_value, self.unit_as_string())
+    /// Get the primary value of this measure
+    pub fn value(&self) -> f64 {
+        self.value
+    }
+    /// Get the upper value of this measure (for ranges like "2-3 cups")
+    pub fn upper_value(&self) -> Option<f64> {
+        self.upper_value
     }
     /// Normalize this measure to its base unit
     ///
@@ -185,7 +190,11 @@ impl Measure {
     pub(crate) fn normalize(&self) -> Measure {
         // Handle custom units - normalize the unit name (singularize)
         if let Unit::Other(x) = &self.unit {
-            return Measure::new_with_upper(Unit::Other(singular(x)), self.value, self.upper_value);
+            return Measure::new_with_upper(
+                Unit::Other(singular(x).into_owned()),
+                self.value,
+                self.upper_value,
+            );
         }
 
         // Look up conversion rule in the table
@@ -269,7 +278,8 @@ impl Measure {
     /// This is the low-level constructor used by `new` and `with_range`.
     pub fn from_parts(unit: &str, value: f64, upper_value: Option<f64>) -> Measure {
         let normalized_unit = singular(unit);
-        let unit = Unit::from_str(normalized_unit.as_ref()).unwrap_or(Unit::Other(normalized_unit));
+        let unit =
+            Unit::from_str(&normalized_unit).unwrap_or(Unit::Other(normalized_unit.into_owned()));
 
         Measure {
             unit,
@@ -374,18 +384,25 @@ impl Measure {
     pub fn convert_measure_via_mappings(
         &self,
         target: MeasureKind,
-        mappings: Vec<(Measure, Measure)>,
+        mappings: &[(Measure, Measure)],
     ) -> Option<Measure> {
         convert_measure_via_mappings(self, target, mappings)
     }
-    fn unit_as_string(&self) -> String {
-        let mut s = singular(&self.unit().to_str());
-        if (self.unit() == Unit::Cup || self.unit() == Unit::Minute)
+    /// Get the unit as a display string, pluralized when appropriate.
+    ///
+    /// For example, `Measure::new("cup", 2.0).unit_as_string()` returns `"cups"`.
+    pub fn unit_as_string(&self) -> String {
+        let unit_str = self.unit().to_str();
+        let base = singular(&unit_str);
+        if (*self.unit() == Unit::Cup || *self.unit() == Unit::Minute)
             && (self.value > 1.0 || self.upper_value.unwrap_or_default() > 1.0)
         {
+            let mut s = base.into_owned();
             s.push('s');
+            s
+        } else {
+            base.into_owned()
         }
-        s
     }
 }
 
@@ -459,7 +476,7 @@ mod tests {
         let m = Measure::new(input_unit, input_value);
         let d = m.denormalize();
         assert_eq!(d.unit().to_str(), expected_unit);
-        assert_eq!(d.values().0, expected_value);
+        assert_eq!(d.value(), expected_value);
     }
 
     // ============================================================================
@@ -473,7 +490,7 @@ mod tests {
     #[case::quart(200.0, Unit::Quart)]
     fn test_teaspoon_denormalize_unit(#[case] value: f64, #[case] expected: Unit) {
         let m = Measure::new_with_upper(Unit::Teaspoon, value, None);
-        assert_eq!(m.denormalize().unit(), expected);
+        assert_eq!(*m.denormalize().unit(), expected);
     }
 
     #[rstest]
@@ -483,7 +500,7 @@ mod tests {
     #[case::day(90000.0, Unit::Day)]
     fn test_second_denormalize_unit(#[case] value: f64, #[case] expected: Unit) {
         let m = Measure::new_with_upper(Unit::Second, value, None);
-        assert_eq!(m.denormalize().unit(), expected);
+        assert_eq!(*m.denormalize().unit(), expected);
     }
 
     // ============================================================================
@@ -568,8 +585,8 @@ mod tests {
         let json = serde_json::to_string(&measure).unwrap();
         let deserialized: Measure = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(deserialized.values().0, value);
-        assert_eq!(deserialized.values().1, upper);
+        assert_eq!(deserialized.value(), value);
+        assert_eq!(deserialized.upper_value(), upper);
     }
 
     #[test]
