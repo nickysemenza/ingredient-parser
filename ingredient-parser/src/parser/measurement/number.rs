@@ -99,9 +99,9 @@ impl<'a> MeasurementParser<'a> {
     }
 
     /// Parse a value that may have a range, returning (value, optional_upper_range)
-    pub(super) fn get_value<'b>(&self, input: &'b str) -> Res<&'b str, (f64, Option<f64>)> {
+    pub(super) fn parse_value<'b>(&self, input: &'b str) -> Res<&'b str, (f64, Option<f64>)> {
         traced_parser!(
-            "get_value",
+            "parse_value",
             input,
             context(
                 "value_with_range",

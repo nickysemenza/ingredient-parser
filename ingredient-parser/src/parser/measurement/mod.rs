@@ -24,7 +24,7 @@ use nom::{
 use nom::error::ParseError;
 use nom_language::error::VerboseError;
 
-use crate::parser::{unitamt, Res};
+use crate::parser::{parse_unit_text, Res};
 
 /// Consume an optional em-dash or en-dash separator between amount and unit.
 /// Some cookbooks use formats like "3–4 — tablespoons" where there's an extra
@@ -256,7 +256,7 @@ impl<'a> MeasurementParser<'a> {
         let measurement_parser = (
             opt(tag("about ")),                // Optional "about" prefix for estimates
             opt(|a| self.parse_multiplier(a)), // Optional multiplier (e.g., "2 x")
-            |a| self.get_value(a),             // The numeric value
+            |a| self.parse_value(a),           // The numeric value
             space0,                            // Optional whitespace
             optional_dash_separator,           // Handle "3–4 — tablespoons" format
             opt(|a| self.unit(a)),             // Optional unit of measure
@@ -282,7 +282,7 @@ impl<'a> MeasurementParser<'a> {
                     // followed by a unit, like "4 (13-millimeter/½-inch) slices"
                     let (final_next_input, final_unit) = if unit.is_none() {
                         if let Some((after_paren, found_unit)) =
-                            self.try_unit_after_parens(next_input)
+                            self.parse_unit_after_parens(next_input)
                         {
                             // Found a unit after parentheses - use it
                             (after_paren, found_unit)
@@ -337,7 +337,7 @@ impl<'a> MeasurementParser<'a> {
     /// parentheses and returns ("CHASHU", "slices").
     ///
     /// Returns Some((remaining, unit)) if successful, None otherwise.
-    fn try_unit_after_parens<'b>(&self, input: &'b str) -> Option<(&'b str, String)> {
+    fn parse_unit_after_parens<'b>(&self, input: &'b str) -> Option<(&'b str, String)> {
         let input = input.trim_start();
 
         // Must start with '('
@@ -431,18 +431,30 @@ impl<'a> MeasurementParser<'a> {
         )
     }
 
+    /// Parse and validate a unit string using the given predicate
+    fn parse_unit_with<'b>(
+        &self,
+        input: &'b str,
+        predicate: impl Fn(&str) -> bool,
+        name: &'static str,
+        err_msg: &'static str,
+    ) -> Res<&'b str, String> {
+        traced_parser!(
+            name,
+            input,
+            context("unit", verify(parse_unit_text, |s: &str| predicate(s)),).parse(input),
+            |s: &String| s.clone(),
+            err_msg
+        )
+    }
+
     /// Parse and validate a unit string
     fn unit<'b>(&self, input: &'b str) -> Res<&'b str, String> {
-        traced_parser!(
-            "unit",
+        self.parse_unit_with(
             input,
-            context(
-                "unit",
-                verify(unitamt, |s: &str| unit::is_valid(self.units, s)),
-            )
-            .parse(input),
-            |s: &String| s.clone(),
-            "not a valid unit"
+            |s| unit::is_valid(self.units, s),
+            "unit",
+            "not a valid unit",
         )
     }
 
@@ -451,16 +463,11 @@ impl<'a> MeasurementParser<'a> {
     /// This is used for implicit quantity parsing like "cup of flour" where we want
     /// to only match addon units, not built-in units like "whole".
     fn unit_extra<'b>(&self, input: &'b str) -> Res<&'b str, String> {
-        traced_parser!(
-            "unit_extra",
+        self.parse_unit_with(
             input,
-            context(
-                "unit",
-                verify(unitamt, |s: &str| unit::is_addon_unit(self.units, s)),
-            )
-            .parse(input),
-            |s: &String| s.clone(),
-            "not an addon unit"
+            |s| unit::is_addon_unit(self.units, s),
+            "unit_extra",
+            "not an addon unit",
         )
     }
 }

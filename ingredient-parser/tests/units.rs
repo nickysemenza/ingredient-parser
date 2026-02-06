@@ -333,7 +333,7 @@ fn test_measure_conversions() {
     let tbsp_dollars = (Measure::new("tbsp", 2.0), Measure::new("dollars", 4.0));
     assert_eq!(
         Measure::new("dollars", 2.0),
-        m.convert_measure_via_mappings(MeasureKind::Money, &[tbsp_dollars.clone()])
+        m.convert_measure_via_mappings(MeasureKind::Money, std::slice::from_ref(&tbsp_dollars))
             .unwrap()
     );
 

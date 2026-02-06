@@ -60,16 +60,16 @@ fn amounts_chunk<'a>(units: &HashSet<String>, input: &'a str) -> Res<&'a str, Ch
         .map(|(next_input, res)| (next_input, Chunk::Measure(res)))
 }
 fn text_chunk(input: &str) -> Res<&str, Chunk> {
-    text2(input).map(|(next_input, res)| (next_input, Chunk::Text(res)))
+    parse_rich_char(input).map(|(next_input, res)| (next_input, Chunk::Text(res)))
 }
 /// Parse a single text character for rich text (recipe instructions).
 ///
 /// Allows: alphanumeric, whitespace, plus additional punctuation
 /// (commas, parentheses, semicolons, colons, slashes, etc.)
 ///
-/// Note: This is more permissive than `parser::helpers::text()` which is
+/// Note: This is more permissive than `parser::helpers::parse_ingredient_text()` which is
 /// designed for ingredient names only.
-fn text2(input: &str) -> Res<&str, String> {
+fn parse_rich_char(input: &str) -> Res<&str, String> {
     satisfy(|c| match c {
         '-' | '\u{2014}' | '\'' | '\u{2019}' | '.' | '\\' => true,
         ',' | '(' | ')' | ';' | '#' | '/' | ':' | '!' => true,
@@ -277,7 +277,7 @@ mod tests {
     }
 
     // ============================================================================
-    // Text2 Parser Tests
+    // parse_rich_char() Parser Tests
     // ============================================================================
 
     #[rstest]
@@ -288,8 +288,8 @@ mod tests {
     #[case::comma(",")]
     #[case::slash("/")]
     #[case::hash("#")]
-    fn test_text2_special_chars(#[case] input: &str) {
-        assert!(text2(input).is_ok());
+    fn test_parse_rich_char_special_chars(#[case] input: &str) {
+        assert!(parse_rich_char(input).is_ok());
     }
 
     // ============================================================================

@@ -136,7 +136,7 @@ use nom::{
     multi::many1,
     Parser,
 };
-use parser::{text, unitamt, MeasurementParser, Res};
+use parser::{parse_ingredient_text, parse_unit_text, MeasurementParser, Res};
 use unit::Measure;
 
 #[cfg(feature = "serde-derive")]
@@ -627,10 +627,6 @@ impl IngredientParser {
     /// * 1 name
     #[tracing::instrument(name = "parse_ingredient")]
     pub(crate) fn parse_ingredient<'a>(&self, input: &'a str) -> Res<&'a str, Ingredient> {
-        use trace::{trace_enter, trace_exit_failure, trace_exit_success};
-
-        trace_enter("parse_ingredient", input);
-
         let mp = MeasurementParser::new(&self.units, self.is_rich_text);
 
         // Define the overall structure of an ingredient line
@@ -646,7 +642,7 @@ impl IngredientParser {
             // Optional adjective with required space after it
             opt((|a| self.adjective(a), space1)),
             // Name component - can be multiple words
-            opt(many1(text)),
+            opt(many1(parse_ingredient_text)),
             // Optional measurements in parentheses after name
             opt(|a| mp.parse_parenthesized_amounts(a)),
             // Optional comma before modifier
@@ -655,129 +651,122 @@ impl IngredientParser {
             not_line_ending,
         );
 
-        let result = context("ingredient", ingredient_format).parse(input).map(
-            |(
-                next_input,
-                (
-                    primary_amounts,
-                    _,
-                    bracketed_amounts,
-                    _,
-                    adjective,
-                    name_chunks,
-                    paren_amounts,
-                    _,
-                    modifier_text,
-                ),
-            )| {
-                // Start with modifier from the trailing text
-                let mut modifiers: String = modifier_text.to_owned();
+        traced_parser!(
+            "parse_ingredient",
+            input,
+            context("ingredient", ingredient_format).parse(input).map(
+                |(
+                    next_input,
+                    (
+                        primary_amounts,
+                        _,
+                        bracketed_amounts,
+                        _,
+                        adjective,
+                        name_chunks,
+                        paren_amounts,
+                        _,
+                        modifier_text,
+                    ),
+                )| {
+                    // Start with modifier from the trailing text
+                    let mut modifiers: String = modifier_text.to_owned();
 
-                // Add adjective to modifiers if present
-                if let Some((adj, _)) = adjective {
-                    modifiers.push_str(&adj);
-                }
+                    // Add adjective to modifiers if present
+                    if let Some((adj, _)) = adjective {
+                        modifiers.push_str(&adj);
+                    }
 
-                // Process the ingredient name
-                let mut name: String = name_chunks
-                    .unwrap_or_default()
-                    .join("")
-                    .trim_matches(' ')
-                    .to_string();
+                    // Process the ingredient name
+                    let mut name: String = name_chunks
+                        .unwrap_or_default()
+                        .join("")
+                        .trim_matches(' ')
+                        .to_string();
 
-                // Extract any adjectives from the name and move them to modifiers
-                // Sort by length descending to match longer adjectives first
-                // (e.g., "thinly sliced" before "sliced")
-                // Use case-insensitive matching
-                let name_lower = name.to_lowercase();
-                let mut found_adjectives: Vec<&String> = self
-                    .adjectives
-                    .iter()
-                    .filter(|adj| name_lower.contains(adj.as_str()))
-                    .collect();
-                found_adjectives.sort_by_key(|a| std::cmp::Reverse(a.len()));
+                    // Extract any adjectives from the name and move them to modifiers
+                    // Sort by length descending to match longer adjectives first
+                    // (e.g., "thinly sliced" before "sliced")
+                    // Use case-insensitive matching
+                    let name_lower = name.to_lowercase();
+                    let mut found_adjectives: Vec<&String> = self
+                        .adjectives
+                        .iter()
+                        .filter(|adj| name_lower.contains(adj.as_str()))
+                        .collect();
+                    found_adjectives.sort_by_key(|a| std::cmp::Reverse(a.len()));
 
-                let mut name_lower = name_lower;
-                for adj in found_adjectives {
-                    // Only extract if the adjective is still in the name (case-insensitive)
-                    // (it may have been removed as part of a longer adjective)
-                    if let Some(pos) = name_lower.find(adj.as_str()) {
+                    let mut name_lower = name_lower;
+                    for adj in found_adjectives {
+                        // Only extract if the adjective is still in the name (case-insensitive)
+                        // (it may have been removed as part of a longer adjective)
+                        if let Some(pos) = name_lower.find(adj.as_str()) {
+                            if !modifiers.is_empty() {
+                                modifiers.push_str(", ");
+                            }
+                            modifiers.push_str(adj);
+                            // Remove the matched text using the position found
+                            // Use pre-allocated String to avoid format! allocation
+                            let mut new_name = String::with_capacity(name.len());
+                            let before = name[..pos].trim();
+                            let after = name[pos + adj.len()..].trim();
+                            if !before.is_empty() {
+                                new_name.push_str(before);
+                                if !after.is_empty() {
+                                    new_name.push(' ');
+                                }
+                            }
+                            if !after.is_empty() {
+                                new_name.push_str(after);
+                            }
+                            name = new_name.trim().to_string();
+                            name_lower = name.to_lowercase();
+                        }
+                    }
+                    // Clean up multiple spaces
+                    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+
+                    // Extract alternatives like "or 1 teaspoon dried thyme" to modifier
+                    let (name, alternative) = extract_alternative(&name);
+                    if let Some(alt) = alternative {
                         if !modifiers.is_empty() {
                             modifiers.push_str(", ");
                         }
-                        modifiers.push_str(adj);
-                        // Remove the matched text using the position found
-                        // Use pre-allocated String to avoid format! allocation
-                        let mut new_name = String::with_capacity(name.len());
-                        let before = name[..pos].trim();
-                        let after = name[pos + adj.len()..].trim();
-                        if !before.is_empty() {
-                            new_name.push_str(before);
-                            if !after.is_empty() {
-                                new_name.push(' ');
-                            }
-                        }
-                        if !after.is_empty() {
-                            new_name.push_str(after);
-                        }
-                        name = new_name.trim().to_string();
-                        name_lower = name.to_lowercase();
+                        modifiers.push_str(&alt);
                     }
-                }
-                // Clean up multiple spaces
-                let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
 
-                // Extract alternatives like "or 1 teaspoon dried thyme" to modifier
-                let (name, alternative) = extract_alternative(&name);
-                if let Some(alt) = alternative {
-                    if !modifiers.is_empty() {
-                        modifiers.push_str(", ");
+                    // Combine all measurements (primary, bracketed, and parenthesized)
+                    let mut amounts: Vec<Measure> = Vec::new();
+                    if let Some(primary) = primary_amounts {
+                        amounts.extend(primary);
                     }
-                    modifiers.push_str(&alt);
-                }
+                    if let Some(bracketed) = bracketed_amounts {
+                        amounts.extend(bracketed);
+                    }
+                    if let Some(parenthesized) = paren_amounts {
+                        amounts.extend(parenthesized);
+                    }
 
-                // Combine all measurements (primary, bracketed, and parenthesized)
-                let mut amounts: Vec<Measure> = Vec::new();
-                if let Some(primary) = primary_amounts {
-                    amounts.extend(primary);
-                }
-                if let Some(bracketed) = bracketed_amounts {
-                    amounts.extend(bracketed);
-                }
-                if let Some(parenthesized) = paren_amounts {
-                    amounts.extend(parenthesized);
-                }
-
-                // Create the Ingredient
-                (
-                    next_input,
-                    Ingredient {
-                        name,
-                        amounts,
-                        // Only include modifier if non-empty
-                        modifier: if modifiers.is_empty() {
-                            None
-                        } else {
-                            Some(modifiers)
+                    // Create the Ingredient
+                    (
+                        next_input,
+                        Ingredient {
+                            name,
+                            amounts,
+                            // Only include modifier if non-empty
+                            modifier: if modifiers.is_empty() {
+                                None
+                            } else {
+                                Some(modifiers)
+                            },
+                            optional: false,
                         },
-                        optional: false,
-                    },
-                )
-            },
-        );
-
-        // Record trace outcome
-        match &result {
-            Ok((remaining, ingredient)) => {
-                let consumed = input.len() - remaining.len();
-                trace_exit_success(consumed, &ingredient.name);
-            }
-            Err(_) => {
-                trace_exit_failure("parse failed");
-            }
-        }
-
-        result
+                    )
+                },
+            ),
+            |i: &Ingredient| i.name.clone(),
+            "parse failed"
+        )
     }
 
     /// Parse and validate an adjective string
@@ -787,7 +776,7 @@ impl IngredientParser {
             input,
             context(
                 "adjective",
-                verify(unitamt, |s: &str| {
+                verify(parse_unit_text, |s: &str| {
                     self.adjectives.contains(&s.to_lowercase())
                 }),
             )

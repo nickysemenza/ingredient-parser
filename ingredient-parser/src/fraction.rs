@@ -78,8 +78,7 @@ fn n_fraction(input: &str) -> Res<&str, f64> {
 /// This parser handles both unicode vulgar fractions and standard slash-notation fractions,
 /// either alone or with a whole number component.
 pub fn fraction_number(input: &str) -> Res<&str, f64> {
-    use crate::trace::{trace_enter, trace_exit_failure, trace_exit_success};
-    trace_enter("fraction_number", input);
+    use crate::traced_parser;
 
     // Define parser for unicode vulgar fractions with optional whole number
     let vulgar_fraction_parser = (
@@ -93,30 +92,22 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
         n_fraction,            // Standard fraction notation like 1/4, 3/8, etc.
     );
 
-    // Try both parsers
-    let result = context(
+    traced_parser!(
         "fraction_number",
-        alt((vulgar_fraction_parser, slash_fraction_parser)),
+        input,
+        context(
+            "fraction_number",
+            alt((vulgar_fraction_parser, slash_fraction_parser)),
+        )
+        .parse(input)
+        .map(|(next_input, res)| {
+            let (whole_number, fractional_part) = res;
+            let whole_value = whole_number.map_or(0.0, |(num, _)| num);
+            (next_input, whole_value + fractional_part)
+        }),
+        |v: &f64| format!("{v}"),
+        "no fraction"
     )
-    .parse(input)
-    .map(|(next_input, res)| {
-        let (whole_number, fractional_part) = res;
-
-        // Extract whole number or default to 0.0
-        let whole_value = whole_number.map_or(0.0, |(num, _)| num);
-
-        // Sum whole and fractional parts
-        (next_input, whole_value + fractional_part)
-    });
-
-    match &result {
-        Ok((remaining, value)) => {
-            let consumed = input.len() - remaining.len();
-            trace_exit_success(consumed, &format!("{value}"));
-        }
-        Err(_) => trace_exit_failure("no fraction"),
-    }
-    result
 }
 
 #[cfg(test)]

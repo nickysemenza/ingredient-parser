@@ -12,18 +12,20 @@ use crate::unit::Measure;
 use super::MeasurementParser;
 
 impl<'a> MeasurementParser<'a> {
-    /// Parse measurements enclosed in parentheses: (1 cup)
-    pub fn parse_parenthesized_amounts<'b>(&self, input: &'b str) -> Res<&'b str, Vec<Measure>> {
+    /// Parse measurements enclosed in matching delimiters
+    fn parse_delimited_amounts<'b>(
+        &self,
+        input: &'b str,
+        open: char,
+        close: char,
+        name: &'static str,
+    ) -> Res<&'b str, Vec<Measure>> {
         traced_parser!(
-            "parse_parenthesized_amounts",
+            name,
             input,
             context(
-                "parenthesized_amounts",
-                delimited(
-                    char('('),                          // Opening parenthesis
-                    |a| self.parse_measurement_list(a), // Parse measurements inside parentheses
-                    char(')'),                          // Closing parenthesis
-                ),
+                name,
+                delimited(char(open), |a| self.parse_measurement_list(a), char(close),),
             )
             .parse(input),
             |measures: &Vec<Measure>| measures
@@ -31,34 +33,24 @@ impl<'a> MeasurementParser<'a> {
                 .map(|m| m.to_string())
                 .collect::<Vec<_>>()
                 .join(", "),
-            "no parenthesized amounts"
+            "no delimited amounts"
         )
+    }
+
+    /// Parse measurements enclosed in parentheses: (1 cup)
+    pub(crate) fn parse_parenthesized_amounts<'b>(
+        &self,
+        input: &'b str,
+    ) -> Res<&'b str, Vec<Measure>> {
+        self.parse_delimited_amounts(input, '(', ')', "parenthesized_amounts")
     }
 
     /// Parse measurements enclosed in square brackets: [56 G]
     ///
     /// Common in professional cookbooks like American Sfoglino where
     /// alternate measurements are shown in brackets: "4 TBSP [56 G] BUTTER"
-    pub fn parse_bracketed_amounts<'b>(&self, input: &'b str) -> Res<&'b str, Vec<Measure>> {
-        traced_parser!(
-            "parse_bracketed_amounts",
-            input,
-            context(
-                "bracketed_amounts",
-                delimited(
-                    char('['),                          // Opening bracket
-                    |a| self.parse_measurement_list(a), // Parse measurements inside brackets
-                    char(']'),                          // Closing bracket
-                ),
-            )
-            .parse(input),
-            |measures: &Vec<Measure>| measures
-                .iter()
-                .map(|m| m.to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
-            "no bracketed amounts"
-        )
+    pub(crate) fn parse_bracketed_amounts<'b>(&self, input: &'b str) -> Res<&'b str, Vec<Measure>> {
+        self.parse_delimited_amounts(input, '[', ']', "bracketed_amounts")
     }
 
     /// Parse expressions with "plus" or "+" that combine two measurements

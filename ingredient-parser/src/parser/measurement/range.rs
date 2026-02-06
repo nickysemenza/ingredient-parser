@@ -52,7 +52,7 @@ impl<'a> MeasurementParser<'a> {
         // Format for a measurement with a range
         let range_format = (
             nom::combinator::opt(tag("about ")), // Optional "about" for estimates
-            |a| self.get_value(a),               // The lower value
+            |a| self.parse_value(a),             // The lower value
             space0,                              // Optional whitespace
             nom::combinator::opt(|a| self.unit(a)), // Optional unit for lower value
             |a| self.parse_range_end(a),         // The upper range value

@@ -35,7 +35,7 @@ pub(crate) type Res<T, U> = IResult<T, U, VerboseError<T>>;
 /// let price = parse_amount_string("$5").unwrap();
 /// assert_eq!(price.value(), 5.0);
 /// ```
-pub fn parse_amount_string(input: &str) -> Result<Measure, String> {
+pub(crate) fn parse_amount_string(input: &str) -> Result<Measure, String> {
     let input = input.trim();
     if input.is_empty() {
         return Err("Empty amount".to_string());
@@ -43,14 +43,14 @@ pub fn parse_amount_string(input: &str) -> Result<Measure, String> {
 
     // Handle currency prefix: "$5", "$3.50"
     if let Some(price_str) = input.strip_prefix('$') {
-        return parse_number_only(price_str.trim())
-            .map(|value| Measure::new("dollar", value))
+        return parse_number(price_str.trim())
+            .map(|(_, value)| Measure::new("dollar", value))
             .map_err(|_| format!("Invalid price value: '{input}'"));
     }
 
     // Parse number (supports fractions, decimals)
     let (remaining, value) =
-        parse_number_nom(input).map_err(|_| format!("Invalid numeric value in: '{input}'"))?;
+        parse_number(input).map_err(|_| format!("Invalid numeric value in: '{input}'"))?;
 
     // Extract unit from remaining text
     let unit = remaining.trim();
@@ -59,7 +59,8 @@ pub fn parse_amount_string(input: &str) -> Result<Measure, String> {
     }
 
     // Parse the unit text (letters only)
-    let (leftover, unit_str) = unitamt(unit).map_err(|_| format!("Invalid unit in: '{input}'"))?;
+    let (leftover, unit_str) =
+        parse_unit_text(unit).map_err(|_| format!("Invalid unit in: '{input}'"))?;
 
     if unit_str.is_empty() {
         return Err(format!("Missing unit in: '{input}'"));
@@ -74,25 +75,9 @@ pub fn parse_amount_string(input: &str) -> Result<Measure, String> {
 }
 
 /// Parse a number using fraction or decimal parsing
-fn parse_number_nom(input: &str) -> Res<&str, f64> {
+fn parse_number(input: &str) -> Res<&str, f64> {
     // Try fraction first (handles "1/2", "1 ½", etc.), then fall back to decimal
     alt((fraction_number, double)).parse(input)
-}
-
-/// Parse just a number (for currency values)
-fn parse_number_only(input: &str) -> Result<f64, ()> {
-    parse_number_nom(input)
-        .map(|(remaining, value)| {
-            // Ensure we consumed the whole input or just whitespace
-            if remaining.trim().is_empty() {
-                value
-            } else {
-                // There's leftover - but for "$5.50 extra" we'd fail
-                // For simplicity, accept if we got a valid number
-                value
-            }
-        })
-        .map_err(|_| ())
 }
 
 /// Parse text characters for ingredient names.
@@ -100,10 +85,10 @@ fn parse_number_only(input: &str) -> Result<f64, ()> {
 /// Consumes a contiguous run of: alphanumeric, whitespace, hyphens, apostrophes,
 /// periods, backslashes, em-dashes, and right single quotes.
 ///
-/// Note: This is more restrictive than `rich_text::text2()` which also allows
+/// Note: This is more restrictive than `rich_text::parse_rich_char()` which also allows
 /// punctuation like commas, parentheses, semicolons, etc. for parsing recipe
 /// instructions rather than ingredient names.
-pub(crate) fn text(input: &str) -> Res<&str, &str> {
+pub(crate) fn parse_ingredient_text(input: &str) -> Res<&str, &str> {
     take_while1(|c: char| match c {
         '-' | '\u{2014}' | '\'' | '\u{2019}' | '.' | '\\' => true,
         c => c.is_alphanumeric() || c.is_whitespace(),
@@ -112,7 +97,7 @@ pub(crate) fn text(input: &str) -> Res<&str, &str> {
 }
 
 /// Parse unit/amount text including degrees and quotes
-pub(crate) fn unitamt(input: &str) -> Res<&str, String> {
+pub(crate) fn parse_unit_text(input: &str) -> Res<&str, String> {
     many0(alt((alpha1, tag("°"), tag("\""))))
         .parse(input)
         .map(|(next_input, res)| (next_input, res.join("")))
@@ -132,7 +117,7 @@ mod tests {
     use rstest::rstest;
 
     // ============================================================================
-    // text() Parser Tests
+    // parse_ingredient_text() Parser Tests
     // ============================================================================
 
     #[rstest]
@@ -146,12 +131,16 @@ mod tests {
     #[case::backslash("\\", "", "\\")]
     #[case::space(" ", "", " ")]
     #[case::multiword("all-purpose flour", "", "all-purpose flour")]
-    fn test_text(#[case] input: &str, #[case] remaining: &str, #[case] expected: &str) {
-        assert_eq!(text(input), Ok((remaining, expected)));
+    fn test_parse_ingredient_text(
+        #[case] input: &str,
+        #[case] remaining: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(parse_ingredient_text(input), Ok((remaining, expected)));
     }
 
     // ============================================================================
-    // unitamt() Parser Tests
+    // parse_unit_text() Parser Tests
     // ============================================================================
 
     #[rstest]
@@ -160,8 +149,11 @@ mod tests {
     #[case::quote("\"", "", "\"")]
     #[case::short_unit("oz", "", "oz")]
     #[case::empty("", "", "")]
-    fn test_unitamt(#[case] input: &str, #[case] remaining: &str, #[case] expected: &str) {
-        assert_eq!(unitamt(input), Ok((remaining, expected.to_string())));
+    fn test_parse_unit_text(#[case] input: &str, #[case] remaining: &str, #[case] expected: &str) {
+        assert_eq!(
+            parse_unit_text(input),
+            Ok((remaining, expected.to_string()))
+        );
     }
 
     // ============================================================================
@@ -224,10 +216,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_number_only_with_leftover() {
-        // Tests the leftover text branch in parse_number_only (line 93)
+    fn test_currency_with_leftover() {
         // "$5x" parses "5", leaving "x" as leftover but still succeeds
-        // This hits the else branch where remaining.trim() is not empty
         let measure = parse_amount_string("$5x").unwrap();
         assert_eq!(measure.value(), 5.0);
     }
