@@ -103,7 +103,7 @@ async fn main() {
 
                 // Print the trace tree if debug is enabled
                 if *debug {
-                    let use_color = atty::is(atty::Stream::Stdout);
+                    let use_color = std::io::IsTerminal::is_terminal(&std::io::stdout());
                     println!("{}", result.trace.format_tree(use_color));
                 }
 

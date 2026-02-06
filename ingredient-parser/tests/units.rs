@@ -56,7 +56,7 @@ use rstest::rstest;
 #[case::fahrenheit_f("f", Unit::Fahrenheit)]
 #[case::fahrenheit_deg("°", Unit::Fahrenheit)]
 #[case::fahrenheit_deg_f("°f", Unit::Fahrenheit)]
-#[case::celcius("°c", Unit::Celcius)]
+#[case::celsius("°c", Unit::Celsius)]
 #[case::inch_quote("\"", Unit::Inch)]
 #[case::inch("inch", Unit::Inch)]
 #[case::whole("whole", Unit::Whole)]
@@ -90,7 +90,7 @@ fn test_unit_from_str_unknown() {
 #[case::hour(Unit::Hour, "hour")]
 #[case::day(Unit::Day, "day")]
 #[case::fahrenheit(Unit::Fahrenheit, "fahrenheit")]
-#[case::celcius(Unit::Celcius, "celcius")]
+#[case::celsius(Unit::Celsius, "celsius")]
 #[case::inch(Unit::Inch, "\"")]
 #[case::whole(Unit::Whole, "whole")]
 fn test_unit_to_str(#[case] unit: Unit, #[case] expected: &str) {

@@ -312,7 +312,7 @@ impl Measure {
             Unit::Second | Unit::Minute | Unit::Hour | Unit::Day => MeasureKind::Time,
 
             // Temperature units
-            Unit::Fahrenheit | Unit::Celcius => MeasureKind::Temperature,
+            Unit::Fahrenheit | Unit::Celsius => MeasureKind::Temperature,
 
             // Energy units
             Unit::KCal => MeasureKind::Calories,
@@ -365,7 +365,7 @@ impl Measure {
             | Unit::Pound
             | Unit::Dollar
             | Unit::Fahrenheit
-            | Unit::Celcius // todo: convert to farhenheit?
+            | Unit::Celsius
             | Unit::Whole
             | Unit::Minute
             | Unit::Hour

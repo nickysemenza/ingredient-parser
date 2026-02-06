@@ -2,15 +2,39 @@
 
 use super::{ParseTrace, TraceNode, TraceOutcome};
 
+/// Generate a pseudo-random hex string of the given length using std hashing.
+///
+/// Uses process ID, thread ID, and a counter as entropy sources.
+/// Not cryptographically secure, but sufficient for trace IDs.
+fn random_hex(len: usize) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    let mut hasher = DefaultHasher::new();
+    std::process::id().hash(&mut hasher);
+    std::thread::current().id().hash(&mut hasher);
+    count.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    // Extend to cover the requested length by re-hashing
+    let mut result = String::with_capacity(len);
+    let mut current = hash;
+    while result.len() < len {
+        result.push_str(&format!("{current:016x}"));
+        current = current.wrapping_mul(6364136223846793005).wrapping_add(1);
+    }
+    result.truncate(len);
+    result
+}
+
 /// Export trace to Jaeger-compatible JSON format
 pub(super) fn to_jaeger_json(trace: &ParseTrace) -> String {
-    use rand::Rng;
-
     // Generate trace ID (16 bytes as hex = 32 chars)
-    let mut rng = rand::rng();
-    let trace_id: String = (0..32)
-        .map(|_| format!("{:x}", rng.random_range(0..16u8)))
-        .collect();
+    let trace_id = random_hex(32);
 
     // Collect spans from tree
     let mut spans = Vec::new();
@@ -50,13 +74,8 @@ fn collect_spans(
     spans: &mut Vec<serde_json::Value>,
     span_counter: &mut u64,
 ) {
-    use rand::Rng;
-
     // Generate span ID
-    let mut rng = rand::rng();
-    let span_id: String = (0..16)
-        .map(|_| format!("{:x}", rng.random_range(0..16u8)))
-        .collect();
+    let span_id = random_hex(16);
 
     // Calculate start time in unix microseconds
     let start_time =

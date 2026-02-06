@@ -738,7 +738,7 @@ fn test_unit_to_str_fallback() {
         Unit::Minute,
         Unit::Second,
         Unit::Fahrenheit,
-        Unit::Celcius,
+        Unit::Celsius,
         Unit::Inch,
         Unit::Whole,
     ];
@@ -868,7 +868,7 @@ fn test_trailing_temp_only_not_used(parser: IngredientParser, #[case] input: &st
     let has_non_temp_amount = result.amounts.iter().any(|m| {
         !matches!(
             m.unit(),
-            ingredient::unit::Unit::Fahrenheit | ingredient::unit::Unit::Celcius
+            ingredient::unit::Unit::Fahrenheit | ingredient::unit::Unit::Celsius
         )
     });
     assert!(

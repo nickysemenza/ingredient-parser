@@ -125,11 +125,12 @@ pub fn conv_amount_to_nutrients(
 ) -> Result<JsValue, String> {
     let pairs = parse_mappings(mappings)?;
     let measure: Measure = from_js(&amount, "amount")?;
+    let graph = make_graph(&pairs);
 
     let result = js_sys::Object::new();
     for target in nutrient_targets {
         let kind = MeasureKind::Nutrient(target.clone());
-        let converted = measure.convert_measure_via_mappings(kind, &pairs);
+        let converted = ingredient::unit::convert_measure_with_graph(&measure, kind, &graph);
 
         let js_value = match converted {
             Some(m) => to_js(&m, "amount")?,

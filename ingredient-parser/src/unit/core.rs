@@ -43,7 +43,7 @@ pub enum Unit {
     Second,
     // temperature
     Fahrenheit,
-    Celcius,
+    Celsius,
     //distance
     Inch,
     Whole,
@@ -81,7 +81,7 @@ impl Unit {
             Unit::Hour => "hour".to_string(),
             Unit::Day => "day".to_string(),
             Unit::Fahrenheit => "fahrenheit".to_string(),
-            Unit::Celcius => "celcius".to_string(),
+            Unit::Celsius => "celsius".to_string(),
             Unit::Inch => "\"".to_string(),
             Unit::Whole => "whole".to_string(),
             Unit::Other(s) => singular(s).into_owned(),
@@ -133,8 +133,9 @@ static UNIT_MAPPINGS: &[(&str, Unit)] = &[
     ("°", Unit::Fahrenheit),
     ("°f", Unit::Fahrenheit),
     ("degrees", Unit::Fahrenheit),
-    ("celcius", Unit::Celcius),
-    ("°c", Unit::Celcius),
+    ("celsius", Unit::Celsius),
+    ("celcius", Unit::Celsius),
+    ("°c", Unit::Celsius),
     ("\"", Unit::Inch),
     //distance
     ("inch", Unit::Inch),

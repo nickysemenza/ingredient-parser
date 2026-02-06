@@ -10,14 +10,21 @@ members = [
     "food-app",
 ]
 
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1.40"
+tokio = { version = "1.47.1", features = ["macros"] }
+rstest = "0.26"
+ingredient = { path = "ingredient-parser" }
+recipe-scraper = { path = "recipe-scraper" }
+
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 
-# Shared profile configuration for all workspace members
-[profile.release]
-opt-level = "s"  # Optimize for size (good for wasm)
+# WASM size optimization is handled by wasm-pack/wasm-opt, not Rust compiler flags
 
 # Optimize dependencies even in debug builds for better development experience
 [profile.dev.package."*"]
@@ -25,6 +32,3 @@ opt-level = 2
 
 [profile.test]
 opt-level = 1  # Light optimization for faster test execution
-
-[patch.crates-io]
-# Add any crates-io patches here if needed

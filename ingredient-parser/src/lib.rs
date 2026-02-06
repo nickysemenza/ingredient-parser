@@ -882,5 +882,5 @@ fn extract_secondary_amounts(
 
 /// Check if a unit represents a temperature
 fn is_temperature_unit(unit: &unit::Unit) -> bool {
-    matches!(unit, unit::Unit::Fahrenheit | unit::Unit::Celcius)
+    matches!(unit, unit::Unit::Fahrenheit | unit::Unit::Celsius)
 }
