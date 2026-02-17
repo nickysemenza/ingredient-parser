@@ -6,7 +6,7 @@ mod tabs;
 use eframe::egui::{self, Image};
 use ingredient::trace::ParseTrace;
 use poll_promise::Promise;
-use rand::Rng;
+use rand::RngExt;
 use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
 use tabs::{show_debug_tab, show_parsed, show_raw, show_test_tab};
 

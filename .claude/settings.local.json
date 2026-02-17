@@ -14,7 +14,8 @@
       "Bash(cargo check:*)",
       "Bash(npx tsc:*)",
       "Bash(cargo nextest run:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Bash(cargo update:*)"
     ]
   }
 }
