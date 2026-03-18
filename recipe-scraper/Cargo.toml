@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-scraper = "0.25.0"
+scraper = "0.26.0"
 serde_json.workspace = true
 serde.workspace = true
 thiserror = "2.0"
