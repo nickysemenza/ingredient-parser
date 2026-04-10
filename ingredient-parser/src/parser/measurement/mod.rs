@@ -4,152 +4,25 @@
 //! strings, including single measurements, ranges, and combined expressions.
 
 mod composite;
+mod guards;
 mod number;
 mod range;
+mod single;
 
 use std::collections::HashSet;
 
-#[allow(deprecated)]
-use nom::sequence::tuple;
-use nom::{
-    branch::alt,
-    bytes::complete::tag,
-    character::complete::{space0, space1},
-    combinator::{opt, verify},
-    error::context,
-    multi::separated_list1,
-    Parser,
-};
+use nom::{branch::alt, bytes::complete::tag, error::context, multi::separated_list1, Parser};
 
-use nom::error::ParseError;
-use nom_language::error::VerboseError;
-
-use crate::parser::{parse_unit_text, Res};
-
-/// Consume an optional em-dash or en-dash separator between amount and unit.
-/// Some cookbooks use formats like "3–4 — tablespoons" where there's an extra
-/// dash between the range and the unit.
-fn optional_dash_separator(input: &str) -> Res<&str, Option<&str>> {
-    opt(alt((
-        tag("— "), // em-dash with trailing space
-        tag("– "), // en-dash with trailing space
-        tag("—"),  // bare em-dash
-        tag("–"),  // bare en-dash
-    )))
-    .parse(input)
-}
+use crate::parser::Res;
 use crate::traced_parser;
-use crate::unit::{self, Measure};
+use crate::unit::Measure;
+
+use self::guards::optional_period_or_of;
+#[cfg(test)]
+use self::guards::{is_distance_unit, starts_with_dimension_suffix};
 
 /// Default unit for amounts without a specified unit (e.g., "2 eggs")
-const DEFAULT_UNIT: &str = "whole";
-
-/// Distance unit base forms for dimension detection.
-/// These are the canonical forms of distance units (singular, no hyphen).
-const DISTANCE_UNIT_BASES: &[&str] = &[
-    "inch",
-    "in",
-    "cm",
-    "centimeter",
-    "centimetre",
-    "mm",
-    "millimeter",
-    "millimetre",
-    "foot",
-    "ft",
-    "meter",
-    "metre",
-    "m",
-    "yard",
-    "yd",
-];
-
-/// Check if a string is a distance unit (used for dimension detection).
-/// Handles both singular and plural forms automatically.
-fn is_distance_unit(s: &str) -> bool {
-    let lower = s.to_lowercase();
-
-    // Check exact match
-    for base in DISTANCE_UNIT_BASES {
-        if lower == *base {
-            return true;
-        }
-    }
-
-    // Check common plural forms
-    // Try removing "s" suffix
-    if lower.ends_with('s') {
-        let without_s = &lower[..lower.len() - 1];
-        for base in DISTANCE_UNIT_BASES {
-            if without_s == *base {
-                return true;
-            }
-        }
-        // Try removing "es" suffix (for "inches", etc.)
-        if lower.ends_with("es") && lower.len() > 2 {
-            let without_es = &lower[..lower.len() - 2];
-            for base in DISTANCE_UNIT_BASES {
-                if without_es == *base {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
-}
-
-/// Check if text starts with a dimension suffix (e.g., "-inch", "-cm", "-inches")
-///
-/// A dimension suffix is a hyphen followed by a distance unit.
-/// For example, "1-inch" in "1-inch piece ginger" should not be parsed as quantity=1.
-fn starts_with_dimension_suffix(text: &str) -> bool {
-    let text = text.to_lowercase();
-    if !text.starts_with('-') {
-        return false;
-    }
-
-    // Extract the potential unit after the hyphen
-    let after_hyphen = &text[1..];
-    // Take alphanumeric chars until we hit a space, hyphen, or other delimiter
-    let unit_part: String = after_hyphen
-        .chars()
-        .take_while(|c| c.is_alphabetic())
-        .collect();
-
-    if unit_part.is_empty() {
-        return false;
-    }
-
-    is_distance_unit(&unit_part)
-}
-
-/// Parse optional trailing period or " of" after units (e.g., "tsp." or "cup of")
-/// Also consumes a trailing space after a period (for sentence breaks like "375. Next")
-fn optional_period_or_of(input: &str) -> Res<&str, Option<&str>> {
-    opt(alt((tag(". "), tag("."), tag(" of")))).parse(input)
-}
-
-/// Check if a bare number looks like a step number in instructions.
-///
-/// Returns true if the remaining input starts with whitespace followed by
-/// a capitalized word (likely an instruction verb like "Bring", "Set", "Add").
-/// This helps avoid parsing step numbers as measurements (e.g., "1 Bring a pot").
-fn looks_like_step_number(input: &str) -> bool {
-    let trimmed = input.trim_start();
-    if trimmed.is_empty() {
-        return false;
-    }
-    // Check if first char is uppercase letter
-    let first_char = trimmed.chars().next().unwrap_or(' ');
-    if !first_char.is_ascii_uppercase() {
-        return false;
-    }
-    // Check if the first word is more than 2 characters (not just an initial)
-    // and is alphabetic (instruction verbs)
-    let first_word: String = trimmed.chars().take_while(|c| c.is_alphabetic()).collect();
-    first_word.len() >= 2
-}
+pub(super) const DEFAULT_UNIT: &str = "whole";
 
 /// Parser for extracting measurements from ingredient strings
 ///
@@ -245,231 +118,6 @@ impl<'a> MeasurementParser<'a> {
             "no measurements found"
         )
     }
-
-    /// Parse a single measurement like "2 cups" or "about 3 tablespoons"
-    ///
-    /// Also handles format: "4 (13-millimeter/½-inch) slices" where a parenthesized
-    /// description appears between the number and unit.
-    #[allow(deprecated)]
-    fn parse_single_measurement<'b>(&self, input: &'b str) -> Res<&'b str, Measure> {
-        // Define the structure of a basic measurement
-        let measurement_parser = (
-            opt(tag("about ")),                // Optional "about" prefix for estimates
-            opt(|a| self.parse_multiplier(a)), // Optional multiplier (e.g., "2 x")
-            |a| self.parse_value(a),           // The numeric value
-            space0,                            // Optional whitespace
-            optional_dash_separator,           // Handle "3–4 — tablespoons" format
-            opt(|a| self.unit(a)),             // Optional unit of measure
-            optional_period_or_of,             // Optional trailing period or "of"
-        );
-
-        traced_parser!(
-            "parse_single_measurement",
-            input,
-            context("single_measurement", tuple(measurement_parser))
-                .parse(input)
-                .and_then(|(next_input, res)| {
-                    let (_estimate_prefix, multiplier, value, _, _dash, unit, period_consumed) =
-                        res;
-
-                    // Apply multiplier if present
-                    let final_value = match multiplier {
-                        Some(m) => value.0 * m,
-                        None => value.0,
-                    };
-
-                    // If no unit was found, check if there's a parenthesized description
-                    // followed by a unit, like "4 (13-millimeter/½-inch) slices"
-                    let (final_next_input, final_unit) = if unit.is_none() {
-                        if let Some((after_paren, found_unit)) =
-                            self.parse_unit_after_parens(next_input)
-                        {
-                            // Found a unit after parentheses - use it
-                            (after_paren, found_unit)
-                        } else if self.is_rich_text
-                            && period_consumed.is_none()
-                            && looks_like_step_number(next_input)
-                        {
-                            // In rich text mode, don't parse bare numbers followed by
-                            // capitalized words as measurements (e.g., "1 Bring a pot...")
-                            // These are likely step numbers, not quantities.
-                            // BUT: if a period was consumed (like "375. Combine"), this is
-                            // a sentence break, not a step number pattern.
-                            return Err(nom::Err::Error(VerboseError::from_error_kind(
-                                input,
-                                nom::error::ErrorKind::Verify,
-                            )));
-                        } else if starts_with_dimension_suffix(next_input) {
-                            // Don't parse "1-inch" as "1 whole" - the number is part of
-                            // a dimension descriptor like "1-inch piece ginger"
-                            return Err(nom::Err::Error(VerboseError::from_error_kind(
-                                input,
-                                nom::error::ErrorKind::Verify,
-                            )));
-                        } else {
-                            // No unit found, default to "whole"
-                            (next_input, DEFAULT_UNIT.to_string())
-                        }
-                    } else if let Some(u) = unit {
-                        (next_input, u.to_lowercase())
-                    } else {
-                        unreachable!("unit.is_none() was false but unit is None")
-                    };
-
-                    // Create the measurement
-                    Ok((
-                        final_next_input,
-                        Measure::from_parts(
-                            final_unit.as_ref(),
-                            final_value,
-                            value.1, // Pass along any upper range value
-                        ),
-                    ))
-                }),
-            |m: &Measure| m.to_string(),
-            "no measurement"
-        )
-    }
-
-    /// Try to find a unit after skipping a parenthesized description.
-    ///
-    /// For input like "(13-millimeter/½-inch) slices CHASHU", this skips the
-    /// parentheses and returns ("CHASHU", "slices").
-    ///
-    /// Returns Some((remaining, unit)) if successful, None otherwise.
-    fn parse_unit_after_parens<'b>(&self, input: &'b str) -> Option<(&'b str, String)> {
-        let input = input.trim_start();
-
-        // Must start with '('
-        if !input.starts_with('(') {
-            return None;
-        }
-
-        // Find matching closing parenthesis
-        let mut depth = 0;
-        let mut close_pos = None;
-        for (i, c) in input.char_indices() {
-            match c {
-                '(' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close_pos = Some(i);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let close_pos = close_pos?;
-
-        // Get the text after the closing paren
-        let after_paren = &input[close_pos + 1..];
-        let after_paren = after_paren.trim_start();
-
-        // Try to parse a unit
-        if let Ok((remaining, unit)) = self.unit(after_paren) {
-            // Also consume optional period or " of"
-            let remaining = if let Some(stripped) = remaining.strip_prefix('.') {
-                stripped
-            } else if let Some(stripped) = remaining.strip_prefix(" of") {
-                stripped
-            } else {
-                remaining
-            };
-            Some((remaining, unit.to_lowercase()))
-        } else {
-            None
-        }
-    }
-
-    /// Parse a standalone unit with implicit quantity of 1, like "cup" or "tablespoons"
-    ///
-    /// This is disabled in rich text mode to prevent false positives like
-    /// "bullet-proof recipe" being parsed as "1 recipe". In prose, measurements
-    /// should always have explicit numbers.
-    fn parse_unit_only<'b>(&self, input: &'b str) -> Res<&'b str, Measure> {
-        // In rich text mode, don't allow implicit quantity parsing
-        // Prose like "bullet-proof recipe" shouldn't become "1 recipe"
-        if self.is_rich_text {
-            return Err(nom::Err::Error(VerboseError::from_error_kind(
-                input,
-                nom::error::ErrorKind::Verify,
-            )));
-        }
-
-        // Format: optional space + unit + optional period/of + required space
-        let unit_only_format = (
-            // Space requirement depends on text mode
-            |a| {
-                if self.is_rich_text {
-                    space1(a) // Rich text mode requires space
-                } else {
-                    space0(a) // Normal mode allows optional space
-                }
-            },
-            |a| self.unit_extra(a), // Parse the unit
-            optional_period_or_of,  // Optional period or "of"
-            space1,                 // Required space after unit
-        );
-
-        traced_parser!(
-            "parse_unit_only",
-            input,
-            context("unit_only", unit_only_format).parse(input).map(
-                |(next_input, (_, unit, _, _))| {
-                    // Create a measure with value 1.0 and the parsed unit
-                    (
-                        next_input,
-                        Measure::from_parts(unit.to_lowercase().as_ref(), 1.0, None),
-                    )
-                }
-            ),
-            |m: &Measure| m.to_string(),
-            "no unit-only"
-        )
-    }
-
-    /// Parse and validate a unit string using the given predicate
-    fn parse_unit_with<'b>(
-        &self,
-        input: &'b str,
-        predicate: impl Fn(&str) -> bool,
-        name: &'static str,
-        err_msg: &'static str,
-    ) -> Res<&'b str, String> {
-        traced_parser!(
-            name,
-            input,
-            context("unit", verify(parse_unit_text, |s: &str| predicate(s)),).parse(input),
-            |s: &String| s.clone(),
-            err_msg
-        )
-    }
-
-    /// Parse and validate a unit string
-    fn unit<'b>(&self, input: &'b str) -> Res<&'b str, String> {
-        self.parse_unit_with(
-            input,
-            |s| unit::is_valid(self.units, s),
-            "unit",
-            "not a valid unit",
-        )
-    }
-
-    /// Parse an addon unit (only units in the custom set, not built-in units)
-    ///
-    /// This is used for implicit quantity parsing like "cup of flour" where we want
-    /// to only match addon units, not built-in units like "whole".
-    fn unit_extra<'b>(&self, input: &'b str) -> Res<&'b str, String> {
-        self.parse_unit_with(
-            input,
-            |s| unit::is_addon_unit(self.units, s),
-            "unit_extra",
-            "not an addon unit",
-        )
-    }
 }
 
 #[cfg(test)]
@@ -496,6 +144,8 @@ mod tests {
             "tablespoons",
             "teaspoon",
             "teaspoons",
+            "slice",
+            "slices",
         ]
         .iter()
         .map(|&s| s.to_string())
@@ -656,6 +306,12 @@ mod tests {
         assert_eq!(measure.value(), 1.0);
     }
 
+    #[rstest]
+    fn test_unit_only_rejected_in_rich_text_mode(units: HashSet<String>) {
+        let parser = MeasurementParser::new(&units, true);
+        assert!(parser.parse_unit_only(" cup ").is_err());
+    }
+
     /// Test that unit mismatch in ranges returns None
     /// Note: This only works for dash-style ranges where both units are adjacent to numbers
     /// (e.g., "1g-2tbsp"). Word-style ranges like "1 cup to 2 tbsp" don't detect mismatch
@@ -690,6 +346,33 @@ mod tests {
         let (_, measure) = result.unwrap();
         let measure_str = format!("{measure}");
         assert!(measure_str.contains("whole") || measure.value() == 2.0);
+    }
+
+    #[rstest]
+    #[case::step_number("1 Bring a pot of water to a boil.")]
+    #[case::numbered_instruction("2 Set out 4 ramen bowls.")]
+    fn test_step_numbers_not_parsed_as_measurements(units: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units, true);
+        assert!(parser.parse_measurement_list(input).is_err());
+    }
+
+    #[rstest]
+    #[case::inch_piece("1-inch piece ginger")]
+    #[case::cm_piece("2-cm knob ginger")]
+    fn test_dimension_suffix_rejected(units: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units, true);
+        assert!(parser.parse_single_measurement(input).is_err());
+    }
+
+    #[rstest]
+    fn test_unit_after_parenthesized_description(units: HashSet<String>) {
+        let parser = MeasurementParser::new(&units, false);
+        let result = parser.parse_single_measurement("4 (13-millimeter/½-inch) slices CHASHU");
+        assert!(result.is_ok());
+        let (remaining, measure) = result.unwrap();
+        assert_eq!(remaining, " CHASHU");
+        assert_eq!(measure.value(), 4.0);
+        assert_eq!(measure.unit_as_string(), "slice");
     }
 
     // ============================================================================

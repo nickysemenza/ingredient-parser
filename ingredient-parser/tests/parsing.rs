@@ -45,6 +45,13 @@ fn case<'a>(
     (input, Ingredient::new(name, measures, modifier))
 }
 
+fn assert_trace_result(parser: &IngredientParser, input: &str, expected: &Ingredient) {
+    let traced = parser.parse_with_trace(input);
+    assert!(traced.result.is_ok(), "Failed to parse with trace: {input}");
+    let traced_result = traced.result.unwrap();
+    assert_eq!(&traced_result, expected, "Trace result mismatch: {input}");
+}
+
 fn text(s: &str) -> Chunk {
     Chunk::Text(s.to_string())
 }
@@ -208,6 +215,8 @@ fn test_ingredient_parsing(parser: IngredientParser) {
         case("4 TBSP [56 G] UNSALTED BUTTER", "UNSALTED BUTTER", &[("tbsp", 4.0), ("g", 56.0)], None),
         // NBSP normalization (Cook's Illustrated format with non-breaking spaces)
         case("3/4 \u{a0}\u{a0} cups whole milk", "whole milk", &[("cups", 0.75)], None),
+        // Multiple spaces normalize the same way in normal and traced parsing
+        case("  2   cups   flour  ", "flour", &[("cups", 2.0)], None),
     ];
 
     for (input, expected) in test_cases {
@@ -216,13 +225,7 @@ fn test_ingredient_parsing(parser: IngredientParser) {
         assert_eq!(result, expected, "Failed to parse: {input}");
 
         // Test with tracing enabled (exercises trace formatter callbacks)
-        let traced = parser.parse_with_trace(input);
-        assert!(traced.result.is_ok(), "Failed to parse with trace: {input}");
-        assert_eq!(
-            traced.result.unwrap(),
-            expected,
-            "Trace result mismatch: {input}"
-        );
+        assert_trace_result(&parser, input, &expected);
     }
 }
 
@@ -267,6 +270,7 @@ fn test_optional_ingredients(
         expected_modifier,
         "Modifier mismatch for: {input}"
     );
+    assert_trace_result(&parser, input, &result);
 }
 
 // ============================================================================
@@ -312,6 +316,7 @@ fn test_secondary_amounts(
         expected_modifier,
         "Modifier mismatch for: {input}"
     );
+    assert_trace_result(&parser, input, &result);
 }
 
 // ============================================================================
@@ -352,6 +357,7 @@ fn test_alternative_ingredients(
         expected_modifier,
         "Modifier mismatch for: {input}"
     );
+    assert_trace_result(&parser, input, &result);
 }
 
 // ============================================================================
@@ -854,6 +860,7 @@ fn test_trailing_amount_format(
         expected_modifier,
         "Modifier mismatch for: {input}"
     );
+    assert_trace_result(&parser, input, &result);
 }
 
 /// Test that temperature-only trailing amounts are NOT used

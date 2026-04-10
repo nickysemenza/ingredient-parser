@@ -4,6 +4,7 @@
 
 pub(crate) mod helpers;
 pub(crate) mod measurement;
+pub(crate) mod pipeline;
 
 pub(crate) use helpers::parse_amount_string;
 pub(crate) use helpers::{parse_ingredient_text, parse_unit_text, text_number, Res};
