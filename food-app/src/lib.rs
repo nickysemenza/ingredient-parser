@@ -87,9 +87,9 @@ fn rewrite_url(url: &str) -> String {
 }
 
 impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Top panel with tab bar (always visible)
-        egui::TopBottomPanel::top("tab_bar").show(ctx, |ui| {
+        egui::Panel::top("tab_bar").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.current_tab, Tab::Test, "🧪 Test Parser");
                 ui.separator();
@@ -100,11 +100,11 @@ impl eframe::App for MyApp {
 
         // URL bar panel (only shown for Recipe/Debug tabs)
         if self.current_tab != Tab::Test {
-            egui::TopBottomPanel::top("url_panel").show(ctx, |ui| {
+            egui::Panel::top("url_panel").show_inside(ui, |ui| {
                 let trigger_fetch = ui_url(ui, &mut self.url);
 
                 if trigger_fetch || self.promise.is_none() {
-                    let ctx = ctx.clone();
+                    let ctx = ui.ctx().clone();
                     let (sender, promise) = Promise::new();
                     let request = ehttp::Request::get(rewrite_url(&self.url.clone()));
                     ehttp::fetch(request, move |response| {
@@ -134,7 +134,7 @@ impl eframe::App for MyApp {
             });
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| match self.current_tab {
+        egui::CentralPanel::default().show_inside(ui, |ui| match self.current_tab {
             Tab::Test => {
                 show_test_tab(
                     ui,
