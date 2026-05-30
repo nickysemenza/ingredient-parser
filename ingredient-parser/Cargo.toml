@@ -34,6 +34,7 @@ features = ["alloc"]
 [dev-dependencies]
 proptest = "1.5"
 rstest.workspace = true
+serde = { workspace = true }
 
 [[bench]]
 name = "parser_benchmarks"
