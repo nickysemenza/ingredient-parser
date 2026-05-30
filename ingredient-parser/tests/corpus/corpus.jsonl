@@ -192,9 +192,12 @@
 {"input": "All-purpose flour — 630 g", "name": "All-purpose flour", "amounts": [{"unit": "g", "value": 630.0}]}
 {"input": "Warm water (100°F/38°C) — 472 g", "name": "Warm water (100°F/38°C)", "amounts": [{"unit": "g", "value": 472.0}]}
 //
+// --- thousands separators ("1,000" -> 1000; comma must be followed by 3 digits) ---
+{"input": "1,000 grams flour", "name": "flour", "amounts": [{"unit": "g", "value": 1000}]}
+{"input": "1,000 grams (about 6 cups) quartered and pitted nectarines", "name": "quartered and pitted nectarines", "amounts": [{"unit": "g", "value": 1000}, {"unit": "cup", "value": 6}]}
+//
 // --- known gaps (xfail = desired parse the parser does not yet produce) ---
 {"input": "Juice of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "juice of", "xfail": "'X of N item' construction falls back to name-only"}
 {"input": "Zest of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "zest of", "xfail": "'X of N item' construction falls back to name-only"}
 {"input": "1 cup packed brown sugar", "name": "brown sugar", "amounts": [{"unit": "cup", "value": 1}], "modifier": "packed", "xfail": "leading prep word 'packed' not extracted to modifier"}
-{"input": "1,000 grams (about 6 cups) quartered and pitted nectarines", "name": "quartered and pitted nectarines", "amounts": [{"unit": "g", "value": 1000}], "xfail": "decimal-comma thousands separator '1,000' not parsed; now falls back to full-input name (no longer empty)"}
 {"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": 0.667}, {"unit": "g", "value": 85}], "modifier": "finely chopped", "xfail": "leading prep phrase before name; now falls back to full-input name (no longer empty)"}
