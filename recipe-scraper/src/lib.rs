@@ -81,30 +81,32 @@ impl ScrapedRecipe {
 // https://github.com/megametres/recettes-api/blob/dev/src/html_parser/mod.rs
 
 pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
-    info!("scraping {} from {} ({:.10})", body.len(), url, body);
+    info!("scraping {} bytes from {url}", body.len());
     if url.contains("chefsteps.com") {
         info!("scraping chefsteps");
         return parse_chefsteps(body);
     }
     let dom = Html::parse_document(body);
-    let res = match extract_ld(dom.clone()) {
+
+    // Prefer LD+JSON, but fall back to HTML scraping on *any* LD failure —
+    // missing, malformed/undeserializable, or present-but-no-recipe — rather
+    // than erroring out. Previously only the "no ld+json at all" case degraded.
+    let from_ld = match extract_ld(dom.clone()) {
         Ok(ld_schemas) => {
             let items = ld_schemas.len();
-            match ld_schemas
+            ld_schemas
                 .into_iter()
-                .map(|ld| ld_json::scrape_from_ld_json(ld.as_str(), url))
-                // .collect::<Vec<Result<ScrapedRecipe, ScrapeError>>>()
-                .find_map(Result::ok)
-            {
-                Some(r) => Ok(r),
-                None => Err(ScrapeError::LDJSONMissingRecipe(url.to_string(), items)),
-            }
+                .find_map(|ld| ld_json::scrape_from_ld_json(ld.as_str(), url).ok())
+                .ok_or_else(|| ScrapeError::LDJSONMissingRecipe(url.to_string(), items))
         }
-        Err(e) => match e {
-            ScrapeError::NoLDJSON(_) => scrape_from_html(dom, url),
-            _ => Err(e),
-        },
+        Err(e) => Err(e),
     };
+
+    let res = from_ld.or_else(|ld_err| {
+        info!("ld+json scrape failed ({ld_err}); falling back to HTML");
+        scrape_from_html(dom, url)
+    });
+
     res.map(|mut r| {
         r.ingredients = r.ingredients.into_iter().map(clean_string).collect();
         r.instructions = r.instructions.into_iter().map(clean_string).collect();

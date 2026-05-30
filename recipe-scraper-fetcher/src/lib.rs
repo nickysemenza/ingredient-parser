@@ -43,7 +43,16 @@ impl Fetcher {
         let r = match self
             .client
             .get(url)
-            .header("user-agent", "recipe")
+            // A bare "recipe" UA gets blocked by many sites; use a descriptive,
+            // browser-prefixed bot UA that real recipe sites generally accept.
+            .header(
+                "user-agent",
+                concat!(
+                    "Mozilla/5.0 (compatible; ingredient-parser/",
+                    env!("CARGO_PKG_VERSION"),
+                    "; +https://github.com/nickysemenza/ingredient-parser)"
+                ),
+            )
             .send()
             .await
         {
