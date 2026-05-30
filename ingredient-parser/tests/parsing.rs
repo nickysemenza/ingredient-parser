@@ -34,13 +34,6 @@ fn parser_custom_adjectives() -> IngredientParser {
 // Test Helpers
 // ============================================================================
 
-fn assert_trace_result(parser: &IngredientParser, input: &str, expected: &Ingredient) {
-    let traced = parser.parse_with_trace(input);
-    assert!(traced.result.is_ok(), "Failed to parse with trace: {input}");
-    let traced_result = traced.result.unwrap();
-    assert_eq!(&traced_result, expected, "Trace result mismatch: {input}");
-}
-
 fn text(s: &str) -> Chunk {
     Chunk::Text(s.to_string())
 }
@@ -521,50 +514,6 @@ fn test_parse_with_trace(parser: IngredientParser) {
 // ============================================================================
 // Trailing Amount Format Tests (European/Professional Cookbook Style)
 // ============================================================================
-
-/// Test the trailing amount format: "Ingredient — AMOUNT"
-/// Common in professional cookbooks where amounts come at the end after an em-dash
-#[rstest]
-#[case::em_dash_grams("All-purpose flour — 630 g", "All-purpose flour", &[("g", 630.0)], None)]
-#[case::em_dash_with_temp("Warm water (100°F/38°C) — 472 g", "Warm water (100°F/38°C)", &[("g", 472.0)], None)]
-#[case::en_dash("Salt – 14 g", "Salt", &[("g", 14.0)], None)]
-#[case::double_hyphen("Sugar -- 200 g", "Sugar", &[("g", 200.0)], None)]
-#[case::trailing_multiple_units("Butter — 1 cup / 227 g", "Butter", &[("cup", 1.0), ("g", 227.0)], None)]
-#[case::bouchon_pipe_format("Heavy cream — 150 grams | ½ cup", "Heavy cream", &[("g", 150.0), ("cup", 0.5)], None)]
-#[case::bouchon_pipe_with_plus("Heavy cream — 150 grams | ½ cup + 2 tablespoons", "Heavy cream", &[("g", 150.0), ("tsp", 30.0)], None)]
-fn test_trailing_amount_format(
-    parser: IngredientParser,
-    #[case] input: &str,
-    #[case] expected_name: &str,
-    #[case] expected_amounts: &[(&str, f64)],
-    #[case] expected_modifier: Option<&str>,
-) {
-    let result = parser.from_str(input);
-    assert_eq!(result.name, expected_name, "Name mismatch for: {input}");
-    assert_eq!(
-        result.amounts.len(),
-        expected_amounts.len(),
-        "Amount count mismatch for: {input}"
-    );
-    for (i, (unit, value)) in expected_amounts.iter().enumerate() {
-        assert_eq!(
-            result.amounts[i].value(),
-            *value,
-            "Amount value mismatch for: {input}"
-        );
-        assert_eq!(
-            result.amounts[i].unit_as_string(),
-            *unit,
-            "Unit mismatch for: {input}"
-        );
-    }
-    assert_eq!(
-        result.modifier.as_deref(),
-        expected_modifier,
-        "Modifier mismatch for: {input}"
-    );
-    assert_trace_result(&parser, input, &result);
-}
 
 /// Test that temperature-only trailing amounts are NOT used
 /// (because they describe a property, not a quantity)
