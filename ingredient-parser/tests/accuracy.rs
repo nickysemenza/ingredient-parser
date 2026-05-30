@@ -19,7 +19,7 @@
 // Test-harness code: a malformed corpus line should fail the test loudly.
 #![allow(clippy::panic)]
 
-use ingredient::{from_str, unit::Measure};
+use ingredient::{from_str, unit::Measure, IngredientParser};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -171,6 +171,25 @@ fn never_empty_name() {
         assert!(
             !ing.name.trim().is_empty(),
             "parsed an empty name for input {input:?}"
+        );
+    }
+}
+
+/// The traced parse path must produce the same result as `from_str` for every
+/// corpus input. Preserves the `from_str`-vs-trace equivalence that
+/// `parsing.rs::test_ingredient_parsing` previously checked case by case (before
+/// those cases were ported into the corpus).
+#[test]
+fn trace_path_matches_from_str() {
+    let parser = IngredientParser::new();
+    for row in load() {
+        let plain = from_str(&row.input);
+        let traced = parser.parse_with_trace(&row.input);
+        assert_eq!(
+            traced.result.unwrap(),
+            plain,
+            "trace path diverged from from_str for {:?}",
+            row.input
         );
     }
 }
