@@ -6,7 +6,7 @@ use nom::{
 };
 
 use crate::fraction::fraction_number;
-use crate::parser::{text_number, Res};
+use crate::parser::{text_number, thousands_number, Res};
 use crate::traced_parser;
 
 use super::MeasurementParser;
@@ -51,6 +51,7 @@ impl<'a> MeasurementParser<'a> {
                     "number",
                     alt((
                         fraction_number,           // Parse fractions like "½" or "1/2"
+                        thousands_number,          // Parse "1,000" before double stops at the comma
                         double_no_trailing_period, // Parse decimals without eating trailing periods
                     )),
                 )
@@ -60,9 +61,10 @@ impl<'a> MeasurementParser<'a> {
                 context(
                     "number",
                     alt((
-                        fraction_number, // Parse fractions like "½" or "1/2"
-                        text_number,     // Parse text numbers like "one" or "a"
-                        double,          // Parse decimal numbers like "2.5"
+                        fraction_number,  // Parse fractions like "½" or "1/2"
+                        text_number,      // Parse text numbers like "one" or "a"
+                        thousands_number, // Parse "1,000" before double stops at the comma
+                        double,           // Parse decimal numbers like "2.5"
                     )),
                 )
                 .parse(input)

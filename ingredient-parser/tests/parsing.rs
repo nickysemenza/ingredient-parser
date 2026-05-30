@@ -147,6 +147,8 @@ fn test_custom_adjectives(
 #[case::unicode_mixed("1½ cups", vec![Measure::new("cups", 1.5)])]
 #[case::decimal("1.5 cups", vec![Measure::new("cups", 1.5)])]
 #[case::decimal_small("0.25 oz", vec![Measure::new("oz", 0.25)])]
+#[case::thousands("1,000 g", vec![Measure::new("g", 1000.0)])]
+#[case::thousands_millions("1,000,000 g", vec![Measure::new("g", 1000000.0)])]
 fn test_amount_parsing_basic(
     parser: IngredientParser,
     #[case] input: &str,

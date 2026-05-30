@@ -4,10 +4,11 @@
 
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while1},
-    character::complete::alpha1,
+    bytes::complete::{tag, take_while1, take_while_m_n},
+    character::complete::{alpha1, char},
+    combinator::{map_res, opt, recognize},
     error::context,
-    multi::many0,
+    multi::{many0, many1},
     number::complete::double,
     IResult, Parser,
 };
@@ -76,8 +77,27 @@ pub(crate) fn parse_amount_string(input: &str) -> Result<Measure, String> {
 
 /// Parse a number using fraction or decimal parsing
 fn parse_number(input: &str) -> Res<&str, f64> {
-    // Try fraction first (handles "1/2", "1 ½", etc.), then fall back to decimal
-    alt((fraction_number, double)).parse(input)
+    // Fraction first ("1/2", "1 ½"), then thousands-separated integers ("1,000"),
+    // then a plain decimal. thousands_number must come before `double`, which
+    // would otherwise stop at the comma and parse "1,000" as just 1.
+    alt((fraction_number, thousands_number, double)).parse(input)
+}
+
+/// Parse a number written with thousands separators, e.g. "1,000" or "1,000,000"
+/// (optionally with a decimal part). The comma must be followed by exactly three
+/// digits, so this never matches list commas like "flour, sifted" or a European
+/// decimal comma like "1,5".
+pub(crate) fn thousands_number(input: &str) -> Res<&str, f64> {
+    let is_digit = |c: char| c.is_ascii_digit();
+    map_res(
+        recognize((
+            take_while_m_n(1, 3, is_digit),
+            many1((char(','), take_while_m_n(3, 3, is_digit))),
+            opt((char('.'), take_while1(is_digit))),
+        )),
+        |s: &str| s.replace(',', "").parse::<f64>(),
+    )
+    .parse(input)
 }
 
 /// Parse text characters for ingredient names.
