@@ -69,6 +69,23 @@ jobs:
       - name: Check the published crate builds on its declared MSRV
         # Default features only — the `bench` feature pulls criterion, which needs 1.86.
         run: cargo +1.85 check -p ingredient
+  fuzz:
+    name: fuzz (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+          components: rust-src
+      - uses: taiki-e/install-action@cargo-fuzz
+      - name: Smoke-fuzz each target (30s each)
+        # Short run to catch crashes/panics on PRs; deep runs are manual/scheduled.
+        working-directory: ingredient-parser
+        run: |
+          for target in from_str parse_amount rich_text; do
+            cargo +nightly fuzz run "$target" -- -max_total_time=30 -rss_limit_mb=4096
+          done
   deploy:
     needs: [build]
     runs-on: ubuntu-latest
