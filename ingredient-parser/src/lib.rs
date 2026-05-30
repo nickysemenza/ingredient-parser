@@ -276,6 +276,7 @@ impl IngredientParser {
         let units: HashSet<String> = [
             "recipe", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch",
             "package", "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin",
+            "rib", "ribs",
         ]
         .iter()
         .map(|&s| s.into())

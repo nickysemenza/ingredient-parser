@@ -26,6 +26,7 @@
 {"input": "2 sticks unsalted butter", "name": "unsalted butter", "amounts": [{"unit": "stick", "value": 2}]}
 {"input": "1 pinch saffron", "name": "saffron", "amounts": [{"unit": "pinch", "value": 1}]}
 {"input": "1 bunch cilantro", "name": "cilantro", "amounts": [{"unit": "bunch", "value": 1}]}
+{"input": "2 ribs celery, chopped", "name": "celery", "amounts": [{"unit": "rib", "value": 2}], "modifier": "chopped"}
 {"input": "a pinch of salt", "name": "salt", "amounts": [{"unit": "pinch", "value": 1}]}
 //
 // --- fractions and decimals ---
@@ -79,4 +80,3 @@
 {"input": "Juice of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "juice of", "xfail": "'X of N item' construction falls back to name-only"}
 {"input": "Zest of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "zest of", "xfail": "'X of N item' construction falls back to name-only"}
 {"input": "1 cup packed brown sugar", "name": "brown sugar", "amounts": [{"unit": "cup", "value": 1}], "modifier": "packed", "xfail": "leading prep word 'packed' not extracted to modifier"}
-{"input": "2 ribs celery, chopped", "name": "celery", "amounts": [{"unit": "rib", "value": 2}], "modifier": "chopped", "xfail": "'rib(s)' not a recognized unit; absorbed into name"}
