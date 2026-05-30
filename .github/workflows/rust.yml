@@ -78,6 +78,9 @@ jobs:
         with:
           toolchain: nightly
           components: rust-src
+          # cargo-fuzz defaults to the musl target on Linux, where ASan is
+          # incompatible with the static libc. Build/run against gnu instead.
+          target: x86_64-unknown-linux-gnu
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-fuzz
@@ -86,7 +89,7 @@ jobs:
         working-directory: ingredient-parser
         run: |
           for target in from_str parse_amount rich_text; do
-            cargo +nightly fuzz run "$target" -- -max_total_time=30 -rss_limit_mb=4096
+            cargo +nightly fuzz run "$target" --target x86_64-unknown-linux-gnu -- -max_total_time=30 -rss_limit_mb=4096
           done
   bench:
     name: benchmarks (smoke)
