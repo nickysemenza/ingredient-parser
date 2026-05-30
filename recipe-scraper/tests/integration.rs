@@ -136,6 +136,28 @@ fn handle_no_ldjson() {
     ));
 }
 
+/// Malformed LD+JSON should gracefully fall back to HTML scraping rather than
+/// erroring. Previously only a *missing* ld+json block triggered the fallback;
+/// an unparseable one returned an error.
+#[test]
+fn malformed_ld_falls_back_to_html() {
+    let html = r#"<html><head><title>Test Recipe</title>
+<script type="application/ld+json">{ not valid json )</script>
+</head><body>
+<li class="jetpack-recipe-ingredient">1 cup flour</li>
+<li class="jetpack-recipe-ingredient">2 large eggs</li>
+<div class="jetpack-recipe-directions">Mix.
+Bake.</div>
+</body></html>"#;
+    let res = scrape(html, "https://example.com/recipe").unwrap();
+    assert_eq!(
+        res.ingredients.len(),
+        2,
+        "should recover ingredients via HTML"
+    );
+    assert!(res.ingredients[0].contains("flour"));
+}
+
 #[test]
 fn test_scrape_chefsteps() {
     let r = scrape(

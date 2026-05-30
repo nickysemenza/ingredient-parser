@@ -108,7 +108,13 @@ fn normalize_root_recipe(
                 .map(|i| i.text().collect::<Vec<_>>().join(""))
                 .collect::<Vec<_>>()
         }
-        ld_schema::InstructionWrapper::D(d) => d[0].clone().into_iter().map(|i| i.text).collect(),
+        ld_schema::InstructionWrapper::D(d) => d
+            .first()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|i| i.text)
+            .collect(),
     };
 
     // Parse yield if present
@@ -123,11 +129,11 @@ fn normalize_root_recipe(
         instructions,
         name: ld_schema.name,
         url: url.to_string(),
-        image: ld_schema.image.map(|image| match image {
-            ld_schema::ImageOrList::Url(i) => i,
-            ld_schema::ImageOrList::List(l) => l[0].url.clone(),
-            ld_schema::ImageOrList::UrlList(i) => i[0].clone(),
-            ld_schema::ImageOrList::Image(i) => i.url,
+        image: ld_schema.image.and_then(|image| match image {
+            ld_schema::ImageOrList::Url(i) => Some(i),
+            ld_schema::ImageOrList::List(l) => l.first().map(|x| x.url.clone()),
+            ld_schema::ImageOrList::UrlList(i) => i.first().cloned(),
+            ld_schema::ImageOrList::Image(i) => Some(i.url),
         }),
         recipe_yield,
         servings,
