@@ -1,0 +1,21 @@
+---
+source: ingredient-parser/tests/snapshots.rs
+expression: "from_str(\"1¼ cups / 155.5g flour\")"
+---
+Ingredient {
+    name: "flour",
+    amounts: [
+        Measure {
+            unit: Cup,
+            value: 1.25,
+            upper_value: None,
+        },
+        Measure {
+            unit: Gram,
+            value: 155.5,
+            upper_value: None,
+        },
+    ],
+    modifier: None,
+    optional: false,
+}

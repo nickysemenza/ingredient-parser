@@ -35,6 +35,7 @@ features = ["alloc"]
 proptest = "1.5"
 rstest.workspace = true
 serde = { workspace = true }
+insta = "1"
 
 [[bench]]
 name = "parser_benchmarks"
