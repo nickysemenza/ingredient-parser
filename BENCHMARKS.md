@@ -27,6 +27,21 @@ cargo bench -- --save-baseline my-baseline
 cargo bench -- --baseline my-baseline
 ```
 
+## Continuous Integration
+
+CI runs a **smoke gate** (`bench` job) that executes every benchmark once via
+criterion's `--test` mode:
+
+```bash
+cargo bench -p ingredient --features bench -- --test
+```
+
+This keeps the benchmarks compiling and running as the parser evolves, but it
+does not track timings over time. For historical tracking and per-PR regression
+alerts, wire up [CodSpeed](https://codspeed.io) or [Bencher](https://bencher.dev)
+(drop-in `codspeed-criterion-compat` / `bencher` integrations) — omitted here to
+avoid an external account/secret dependency.
+
 ## Benchmark Coverage
 
 The benchmarks test various aspects of the ingredient parser:
