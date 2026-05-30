@@ -232,10 +232,19 @@ impl IngredientParser {
                 continue;
             };
 
+            let end = pos + adjective.len();
+            // `pos`/`end` are byte offsets into the lowercased name. Lowercasing
+            // can change byte lengths for some Unicode (e.g. 'İ' -> "i̇"), so these
+            // offsets may not fall on char boundaries in the original `name`.
+            // Skip rather than panic when slicing `name` would split a char.
+            if !name.is_char_boundary(pos) || !name.is_char_boundary(end) {
+                continue;
+            }
+
             append_modifier(&mut ingredient.modifier, adjective);
 
             let before = name[..pos].trim();
-            let after = name[pos + adjective.len()..].trim();
+            let after = name[end..].trim();
             let mut new_name = String::with_capacity(name.len());
             if !before.is_empty() {
                 new_name.push_str(before);

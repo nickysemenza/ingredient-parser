@@ -92,6 +92,18 @@ fn test_parsing_equivalence(parser: IngredientParser, #[case] left: &str, #[case
     );
 }
 
+/// Regression (found by cargo-fuzz): adjective extraction byte-sliced `name` at
+/// offsets taken from its lowercased form. For chars whose lowercase changes
+/// byte length (e.g. 'İ' U+0130 -> "i̇"), those offsets can land off a char
+/// boundary or past the end, panicking. These must parse without panicking.
+#[rstest]
+#[case("1 cup İdiced")]
+#[case("İsliced")]
+#[case("1 İminced thing")]
+fn test_adjective_extraction_multibyte_no_panic(parser: IngredientParser, #[case] input: &str) {
+    let _ = parser.from_str(input);
+}
+
 // ============================================================================
 // Custom Parser Configuration Tests
 // ============================================================================
