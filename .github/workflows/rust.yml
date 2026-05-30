@@ -78,7 +78,9 @@ jobs:
         with:
           toolchain: nightly
           components: rust-src
-      - uses: taiki-e/install-action@cargo-fuzz
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
       - name: Smoke-fuzz each target (30s each)
         # Short run to catch crashes/panics on PRs; deep runs are manual/scheduled.
         working-directory: ingredient-parser
