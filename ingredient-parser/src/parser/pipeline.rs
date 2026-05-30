@@ -354,10 +354,10 @@ fn collapse_whitespace(input: &str) -> String {
 /// - `cleaned_name`: The ingredient name with alternative removed
 /// - `optional_alternative`: The alternative portion to be added to modifier
 fn extract_alternative(name: &str) -> (String, Option<String>) {
-    use once_cell::sync::Lazy;
     use regex::Regex;
+    use std::sync::LazyLock;
 
-    static ALTERNATIVE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    static ALTERNATIVE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         #[allow(clippy::expect_used)]
         Regex::new(r"(?i)\s+or\s+(\d+|a\s+|an\s+)").expect("invalid alternative pattern regex")
     });
@@ -387,10 +387,10 @@ fn extract_secondary_amounts(
     modifier: &str,
     units: &std::collections::HashSet<String>,
 ) -> (Vec<Measure>, String) {
-    use once_cell::sync::Lazy;
     use regex::Regex;
+    use std::sync::LazyLock;
 
-    static SECONDARY_AMOUNT_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    static SECONDARY_AMOUNT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         #[allow(clippy::expect_used)]
         Regex::new(r"\((?:from\s+)?(?:about|approximately|roughly|around)\s+([^)]+)\)")
             .expect("invalid secondary amount regex")

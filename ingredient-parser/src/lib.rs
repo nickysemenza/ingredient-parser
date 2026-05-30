@@ -441,7 +441,12 @@ impl IngredientParser {
             Ok((_, measurements)) => Ok(measurements),
             Err(e) => Err(IngredientError::AmountParseError {
                 input: input.to_string(),
-                reason: format!("{e:?}"),
+                reason: match e {
+                    nom::Err::Incomplete(_) => "incomplete input".to_string(),
+                    nom::Err::Error(_) | nom::Err::Failure(_) => {
+                        "no recognizable measurement found".to_string()
+                    }
+                },
             }),
         }
     }

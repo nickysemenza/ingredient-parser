@@ -3,6 +3,7 @@ name = "ingredient"
 version = "0.3.0"
 authors = ["nickysemenza"]
 edition = "2021"
+rust-version = "1.85"
 description = "recipe ingredient parser"
 license = "MIT"
 repository = "https://github.com/nickysemenza/ingredient-parser"
@@ -20,8 +21,8 @@ serde_json.workspace = true
 tracing.workspace = true
 petgraph = "0.8.0"
 nom-language = "0.1.0"
-once_cell = "1.19"
 regex = "1.10"
+thiserror.workspace = true
 criterion = { version = "0.8", features = ["html_reports"], optional = true }
 
 

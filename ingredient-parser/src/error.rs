@@ -1,38 +1,21 @@
-use std::fmt;
+use thiserror::Error;
 
 /// Error types for ingredient parsing operations
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Error, Debug, Clone, PartialEq)]
 pub enum IngredientError {
     /// Failed to parse ingredient string
+    #[error("Failed to parse ingredient '{input}': {context}")]
     ParseError { input: String, context: String },
     /// Failed to parse measurement/amount
+    #[error("Failed to parse amount '{input}': {reason}")]
     AmountParseError { input: String, reason: String },
     /// Measure operation error (adding incompatible measures, etc.)
+    #[error("Measure operation '{operation}' failed: {reason}")]
     MeasureError { operation: String, reason: String },
     /// Generic parsing error with context
+    #[error("Ingredient parsing error: {message}")]
     Generic { message: String },
 }
-
-impl fmt::Display for IngredientError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            IngredientError::ParseError { input, context } => {
-                write!(f, "Failed to parse ingredient '{input}': {context}")
-            }
-            IngredientError::AmountParseError { input, reason } => {
-                write!(f, "Failed to parse amount '{input}': {reason}")
-            }
-            IngredientError::MeasureError { operation, reason } => {
-                write!(f, "Measure operation '{operation}' failed: {reason}")
-            }
-            IngredientError::Generic { message } => {
-                write!(f, "Ingredient parsing error: {message}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for IngredientError {}
 
 /// Result type for ingredient parsing operations
 pub type IngredientResult<T> = Result<T, IngredientError>;
