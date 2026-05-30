@@ -147,3 +147,30 @@ fn accuracy_corpus() {
         regressions.len()
     );
 }
+
+/// Regression guard for the "name lost into the modifier" failures found on real
+/// recipes (decimal commas like "1,000 grams", leading prep words, unicode inch
+/// marks): a labeled ingredient line must never parse to an empty name. (A bare
+/// quantity like "1/2-1 cup" may legitimately have no name, so this covers only
+/// the corpus inputs plus known-tricky real lines.)
+#[test]
+fn never_empty_name() {
+    let mut inputs: Vec<String> = load().into_iter().map(|r| r.input).collect();
+    inputs.extend(
+        [
+            "1,000 grams (about 6 cups) quartered and pitted nectarines",
+            "2/3 cup (85 grams) finely chopped, raw pistachios",
+            "1/2 \u{201d} (1 cm) ginger, minced",
+            "0.44 ounces salt (about 2 1/2 teaspoons) salt",
+        ]
+        .iter()
+        .map(ToString::to_string),
+    );
+    for input in inputs {
+        let ing = from_str(&input);
+        assert!(
+            !ing.name.trim().is_empty(),
+            "parsed an empty name for input {input:?}"
+        );
+    }
+}
