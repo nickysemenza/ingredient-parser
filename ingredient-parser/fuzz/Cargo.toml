@@ -1,0 +1,37 @@
+[package]
+name = "ingredient-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ingredient = { path = ".." }
+
+[[bin]]
+name = "from_str"
+path = "fuzz_targets/from_str.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_amount"
+path = "fuzz_targets/parse_amount.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rich_text"
+path = "fuzz_targets/rich_text.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone workspace: keeps the fuzz crate (and libfuzzer-sys) out of the main
+# workspace's build, clippy, MSRV, and cargo-deny scope.
+[workspace]
