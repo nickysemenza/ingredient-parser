@@ -81,6 +81,107 @@
 {"input": "1 1/2 cups (190 grams) all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 1.5}, {"unit": "g", "value": 190}]}
 {"input": "1 large egg, room temperature", "name": "large egg", "amounts": [{"unit": "whole", "value": 1}], "modifier": "room temperature"}
 //
+//
+// --- ported from parsing.rs (test_ingredient_parsing, optional, secondary, alternative) ---
+{"input": "4 cloves garlic or 1 teaspoon garlic powder", "name": "garlic", "amounts": [{"unit": "clove", "value": 4.0}], "modifier": "or 1 teaspoon garlic powder"}
+{"input": "1 cup butter or a splash of oil", "name": "butter", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "or a splash of oil"}
+{"input": "egg", "name": "egg"}
+{"input": "(½ cup chopped walnuts)", "name": "walnuts", "amounts": [{"unit": "cup", "value": 0.5}], "modifier": "chopped", "optional": true}
+{"input": "Finely chopped toasted almonds", "name": "toasted almonds", "modifier": "finely chopped"}
+{"input": "1 egg", "name": "egg", "amounts": [{"unit": "whole", "value": 1.0}]}
+{"input": "(2 cups / 240g flour)", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}, {"unit": "g", "value": 240.0}], "optional": true}
+{"input": "1 cinnamon stick, crushed", "name": "cinnamon stick", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "crushed"}
+{"input": "1 tablespoon plus 1 teaspoon olive oil", "name": "olive oil", "amounts": [{"unit": "tsp", "value": 4.0}]}
+{"input": "(1 egg)", "name": "egg", "amounts": [{"unit": "whole", "value": 1.0}], "optional": true}
+{"input": "pinch nutmeg", "name": "nutmeg", "amounts": [{"unit": "pinch", "value": 1.0}]}
+{"input": "100 grams whole wheat flour", "name": "whole wheat flour", "amounts": [{"unit": "g", "value": 100.0}]}
+{"input": "1 clove garlic, grated", "name": "garlic", "amounts": [{"unit": "clove", "value": 1.0}], "modifier": "grated"}
+{"input": "12 cloves of garlic, peeled", "name": "garlic", "amounts": [{"unit": "clove", "value": 12.0}], "modifier": "peeled"}
+{"input": "4 ounces raw or roasted and salted shelled sunflower seeds (about ¾ cup)", "name": "raw or roasted and salted shelled sunflower seeds", "amounts": [{"unit": "oz", "value": 4.0}, {"unit": "cup", "value": 0.75}]}
+{"input": "12 cups all purpose flour, lightly sifted", "name": "all purpose flour", "amounts": [{"unit": "cup", "value": 12.0}], "modifier": "lightly sifted"}
+{"input": "1¼  cups / 155.5 grams flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.25}, {"unit": "g", "value": 155.5}]}
+{"input": "0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast", "name": "instant or rapid rise yeast", "amounts": [{"unit": "oz", "value": 0.25}, {"unit": "packet", "value": 1.0}, {"unit": "tsp", "value": 2.0}]}
+{"input": "6 ounces unsalted butter (1½ sticks; 168.75g)", "name": "unsalted butter", "amounts": [{"unit": "oz", "value": 6.0}, {"unit": "stick", "value": 1.5}, {"unit": "g", "value": 168.75}]}
+{"input": "½ pound 2 sticks; 227 g unsalted butter, room temperature", "name": "unsalted butter", "amounts": [{"unit": "lb", "value": 0.5}, {"unit": "stick", "value": 2.0}, {"unit": "g", "value": 227.0}], "modifier": "room temperature"}
+{"input": "4 (13-millimeter/½-inch) slices PORK BELLY CHASHU, warmed", "name": "PORK BELLY CHASHU", "amounts": [{"unit": "slice", "value": 4.0}], "modifier": "warmed"}
+{"input": "14 tablespoons/200 grams unsalted butter, cut into pieces", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 14.0}, {"unit": "g", "value": 200.0}], "modifier": "cut into pieces"}
+{"input": "6 cups vegetable stock, more if needed", "name": "vegetable stock", "amounts": [{"unit": "cup", "value": 6.0}], "modifier": "more if needed"}
+{"input": "1/4 cup crème fraîche", "name": "crème fraîche", "amounts": [{"unit": "cup", "value": 0.25}]}
+{"input": "⅔ cup (167ml) cold water", "name": "cold water", "amounts": [{"unit": "cup", "value": 0.6666666666666666}, {"unit": "ml", "value": 167.0}]}
+{"input": "1 tsp freshly ground black pepper", "name": "black pepper", "amounts": [{"unit": "tsp", "value": 1.0}], "modifier": "freshly ground"}
+{"input": "1-2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0, "upper_value": 2.0}]}
+{"input": "2 cups/240 grams confectioners' sugar, sifted", "name": "confectioners' sugar", "amounts": [{"unit": "cup", "value": 2.0}, {"unit": "g", "value": 240.0}], "modifier": "sifted"}
+{"input": "2 cups/240 grams gruyère, sifted", "name": "gruyère", "amounts": [{"unit": "cup", "value": 2.0}, {"unit": "g", "value": 240.0}], "modifier": "sifted"}
+{"input": "2 cups/240 grams Jalapeños, sifted", "name": "Jalapeños", "amounts": [{"unit": "cup", "value": 2.0}, {"unit": "g", "value": 240.0}], "modifier": "sifted"}
+{"input": "one egg", "name": "egg", "amounts": [{"unit": "whole", "value": 1.0}]}
+{"input": "a cup flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}]}
+{"input": "½ cup sugar", "name": "sugar", "amounts": [{"unit": "cup", "value": 0.5}]}
+{"input": "¼ tsp salt", "name": "salt", "amounts": [{"unit": "tsp", "value": 0.25}]}
+{"input": "¾ cup milk", "name": "milk", "amounts": [{"unit": "cup", "value": 0.75}]}
+{"input": "⅓ cup honey", "name": "honey", "amounts": [{"unit": "cup", "value": 0.3333333333333333}]}
+{"input": "1½ cups water", "name": "water", "amounts": [{"unit": "cup", "value": 1.5}]}
+{"input": "2¾ cups stock", "name": "stock", "amounts": [{"unit": "cup", "value": 2.75}]}
+{"input": "1 1/2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.5}]}
+{"input": "2 3/4 tsp vanilla", "name": "vanilla", "amounts": [{"unit": "tsp", "value": 2.75}]}
+{"input": "0.5 oz chocolate", "name": "chocolate", "amounts": [{"unit": "oz", "value": 0.5}]}
+{"input": "1.25 cups rice", "name": "rice", "amounts": [{"unit": "cup", "value": 1.25}]}
+{"input": "2 CUPS flour", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}]}
+{"input": "1 Cup sugar", "name": "sugar", "amounts": [{"unit": "cup", "value": 1.0}]}
+{"input": "3 TbSp butter", "name": "butter", "amounts": [{"unit": "tbsp", "value": 3.0}]}
+{"input": "2 cups chopped onion", "name": "onion", "amounts": [{"unit": "cup", "value": 2.0}], "modifier": "chopped"}
+{"input": "1 cup minced garlic", "name": "garlic", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "minced"}
+{"input": "1 cup chopped parsley (about 2 bunches)", "name": "parsley", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "whole", "value": 2.0}], "modifier": "chopped"}
+{"input": "3 tbsp fresh lemon juice (from approximately 1 lemon)", "name": "fresh lemon juice", "amounts": [{"unit": "tbsp", "value": 3.0}, {"unit": "whole", "value": 1.0}]}
+{"input": "1 cup diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "diced"}
+{"input": "60 cilantro leaves (from about 15 sprigs)", "name": "cilantro leaves", "amounts": [{"unit": "whole", "value": 60.0}, {"unit": "whole", "value": 15.0}]}
+{"input": "salt to taste", "name": "salt", "modifier": "to taste"}
+{"input": "Confectioners' sugar for dusting", "name": "Confectioners' sugar", "modifier": "for dusting"}
+{"input": "Fresh parsley for garnish", "name": "Fresh parsley", "modifier": "for garnish"}
+{"input": "2 cups all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 2.0}]}
+{"input": "1 tsp five-spice powder", "name": "five-spice powder", "amounts": [{"unit": "tsp", "value": 1.0}]}
+{"input": "about 2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}]}
+{"input": "flour", "name": "flour"}
+{"input": "1 can tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 1.0}]}
+{"input": "1 bunch parsley", "name": "parsley", "amounts": [{"unit": "bunch", "value": 1.0}]}
+{"input": "1 head garlic", "name": "garlic", "amounts": [{"unit": "head", "value": 1.0}]}
+{"input": "2 leaves basil", "name": "basil", "amounts": [{"unit": "leave", "value": 2.0}]}
+{"input": "1 large egg", "name": "large egg", "amounts": [{"unit": "whole", "value": 1.0}]}
+{"input": "2 medium onions", "name": "medium onions", "amounts": [{"unit": "whole", "value": 2.0}]}
+{"input": "3 small potatoes", "name": "small potatoes", "amounts": [{"unit": "whole", "value": 3.0}]}
+{"input": "butter (2 sticks), melted", "name": "butter", "amounts": [{"unit": "stick", "value": 2.0}], "modifier": "melted"}
+{"input": "sugar (1 cup / 200g)", "name": "sugar", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "g", "value": 200.0}]}
+{"input": "2 cups freshly grated parmesan", "name": "parmesan", "amounts": [{"unit": "cup", "value": 2.0}], "modifier": "freshly grated"}
+{"input": "1 lb thinly sliced beef", "name": "beef", "amounts": [{"unit": "lb", "value": 1.0}], "modifier": "thinly sliced"}
+{"input": "1 cup sliced almonds", "name": "almonds", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "sliced"}
+{"input": "1 cup chopped minced onion", "name": "onion", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "chopped, minced"}
+{"input": "mystery ingredient xyz", "name": "mystery ingredient xyz"}
+{"input": "1–2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0, "upper_value": 2.0}]}
+{"input": "1 cup; 240 ml water", "name": "water", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "ml", "value": 240.0}]}
+{"input": "1 packet, about 2 tsp yeast", "name": "yeast", "amounts": [{"unit": "packet", "value": 1.0}, {"unit": "tsp", "value": 2.0}]}
+{"input": "0.25 tsp salt", "name": "salt", "amounts": [{"unit": "tsp", "value": 0.25}]}
+{"input": "1/8 tsp pepper", "name": "pepper", "amounts": [{"unit": "tsp", "value": 0.125}]}
+{"input": "1000 grams flour", "name": "flour", "amounts": [{"unit": "g", "value": 1000.0}]}
+{"input": "1 cup/240ml water", "name": "water", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "ml", "value": 240.0}]}
+{"input": "1 cup 2 tbsp flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "tbsp", "value": 2.0}]}
+{"input": "1 cup plus 100 grams flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}]}
+{"input": "2 tsp. sugar", "name": "sugar", "amounts": [{"unit": "tsp", "value": 2.0}]}
+{"input": "1 tbsp. olive oil", "name": "olive oil", "amounts": [{"unit": "tbsp", "value": 1.0}]}
+{"input": "2 oz. cheese", "name": "cheese", "amounts": [{"unit": "oz", "value": 2.0}]}
+{"input": "2 cups of flour", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}]}
+{"input": "pinch of salt", "name": "salt", "amounts": [{"unit": "pinch", "value": 1.0}]}
+{"input": "2 x 100g flour", "name": "flour", "amounts": [{"unit": "g", "value": 200.0}]}
+{"input": "3 x 50g butter", "name": "butter", "amounts": [{"unit": "g", "value": 150.0}]}
+{"input": "flour (1 cup; 120g)", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "g", "value": 120.0}]}
+{"input": "flour (2 cups)", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}]}
+{"input": "2 cups flour (240g)", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}, {"unit": "g", "value": 240.0}]}
+{"input": "2 cups chicken breast, cooked and diced into small cubes", "name": "chicken breast", "amounts": [{"unit": "cup", "value": 2.0}], "modifier": "cooked and diced into small cubes"}
+{"input": "2 cups water", "name": "water", "amounts": [{"unit": "cup", "value": 2.0}]}
+{"input": "3–4 — tablespoons lemon juice", "name": "lemon juice", "amounts": [{"unit": "tbsp", "value": 3.0, "upper_value": 4.0}]}
+{"input": "1 × 400g tin pinto beans", "name": "pinto beans", "amounts": [{"unit": "whole", "value": 1.0}, {"unit": "g", "value": 400.0}, {"unit": "tin", "value": 1.0}]}
+{"input": "4 TBSP [56 G] UNSALTED BUTTER", "name": "UNSALTED BUTTER", "amounts": [{"unit": "tbsp", "value": 4.0}, {"unit": "g", "value": 56.0}]}
+{"input": "3/4    cups whole milk", "name": "whole milk", "amounts": [{"unit": "cup", "value": 0.75}]}
+{"input": "  2   cups   flour  ", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}]}
+//
 // --- known gaps (xfail = desired parse the parser does not yet produce) ---
 {"input": "Juice of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "juice of", "xfail": "'X of N item' construction falls back to name-only"}
 {"input": "Zest of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "zest of", "xfail": "'X of N item' construction falls back to name-only"}
