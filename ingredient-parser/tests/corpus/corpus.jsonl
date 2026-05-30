@@ -1,0 +1,82 @@
+// Parser accuracy corpus. One JSON object per line; `//` lines and blanks are ignored.
+// Fields: input (required), name, amounts:[{unit,value,upper_value?}], modifier, optional, xfail.
+// Rows without `xfail` are committed (must parse exactly — regression guard).
+// Rows with `xfail` are known gaps: the label is the *desired* parse, and the
+// mismatch is reported but tolerated until the parser improves.
+// See tests/accuracy.rs for scoring. Labels follow the Design Decisions in lib.rs.
+//
+// --- basics: amount + unit + name ---
+{"input": "2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 2}]}
+{"input": "1 teaspoon salt", "name": "salt", "amounts": [{"unit": "tsp", "value": 1}]}
+{"input": "1 tablespoon olive oil", "name": "olive oil", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"input": "3 tablespoons sugar", "name": "sugar", "amounts": [{"unit": "tbsp", "value": 3}]}
+{"input": "100 g dark chocolate", "name": "dark chocolate", "amounts": [{"unit": "g", "value": 100}]}
+{"input": "250ml milk", "name": "milk", "amounts": [{"unit": "ml", "value": 250}]}
+{"input": "2 quarts water", "name": "water", "amounts": [{"unit": "quart", "value": 2}]}
+{"input": "1 lb ground beef", "name": "ground beef", "amounts": [{"unit": "lb", "value": 1}]}
+//
+// --- countable / whole unit ---
+{"input": "2 eggs", "name": "eggs", "amounts": [{"unit": "whole", "value": 2}]}
+{"input": "3 large eggs", "name": "large eggs", "amounts": [{"unit": "whole", "value": 3}]}
+{"input": "1 whole chicken", "name": "chicken", "amounts": [{"unit": "whole", "value": 1}]}
+//
+// --- custom/built-in special units ---
+{"input": "2 cloves garlic", "name": "garlic", "amounts": [{"unit": "clove", "value": 2}]}
+{"input": "4 slices bacon", "name": "bacon", "amounts": [{"unit": "slice", "value": 4}]}
+{"input": "2 sticks unsalted butter", "name": "unsalted butter", "amounts": [{"unit": "stick", "value": 2}]}
+{"input": "1 pinch saffron", "name": "saffron", "amounts": [{"unit": "pinch", "value": 1}]}
+{"input": "1 bunch cilantro", "name": "cilantro", "amounts": [{"unit": "bunch", "value": 1}]}
+{"input": "a pinch of salt", "name": "salt", "amounts": [{"unit": "pinch", "value": 1}]}
+//
+// --- fractions and decimals ---
+{"input": "1/2 cup sugar", "name": "sugar", "amounts": [{"unit": "cup", "value": 0.5}]}
+{"input": "3/4 teaspoon baking soda", "name": "baking soda", "amounts": [{"unit": "tsp", "value": 0.75}]}
+{"input": "1 1/2 cups oats", "name": "oats", "amounts": [{"unit": "cup", "value": 1.5}]}
+{"input": "0.5 cup water", "name": "water", "amounts": [{"unit": "cup", "value": 0.5}]}
+{"input": "1 1/4 cups whole milk", "name": "whole milk", "amounts": [{"unit": "cup", "value": 1.25}]}
+{"input": "1¼ cups / 155.5g flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.25}, {"unit": "g", "value": 155.5}]}
+//
+// --- ranges ---
+{"input": "2-3 cups chicken broth", "name": "chicken broth", "amounts": [{"unit": "cup", "value": 2, "upper_value": 3}]}
+{"input": "1 to 2 tablespoons honey", "name": "honey", "amounts": [{"unit": "tbsp", "value": 1, "upper_value": 2}]}
+//
+// --- multiple units ---
+{"input": "1 cup / 240ml milk", "name": "milk", "amounts": [{"unit": "cup", "value": 1}, {"unit": "ml", "value": 240}]}
+{"input": "150g | 1 cup sugar", "name": "sugar", "amounts": [{"unit": "g", "value": 150}, {"unit": "cup", "value": 1}]}
+//
+// --- modifiers (preparation) ---
+{"input": "2 cups flour, sifted", "name": "flour", "amounts": [{"unit": "cup", "value": 2}], "modifier": "sifted"}
+{"input": "1 cup chopped onion", "name": "onion", "amounts": [{"unit": "cup", "value": 1}], "modifier": "chopped"}
+{"input": "2 cloves garlic, minced", "name": "garlic", "amounts": [{"unit": "clove", "value": 2}], "modifier": "minced"}
+{"input": "1 onion, finely chopped", "name": "onion", "amounts": [{"unit": "whole", "value": 1}], "modifier": "finely chopped"}
+{"input": "3 tablespoons butter, melted", "name": "butter", "amounts": [{"unit": "tbsp", "value": 3}], "modifier": "melted"}
+//
+// --- descriptors that stay in the name ---
+{"input": "1 cup frozen peas", "name": "frozen peas", "amounts": [{"unit": "cup", "value": 1}]}
+{"input": "2 tablespoons fresh lemon juice", "name": "fresh lemon juice", "amounts": [{"unit": "tbsp", "value": 2}]}
+{"input": "1 teaspoon vanilla extract", "name": "vanilla extract", "amounts": [{"unit": "tsp", "value": 1}]}
+{"input": "1 tablespoon soy sauce", "name": "soy sauce", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"input": "1/2 teaspoon kosher salt", "name": "kosher salt", "amounts": [{"unit": "tsp", "value": 0.5}]}
+//
+// --- parenthesized secondary amounts ---
+{"input": "1 (14.5 oz) can diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 1}], "modifier": "diced"}
+{"input": "1 (15 oz) can chickpeas, drained", "name": "chickpeas", "amounts": [{"unit": "can", "value": 1}], "modifier": "drained"}
+{"input": "1 cup (2 sticks) butter", "name": "butter", "amounts": [{"unit": "cup", "value": 1}, {"unit": "stick", "value": 2}]}
+//
+// --- trailing clauses ---
+{"input": "3 cups all-purpose flour, plus more for dusting", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 3}], "modifier": "plus more for dusting"}
+{"input": "Salt and pepper to taste", "name": "Salt and pepper", "modifier": "to taste"}
+//
+// --- optional (parenthesized whole line) ---
+{"input": "(1/2 cup chopped walnuts)", "name": "walnuts", "amounts": [{"unit": "cup", "value": 0.5}], "modifier": "chopped", "optional": true}
+//
+// --- name-only / non-amount lines ---
+{"input": "salt", "name": "salt"}
+{"input": "Chocolate Chip Cookies", "name": "Chocolate Chip Cookies"}
+{"input": "freshly ground black pepper", "name": "black pepper", "modifier": "freshly ground"}
+//
+// --- known gaps (xfail = desired parse the parser does not yet produce) ---
+{"input": "Juice of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "juice of", "xfail": "'X of N item' construction falls back to name-only"}
+{"input": "Zest of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "zest of", "xfail": "'X of N item' construction falls back to name-only"}
+{"input": "1 cup packed brown sugar", "name": "brown sugar", "amounts": [{"unit": "cup", "value": 1}], "modifier": "packed", "xfail": "leading prep word 'packed' not extracted to modifier"}
+{"input": "2 ribs celery, chopped", "name": "celery", "amounts": [{"unit": "rib", "value": 2}], "modifier": "chopped", "xfail": "'rib(s)' not a recognized unit; absorbed into name"}
