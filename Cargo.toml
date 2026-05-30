@@ -16,6 +16,7 @@ serde_json = "1.0"
 tracing = "0.1.40"
 tokio = { version = "1.47.1", features = ["macros"] }
 rstest = "0.26"
+thiserror = "2.0"
 ingredient = { path = "ingredient-parser" }
 recipe-scraper = { path = "recipe-scraper" }
 

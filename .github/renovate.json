@@ -20,11 +20,16 @@
     {
       "matchUpdateTypes": [
         "minor",
-        "pin",
-        "major"
+        "pin"
       ],
       "automergeType": "branch",
       "automerge": true
+    },
+    {
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
     },
     {
       "matchUpdateTypes": [

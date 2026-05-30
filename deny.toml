@@ -1,0 +1,44 @@
+# cargo-deny configuration — supply-chain checks for the workspace.
+# Run locally with: cargo deny check
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+# Security advisories from the RustSec database (https://rustsec.org).
+version = 2
+# Advisory IDs to ignore must be listed here with a justifying comment.
+ignore = []
+
+[licenses]
+version = 2
+# Permissive licenses accepted across the dependency tree. Tuned to the
+# crates actually pulled in by the workspace (verified with `cargo deny check licenses`).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "BSL-1.0",
+    "OpenSSL",
+    # Bundled fonts (egui default fonts, via food-app) and a permissive data license.
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+# Duplicate crate versions are common in large dep trees (egui/wgpu); warn, don't fail.
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
