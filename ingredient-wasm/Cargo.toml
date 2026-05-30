@@ -6,6 +6,13 @@ edition = "2021"
 license = "MIT"
 publish = false
 
+# Recent rustc emits WASM using reference-types/bulk-memory (e.g. multiple
+# tables). Older `wasm-opt` builds (as shipped by the CI wasm-pack) reject that
+# in MVP mode with "Only 1 table definition allowed in MVP". Enable the features
+# so wasm-opt accepts it, while keeping `-O` size optimization.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-O', '--enable-reference-types', '--enable-bulk-memory']
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
