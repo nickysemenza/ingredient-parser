@@ -76,7 +76,14 @@
 {"input": "Chocolate Chip Cookies", "name": "Chocolate Chip Cookies"}
 {"input": "freshly ground black pepper", "name": "black pepper", "modifier": "freshly ground"}
 //
+// --- real-world lines (from recipe-scraper test_data) ---
+{"input": "2 cups/250 grams all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 2}, {"unit": "g", "value": 250}]}
+{"input": "1 1/2 cups (190 grams) all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 1.5}, {"unit": "g", "value": 190}]}
+{"input": "1 large egg, room temperature", "name": "large egg", "amounts": [{"unit": "whole", "value": 1}], "modifier": "room temperature"}
+//
 // --- known gaps (xfail = desired parse the parser does not yet produce) ---
 {"input": "Juice of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "juice of", "xfail": "'X of N item' construction falls back to name-only"}
 {"input": "Zest of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "zest of", "xfail": "'X of N item' construction falls back to name-only"}
 {"input": "1 cup packed brown sugar", "name": "brown sugar", "amounts": [{"unit": "cup", "value": 1}], "modifier": "packed", "xfail": "leading prep word 'packed' not extracted to modifier"}
+{"input": "1,000 grams (about 6 cups) quartered and pitted nectarines", "name": "quartered and pitted nectarines", "amounts": [{"unit": "g", "value": 1000}], "xfail": "decimal-comma thousands separator '1,000' not parsed; now falls back to full-input name (no longer empty)"}
+{"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": 0.667}, {"unit": "g", "value": 85}], "modifier": "finely chopped", "xfail": "leading prep phrase before name; now falls back to full-input name (no longer empty)"}

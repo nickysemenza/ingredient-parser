@@ -50,6 +50,20 @@ impl IngredientParser {
         }
 
         self.parse_core_ingredient(input)
+            // Reject a "successful" parse that lost the ingredient name into the
+            // modifier (seen on real recipes: a decimal comma in "1,000 grams
+            // ... nectarines", a leading prep word, etc.) — the graceful
+            // fallback is better than a name-less ingredient with garbled text.
+            // A bare quantity like "1/2-1 cup" legitimately has no name, so only
+            // fall back when the empty name coincides with leftover modifier text.
+            .filter(|ingredient| {
+                let name_empty = ingredient.name.trim().is_empty();
+                let has_modifier = ingredient
+                    .modifier
+                    .as_deref()
+                    .is_some_and(|m| !m.trim().is_empty());
+                !(name_empty && has_modifier)
+            })
             .unwrap_or_else(|| fallback_ingredient(input))
     }
 

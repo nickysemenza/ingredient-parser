@@ -558,14 +558,15 @@ fn test_trace_collector_default() {
 // ============================================================================
 
 /// Test that parse_with_trace handles various edge cases gracefully.
-/// Note: The parser is designed to be very permissive - most inputs parse
-/// successfully (possibly with empty name). These tests document this behavior.
+/// Note: The parser is permissive. A bare quantity may have an empty name
+/// ("12345"), but when leftover text would otherwise be orphaned in the
+/// modifier, the parse falls back to the input as the name ("@#$%").
 #[rstest]
 #[case::empty("", "")]
 #[case::whitespace("   ", "")]
 #[case::newline_only("\n", "")]
-#[case::numbers_only("12345", "")] // Numbers parsed as measurement, name is empty
-#[case::special_chars("@#$%", "")]
+#[case::numbers_only("12345", "")] // Bare quantity: amount parsed, name legitimately empty
+#[case::special_chars("@#$%", "@#$%")] // Junk would orphan in the modifier -> fall back to input
 fn test_parse_with_trace_edge_cases(
     parser: IngredientParser,
     #[case] input: &str,
