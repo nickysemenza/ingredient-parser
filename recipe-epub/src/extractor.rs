@@ -198,53 +198,55 @@ impl ClaudeExtractor {
     pub fn model_id(&self) -> &str {
         &self.model
     }
+}
 
-    /// JSON Schema for the forced tool: `{ recipes: [ExtractedRecipe, ...] }`.
-    fn tool_schema() -> serde_json::Value {
-        let string = json!({ "type": "string" });
-        let string_array = json!({ "type": "array", "items": { "type": "string" } });
-        json!({
-            "type": "object",
-            "properties": {
-                "recipes": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "title": string,
-                            "description": string,
-                            "sections": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": string,
-                                        "ingredients": string_array,
-                                        "instructions": string_array
-                                    },
-                                    "required": ["ingredients"]
-                                }
-                            },
-                            "recipe_yield": string,
-                            "times": {
+/// JSON Schema for the forced tool's input: `{ recipes: [ExtractedRecipe, ...] }`.
+/// Shared by every backend (Anthropic `input_schema`, OpenAI/Gemini function
+/// `parameters`).
+fn recipes_tool_schema() -> serde_json::Value {
+    let string = json!({ "type": "string" });
+    let string_array = json!({ "type": "array", "items": { "type": "string" } });
+    json!({
+        "type": "object",
+        "properties": {
+            "recipes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": string,
+                        "description": string,
+                        "sections": {
+                            "type": "array",
+                            "items": {
                                 "type": "object",
                                 "properties": {
-                                    "active": string, "total": string,
-                                    "prep": string, "cook": string
-                                }
-                            },
-                            "equipment": string_array,
-                            "notes": string_array,
-                            "category": string,
-                            "page": string
+                                    "name": string,
+                                    "ingredients": string_array,
+                                    "instructions": string_array
+                                },
+                                "required": ["ingredients"]
+                            }
                         },
-                        "required": ["title", "sections"]
-                    }
+                        "recipe_yield": string,
+                        "times": {
+                            "type": "object",
+                            "properties": {
+                                "active": string, "total": string,
+                                "prep": string, "cook": string
+                            }
+                        },
+                        "equipment": string_array,
+                        "notes": string_array,
+                        "category": string,
+                        "page": string
+                    },
+                    "required": ["title", "sections"]
                 }
-            },
-            "required": ["recipes"]
-        })
-    }
+            }
+        },
+        "required": ["recipes"]
+    })
 }
 
 impl RecipeExtractor for ClaudeExtractor {
@@ -271,7 +273,7 @@ impl RecipeExtractor for ClaudeExtractor {
             "tools": [{
                 "name": TOOL_NAME,
                 "description": "Return every recipe found in the cookbook section.",
-                "input_schema": Self::tool_schema()
+                "input_schema": recipes_tool_schema()
             }],
             "tool_choice": { "type": "tool", "name": TOOL_NAME },
             "messages": [{ "role": "user", "content": user_text }]
@@ -350,6 +352,276 @@ enum ContentBlock {
     // text / thinking / anything else — ignored.
     #[serde(other)]
     Other,
+}
+
+// ===========================================================================
+// OpenAI-compatible backend (OpenAI + Gemini via its OpenAI-compat endpoint)
+// ===========================================================================
+
+const OPENAI_DEFAULT_BASE: &str = "https://api.openai.com/v1";
+const GEMINI_DEFAULT_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
+
+/// Whether a model id routes to the OpenAI-compatible backend rather than Claude.
+pub(crate) fn is_openai_compatible_model(model: &str) -> bool {
+    let m = model.to_lowercase();
+    m.starts_with("gpt")
+        || m.starts_with("o1")
+        || m.starts_with("o3")
+        || m.starts_with("o4")
+        || m.starts_with("gemini")
+}
+
+/// Calls an OpenAI-compatible `/chat/completions` endpoint with a forced
+/// function call. Serves both OpenAI (`gpt-*`) and Google Gemini (`gemini-*`,
+/// via its OpenAI-compatible endpoint) — the wire format is identical.
+pub struct OpenAiExtractor {
+    client: reqwest::Client,
+    /// Full endpoint incl. `/chat/completions`.
+    endpoint: String,
+    /// `Authorization: Bearer …` — optional when a gateway injects the key (BYOK).
+    api_key: Option<String>,
+    /// `cf-aig-authorization: Bearer …` — set for a Cloudflare AI Gateway.
+    gateway_token: Option<String>,
+    model: String,
+}
+
+impl OpenAiExtractor {
+    /// Build from the environment. Base URL resolution, in order:
+    /// 1. `OPENAI_BASE_URL` / `GEMINI_BASE_URL` (provider-specific override);
+    /// 2. derived from a Cloudflare gateway `ANTHROPIC_BASE_URL` ending in
+    ///    `/anthropic` (swapped to `/openai` or `/google-ai-studio/v1beta/openai`);
+    /// 3. the provider's public default.
+    ///
+    /// Auth: `OPENAI_API_KEY` / `GEMINI_API_KEY` → `Authorization: Bearer`
+    /// (optional with a BYOK gateway), plus `CF_AIG_TOKEN` / `AI_GATEWAY_API_KEY`
+    /// → `cf-aig-authorization`. At least one auth source must be present.
+    pub fn from_env(opts: &Options) -> Result<Self, EpubError> {
+        let nonempty = |v: Result<String, _>| v.ok().filter(|s| !s.is_empty());
+        let model = opts
+            .model
+            .clone()
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        let is_gemini = model.to_lowercase().starts_with("gemini");
+
+        let gateway_token = nonempty(std::env::var("CF_AIG_TOKEN"))
+            .or_else(|| nonempty(std::env::var("AI_GATEWAY_API_KEY")));
+        let api_key = if is_gemini {
+            nonempty(std::env::var("GEMINI_API_KEY"))
+                .or_else(|| nonempty(std::env::var("GOOGLE_API_KEY")))
+        } else {
+            nonempty(std::env::var("OPENAI_API_KEY"))
+        };
+        if api_key.is_none() && gateway_token.is_none() {
+            return Err(EpubError::MissingApiKey);
+        }
+
+        let explicit = if is_gemini {
+            nonempty(std::env::var("GEMINI_BASE_URL"))
+        } else {
+            nonempty(std::env::var("OPENAI_BASE_URL"))
+        };
+        let suffix = if is_gemini {
+            "google-ai-studio/v1beta/openai"
+        } else {
+            "openai"
+        };
+        let base = explicit
+            .or_else(|| {
+                // Derive a sibling provider route from a CF gateway base.
+                nonempty(std::env::var("ANTHROPIC_BASE_URL")).and_then(|b| {
+                    b.trim_end_matches('/')
+                        .strip_suffix("/anthropic")
+                        .map(|prefix| format!("{prefix}/{suffix}"))
+                })
+            })
+            .unwrap_or_else(|| {
+                if is_gemini {
+                    GEMINI_DEFAULT_BASE.to_string()
+                } else {
+                    OPENAI_DEFAULT_BASE.to_string()
+                }
+            });
+        let endpoint = format!("{}/chat/completions", base.trim_end_matches('/'));
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+        Ok(Self {
+            client,
+            endpoint,
+            api_key,
+            gateway_token,
+            model,
+        })
+    }
+}
+
+impl RecipeExtractor for OpenAiExtractor {
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
+        let user_text = match &chunk.title_hint {
+            Some(t) => format!("Section title: {t}\n\n{}", chunk.text),
+            None => chunk.text.clone(),
+        };
+
+        let body = json!({
+            "model": self.model,
+            "max_tokens": 16000,
+            "messages": [
+                { "role": "system", "content": SYSTEM_PROMPT },
+                { "role": "user", "content": user_text }
+            ],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": TOOL_NAME,
+                    "description": "Return every recipe found in the cookbook section.",
+                    "parameters": recipes_tool_schema()
+                }
+            }],
+            "tool_choice": { "type": "function", "function": { "name": TOOL_NAME } }
+        });
+
+        let mut req = self
+            .client
+            .post(&self.endpoint)
+            .header("content-type", "application/json");
+        if let Some(key) = &self.api_key {
+            req = req.header("authorization", format!("Bearer {key}"));
+        }
+        if let Some(token) = &self.gateway_token {
+            req = req.header("cf-aig-authorization", format!("Bearer {token}"));
+        }
+        let resp = req.json(&body).send().await?;
+
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            return Err(EpubError::Api {
+                status: status.as_u16(),
+                body: text,
+            });
+        }
+
+        let parsed: OpenAiResponse = serde_json::from_str(&text)?;
+        let usage = parsed.usage.into();
+        let choice = parsed.choices.into_iter().next();
+        if let Some(reason) = choice.as_ref().and_then(|c| c.finish_reason.as_deref()) {
+            if reason == "length" {
+                tracing::warn!(
+                    "chunk {} hit token limit; some recipes may be truncated",
+                    chunk.doc_path
+                );
+            }
+        }
+        let args = choice
+            .and_then(|c| c.message.tool_calls)
+            .and_then(|mut calls| calls.drain(..).next())
+            .map(|call| call.function.arguments);
+
+        let recipes = match args {
+            Some(args) => serde_json::from_str::<RecipesPayload>(&args)?.recipes,
+            None => Vec::new(),
+        };
+        Ok(ChunkOutcome {
+            recipes,
+            usage,
+            cached: false,
+        })
+    }
+}
+
+/// Minimal OpenAI chat-completions response shape (forced tool call).
+#[derive(Deserialize)]
+struct OpenAiResponse {
+    #[serde(default)]
+    choices: Vec<OpenAiChoice>,
+    #[serde(default)]
+    usage: OpenAiUsage,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChoice {
+    message: OpenAiMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiMessage {
+    #[serde(default)]
+    tool_calls: Option<Vec<OpenAiToolCall>>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiToolCall {
+    function: OpenAiFunctionCall,
+}
+
+#[derive(Deserialize)]
+struct OpenAiFunctionCall {
+    /// JSON-encoded string of the tool input.
+    arguments: String,
+}
+
+#[derive(Deserialize, Default)]
+struct OpenAiUsage {
+    #[serde(default)]
+    prompt_tokens: u64,
+    #[serde(default)]
+    completion_tokens: u64,
+}
+
+impl From<OpenAiUsage> for Usage {
+    fn from(u: OpenAiUsage) -> Self {
+        // OpenAI/Gemini don't split out prompt-cache tokens in the basic usage
+        // object, so cache fields stay zero.
+        Usage {
+            input_tokens: u.prompt_tokens,
+            output_tokens: u.completion_tokens,
+            ..Default::default()
+        }
+    }
+}
+
+// ===========================================================================
+
+/// Runtime-selected extraction backend, chosen by model id.
+pub enum Backend {
+    Claude(ClaudeExtractor),
+    OpenAi(OpenAiExtractor),
+}
+
+impl Backend {
+    /// Pick a backend from `opts.model`: `gpt-*`/`o*`/`gemini-*` →
+    /// [`OpenAiExtractor`], otherwise [`ClaudeExtractor`] (the default).
+    pub fn from_env(opts: &Options) -> Result<Self, EpubError> {
+        let model = opts.model.as_deref().unwrap_or(DEFAULT_MODEL);
+        if is_openai_compatible_model(model) {
+            Ok(Backend::OpenAi(OpenAiExtractor::from_env(opts)?))
+        } else {
+            Ok(Backend::Claude(ClaudeExtractor::from_env(opts)?))
+        }
+    }
+}
+
+impl RecipeExtractor for Backend {
+    fn model(&self) -> &str {
+        match self {
+            Backend::Claude(e) => e.model(),
+            Backend::OpenAi(e) => e.model(),
+        }
+    }
+
+    async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
+        match self {
+            Backend::Claude(e) => e.extract(chunk).await,
+            Backend::OpenAi(e) => e.extract(chunk).await,
+        }
+    }
 }
 
 /// Deterministic test extractor: a chunk returns the recipes of every `needle`
@@ -445,5 +717,63 @@ mod tests {
         assert_eq!(r.sections.len(), 1);
         assert_eq!(r.sections[0].ingredients, vec!["1 cup flour", "2 eggs"]);
         assert_eq!(r.meta.notes, vec!["Best fresh off the griddle."]);
+    }
+
+    #[test]
+    fn parses_openai_tool_call_response() {
+        // Shape from the gateway's OpenAI-compatible route (OpenAI + Gemini):
+        // tool args are a JSON-encoded string.
+        let raw = json!({
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "model": "gemini-2.5-flash-lite",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": TOOL_NAME,
+                            "arguments": "{\"recipes\":[{\"title\":\"Pancakes\",\"sections\":[{\"ingredients\":[\"1 cup flour\",\"2 eggs\"],\"instructions\":[\"Mix.\"]}]}]}"
+                        }
+                    }]
+                }
+            }],
+            "usage": { "prompt_tokens": 179, "completion_tokens": 45, "total_tokens": 224 }
+        })
+        .to_string();
+
+        let parsed: OpenAiResponse = serde_json::from_str(&raw).unwrap();
+        let usage: Usage = parsed.usage.into();
+        assert_eq!(usage.input_tokens, 179);
+        assert_eq!(usage.output_tokens, 45);
+
+        let args = parsed
+            .choices
+            .into_iter()
+            .next()
+            .and_then(|c| c.message.tool_calls)
+            .and_then(|mut calls| calls.drain(..).next())
+            .map(|call| call.function.arguments)
+            .unwrap();
+        let payload: RecipesPayload = serde_json::from_str(&args).unwrap();
+        assert_eq!(payload.recipes.len(), 1);
+        assert_eq!(payload.recipes[0].meta.title, "Pancakes");
+        assert_eq!(
+            payload.recipes[0].sections[0].ingredients,
+            vec!["1 cup flour", "2 eggs"]
+        );
+    }
+
+    #[test]
+    fn routes_models_to_backends() {
+        assert!(is_openai_compatible_model("gpt-4o-mini"));
+        assert!(is_openai_compatible_model("gemini-2.5-flash-lite"));
+        assert!(is_openai_compatible_model("o3-mini"));
+        assert!(!is_openai_compatible_model("claude-haiku-4-5"));
+        assert!(!is_openai_compatible_model("claude-sonnet-4-6"));
     }
 }

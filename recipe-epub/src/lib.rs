@@ -18,8 +18,8 @@ mod extractor;
 use std::path::PathBuf;
 
 pub use extractor::{
-    ChunkOutcome, ClaudeExtractor, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta,
-    RecipeTimes, Usage,
+    Backend, ChunkOutcome, ClaudeExtractor, ExtractedRecipe, MockExtractor, OpenAiExtractor,
+    RecipeExtractor, RecipeMeta, RecipeTimes, Usage,
 };
 // Section types are shared with the web scraper — one section shape workspace-wide.
 pub use recipe_scraper::{ParsedSection, RecipeSection};
@@ -153,12 +153,12 @@ pub async fn extract_cookbook(
     source: &str,
     opts: &Options,
 ) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
-    let extractor = ClaudeExtractor::from_env(opts)?;
+    let extractor = Backend::from_env(opts)?;
     if opts.use_cache {
         let caching = CachingExtractor {
             inner: &extractor,
             dir: opts.cache_dir.clone().unwrap_or_else(cache::default_dir),
-            model: extractor.model_id().to_string(),
+            model: extractor.model().to_string(),
         };
         extract_cookbook_with_stats(bytes, source, opts, &caching).await
     } else {
