@@ -231,7 +231,9 @@ const Scraper: React.FC = () => {
 
   const ingredientNames =
     scrapedRecipe && w
-      ? scrapedRecipe.ingredients.map((i) => w.parse_ingredient(i).name)
+      ? scrapedRecipe.sections
+          .flatMap((s) => s.ingredients)
+          .map((i) => w.parse_ingredient(i).name)
       : [];
 
   return (
@@ -309,8 +311,10 @@ const Scraper: React.FC = () => {
             </h4>
             <div className="space-y-3">
               {w &&
-                scrapedRecipe.ingredients.map((i, index) => {
-                  const p = w.parse_ingredient(i);
+                scrapedRecipe.sections
+                  .flatMap((s) => s.ingredients)
+                  .map((i, index) => {
+                    const p = w.parse_ingredient(i);
                   return (
                     <div
                       key={index}
@@ -346,7 +350,9 @@ const Scraper: React.FC = () => {
             </h4>
             <ol className="space-y-4">
               {w &&
-                scrapedRecipe.instructions.map((instruction, index) => (
+                scrapedRecipe.sections
+                  .flatMap((s) => s.instructions)
+                  .map((instruction, index) => (
                   <li
                     key={index}
                     className="flex items-start p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200"

@@ -36,10 +36,44 @@ pub struct RecipeYield {
     pub unit: String,
 }
 
+/// One component of a recipe (e.g. "For the sauce"). A recipe is fundamentally
+/// metadata + sections; the common case is a single unnamed section. Ingredient
+/// and instruction lines are raw strings — [`ScrapedRecipe::parse`] structures
+/// them with the core `ingredient` parser.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
+pub struct RecipeSection {
+    /// Component label; `None` for the main/only section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub ingredients: Vec<String>,
+    #[serde(default)]
+    pub instructions: Vec<String>,
+}
+
+impl RecipeSection {
+    /// An unnamed section — the common single-section case.
+    pub fn new(ingredients: Vec<String>, instructions: Vec<String>) -> Self {
+        Self {
+            name: None,
+            ingredients,
+            instructions,
+        }
+    }
+}
+
+/// A section with its ingredient/instruction lines parsed.
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct ParsedSection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub ingredients: Vec<Ingredient>,
+    pub instructions: Vec<Rich>,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ScrapedRecipe {
-    pub ingredients: Vec<String>,
-    pub instructions: Vec<String>,
+    /// Recipe components; most recipes have a single unnamed section.
+    pub sections: Vec<RecipeSection>,
     pub name: String,
     pub url: String,
     pub image: Option<String>,
@@ -51,32 +85,59 @@ pub struct ScrapedRecipe {
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct ParsedRecipe {
-    pub ingredients: Vec<Ingredient>,
-    pub instructions: Vec<Rich>,
+    pub sections: Vec<ParsedSection>,
 }
+
+/// Parse each section's raw ingredient/instruction lines with the core parser.
+/// The [`RichParser`] is seeded with every ingredient name across all sections
+/// so instructions in one component can reference ingredients from another.
+/// Shared by [`ScrapedRecipe::parse`] and `recipe-epub`.
+pub fn parse_sections(sections: &[RecipeSection]) -> Vec<ParsedSection> {
+    let ip = IngredientParser::new();
+    let parsed_ings: Vec<Vec<Ingredient>> = sections
+        .iter()
+        .map(|s| s.ingredients.iter().map(|i| ip.from_str(i)).collect())
+        .collect();
+    let names: Vec<String> = parsed_ings
+        .iter()
+        .flatten()
+        .map(|i| i.name.clone())
+        .collect();
+    let rtp = RichParser::new(names);
+    sections
+        .iter()
+        .zip(parsed_ings)
+        .map(|(s, ingredients)| ParsedSection {
+            name: s.name.clone(),
+            ingredients,
+            instructions: s
+                .instructions
+                .iter()
+                .filter_map(|i| rtp.clone().parse(i).ok())
+                .collect(),
+        })
+        .collect()
+}
+
 impl ScrapedRecipe {
     pub fn parse(&self) -> ParsedRecipe {
-        let ip = IngredientParser::new();
-        let ingredients = self
-            .ingredients
-            .iter()
-            .map(|i| ip.from_str(i))
-            .collect::<Vec<_>>();
-        let names = ingredients
-            .iter()
-            .map(|i| i.name.clone())
-            .collect::<Vec<_>>();
-        let rtp = RichParser::new(names);
-        let parsed_instructions = self
-            .instructions
-            .iter()
-            .filter_map(|i| rtp.clone().parse(i).ok())
-            .collect::<Vec<Rich>>();
-
         ParsedRecipe {
-            ingredients,
-            instructions: parsed_instructions,
+            sections: parse_sections(&self.sections),
         }
+    }
+
+    /// All ingredient lines across every section, in order.
+    pub fn ingredients(&self) -> impl Iterator<Item = &str> {
+        self.sections
+            .iter()
+            .flat_map(|s| s.ingredients.iter().map(String::as_str))
+    }
+
+    /// All instruction lines across every section, in order.
+    pub fn instructions(&self) -> impl Iterator<Item = &str> {
+        self.sections
+            .iter()
+            .flat_map(|s| s.instructions.iter().map(String::as_str))
     }
 }
 // inspiration
@@ -111,8 +172,16 @@ pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     });
 
     res.map(|mut r| {
-        r.ingredients = r.ingredients.into_iter().map(clean_string).collect();
-        r.instructions = r.instructions.into_iter().map(clean_string).collect();
+        for s in &mut r.sections {
+            s.ingredients = std::mem::take(&mut s.ingredients)
+                .into_iter()
+                .map(clean_string)
+                .collect();
+            s.instructions = std::mem::take(&mut s.instructions)
+                .into_iter()
+                .map(clean_string)
+                .collect();
+        }
         r
     })
 }

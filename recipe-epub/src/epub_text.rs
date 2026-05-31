@@ -1,0 +1,299 @@
+//! Open an EPUB and turn its content documents into cleaned text [`Chunk`]s.
+//!
+//! Phase 1: one chunk per spine document. Phase 3 replaces this with TOC-region
+//! accumulation so a recipe split across multiple spine docs is reassembled.
+
+use std::io::Cursor;
+
+use ego_tree::iter::Edge;
+use epub::doc::EpubDoc;
+use scraper::{Html, Node};
+
+use crate::{Chunk, EpubError};
+
+/// Target chunk size in characters. Large enough that a single long recipe
+/// (e.g. Claire Saffitz's detailed methods) stays whole within one chunk —
+/// splitting a recipe across chunks loses its tail, since only the title-bearing
+/// chunk yields a recipe. Still small enough that the model's structured output
+/// for the few recipes in a chunk stays well under `max_tokens` (16k): ~12k
+/// input chars ≈ a handful of recipes ≈ well under the cap. The windower prefers
+/// to break at a title boundary (see [`looks_like_title`]), so most chunks end
+/// cleanly between recipes rather than mid-recipe.
+const CHUNK_BUDGET: usize = 12000;
+/// Once over budget, accept up to this many extra chars looking for a clean
+/// (title-like) boundary before hard-splitting.
+const CHUNK_SLACK: usize = 6000;
+
+/// Parse the EPUB `bytes` (a zip) and return text chunks in spine reading order.
+///
+/// Spine docs are cleaned to lines, concatenated in reading order, then windowed
+/// into ~[`CHUNK_BUDGET`]-sized chunks broken at title-like lines. This caps each
+/// model call's output (no truncation on dense chapters) while merging small
+/// consecutive docs so a recipe split across files stays in one chunk.
+pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
+    let mut doc = EpubDoc::from_reader(Cursor::new(bytes.to_vec()))
+        .map_err(|e| EpubError::Open(e.to_string()))?;
+
+    let mut tagged: Vec<(String, String)> = Vec::new();
+    loop {
+        if let Some((content, mime)) = doc.get_current_str() {
+            if mime.contains("html") {
+                let doc_path = doc
+                    .get_current_path()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                for line in clean_xhtml_to_lines(&content) {
+                    tagged.push((doc_path.clone(), line));
+                }
+            }
+        }
+        if !doc.go_next() {
+            break;
+        }
+    }
+    Ok(window_chunks(tagged))
+}
+
+/// Greedily window `(doc_path, line)` pairs into chunks, preferring to break
+/// before a title-like line once over budget.
+fn window_chunks(tagged: Vec<(String, String)>) -> Vec<Chunk> {
+    let mut chunks = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
+    let mut len = 0usize;
+    let mut doc: Option<String> = None;
+
+    for (path, line) in tagged {
+        let want_break = !lines.is_empty()
+            && ((len >= CHUNK_BUDGET && looks_like_title(&line))
+                || len >= CHUNK_BUDGET + CHUNK_SLACK);
+        if want_break {
+            chunks.push(Chunk {
+                title_hint: None,
+                text: lines.join("\n"),
+                doc_path: doc.take().unwrap_or_default(),
+            });
+            lines = Vec::new();
+            len = 0;
+        }
+        if doc.is_none() {
+            doc = Some(path);
+        }
+        len += line.len() + 1;
+        lines.push(line);
+    }
+    if !lines.is_empty() {
+        chunks.push(Chunk {
+            title_hint: None,
+            text: lines.join("\n"),
+            doc_path: doc.unwrap_or_default(),
+        });
+    }
+    chunks
+}
+
+/// Cheap, publisher-agnostic guess at whether a line starts a new recipe (a
+/// short line that isn't an ingredient quantity or a prose sentence). Only used
+/// to pick chunk boundaries — an imperfect guess just shifts where text is cut.
+fn looks_like_title(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() || t.len() > 60 {
+        return false;
+    }
+    match t.chars().next() {
+        // ingredient lines start with a quantity; bullets aren't titles
+        Some(c) if c.is_ascii_digit() || "½⅓¼¾⅔⅜⅝⅞⅛•·*-–—".contains(c) => {
+            false
+        }
+        Some(_) => !t.ends_with('.'), // a trailing period suggests prose
+        None => false,
+    }
+}
+
+/// Tags that introduce a line break (block-level + `<br>`). Publishers split
+/// ingredient lines across all of these — notably `<div>` (e.g. Pok Pok's
+/// `<div class="IL_item">`) — so we treat every one as a boundary, not just an
+/// allowlist of `<p>`/`<li>`.
+fn is_block(tag: &str) -> bool {
+    matches!(
+        tag,
+        "p" | "div"
+            | "li"
+            | "ul"
+            | "ol"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "table"
+            | "thead"
+            | "tbody"
+            | "tr"
+            | "td"
+            | "th"
+            | "dl"
+            | "dt"
+            | "dd"
+            | "blockquote"
+            | "section"
+            | "article"
+            | "header"
+            | "footer"
+            | "aside"
+            | "main"
+            | "nav"
+            | "figure"
+            | "figcaption"
+            | "caption"
+            | "pre"
+            | "hr"
+            | "br"
+    )
+}
+
+/// Non-rendered subtrees whose text must be dropped (CSS, scripts, `<head>`).
+fn is_skip(tag: &str) -> bool {
+    matches!(tag, "head" | "script" | "style" | "noscript" | "title")
+}
+
+/// Strip XHTML to text and join into one string (one line per block element).
+#[cfg(test)]
+pub(crate) fn clean_xhtml_to_text(xhtml: &str) -> String {
+    clean_xhtml_to_lines(xhtml).join("\n")
+}
+
+/// Strip XHTML to text, one line per block-level element, by walking the DOM and
+/// inserting a newline at every block boundary. Captures `<div>`/`<span>`-based
+/// layouts that a tag allowlist would miss, and drops `<script>`/`<style>`/`<head>`.
+fn clean_xhtml_to_lines(xhtml: &str) -> Vec<String> {
+    // NUL marks block boundaries — distinct from source newlines/indentation,
+    // which appear inside text nodes and must NOT split a logical line.
+    const SEP: char = '\u{0}';
+    let dom = Html::parse_document(xhtml);
+    let mut buf = String::new();
+    let mut skip_depth = 0usize;
+
+    for edge in dom.tree.root().traverse() {
+        match edge {
+            Edge::Open(node) => match node.value() {
+                Node::Element(e) => {
+                    let name = e.name();
+                    if is_skip(name) {
+                        skip_depth += 1;
+                    } else if skip_depth == 0 && is_block(name) {
+                        buf.push(SEP);
+                    }
+                }
+                Node::Text(t) if skip_depth == 0 => buf.push_str(t),
+                _ => {}
+            },
+            Edge::Close(node) => {
+                if let Node::Element(e) = node.value() {
+                    let name = e.name();
+                    if is_skip(name) {
+                        skip_depth = skip_depth.saturating_sub(1);
+                    } else if skip_depth == 0 && is_block(name) {
+                        buf.push(SEP);
+                    }
+                }
+            }
+        }
+    }
+
+    buf.split(SEP)
+        .map(normalize_ws)
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
+/// Collapse all whitespace (incl. non-breaking spaces) to single spaces, trim,
+/// and drop stray control characters (some EPUBs embed C0 control bytes around
+/// custom-font glyphs). Private Use Area glyphs are left as-is — without the
+/// embedded font's cmap we can't decode them to real characters.
+fn normalize_ws(s: &str) -> String {
+    let cleaned: String = s
+        .replace('\u{a0}', " ")
+        .chars()
+        .filter(|c| c.is_whitespace() || !c.is_control())
+        .collect();
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    // each <p>/<li> becomes its own line
+    #[case::paragraphs("<p>1 cup flour</p><p>2 eggs</p>", "1 cup flour\n2 eggs")]
+    #[case::list_items(
+        "<ul><li>1 tsp salt</li><li>3 cloves garlic</li></ul>",
+        "1 tsp salt\n3 cloves garlic"
+    )]
+    // div-based ingredient items (Pok Pok style) each become their own line
+    #[case::divs(
+        "<div class=\"IL_item\">1 oz chiles</div><div class=\"IL_item\">5 g salt</div>",
+        "1 oz chiles\n5 g salt"
+    )]
+    // <br> forces a line break within a block
+    #[case::line_break("<p>line one<br/>line two</p>", "line one\nline two")]
+    // inline markup inside a block stays on one line
+    #[case::inline("<p>1 cup <b>all-purpose</b> flour</p>", "1 cup all-purpose flour")]
+    // nbsp + whitespace runs collapse
+    #[case::nbsp("<p>1\u{a0}cup\n\n  flour</p>", "1 cup flour")]
+    // nested block (p inside td) is not double-counted
+    #[case::nested("<table><tr><td><p>200 g flour</p></td></tr></table>", "200 g flour")]
+    // <style>/<head> contents are dropped
+    #[case::drops_style(
+        "<html><head><title>T</title><style>p{color:red}</style></head><body><p>real text</p></body></html>",
+        "real text"
+    )]
+    fn cleans_xhtml(#[case] html: &str, #[case] expected: &str) {
+        assert_eq!(clean_xhtml_to_text(html), expected);
+    }
+
+    #[test]
+    fn looks_like_title_distinguishes_titles_from_lines() {
+        assert!(looks_like_title("Spiced Honey and Rye Cake"));
+        assert!(looks_like_title("NAAM PHRIK LAAP"));
+        assert!(!looks_like_title("1 cup flour")); // ingredient quantity
+        assert!(!looks_like_title("½ teaspoon salt")); // fraction
+        assert!(!looks_like_title("Whisk the eggs until pale and fluffy.")); // prose sentence
+        assert!(!looks_like_title("")); // empty
+    }
+
+    #[test]
+    fn window_splits_large_docs_and_merges_small_ones() {
+        // Two "recipes" each ~one full budget's worth of body in one doc → the
+        // windower should split, starting a fresh chunk at the second title.
+        // Sized relative to CHUNK_BUDGET so it holds if the constant changes.
+        let line = "x".repeat(140);
+        let lines_per_recipe = CHUNK_BUDGET / line.len() + 1;
+        let mut tagged = Vec::new();
+        for title in ["Chocolate Cake", "Vanilla Cake"] {
+            tagged.push(("big.html".to_string(), title.to_string()));
+            for _ in 0..lines_per_recipe {
+                tagged.push(("big.html".to_string(), line.clone()));
+            }
+        }
+        let chunks = window_chunks(tagged);
+        assert!(chunks.len() >= 2, "expected a split, got {}", chunks.len());
+        // No chunk wildly exceeds the budget+slack guard.
+        assert!(chunks
+            .iter()
+            .all(|c| c.text.len() <= CHUNK_BUDGET + CHUNK_SLACK + 200));
+        // The split starts a fresh chunk at the second recipe's title.
+        assert!(chunks.iter().any(|c| c.text.starts_with("Vanilla Cake")));
+
+        // Two tiny docs merge into a single chunk (split-across-files case).
+        let small = vec![
+            ("a.html".to_string(), "Pancakes".to_string()),
+            ("b.html".to_string(), "1 cup flour".to_string()),
+        ];
+        let merged = window_chunks(small);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].doc_path, "a.html");
+    }
+}

@@ -74,6 +74,8 @@ impl<'a> MeasurementParser<'a> {
                         (next, opt_measure.map_or_else(Vec::new, |m| vec![m]))
                     })
             },
+            // "1 (1-ounce) piece" -> [1 piece, 1 oz] (hoist hyphenated size)
+            |input| self.parse_count_with_parenthetical_size(input),
             // Parenthesized amounts like "(1 cup)"
             |input| self.parse_parenthesized_amounts(input),
             // Basic measurement like "2 cups"
@@ -143,6 +145,12 @@ mod tests {
             "teaspoons",
             "slice",
             "slices",
+            "ounce",
+            "ounces",
+            "piece",
+            "pieces",
+            "can",
+            "cans",
         ]
         .iter()
         .map(|&s| s.to_string())
@@ -300,6 +308,50 @@ mod tests {
         let parser = MeasurementParser::new(&units, false);
         let result = parser.parse_single_measurement("about 2 cups");
         assert!(result.is_ok());
+    }
+
+    /// Leading approximation qualifiers (any case, optional article) are skipped
+    /// so the amount after them still parses.
+    #[rstest]
+    #[case::lower_about("about 2 cups")]
+    #[case::cap_about("About 2 cups")]
+    #[case::generous("Generous 1 cup")]
+    #[case::scant("Scant 1 cup")]
+    #[case::heaping("Heaping 1 tablespoon")]
+    #[case::article("A generous 1 cup")]
+    fn test_leading_qualifiers(units: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units, false);
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        // The qualifier is discarded; the numeric value survives.
+        assert!(measure.value() >= 1.0, "input: {input}");
+    }
+
+    /// A hyphenated parenthetical size is hoisted into a second measure while the
+    /// count keeps the container unit: "1 (1-ounce) piece" -> [1 piece, 1 oz].
+    #[rstest]
+    #[case::piece("1 (1-ounce) piece ginger", 2, "piece")]
+    #[case::can("1 (28-ounce) can tomatoes", 2, "can")]
+    fn test_count_with_parenthetical_size(
+        units: HashSet<String>,
+        #[case] input: &str,
+        #[case] expected_len: usize,
+        #[case] first_unit: &str,
+    ) {
+        let parser = MeasurementParser::new(&units, false);
+        let (_, measures) = parser.parse_count_with_parenthetical_size(input).unwrap();
+        assert_eq!(measures.len(), expected_len, "input: {input}");
+        assert_eq!(measures[0].unit_as_string(), first_unit);
+        assert_eq!(measures[1].unit_as_string(), "oz");
+    }
+
+    /// The space form "(14.5 oz)" is NOT hoisted by the size parser (left to the
+    /// parenthesized-amount path), so this parser rejects it.
+    #[rstest]
+    fn test_parenthetical_size_rejects_space_form(units: HashSet<String>) {
+        let parser = MeasurementParser::new(&units, false);
+        assert!(parser
+            .parse_count_with_parenthetical_size("1 (14.5 oz) can tomatoes")
+            .is_err());
     }
 
     #[rstest]

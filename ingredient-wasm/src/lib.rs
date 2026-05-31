@@ -189,9 +189,13 @@ interface WUnitMapping {
     source?: string | null;
 }
 
-interface WScrapedRecipe {
+interface WRecipeSection {
+    name?: string;
     ingredients: string[];
     instructions: string[];
+}
+interface WScrapedRecipe {
+    sections: WRecipeSection[];
     name?: string;
     url?: string;
     image?: string;

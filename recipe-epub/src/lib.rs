@@ -1,0 +1,292 @@
+//! Extract recipes from EPUB cookbooks.
+//!
+//! EPUB cookbook markup is wildly publisher-specific (ingredients live in
+//! `<p class="ril">`, `<li>`, `<div class="IL_item">`, …), so instead of
+//! per-publisher heuristics this crate hands cleaned text to an LLM that decides
+//! *structure* — segmenting recipes into components and labeling title /
+//! ingredient lines / instruction steps / yield / times / notes. The ingredient
+//! *strings* come back verbatim; [`CookbookRecipe::parse`] runs the core
+//! `ingredient` nom parser over them. The LLM never parses quantities.
+//!
+//! Entry point: [`extract_cookbook`] (uses the default Claude backend) or
+//! [`extract_cookbook_with`] (any [`RecipeExtractor`], e.g. a mock in tests).
+
+mod cache;
+mod epub_text;
+mod extractor;
+
+use std::path::PathBuf;
+
+pub use extractor::{
+    ClaudeExtractor, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, RecipeTimes,
+};
+// Section types are shared with the web scraper — one section shape workspace-wide.
+pub use recipe_scraper::{ParsedSection, RecipeSection};
+
+use futures::stream::{self, StreamExt};
+use recipe_scraper::parse_sections;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+/// Errors from EPUB recipe extraction.
+#[derive(Debug, Error)]
+pub enum EpubError {
+    /// The bytes were not a readable EPUB (bad zip, missing OPF, …).
+    #[error("could not read epub: {0}")]
+    Open(String),
+    /// No auth source: neither `ANTHROPIC_API_KEY` nor a gateway token
+    /// (`CF_AIG_TOKEN` / `AI_GATEWAY_API_KEY`) was set.
+    #[error("no API auth: set ANTHROPIC_API_KEY, or CF_AIG_TOKEN/AI_GATEWAY_API_KEY (+ ANTHROPIC_BASE_URL) for a gateway")]
+    MissingApiKey,
+    /// The HTTP request to the model API failed (connection, timeout, …).
+    #[error("http error: {0}")]
+    Http(#[from] reqwest::Error),
+    /// The model API returned a non-success status or an unexpected shape.
+    #[error("model api error (status {status}): {body}")]
+    Api { status: u16, body: String },
+    /// JSON (de)serialization failed.
+    #[error("deserialize error: {0}")]
+    Deserialize(#[from] serde_json::Error),
+    /// The on-disk cache could not be read or written.
+    #[error("cache error: {0}")]
+    Cache(String),
+}
+
+/// Tunables for [`extract_cookbook`].
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Model id override (default: a current Claude Haiku).
+    pub model: Option<String>,
+    /// Whether to use the on-disk extraction cache.
+    pub use_cache: bool,
+    /// Cache directory (default: `$XDG_CACHE_HOME/recipe-epub` or `$TMPDIR/recipe-epub`).
+    pub cache_dir: Option<PathBuf>,
+    /// Max concurrent extractor calls.
+    pub concurrency: usize,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            model: None,
+            use_cache: true,
+            cache_dir: None,
+            concurrency: 8,
+        }
+    }
+}
+
+/// A unit of cookbook text handed to the extractor. One chunk may contain zero,
+/// one, or many recipes; the extractor segments them.
+#[derive(Debug, Clone)]
+pub struct Chunk {
+    /// A title hint from the TOC/heading, if any.
+    pub title_hint: Option<String>,
+    /// Cleaned, tag-stripped text (block/line breaks preserved).
+    pub text: String,
+    /// The originating spine-doc path, used to label `url`.
+    pub doc_path: String,
+}
+
+/// A fully assembled recipe (raw verbatim strings) with provenance. This is the
+/// crate's output type; call [`CookbookRecipe::parse`] to structure the lines.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CookbookRecipe {
+    pub meta: RecipeMeta,
+    pub sections: Vec<RecipeSection>,
+    /// The book this came from (the caller's `source` label).
+    pub source: String,
+    /// `source#doc_path` for traceability.
+    pub url: String,
+}
+
+/// [`CookbookRecipe`] with each ingredient line parsed into a structured
+/// [`Ingredient`] and each instruction into a [`Rich`] (measurement-aware).
+#[derive(Debug, Serialize)]
+pub struct ParsedCookbookRecipe {
+    pub meta: RecipeMeta,
+    pub source: String,
+    pub url: String,
+    pub sections: Vec<ParsedSection>,
+}
+
+impl CookbookRecipe {
+    /// Parse every section's verbatim lines with the shared core parser (the same
+    /// [`recipe_scraper::parse_sections`] the web scraper uses).
+    pub fn parse(&self) -> ParsedCookbookRecipe {
+        ParsedCookbookRecipe {
+            meta: self.meta.clone(),
+            source: self.source.clone(),
+            url: self.url.clone(),
+            sections: parse_sections(&self.sections),
+        }
+    }
+
+    /// Ingredient lines that look quantified (contain a digit or unicode
+    /// fraction) but which the nom parser extracts **no** amount from — i.e.
+    /// likely parser gaps worth adding to the accuracy corpus. Vocab-free: the
+    /// only signal is "has a number but no parsed amount".
+    pub fn low_confidence_lines(&self) -> Vec<String> {
+        let ip = ingredient::IngredientParser::new();
+        self.sections
+            .iter()
+            .flat_map(|s| &s.ingredients)
+            .filter(|line| has_quantity_char(line) && ip.from_str(line).amounts.is_empty())
+            .cloned()
+            .collect()
+    }
+}
+
+/// Whether a string contains an ASCII digit or a common unicode vulgar fraction.
+fn has_quantity_char(s: &str) -> bool {
+    s.chars()
+        .any(|c| c.is_ascii_digit() || "½⅓¼¾⅔⅜⅝⅞⅛⅙⅚".contains(c))
+}
+
+/// Extract every recipe from an EPUB cookbook using the default Claude backend.
+///
+/// `bytes` is the full `.epub` (a zip). `source` labels each recipe (book path
+/// or title). Auth comes from the environment (see [`ClaudeExtractor::from_env`]).
+pub async fn extract_cookbook(
+    bytes: &[u8],
+    source: &str,
+    opts: &Options,
+) -> Result<Vec<CookbookRecipe>, EpubError> {
+    let extractor = ClaudeExtractor::from_env(opts)?;
+    if opts.use_cache {
+        let caching = CachingExtractor {
+            inner: &extractor,
+            dir: opts.cache_dir.clone().unwrap_or_else(cache::default_dir),
+            model: extractor.model_id().to_string(),
+        };
+        extract_cookbook_with(bytes, source, opts, &caching).await
+    } else {
+        extract_cookbook_with(bytes, source, opts, &extractor).await
+    }
+}
+
+/// Wraps any extractor with the on-disk cache (see [`cache`]).
+struct CachingExtractor<'a, E> {
+    inner: &'a E,
+    dir: PathBuf,
+    model: String,
+}
+
+impl<E: RecipeExtractor> RecipeExtractor for CachingExtractor<'_, E> {
+    async fn extract(&self, chunk: &Chunk) -> Result<Vec<ExtractedRecipe>, EpubError> {
+        let key = cache::key(&self.model, &chunk.text);
+        if let Some(hit) = cache::read(&self.dir, &key) {
+            return Ok(hit);
+        }
+        let recipes = self.inner.extract(chunk).await?;
+        if let Err(e) = cache::write(&self.dir, &key, &recipes) {
+            tracing::warn!("cache write failed: {e}");
+        }
+        Ok(recipes)
+    }
+}
+
+/// Like [`extract_cookbook`] but with a caller-supplied extractor (used by tests
+/// with [`MockExtractor`]).
+pub async fn extract_cookbook_with<E: RecipeExtractor>(
+    bytes: &[u8],
+    source: &str,
+    opts: &Options,
+    extractor: &E,
+) -> Result<Vec<CookbookRecipe>, EpubError> {
+    let chunks = epub_text::chunk_epub(bytes)?;
+    tracing::info!("epub {source}: {} chunk(s)", chunks.len());
+
+    // Extract each chunk concurrently (bounded), preserving document order and
+    // each recipe's originating doc. A single failing chunk is logged and
+    // skipped rather than failing the whole book.
+    let per_chunk: Vec<(String, Vec<ExtractedRecipe>)> = stream::iter(chunks.iter())
+        .map(|chunk| async move {
+            let recipes = match extractor.extract(chunk).await {
+                Ok(recipes) => recipes,
+                Err(e) => {
+                    tracing::warn!("chunk {} extraction failed: {e}", chunk.doc_path);
+                    Vec::new()
+                }
+            };
+            (chunk.doc_path.clone(), recipes)
+        })
+        .buffered(opts.concurrency.max(1))
+        .collect::<Vec<_>>()
+        .await;
+
+    let recipes = assemble(per_chunk, source);
+    tracing::info!("epub {source}: {} recipe(s)", recipes.len());
+    Ok(recipes)
+}
+
+/// Attach each recipe's `source`/`url`, drop entries with no ingredients, and
+/// dedup by normalized title (a safety net against the same recipe twice).
+fn assemble(per_chunk: Vec<(String, Vec<ExtractedRecipe>)>, source: &str) -> Vec<CookbookRecipe> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (doc_path, recipes) in per_chunk {
+        for r in recipes {
+            let title = r.meta.title.trim().to_string();
+            let has_ingredients = r.sections.iter().any(|s| !s.ingredients.is_empty());
+            if title.is_empty() || !has_ingredients {
+                continue;
+            }
+            if !seen.insert(title.to_lowercase()) {
+                continue;
+            }
+            let mut meta = r.meta;
+            meta.title = title;
+            out.push(CookbookRecipe {
+                meta,
+                sections: r.sections,
+                source: source.to_string(),
+                url: format!("{source}#{doc_path}"),
+            });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn er(title: &str, ings: &[&str]) -> ExtractedRecipe {
+        ExtractedRecipe {
+            meta: RecipeMeta {
+                title: title.to_string(),
+                ..Default::default()
+            },
+            sections: vec![RecipeSection {
+                name: None,
+                ingredients: ings.iter().map(|s| s.to_string()).collect(),
+                instructions: vec!["step".to_string()],
+            }],
+        }
+    }
+
+    #[test]
+    fn assemble_dedups_by_title_and_drops_empty() {
+        let per_chunk = vec![
+            (
+                "c1.xhtml".to_string(),
+                vec![er("Pancakes", &["1 cup flour"])],
+            ),
+            (
+                "c2.xhtml".to_string(),
+                vec![
+                    er("PANCAKES", &["dupe"]), // dedup (case-insensitive)
+                    er("  ", &["no name"]),    // dropped: empty name
+                    er("Soup", &[]),           // dropped: no ingredients
+                    er("Omelette", &["3 eggs"]),
+                ],
+            ),
+        ];
+        let out = assemble(per_chunk, "book.epub");
+        let names: Vec<_> = out.iter().map(|r| r.meta.title.as_str()).collect();
+        assert_eq!(names, vec!["Pancakes", "Omelette"]);
+        assert_eq!(out[0].url, "book.epub#c1.xhtml");
+        assert_eq!(out[1].url, "book.epub#c2.xhtml");
+    }
+}

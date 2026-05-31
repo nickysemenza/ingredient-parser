@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 clap = {version="4.5.4", features=["derive"]}
 recipe-scraper-fetcher = {path = "../recipe-scraper-fetcher"}
+recipe-epub.workspace = true
 tokio = { workspace = true, features = ["full"] }
 serde_json.workspace = true
 ingredient.workspace = true

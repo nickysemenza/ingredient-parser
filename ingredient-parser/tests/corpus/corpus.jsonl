@@ -228,3 +228,9 @@
 {"input": "2 (14.5 oz) cans diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 2}], "modifier": "diced", "xfail": "leading count + parenthesized size + plural container unit falls back to name-only"}
 {"input": "1 and 1/2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.5}], "xfail": "mixed number written 'N and M/D' not parsed"}
 {"input": "half a cup of milk", "name": "milk", "amounts": [{"unit": "cup", "value": 0.5}], "xfail": "'half a <unit>' quantity not parsed"}
+{"input": "About 2 cups vegetable oil", "name": "vegetable oil", "amounts": [{"unit": "cup", "value": 2.0}]}
+{"input": "Generous ¼ cup chopped cilantro", "name": "cilantro", "amounts": [{"unit": "cup", "value": 0.25}], "modifier": "chopped"}
+{"input": "Scant 1 cup flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}]}
+{"input": "Heaping 1 tablespoon sugar", "name": "sugar", "amounts": [{"unit": "tbsp", "value": 1.0}]}
+{"input": "1 (1-ounce) piece peeled ginger", "name": "peeled ginger", "amounts": [{"unit": "piece", "value": 1.0}, {"unit": "oz", "value": 1.0}]}
+{"input": "1 (28-ounce) can whole peeled tomatoes", "name": "whole peeled tomatoes", "amounts": [{"unit": "can", "value": 1.0}, {"unit": "oz", "value": 28.0}]}

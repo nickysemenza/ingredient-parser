@@ -2,7 +2,8 @@ use nom::error::ParseError;
 #[allow(deprecated)]
 use nom::sequence::tuple;
 use nom::{
-    bytes::complete::tag,
+    branch::alt,
+    bytes::complete::tag_no_case,
     character::complete::{space0, space1},
     combinator::{opt, verify},
     error::context,
@@ -28,7 +29,7 @@ impl<'a> MeasurementParser<'a> {
     #[allow(deprecated)]
     pub(super) fn parse_single_measurement<'b>(&self, input: &'b str) -> Res<&'b str, Measure> {
         let measurement_parser = (
-            opt(tag("about ")),
+            opt(leading_qualifier),
             opt(|a| self.parse_multiplier(a)),
             |a| self.parse_value(a),
             space0,
@@ -218,4 +219,29 @@ fn reject_measurement(input: &str) -> nom::Err<VerboseError<&str>> {
         input,
         nom::error::ErrorKind::Verify,
     ))
+}
+
+/// Consume a leading approximation qualifier ("about", "generous", "scant",
+/// "heaping", …), optionally preceded by an article ("a"/"an"), so the amount
+/// after it still parses. Case-insensitive; the qualifier text is discarded.
+///
+/// Wrapped in `opt(...)` by the caller, so a partial match (e.g. consuming "a "
+/// then failing) backtracks and consumes nothing.
+fn leading_qualifier(input: &str) -> Res<&str, ()> {
+    let (input, _) = opt(alt((tag_no_case("a "), tag_no_case("an ")))).parse(input)?;
+    let (input, _) = alt((
+        tag_no_case("about"),
+        tag_no_case("approximately"),
+        tag_no_case("approx"),
+        tag_no_case("roughly"),
+        tag_no_case("around"),
+        tag_no_case("generous"),
+        tag_no_case("scant"),
+        tag_no_case("heaping"),
+        tag_no_case("heaped"),
+        tag_no_case("rounded"),
+    ))
+    .parse(input)?;
+    let (input, _) = space1(input)?;
+    Ok((input, ()))
 }

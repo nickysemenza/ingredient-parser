@@ -9,10 +9,15 @@ export interface Measure {
   upper_value?: number;
 }
 
-export interface ScrapedRecipe {
-  image?: string;
+export interface RecipeSection {
+  name?: string;
   ingredients: string[];
   instructions: string[];
+}
+
+export interface ScrapedRecipe {
+  image?: string;
+  sections: RecipeSection[];
   name?: string;
   url?: string;
 }

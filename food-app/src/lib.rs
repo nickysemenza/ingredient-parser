@@ -111,8 +111,7 @@ impl eframe::App for MyApp {
                         let recipe = response.and_then(parse_response);
                         if let Ok(r) = recipe {
                             let traces: Vec<ParseTrace> = r
-                                .ingredients
-                                .iter()
+                                .ingredients()
                                 .map(|ing| {
                                     let parser = ingredient::IngredientParser::new();
                                     parser.parse_with_trace(ing).trace

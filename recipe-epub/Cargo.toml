@@ -1,0 +1,33 @@
+[package]
+name = "recipe-epub"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+# Extract recipes from EPUB cookbooks: an LLM segments + labels structure
+# (title / ingredient lines / instruction steps); the core `ingredient` parser
+# (via recipe-scraper's ScrapedRecipe::parse) still parses each ingredient line.
+
+[dependencies]
+epub = "2.1.5"
+scraper = "0.27.0"
+ego-tree = "0.11"  # DOM traversal of scraper's tree (same version scraper uses)
+reqwest = { version = "0.13", features = ["json"] }  # default TLS is rustls in 0.13
+sha2 = "0.10"  # content-hash keys for the on-disk extraction cache
+ingredient.workspace = true
+recipe-scraper.workspace = true  # shared RecipeSection/ParsedSection + parse_sections
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+zip = "3"  # build tiny in-memory EPUB fixtures (matches epub's zip major)
+
+[lints]
+workspace = true

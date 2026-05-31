@@ -22,8 +22,7 @@ pub(crate) fn parse_chefsteps(json: &str) -> Result<ScrapedRecipe, ScrapeError> 
         .collect();
     let instructions = v.steps.iter().map(|i| i.directions.clone()).collect();
     Ok(ScrapedRecipe {
-        ingredients,
-        instructions,
+        sections: vec![crate::RecipeSection::new(ingredients, instructions)],
         name: v.title,
         url: v.url,
         image: Some(v.image),

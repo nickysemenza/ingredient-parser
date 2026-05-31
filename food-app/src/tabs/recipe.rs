@@ -47,35 +47,42 @@ fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
 }
 
 pub fn show_parsed(ui: &mut egui::Ui, parsed: &ParsedRecipe) {
-    ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            parsed.ingredients.iter().for_each(|x| {
-                ui.collapsing(make_rich(x), |ui| {
-                    ui.label(serde_json::to_string_pretty(&x).unwrap())
+    for section in &parsed.sections {
+        if let Some(name) = &section.name {
+            ui.heading(name);
+        }
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                section.ingredients.iter().for_each(|x| {
+                    ui.collapsing(make_rich(x), |ui| {
+                        ui.label(serde_json::to_string_pretty(&x).unwrap())
+                    });
                 });
             });
-        });
-        ui.vertical(|ui| {
-            parsed.instructions.iter().for_each(|x| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.group(|ui| {
-                        ui.spacing_mut().item_spacing.x = 0.0;
-                        x.iter().for_each(|x| match x {
-                            ingredient::rich_text::Chunk::Measure(x) => x.iter().for_each(|x| {
-                                ui.label(RichText::new(x.to_string()).color(Color32::GOLD));
-                            }),
-                            ingredient::rich_text::Chunk::Text(t) => {
-                                ui.label(t);
-                            }
-                            ingredient::rich_text::Chunk::Ing(i) => {
-                                ui.label(RichText::new(i).color(Color32::LIGHT_BLUE));
-                            }
+            ui.vertical(|ui| {
+                section.instructions.iter().for_each(|x| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.group(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            x.iter().for_each(|x| match x {
+                                ingredient::rich_text::Chunk::Measure(x) => {
+                                    x.iter().for_each(|x| {
+                                        ui.label(RichText::new(x.to_string()).color(Color32::GOLD));
+                                    })
+                                }
+                                ingredient::rich_text::Chunk::Text(t) => {
+                                    ui.label(t);
+                                }
+                                ingredient::rich_text::Chunk::Ing(i) => {
+                                    ui.label(RichText::new(i).color(Color32::LIGHT_BLUE));
+                                }
+                            });
                         });
                     });
                 });
             });
         });
-    });
+    }
 }
 
 pub fn show_raw(ui: &mut egui::Ui, recipe: &ScrapedRecipe) {
@@ -96,16 +103,21 @@ pub fn show_raw(ui: &mut egui::Ui, recipe: &ScrapedRecipe) {
         }
     });
     ui.separator();
-    ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            recipe.ingredients.iter().for_each(|x| {
-                ui.label(x);
+    for section in &recipe.sections {
+        if let Some(name) = &section.name {
+            ui.heading(name);
+        }
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                section.ingredients.iter().for_each(|x| {
+                    ui.label(x);
+                });
+            });
+            ui.vertical(|ui| {
+                section.instructions.iter().for_each(|x| {
+                    ui.label(x);
+                });
             });
         });
-        ui.vertical(|ui| {
-            recipe.instructions.iter().for_each(|x| {
-                ui.label(x);
-            });
-        });
-    });
+    }
 }

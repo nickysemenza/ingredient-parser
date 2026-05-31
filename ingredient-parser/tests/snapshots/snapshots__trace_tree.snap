@@ -25,6 +25,12 @@ expression: traced.trace.format_tree(false)
    │  │  │     └─ parse_range_end " cups flour, sifted" ✗
    │  │  ├─ unit "cups flour, sifted" ✓ → cups
    │  │  └─ parse_range_end " flour, sifted" ✗
+   │  ├─ parse_value "2 cups flour, sifted" ✓ → 2
+   │  │  ├─ parse_upper_bound_only "2 cups flour, sifted" ✗
+   │  │  └─ parse_value_with_optional_range "2 cups flour, sifted" ✓ → 2
+   │  │     ├─ parse_number "2 cups flour, sifted" ✓ → 2
+   │  │     │  └─ fraction_number "2 cups flour, sifted" ✗
+   │  │     └─ parse_range_end " cups flour, sifted" ✗
    │  ├─ parenthesized_amounts "2 cups flour, sifted" ✗
    │  ├─ parse_single_measurement "2 cups flour, sifted" ✓ → 2 cups
    │  │  ├─ parse_multiplier "2 cups flour, sifted" ✗
@@ -53,6 +59,11 @@ expression: traced.trace.format_tree(false)
    │  │     └─ parse_value_with_optional_range "flour, sifted" ✗
    │  │        └─ parse_number "flour, sifted" ✗
    │  │           └─ fraction_number "flour, sifted" ✗
+   │  ├─ parse_value "flour, sifted" ✗
+   │  │  ├─ parse_upper_bound_only "flour, sifted" ✗
+   │  │  └─ parse_value_with_optional_range "flour, sifted" ✗
+   │  │     └─ parse_number "flour, sifted" ✗
+   │  │        └─ fraction_number "flour, sifted" ✗
    │  ├─ parenthesized_amounts "flour, sifted" ✗
    │  ├─ parse_single_measurement "flour, sifted" ✗
    │  │  ├─ parse_multiplier "flour, sifted" ✗

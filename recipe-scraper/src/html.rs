@@ -42,8 +42,7 @@ pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeErr
         .and_then(|i| i.value().attr("content").map(|s| s.to_string()));
 
     Ok(ScrapedRecipe {
-        ingredients,
-        instructions,
+        sections: vec![crate::RecipeSection::new(ingredients, instructions)],
         name: title,
         url: url.to_string(),
         image,

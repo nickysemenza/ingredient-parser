@@ -125,8 +125,10 @@ fn normalize_root_recipe(
         .unwrap_or((None, None));
 
     Ok(ScrapedRecipe {
-        ingredients: ld_schema.recipe_ingredient,
-        instructions,
+        sections: vec![crate::RecipeSection::new(
+            ld_schema.recipe_ingredient,
+            instructions,
+        )],
         name: ld_schema.name,
         url: url.to_string(),
         image: ld_schema.image.and_then(|image| match image {
@@ -330,7 +332,7 @@ mod tests {
         assert!(result.is_ok());
         let recipe = result.unwrap();
         assert_eq!(recipe.name, "Chocolate Cake");
-        assert_eq!(recipe.ingredients.len(), 2);
+        assert_eq!(recipe.ingredients().count(), 2);
         assert_eq!(recipe.url, "https://example.com/cake");
     }
 
@@ -354,9 +356,8 @@ mod tests {
         let result = scrape_from_ld_json(json, "https://example.com");
         assert!(result.is_ok());
         let recipe = result.unwrap();
-        assert_eq!(recipe.instructions.len(), 2);
-        assert_eq!(recipe.instructions[0], "Step 1");
-        assert_eq!(recipe.instructions[1], "Step 2");
+        let instructions: Vec<&str> = recipe.instructions().collect();
+        assert_eq!(instructions, vec!["Step 1", "Step 2"]);
     }
 
     // ============================================================================

@@ -6,6 +6,7 @@ members = [
     "ingredient-parser",
     "recipe-scraper",
     "recipe-scraper-fetcher",
+    "recipe-epub",
     "food-cli",
     "food-app",
 ]
@@ -17,8 +18,10 @@ tracing = "0.1.40"
 tokio = { version = "1.47.1", features = ["macros"] }
 rstest = "0.26"
 thiserror = "2.0"
+futures = "0.3.32"
 ingredient = { path = "ingredient-parser" }
 recipe-scraper = { path = "recipe-scraper" }
+recipe-epub = { path = "recipe-epub" }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

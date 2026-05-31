@@ -1,236 +1,240 @@
 {
-  "ingredients": [
+  "sections": [
     {
-      "name": "all-purpose flour",
-      "amounts": [
+      "ingredients": [
         {
-          "unit": "cup",
-          "value": 2.25,
-          "upper_value": null
-        }
-      ],
-      "modifier": null
-    },
-    {
-      "name": "baking soda",
-      "amounts": [
-        {
-          "unit": "tsp",
-          "value": 1.0,
-          "upper_value": null
-        }
-      ],
-      "modifier": null
-    },
-    {
-      "name": "salt",
-      "amounts": [
-        {
-          "unit": "tsp",
-          "value": 1.0,
-          "upper_value": null
-        }
-      ],
-      "modifier": null
-    },
-    {
-      "name": "butter",
-      "amounts": [
-        {
-          "unit": "cup",
-          "value": 1.0,
-          "upper_value": null
+          "name": "all-purpose flour",
+          "amounts": [
+            {
+              "unit": "cup",
+              "value": 2.25,
+              "upper_value": null
+            }
+          ],
+          "modifier": null
         },
         {
-          "unit": "stick",
-          "value": 2.0,
-          "upper_value": null
-        }
-      ],
-      "modifier": "softened"
-    },
-    {
-      "name": "granulated sugar",
-      "amounts": [
-        {
-          "unit": "cup",
-          "value": 0.75,
-          "upper_value": null
-        }
-      ],
-      "modifier": null
-    },
-    {
-      "name": "brown sugar",
-      "amounts": [
-        {
-          "unit": "cup",
-          "value": 0.75,
-          "upper_value": null
-        }
-      ],
-      "modifier": "packed"
-    },
-    {
-      "name": "vanilla extract",
-      "amounts": [
-        {
-          "unit": "tsp",
-          "value": 1.0,
-          "upper_value": null
-        }
-      ],
-      "modifier": null
-    },
-    {
-      "name": "large eggs",
-      "amounts": [
-        {
-          "unit": "whole",
-          "value": 2.0,
-          "upper_value": null
-        }
-      ],
-      "modifier": null
-    },
-    {
-      "name": "semisweet chocolate chips",
-      "amounts": [
-        {
-          "unit": "cup",
-          "value": 2.0,
-          "upper_value": null
+          "name": "baking soda",
+          "amounts": [
+            {
+              "unit": "tsp",
+              "value": 1.0,
+              "upper_value": null
+            }
+          ],
+          "modifier": null
         },
         {
-          "unit": "oz",
-          "value": 12.0,
-          "upper_value": null
-        }
-      ],
-      "modifier": null
-    },
-    {
-      "name": "nuts",
-      "amounts": [
+          "name": "salt",
+          "amounts": [
+            {
+              "unit": "tsp",
+              "value": 1.0,
+              "upper_value": null
+            }
+          ],
+          "modifier": null
+        },
         {
-          "unit": "cup",
-          "value": 1.0,
-          "upper_value": null
+          "name": "butter",
+          "amounts": [
+            {
+              "unit": "cup",
+              "value": 1.0,
+              "upper_value": null
+            },
+            {
+              "unit": "stick",
+              "value": 2.0,
+              "upper_value": null
+            }
+          ],
+          "modifier": "softened"
+        },
+        {
+          "name": "granulated sugar",
+          "amounts": [
+            {
+              "unit": "cup",
+              "value": 0.75,
+              "upper_value": null
+            }
+          ],
+          "modifier": null
+        },
+        {
+          "name": "brown sugar",
+          "amounts": [
+            {
+              "unit": "cup",
+              "value": 0.75,
+              "upper_value": null
+            }
+          ],
+          "modifier": "packed"
+        },
+        {
+          "name": "vanilla extract",
+          "amounts": [
+            {
+              "unit": "tsp",
+              "value": 1.0,
+              "upper_value": null
+            }
+          ],
+          "modifier": null
+        },
+        {
+          "name": "large eggs",
+          "amounts": [
+            {
+              "unit": "whole",
+              "value": 2.0,
+              "upper_value": null
+            }
+          ],
+          "modifier": null
+        },
+        {
+          "name": "semisweet chocolate chips",
+          "amounts": [
+            {
+              "unit": "cup",
+              "value": 2.0,
+              "upper_value": null
+            },
+            {
+              "unit": "oz",
+              "value": 12.0,
+              "upper_value": null
+            }
+          ],
+          "modifier": null
+        },
+        {
+          "name": "nuts",
+          "amounts": [
+            {
+              "unit": "cup",
+              "value": 1.0,
+              "upper_value": null
+            }
+          ],
+          "modifier": "(optional)chopped"
         }
       ],
-      "modifier": "(optional)chopped"
+      "instructions": [
+        [
+          {
+            "kind": "Text",
+            "value": "Heat oven to "
+          },
+          {
+            "kind": "Measure",
+            "value": [
+              {
+                "unit": "whole",
+                "value": 375.0,
+                "upper_value": null
+              }
+            ]
+          },
+          {
+            "kind": "Text",
+            "value": "Combine flour, "
+          },
+          {
+            "kind": "Ing",
+            "value": "baking soda"
+          },
+          {
+            "kind": "Text",
+            "value": " and "
+          },
+          {
+            "kind": "Ing",
+            "value": "salt"
+          },
+          {
+            "kind": "Text",
+            "value": " in small bowl. Beat "
+          },
+          {
+            "kind": "Ing",
+            "value": "butter"
+          },
+          {
+            "kind": "Text",
+            "value": ", "
+          },
+          {
+            "kind": "Ing",
+            "value": "granulated sugar"
+          },
+          {
+            "kind": "Text",
+            "value": ", "
+          },
+          {
+            "kind": "Ing",
+            "value": "brown sugar"
+          },
+          {
+            "kind": "Text",
+            "value": " and "
+          },
+          {
+            "kind": "Ing",
+            "value": "vanilla extract"
+          },
+          {
+            "kind": "Text",
+            "value": " in large mixing bowl until creamy. Add eggs, one at a time, beating well after each addition. Gradually beat in flour mixture. Stir in chocolate chips and "
+          },
+          {
+            "kind": "Ing",
+            "value": "nuts"
+          },
+          {
+            "kind": "Text",
+            "value": ", if using. Drop by rounded tablespoon onto ungreased baking sheets. "
+          }
+        ],
+        [
+          {
+            "kind": "Text",
+            "value": "Bake for "
+          },
+          {
+            "kind": "Measure",
+            "value": [
+              {
+                "unit": "minute",
+                "value": 9.0,
+                "upper_value": 11.0
+              }
+            ]
+          },
+          {
+            "kind": "Text",
+            "value": " or until golden brown. Cool on baking sheets for "
+          },
+          {
+            "kind": "Measure",
+            "value": [
+              {
+                "unit": "minute",
+                "value": 2.0,
+                "upper_value": null
+              }
+            ]
+          },
+          {
+            "kind": "Text",
+            "value": "; remove to wire racks to cool completely. "
+          }
+        ]
+      ]
     }
-  ],
-  "instructions": [
-    [
-      {
-        "kind": "Text",
-        "value": "Heat oven to "
-      },
-      {
-        "kind": "Measure",
-        "value": [
-          {
-            "unit": "whole",
-            "value": 375.0,
-            "upper_value": null
-          }
-        ]
-      },
-      {
-        "kind": "Text",
-        "value": "Combine flour, "
-      },
-      {
-        "kind": "Ing",
-        "value": "baking soda"
-      },
-      {
-        "kind": "Text",
-        "value": " and "
-      },
-      {
-        "kind": "Ing",
-        "value": "salt"
-      },
-      {
-        "kind": "Text",
-        "value": " in small bowl. Beat "
-      },
-      {
-        "kind": "Ing",
-        "value": "butter"
-      },
-      {
-        "kind": "Text",
-        "value": ", "
-      },
-      {
-        "kind": "Ing",
-        "value": "granulated sugar"
-      },
-      {
-        "kind": "Text",
-        "value": ", "
-      },
-      {
-        "kind": "Ing",
-        "value": "brown sugar"
-      },
-      {
-        "kind": "Text",
-        "value": " and "
-      },
-      {
-        "kind": "Ing",
-        "value": "vanilla extract"
-      },
-      {
-        "kind": "Text",
-        "value": " in large mixing bowl until creamy. Add eggs, one at a time, beating well after each addition. Gradually beat in flour mixture. Stir in chocolate chips and "
-      },
-      {
-        "kind": "Ing",
-        "value": "nuts"
-      },
-      {
-        "kind": "Text",
-        "value": ", if using. Drop by rounded tablespoon onto ungreased baking sheets. "
-      }
-    ],
-    [
-      {
-        "kind": "Text",
-        "value": "Bake for "
-      },
-      {
-        "kind": "Measure",
-        "value": [
-          {
-            "unit": "minute",
-            "value": 9.0,
-            "upper_value": 11.0
-          }
-        ]
-      },
-      {
-        "kind": "Text",
-        "value": " or until golden brown. Cool on baking sheets for "
-      },
-      {
-        "kind": "Measure",
-        "value": [
-          {
-            "unit": "minute",
-            "value": 2.0,
-            "upper_value": null
-          }
-        ]
-      },
-      {
-        "kind": "Text",
-        "value": "; remove to wire racks to cool completely. "
-      }
-    ]
   ]
 }
