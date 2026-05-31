@@ -62,6 +62,42 @@ pub struct ExtractedRecipe {
     pub sections: Vec<RecipeSection>,
 }
 
+/// Token usage reported by the model API for one call. Field names match the
+/// Anthropic Messages API `usage` object; OpenAI/Gemini report the same counts
+/// under different names, so a future backend maps them into this shape.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+pub struct Usage {
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+    /// Tokens written to the prompt cache (billed ~1.25× input).
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
+    /// Tokens served from the prompt cache (billed ~0.1× input).
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
+}
+
+impl Usage {
+    /// Accumulate another call's usage into this one.
+    pub fn add(&mut self, other: &Usage) {
+        self.input_tokens += other.input_tokens;
+        self.output_tokens += other.output_tokens;
+        self.cache_creation_input_tokens += other.cache_creation_input_tokens;
+        self.cache_read_input_tokens += other.cache_read_input_tokens;
+    }
+}
+
+/// One chunk's extraction result plus its cost signal.
+pub struct ChunkOutcome {
+    pub recipes: Vec<ExtractedRecipe>,
+    /// Token usage for the API call. Zero when served from cache.
+    pub usage: Usage,
+    /// True when served from the on-disk cache (no API call, no cost).
+    pub cached: bool,
+}
+
 /// Turns a [`Chunk`] of cookbook text into zero or more recipes.
 ///
 /// Static dispatch (used via generics) so we avoid the `async-trait` dep; when a
@@ -69,7 +105,12 @@ pub struct ExtractedRecipe {
 /// dep-free while allowing runtime selection.
 #[allow(async_fn_in_trait)]
 pub trait RecipeExtractor {
-    async fn extract(&self, chunk: &Chunk) -> Result<Vec<ExtractedRecipe>, EpubError>;
+    async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError>;
+
+    /// Model id for cost attribution; empty when not applicable (e.g. the mock).
+    fn model(&self) -> &str {
+        ""
+    }
 }
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -207,7 +248,11 @@ impl ClaudeExtractor {
 }
 
 impl RecipeExtractor for ClaudeExtractor {
-    async fn extract(&self, chunk: &Chunk) -> Result<Vec<ExtractedRecipe>, EpubError> {
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
         let user_text = match &chunk.title_hint {
             Some(t) => format!("Section title: {t}\n\n{}", chunk.text),
             None => chunk.text.clone(),
@@ -262,14 +307,23 @@ impl RecipeExtractor for ClaudeExtractor {
             );
         }
 
+        let usage = parsed.usage;
         // With forced tool_choice the response carries exactly one tool_use block.
         for block in parsed.content {
             if let ContentBlock::ToolUse { input } = block {
                 let payload: RecipesPayload = serde_json::from_value(input)?;
-                return Ok(payload.recipes);
+                return Ok(ChunkOutcome {
+                    recipes: payload.recipes,
+                    usage,
+                    cached: false,
+                });
             }
         }
-        Ok(Vec::new())
+        Ok(ChunkOutcome {
+            recipes: Vec::new(),
+            usage,
+            cached: false,
+        })
     }
 }
 
@@ -284,6 +338,8 @@ struct ApiResponse {
     content: Vec<ContentBlock>,
     #[serde(default)]
     stop_reason: Option<String>,
+    #[serde(default)]
+    usage: Usage,
 }
 
 #[derive(Deserialize)]
@@ -311,14 +367,18 @@ impl MockExtractor {
 }
 
 impl RecipeExtractor for MockExtractor {
-    async fn extract(&self, chunk: &Chunk) -> Result<Vec<ExtractedRecipe>, EpubError> {
+    async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
         let mut out = Vec::new();
         for (needle, recipes) in &self.rules {
             if chunk.text.contains(needle.as_str()) {
                 out.extend(recipes.iter().cloned());
             }
         }
-        Ok(out)
+        Ok(ChunkOutcome {
+            recipes: out,
+            usage: Usage::default(),
+            cached: false,
+        })
     }
 }
 

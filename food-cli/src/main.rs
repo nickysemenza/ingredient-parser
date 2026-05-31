@@ -147,7 +147,9 @@ async fn main() {
                 ..Default::default()
             };
             match recipe_epub::extract_cookbook(&bytes, path, &opts).await {
-                Ok(recipes) => {
+                Ok((recipes, stats)) => {
+                    // Cost/cache summary goes to stderr so --json stdout stays clean.
+                    eprintln!("[{}] {}", stats.model, stats.summary());
                     if *parse {
                         let parsed: Vec<_> = recipes.iter().map(|r| r.parse()).collect();
                         if *json {
@@ -176,6 +178,10 @@ async fn main() {
                 std::collections::HashMap::new();
             let mut total_recipes = 0usize;
             let mut total_lines = 0usize;
+            let mut total_chunks = 0usize;
+            let mut total_chunks_cached = 0usize;
+            let mut total_cost = 0.0f64;
+            let mut cost_known = true;
             for path in &epubs {
                 let p = path.to_string_lossy().to_string();
                 let bytes = match std::fs::read(path) {
@@ -186,8 +192,14 @@ async fn main() {
                     }
                 };
                 match recipe_epub::extract_cookbook(&bytes, &p, &opts).await {
-                    Ok(recipes) => {
+                    Ok((recipes, stats)) => {
                         total_recipes += recipes.len();
+                        total_chunks += stats.chunks_total;
+                        total_chunks_cached += stats.chunks_cached;
+                        match stats.cost_usd() {
+                            Some(c) => total_cost += c,
+                            None => cost_known = false,
+                        }
                         for r in &recipes {
                             total_lines += r
                                 .sections
@@ -198,7 +210,7 @@ async fn main() {
                                 *candidates.entry(line).or_default() += 1;
                             }
                         }
-                        eprintln!("{p}: {} recipes", recipes.len());
+                        eprintln!("{p}: {} recipes · {}", recipes.len(), stats.summary());
                     }
                     Err(e) => eprintln!("{p}: error: {e}"),
                 }
@@ -206,9 +218,15 @@ async fn main() {
             let miss_total: usize = candidates.values().sum();
             let mut ranked: Vec<(String, usize)> = candidates.into_iter().collect();
             ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            let cost_str = if cost_known {
+                format!("~${total_cost:.4}")
+            } else {
+                "n/a".to_string()
+            };
             println!(
                 "scanned {} book(s): {total_recipes} recipes, {total_lines} ingredient lines, \
-                 {miss_total} with a number but no parsed amount",
+                 {miss_total} with a number but no parsed amount\n\
+                 cost: {cost_str} · {total_chunks_cached}/{total_chunks} chunks cached",
                 epubs.len()
             );
             println!(

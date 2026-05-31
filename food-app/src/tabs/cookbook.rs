@@ -4,11 +4,11 @@
 
 use eframe::egui::{self, Color32, RichText};
 use poll_promise::Promise;
-use recipe_epub::{CookbookRecipe, Options};
+use recipe_epub::{CookbookRecipe, ExtractionStats, Options};
 
 use super::recipe::show_parsed_sections;
 
-type LoadResult = Result<Vec<CookbookRecipe>, String>;
+type LoadResult = Result<(Vec<CookbookRecipe>, ExtractionStats), String>;
 
 /// State for the Cookbook (EPUB) tab.
 #[derive(Default)]
@@ -63,10 +63,10 @@ impl CookbookTab {
             Some(Err(err)) => {
                 ui.colored_label(ui.visuals().error_fg_color, err);
             }
-            Some(Ok(recipes)) if recipes.is_empty() => {
+            Some(Ok((recipes, _))) if recipes.is_empty() => {
                 ui.label("No recipes found in this EPUB.");
             }
-            Some(Ok(recipes)) => {
+            Some(Ok((recipes, stats))) => {
                 // Disjoint field borrows: `recipes` from self.promise (shared),
                 // `selected` from self.selected (mut). Bind both before any
                 // closure so neither closure captures all of `self`.
@@ -75,7 +75,29 @@ impl CookbookTab {
                     *selected = 0;
                 }
 
-                ui.label(RichText::new(format!("{} recipes", recipes.len())).weak());
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{} recipes", recipes.len())).weak());
+                    ui.separator();
+                    let cost = stats
+                        .cost_usd()
+                        .map_or_else(|| "cost n/a".to_string(), |c| format!("~${c:.4}"));
+                    ui.label(
+                        RichText::new(format!(
+                            "{cost} · {}/{} chunks cached",
+                            stats.chunks_cached, stats.chunks_total
+                        ))
+                        .weak()
+                        .small(),
+                    )
+                    .on_hover_text(format!(
+                        "model: {}\n{} input tok\n{} output tok\n{} cache-read tok\n{} cache-write tok",
+                        stats.model,
+                        stats.usage.input_tokens,
+                        stats.usage.output_tokens,
+                        stats.usage.cache_read_input_tokens,
+                        stats.usage.cache_creation_input_tokens,
+                    ));
+                });
                 egui::Panel::left("cookbook_list")
                     .resizable(true)
                     .default_size(240.0)

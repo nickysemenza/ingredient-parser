@@ -18,7 +18,8 @@ mod extractor;
 use std::path::PathBuf;
 
 pub use extractor::{
-    ClaudeExtractor, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, RecipeTimes,
+    ChunkOutcome, ClaudeExtractor, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta,
+    RecipeTimes, Usage,
 };
 // Section types are shared with the web scraper — one section shape workspace-wide.
 pub use recipe_scraper::{ParsedSection, RecipeSection};
@@ -151,7 +152,7 @@ pub async fn extract_cookbook(
     bytes: &[u8],
     source: &str,
     opts: &Options,
-) -> Result<Vec<CookbookRecipe>, EpubError> {
+) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
     let extractor = ClaudeExtractor::from_env(opts)?;
     if opts.use_cache {
         let caching = CachingExtractor {
@@ -159,10 +160,78 @@ pub async fn extract_cookbook(
             dir: opts.cache_dir.clone().unwrap_or_else(cache::default_dir),
             model: extractor.model_id().to_string(),
         };
-        extract_cookbook_with(bytes, source, opts, &caching).await
+        extract_cookbook_with_stats(bytes, source, opts, &caching).await
     } else {
-        extract_cookbook_with(bytes, source, opts, &extractor).await
+        extract_cookbook_with_stats(bytes, source, opts, &extractor).await
     }
+}
+
+/// Token usage + cost summary for one `extract_cookbook` run.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ExtractionStats {
+    /// Resolved model id (empty for the mock).
+    pub model: String,
+    /// Total chunks the book was split into.
+    pub chunks_total: usize,
+    /// Chunks served from the on-disk cache (no API call).
+    pub chunks_cached: usize,
+    /// Summed token usage across the API calls actually made.
+    pub usage: Usage,
+}
+
+impl ExtractionStats {
+    /// Estimated USD cost of the API calls, or `None` if the model's pricing is
+    /// unknown. Cache writes bill ~1.25× input, cache reads ~0.1× input.
+    pub fn cost_usd(&self) -> Option<f64> {
+        let (in_rate, out_rate) = price_per_mtok(&self.model)?;
+        let u = &self.usage;
+        let cost = (u.input_tokens as f64 * in_rate
+            + u.cache_creation_input_tokens as f64 * in_rate * 1.25
+            + u.cache_read_input_tokens as f64 * in_rate * 0.1
+            + u.output_tokens as f64 * out_rate)
+            / 1_000_000.0;
+        Some(cost)
+    }
+
+    /// One-line human summary for CLI stderr / UI.
+    pub fn summary(&self) -> String {
+        let u = &self.usage;
+        let cost = self
+            .cost_usd()
+            .map_or_else(|| "cost: n/a".to_string(), |c| format!("~${c:.4}"));
+        format!(
+            "{}/{} chunks cached · {} in / {} out tok · {} cache-read tok · {cost}",
+            self.chunks_cached,
+            self.chunks_total,
+            u.input_tokens,
+            u.output_tokens,
+            u.cache_read_input_tokens
+        )
+    }
+}
+
+/// Per-million-token (input, output) USD rates for known models. Matched by
+/// substring so dated ids (`claude-haiku-4-5-20251001`) resolve. `None` → the
+/// cost is reported as "n/a" rather than guessed.
+fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
+    let m = model.to_lowercase();
+    let table = [
+        ("haiku-4-5", (1.0, 5.0)),
+        ("haiku", (1.0, 5.0)),
+        ("sonnet-4", (3.0, 15.0)),
+        ("sonnet", (3.0, 15.0)),
+        ("opus", (5.0, 25.0)),
+        ("gemini-2.5-flash-lite", (0.10, 0.40)),
+        ("gemini-2.5-flash", (0.30, 2.50)),
+        ("gemini-2.0-flash-lite", (0.075, 0.30)),
+        ("gemini-2.0-flash", (0.10, 0.40)),
+        ("gpt-4o-mini", (0.15, 0.60)),
+        ("gpt-4o", (2.50, 10.0)),
+    ];
+    table
+        .iter()
+        .find(|(key, _)| m.contains(key))
+        .map(|(_, rate)| *rate)
 }
 
 /// Wraps any extractor with the on-disk cache (see [`cache`]).
@@ -173,16 +242,25 @@ struct CachingExtractor<'a, E> {
 }
 
 impl<E: RecipeExtractor> RecipeExtractor for CachingExtractor<'_, E> {
-    async fn extract(&self, chunk: &Chunk) -> Result<Vec<ExtractedRecipe>, EpubError> {
+    fn model(&self) -> &str {
+        self.inner.model()
+    }
+
+    async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
         let key = cache::key(&self.model, &chunk.text);
         if let Some(hit) = cache::read(&self.dir, &key) {
-            return Ok(hit);
+            // Cache hit: no API call, so no usage/cost is incurred.
+            return Ok(ChunkOutcome {
+                recipes: hit,
+                usage: Usage::default(),
+                cached: true,
+            });
         }
-        let recipes = self.inner.extract(chunk).await?;
-        if let Err(e) = cache::write(&self.dir, &key, &recipes) {
+        let outcome = self.inner.extract(chunk).await?;
+        if let Err(e) = cache::write(&self.dir, &key, &outcome.recipes) {
             tracing::warn!("cache write failed: {e}");
         }
-        Ok(recipes)
+        Ok(outcome)
     }
 }
 
@@ -194,30 +272,62 @@ pub async fn extract_cookbook_with<E: RecipeExtractor>(
     opts: &Options,
     extractor: &E,
 ) -> Result<Vec<CookbookRecipe>, EpubError> {
+    let (recipes, _stats) = extract_cookbook_with_stats(bytes, source, opts, extractor).await?;
+    Ok(recipes)
+}
+
+/// Like [`extract_cookbook_with`] but also returns token-usage/cost stats.
+pub async fn extract_cookbook_with_stats<E: RecipeExtractor>(
+    bytes: &[u8],
+    source: &str,
+    opts: &Options,
+    extractor: &E,
+) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
     let chunks = epub_text::chunk_epub(bytes)?;
     tracing::info!("epub {source}: {} chunk(s)", chunks.len());
 
     // Extract each chunk concurrently (bounded), preserving document order and
     // each recipe's originating doc. A single failing chunk is logged and
     // skipped rather than failing the whole book.
-    let per_chunk: Vec<(String, Vec<ExtractedRecipe>)> = stream::iter(chunks.iter())
+    let per_chunk: Vec<(String, ChunkOutcome)> = stream::iter(chunks.iter())
         .map(|chunk| async move {
-            let recipes = match extractor.extract(chunk).await {
-                Ok(recipes) => recipes,
-                Err(e) => {
-                    tracing::warn!("chunk {} extraction failed: {e}", chunk.doc_path);
-                    Vec::new()
+            let outcome = extractor.extract(chunk).await.unwrap_or_else(|e| {
+                tracing::warn!("chunk {} extraction failed: {e}", chunk.doc_path);
+                ChunkOutcome {
+                    recipes: Vec::new(),
+                    usage: Usage::default(),
+                    cached: false,
                 }
-            };
-            (chunk.doc_path.clone(), recipes)
+            });
+            (chunk.doc_path.clone(), outcome)
         })
         .buffered(opts.concurrency.max(1))
         .collect::<Vec<_>>()
         .await;
 
-    let recipes = assemble(per_chunk, source);
-    tracing::info!("epub {source}: {} recipe(s)", recipes.len());
-    Ok(recipes)
+    let mut stats = ExtractionStats {
+        model: extractor.model().to_string(),
+        chunks_total: per_chunk.len(),
+        ..Default::default()
+    };
+    let recipes_by_doc: Vec<(String, Vec<ExtractedRecipe>)> = per_chunk
+        .into_iter()
+        .map(|(doc, outcome)| {
+            if outcome.cached {
+                stats.chunks_cached += 1;
+            }
+            stats.usage.add(&outcome.usage);
+            (doc, outcome.recipes)
+        })
+        .collect();
+
+    let recipes = assemble(recipes_by_doc, source);
+    tracing::info!(
+        "epub {source}: {} recipe(s); {}",
+        recipes.len(),
+        stats.summary()
+    );
+    Ok((recipes, stats))
 }
 
 /// Attach each recipe's `source`/`url`, drop entries with no ingredients, and
@@ -250,7 +360,43 @@ fn assemble(per_chunk: Vec<(String, Vec<ExtractedRecipe>)>, source: &str) -> Vec
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
+
+    #[test]
+    fn cost_usd_matches_pricing_table() {
+        // 1M input + 1M output on Haiku ($1/$5) = $6.00.
+        let stats = ExtractionStats {
+            model: "claude-haiku-4-5-20251001".to_string(),
+            chunks_total: 10,
+            chunks_cached: 3,
+            usage: Usage {
+                input_tokens: 1_000_000,
+                output_tokens: 1_000_000,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+        };
+        assert!((stats.cost_usd().unwrap() - 6.0).abs() < 1e-9);
+
+        // Cache reads bill ~0.1× input: 1M cache-read on Haiku = $0.10.
+        let cached = ExtractionStats {
+            model: "claude-haiku-4-5".to_string(),
+            usage: Usage {
+                cache_read_input_tokens: 1_000_000,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!((cached.cost_usd().unwrap() - 0.10).abs() < 1e-9);
+
+        // Unknown model → no guess.
+        let unknown = ExtractionStats {
+            model: "mystery-model".to_string(),
+            ..Default::default()
+        };
+        assert!(unknown.cost_usd().is_none());
+    }
 
     fn er(title: &str, ings: &[&str]) -> ExtractedRecipe {
         ExtractedRecipe {
