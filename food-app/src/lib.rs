@@ -8,6 +8,8 @@ use ingredient::trace::ParseTrace;
 use poll_promise::Promise;
 use rand::RngExt;
 use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
+#[cfg(not(target_arch = "wasm32"))]
+use tabs::CookbookTab;
 use tabs::{show_debug_tab, show_parsed, show_raw, show_test_tab};
 
 #[derive(PartialEq, Clone, Copy)]
@@ -15,6 +17,8 @@ enum Tab {
     Recipe,
     Debug,
     Test,
+    #[cfg(not(target_arch = "wasm32"))]
+    Cookbook,
 }
 
 struct Wrapper {
@@ -33,6 +37,9 @@ pub struct MyApp {
     test_input: String,
     test_trace: Option<ParseTrace>,
     test_result: Option<ingredient::ingredient::Ingredient>,
+    // Cookbook (EPUB) tab state — native only
+    #[cfg(not(target_arch = "wasm32"))]
+    cookbook: CookbookTab,
 }
 
 impl Default for MyApp {
@@ -46,6 +53,8 @@ impl Default for MyApp {
             test_input: "2 cups all-purpose flour, sifted".to_string(),
             test_trace: None,
             test_result: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            cookbook: CookbookTab::default(),
         }
     }
 }
@@ -95,11 +104,13 @@ impl eframe::App for MyApp {
                 ui.separator();
                 ui.selectable_value(&mut self.current_tab, Tab::Recipe, "📖 Recipe");
                 ui.selectable_value(&mut self.current_tab, Tab::Debug, "🔍 Debug Trace");
+                #[cfg(not(target_arch = "wasm32"))]
+                ui.selectable_value(&mut self.current_tab, Tab::Cookbook, "📚 Cookbook");
             });
         });
 
-        // URL bar panel (only shown for Recipe/Debug tabs)
-        if self.current_tab != Tab::Test {
+        // URL bar panel (only shown for the web-scraping Recipe/Debug tabs)
+        if matches!(self.current_tab, Tab::Recipe | Tab::Debug) {
             egui::Panel::top("url_panel").show_inside(ui, |ui| {
                 let trigger_fetch = ui_url(ui, &mut self.url);
 
@@ -195,6 +206,10 @@ impl eframe::App for MyApp {
                         }
                     }
                 }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            Tab::Cookbook => {
+                self.cookbook.show(ui);
             }
         });
     }

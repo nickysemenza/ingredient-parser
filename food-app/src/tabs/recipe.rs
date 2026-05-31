@@ -1,6 +1,6 @@
 use eframe::egui::{self, RichText, TextFormat, WidgetText};
 use eframe::epaint::Color32;
-use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
+use recipe_scraper::{ParsedRecipe, ParsedSection, ScrapedRecipe};
 use std::sync::Arc;
 
 use eframe::epaint::text::LayoutJob;
@@ -47,7 +47,14 @@ fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
 }
 
 pub fn show_parsed(ui: &mut egui::Ui, parsed: &ParsedRecipe) {
-    for section in &parsed.sections {
+    show_parsed_sections(ui, &parsed.sections);
+}
+
+/// Render parsed recipe sections (ingredients with color-coded amounts +
+/// measurement-aware instructions). Shared by the web Recipe tab and the
+/// Cookbook (EPUB) tab.
+pub fn show_parsed_sections(ui: &mut egui::Ui, sections: &[ParsedSection]) {
+    for section in sections {
         if let Some(name) = &section.name {
             ui.heading(name);
         }

@@ -24,6 +24,9 @@ tracing-wasm = "0.2.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tracing-subscriber = "0.3"
+# Cookbook (EPUB) tab — native only.
+recipe-epub.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
