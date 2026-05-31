@@ -188,6 +188,24 @@ impl From<&str> for Ingredient {
     }
 }
 
+impl std::str::FromStr for Ingredient {
+    /// Parsing never fails — unparseable input falls back to a name-only
+    /// ingredient — so the error type is [`Infallible`](std::convert::Infallible).
+    type Err = std::convert::Infallible;
+
+    /// Enables the idiomatic `str::parse` form alongside [`From<&str>`]:
+    ///
+    /// ```
+    /// use ingredient::ingredient::Ingredient;
+    ///
+    /// let ing: Ingredient = "2 cups flour, sifted".parse().unwrap();
+    /// assert_eq!(ing.name, "flour");
+    /// ```
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(from_str(s))
+    }
+}
+
 impl fmt::Display for Ingredient {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let amounts: Vec<String> = self.amounts.iter().map(|id| id.to_string()).collect();

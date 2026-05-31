@@ -7,7 +7,7 @@ use nom::{
     bytes::complete::{tag, take_while1, take_while_m_n},
     character::complete::{alpha1, char},
     combinator::{map_res, opt, recognize},
-    error::context,
+    error::{context, ParseError},
     multi::{many0, many1},
     number::complete::double,
     IResult, Parser,
@@ -123,11 +123,47 @@ pub(crate) fn parse_unit_text(input: &str) -> Res<&str, String> {
         .map(|(next_input, res)| (next_input, res.join("")))
 }
 
-/// Parse text numbers like "one" or "a"
+/// Match a spelled-out number word, requiring a trailing word boundary
+/// (whitespace or end of input). Without this, `tag("ten")` would match inside
+/// "tenderloin" and `tag("one")` inside a hyphenated "five-spice", producing
+/// nonsense amounts.
+fn number_word<'a>(word: &'static str, value: f64, input: &'a str) -> Res<&'a str, f64> {
+    let (rest, _) = tag(word).parse(input)?;
+    match rest.chars().next() {
+        None => Ok((rest, value)),
+        Some(c) if c.is_whitespace() => Ok((rest, value)),
+        _ => Err(nom::Err::Error(VerboseError::from_error_kind(
+            input,
+            nom::error::ErrorKind::Tag,
+        ))),
+    }
+}
+
+/// Parse spelled-out text numbers: integer words ("one".."twelve", "dozen") and
+/// the articles "a"/"an" (which mean a quantity of one). Numeric words require a
+/// word boundary so they never match inside a larger word.
 pub(crate) fn text_number(input: &str) -> Res<&str, f64> {
-    context("text_number", alt((tag("one"), tag("a "))))
-        .parse(input)
-        .map(|(next_input, _)| (next_input, 1.0))
+    context(
+        "text_number",
+        alt((
+            |i| number_word("twelve", 12.0, i),
+            |i| number_word("eleven", 11.0, i),
+            |i| number_word("ten", 10.0, i),
+            |i| number_word("nine", 9.0, i),
+            |i| number_word("eight", 8.0, i),
+            |i| number_word("seven", 7.0, i),
+            |i| number_word("six", 6.0, i),
+            |i| number_word("five", 5.0, i),
+            |i| number_word("four", 4.0, i),
+            |i| number_word("three", 3.0, i),
+            |i| number_word("two", 2.0, i),
+            |i| number_word("one", 1.0, i),
+            |i| number_word("dozen", 12.0, i),
+            |i| tag("an ").parse(i).map(|(r, _)| (r, 1.0)),
+            |i| tag("a ").parse(i).map(|(r, _)| (r, 1.0)),
+        )),
+    )
+    .parse(input)
 }
 
 #[cfg(test)]
@@ -181,15 +217,30 @@ mod tests {
     // ============================================================================
 
     #[rstest]
-    #[case::one("one", 1.0)]
-    #[case::a("a ", 1.0)]
-    fn test_text_number_success(#[case] input: &str, #[case] expected: f64) {
-        assert_eq!(text_number(input), Ok(("", expected)));
+    #[case::one("one", "", 1.0)]
+    #[case::two("two", "", 2.0)]
+    #[case::three("three", "", 3.0)]
+    #[case::twelve("twelve", "", 12.0)]
+    #[case::dozen("dozen", "", 12.0)]
+    #[case::a("a ", "", 1.0)]
+    #[case::an("an ", "", 1.0)]
+    #[case::two_with_remainder("two eggs", " eggs", 2.0)]
+    #[case::ten_with_remainder("ten cloves", " cloves", 10.0)]
+    fn test_text_number_success(
+        #[case] input: &str,
+        #[case] remaining: &str,
+        #[case] expected: f64,
+    ) {
+        assert_eq!(text_number(input), Ok((remaining, expected)));
     }
 
     #[rstest]
-    #[case::two("two")]
     #[case::digit("1")]
+    #[case::word("flour")]
+    // Numeric words must hit a word boundary: "ten" must not match inside "tenderloin".
+    #[case::embedded_ten("tenderloin")]
+    #[case::embedded_one("oner")]
+    #[case::hyphenated("five-spice")]
     fn test_text_number_fail(#[case] input: &str) {
         assert!(text_number(input).is_err());
     }

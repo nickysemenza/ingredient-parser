@@ -83,7 +83,7 @@ fn parse_rich_char(input: &str) -> Res<&str, String> {
 /// ```
 /// use ingredient::{unit::Measure, rich_text::{RichParser, Chunk}};
 /// assert_eq!(
-/// RichParser::new(vec![]).parse("hello 1 cups foo bar").unwrap(),
+/// RichParser::new(Vec::<String>::new()).parse("hello 1 cups foo bar").unwrap(),
 /// vec![
 ///     Chunk::Text("hello ".to_string()),
 ///     Chunk::Measure(vec![Measure::new("cups", 1.0)]),
@@ -107,12 +107,17 @@ impl RichParser {
     /// ```
     /// use ingredient::rich_text::RichParser;
     ///
-    /// let parser = RichParser::new(vec!["flour".to_string(), "sugar".to_string()]);
+    /// // Accepts anything iterable of string-likes — no `.to_string()` needed:
+    /// let parser = RichParser::new(["flour", "sugar"]);
     /// let chunks = parser.parse("Add 2 cups flour").unwrap();
     /// ```
-    pub fn new(ingredient_names: Vec<String>) -> Self {
+    pub fn new<I, S>(ingredient_names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
         Self {
-            ingredient_names,
+            ingredient_names: ingredient_names.into_iter().map(Into::into).collect(),
             ip: IngredientParser::new(),
         }
     }
@@ -143,12 +148,12 @@ mod tests {
 
     #[fixture]
     fn parser() -> RichParser {
-        RichParser::new(vec![])
+        RichParser::new(Vec::<String>::new())
     }
 
     #[fixture]
     fn parser_with_ingredients() -> RichParser {
-        RichParser::new(vec!["flour".to_string(), "sugar".to_string()])
+        RichParser::new(["flour", "sugar"])
     }
 
     // ============================================================================
@@ -336,7 +341,7 @@ mod tests {
     // should be parsed as measurements, not rejected as step numbers
     #[test]
     fn test_oven_temperature_parsing() {
-        let parser = RichParser::new(vec![]);
+        let parser = RichParser::new(Vec::<String>::new());
         let result = parser.parse("Heat oven to 375. Combine flour").unwrap();
         // "375" should be parsed as a Measure with Whole unit
         let has_375 = result.iter().any(|c| match c {

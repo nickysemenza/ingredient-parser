@@ -32,7 +32,7 @@ fn benchmark_ingredient_parsing(c: &mut Criterion) {
 
         // Benchmark rich text parsing (for instructions)
         group.bench_with_input(BenchmarkId::new("rich_parse", name), input, |b, input| {
-            let rich_parser = RichParser::new(vec![]);
+            let rich_parser = RichParser::new(Vec::<String>::new());
             b.iter(|| rich_parser.parse(black_box(input)))
         });
 

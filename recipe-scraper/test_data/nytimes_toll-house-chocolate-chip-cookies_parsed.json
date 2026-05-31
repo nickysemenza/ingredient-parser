@@ -61,7 +61,7 @@
       "modifier": null
     },
     {
-      "name": "packed brown sugar",
+      "name": "brown sugar",
       "amounts": [
         {
           "unit": "cup",
@@ -69,7 +69,7 @@
           "upper_value": null
         }
       ],
-      "modifier": null
+      "modifier": "packed"
     },
     {
       "name": "vanilla extract",
@@ -171,7 +171,15 @@
       },
       {
         "kind": "Text",
-        "value": ", brown sugar and "
+        "value": ", "
+      },
+      {
+        "kind": "Ing",
+        "value": "brown sugar"
+      },
+      {
+        "kind": "Text",
+        "value": " and "
       },
       {
         "kind": "Ing",

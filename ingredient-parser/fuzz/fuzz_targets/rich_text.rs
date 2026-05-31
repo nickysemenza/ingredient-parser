@@ -4,10 +4,6 @@ use ingredient::rich_text::RichParser;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &str| {
-    let parser = RichParser::new(vec![
-        "flour".to_string(),
-        "sugar".to_string(),
-        "salt".to_string(),
-    ]);
+    let parser = RichParser::new(["flour", "sugar", "salt"]);
     let _ = parser.parse(data);
 });

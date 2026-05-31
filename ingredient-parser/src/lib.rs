@@ -150,6 +150,17 @@ const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     "sliced",
     "plain",
     "to taste",
+    // Measurement/preparation qualifiers that often appear *before* the name
+    // (e.g. "1 cup packed brown sugar", "2 cups sifted flour"). They describe how
+    // the ingredient is measured/prepared, not which product it is, so they belong
+    // in the modifier. Multi-word forms (e.g. "firmly packed") win over their
+    // single-word substring ("packed") via the longest-match-first ordering in
+    // extract_adjectives_from_name.
+    "firmly packed",
+    "loosely packed",
+    "lightly packed",
+    "packed",
+    "sifted",
 ];
 
 /// Default purpose phrases that get extracted to the modifier field.
@@ -359,6 +370,36 @@ impl IngredientParser {
         for phrase in phrases {
             self.adjectives.insert((*phrase).to_string());
         }
+        self
+    }
+
+    /// Remove all custom ("addon") units, including the defaults like "clove",
+    /// "packet", and "bunch" (chainable).
+    ///
+    /// Built-in units (cup, gram, tablespoon, ...) are always recognized and are
+    /// unaffected. Use this with [`with_units`](Self::with_units) to recognize
+    /// only a specific custom set:
+    ///
+    /// ```
+    /// use ingredient::IngredientParser;
+    ///
+    /// let parser = IngredientParser::new().clear_units().with_units(&["clove"]);
+    /// // "packet" is no longer a unit, so it stays in the name:
+    /// assert_eq!(parser.from_str("1 packet yeast").name, "packet yeast");
+    /// ```
+    pub fn clear_units(mut self) -> Self {
+        self.units.clear();
+        self
+    }
+
+    /// Remove all adjectives and purpose phrases, including the defaults like
+    /// "chopped" and "for garnish" (chainable).
+    ///
+    /// Use this with [`with_adjectives`](Self::with_adjectives) /
+    /// [`with_purpose_phrases`](Self::with_purpose_phrases) to recognize only a
+    /// specific set of modifiers.
+    pub fn clear_adjectives(mut self) -> Self {
+        self.adjectives.clear();
         self
     }
 

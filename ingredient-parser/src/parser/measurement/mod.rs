@@ -65,11 +65,8 @@ impl<'a> MeasurementParser<'a> {
 
         // Define the different types of measurements we can parse
         let amount_parsers = alt((
-            // "1 cup plus 2 tbsp" -> combines measurements
-            |input| {
-                self.parse_plus_expression(input)
-                    .map(|(next, measure)| (next, vec![measure]))
-            },
+            // "1 cup plus 2 tbsp" -> sums compatible measures (else keeps both)
+            |input| self.parse_plus_expression(input),
             // Range with units on both sides: "2-3 cups" or "1 to 2 tbsp"
             |input| {
                 self.parse_range_with_units(input)
@@ -274,11 +271,19 @@ mod tests {
     // ============================================================================
 
     #[rstest]
-    #[case::word("1 cup plus 2 tbsp")]
-    #[case::symbol("½ cup + 2 tbsp")]
-    fn test_plus_expression(units: HashSet<String>, #[case] input: &str) {
+    // Compatible kinds (volume + volume) are summed into a single measure.
+    #[case::word("1 cup plus 2 tbsp", 1)]
+    #[case::symbol("½ cup + 2 tbsp", 1)]
+    // Incompatible kinds (volume + weight) keep both rather than dropping one.
+    #[case::incompatible("1 cup plus 100 grams", 2)]
+    fn test_plus_expression(
+        units: HashSet<String>,
+        #[case] input: &str,
+        #[case] expected_len: usize,
+    ) {
         let parser = MeasurementParser::new(&units, false);
-        assert!(parser.parse_plus_expression(input).is_ok());
+        let (_, measures) = parser.parse_plus_expression(input).unwrap();
+        assert_eq!(measures.len(), expected_len, "input: {input}");
     }
 
     #[rstest]

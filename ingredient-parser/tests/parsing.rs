@@ -51,7 +51,7 @@ fn ing(name: &str) -> Chunk {
 }
 
 fn parse_rich(input: &str, ingredient_names: &[&str]) -> Vec<Chunk> {
-    RichParser::new(ingredient_names.iter().map(|s| s.to_string()).collect())
+    RichParser::new(ingredient_names.iter().copied())
         .parse(input)
         .unwrap()
 }
@@ -420,7 +420,7 @@ fn test_measurement_edge_cases(parser: IngredientParser) {
     assert!(parser.parse_amount("not a valid amount").is_err());
 
     // Rich text mode shouldn't parse text numbers like "one"
-    let rich_parser = RichParser::new(vec![]);
+    let rich_parser = RichParser::new(Vec::<String>::new());
     let result = rich_parser.parse("add one cup of flour").unwrap();
     assert!(!result.is_empty());
 }

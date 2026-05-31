@@ -163,7 +163,7 @@
 {"input": "1000 grams flour", "name": "flour", "amounts": [{"unit": "g", "value": 1000.0}]}
 {"input": "1 cup/240ml water", "name": "water", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "ml", "value": 240.0}]}
 {"input": "1 cup 2 tbsp flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "tbsp", "value": 2.0}]}
-{"input": "1 cup plus 100 grams flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}]}
+{"input": "1 cup plus 100 grams flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "g", "value": 100.0}]}
 {"input": "2 tsp. sugar", "name": "sugar", "amounts": [{"unit": "tsp", "value": 2.0}]}
 {"input": "1 tbsp. olive oil", "name": "olive oil", "amounts": [{"unit": "tbsp", "value": 1.0}]}
 {"input": "2 oz. cheese", "name": "cheese", "amounts": [{"unit": "oz", "value": 2.0}]}
@@ -196,8 +196,35 @@
 {"input": "1,000 grams flour", "name": "flour", "amounts": [{"unit": "g", "value": 1000}]}
 {"input": "1,000 grams (about 6 cups) quartered and pitted nectarines", "name": "quartered and pitted nectarines", "amounts": [{"unit": "g", "value": 1000}, {"unit": "cup", "value": 6}]}
 //
+// --- word numbers (spelled-out integers two..twelve) ---
+{"input": "two eggs", "name": "eggs", "amounts": [{"unit": "whole", "value": 2}]}
+{"input": "three large eggs", "name": "large eggs", "amounts": [{"unit": "whole", "value": 3}]}
+//
+// --- "X of N item" constructions (juice/zest of a countable item) ---
+{"input": "Juice of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "juice of"}
+{"input": "Zest of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "zest of"}
+{"input": "Zest of 2 limes", "name": "limes", "amounts": [{"unit": "whole", "value": 2}], "modifier": "zest of"}
+{"input": "juice of 2 oranges", "name": "oranges", "amounts": [{"unit": "whole", "value": 2}], "modifier": "juice of"}
+{"input": "Grated zest of 1 orange", "name": "orange", "amounts": [{"unit": "whole", "value": 1}], "modifier": "grated zest of"}
+{"input": "the juice of one lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "the juice of"}
+{"input": "zest of 1 lemon, finely grated", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "zest of, finely grated"}
+//
+// --- leading preparation words extracted to modifier ---
+{"input": "1 cup packed brown sugar", "name": "brown sugar", "amounts": [{"unit": "cup", "value": 1}], "modifier": "packed"}
+{"input": "2 cups sifted cake flour", "name": "cake flour", "amounts": [{"unit": "cup", "value": 2}], "modifier": "sifted"}
+{"input": "1 cup loosely packed basil leaves", "name": "basil leaves", "amounts": [{"unit": "cup", "value": 1}], "modifier": "loosely packed"}
+{"input": "1 cup firmly packed light brown sugar", "name": "light brown sugar", "amounts": [{"unit": "cup", "value": 1}], "modifier": "firmly packed"}
+// adjectives are only extracted on whole-word boundaries ("chopped" must not split "well-chopped")
+{"input": "3 tablespoons well-chopped parsley", "name": "well-chopped parsley", "amounts": [{"unit": "tbsp", "value": 3}]}
+//
+// --- parenthesized trailing modifier (outer parens stripped) ---
+{"input": "1 cup flour (sifted)", "name": "flour", "amounts": [{"unit": "cup", "value": 1}], "modifier": "sifted"}
+{"input": "2 eggs (room temperature)", "name": "eggs", "amounts": [{"unit": "whole", "value": 2}], "modifier": "room temperature"}
+{"input": "1 stick butter (softened)", "name": "butter", "amounts": [{"unit": "stick", "value": 1}], "modifier": "softened"}
+{"input": "1 cup bittersweet chocolate (70% cacao)", "name": "bittersweet chocolate", "amounts": [{"unit": "cup", "value": 1}], "modifier": "70% cacao"}
+//
 // --- known gaps (xfail = desired parse the parser does not yet produce) ---
-{"input": "Juice of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "juice of", "xfail": "'X of N item' construction falls back to name-only"}
-{"input": "Zest of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "zest of", "xfail": "'X of N item' construction falls back to name-only"}
-{"input": "1 cup packed brown sugar", "name": "brown sugar", "amounts": [{"unit": "cup", "value": 1}], "modifier": "packed", "xfail": "leading prep word 'packed' not extracted to modifier"}
 {"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": 0.667}, {"unit": "g", "value": 85}], "modifier": "finely chopped", "xfail": "leading prep phrase before name; now falls back to full-input name (no longer empty)"}
+{"input": "2 (14.5 oz) cans diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 2}], "modifier": "diced", "xfail": "leading count + parenthesized size + plural container unit falls back to name-only"}
+{"input": "1 and 1/2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.5}], "xfail": "mixed number written 'N and M/D' not parsed"}
+{"input": "half a cup of milk", "name": "milk", "amounts": [{"unit": "cup", "value": 0.5}], "xfail": "'half a <unit>' quantity not parsed"}

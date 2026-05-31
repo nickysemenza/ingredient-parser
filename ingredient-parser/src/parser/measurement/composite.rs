@@ -55,8 +55,12 @@ impl<'a> MeasurementParser<'a> {
 
     /// Parse expressions with "plus" or "+" that combine two measurements
     ///
-    /// For example: "1 cup plus 2 tablespoons" or "½ cup + 2 tablespoons"
-    pub(super) fn parse_plus_expression<'b>(&self, input: &'b str) -> Res<&'b str, Measure> {
+    /// For example: "1 cup plus 2 tablespoons" or "½ cup + 2 tablespoons".
+    ///
+    /// When the two measures are compatible (same kind) they are summed into a
+    /// single [`Measure`]. When they are incompatible (e.g. "1 cup plus 100 g"),
+    /// both are returned as separate amounts rather than silently dropping one.
+    pub(super) fn parse_plus_expression<'b>(&self, input: &'b str) -> Res<&'b str, Vec<Measure>> {
         // Define the structure of a plus expression
         // Accept either the word "plus" or the "+" symbol
         let plus_parser = (
@@ -72,17 +76,20 @@ impl<'a> MeasurementParser<'a> {
             input,
             context("plus_expression", plus_parser).parse(input).map(
                 |(next_input, (first_measure, _, _, _, second_measure))| {
-                    // Add the two measurements together
-                    match first_measure.add(second_measure) {
-                        Ok(combined) => (next_input, combined),
-                        Err(_) => {
-                            // If addition fails, just return the first measure as fallback
-                            (next_input, first_measure)
-                        }
-                    }
+                    // Sum compatible measures; otherwise keep both rather than
+                    // discarding the second (which loses data the recipe stated).
+                    let measures = match first_measure.clone().add(second_measure.clone()) {
+                        Ok(combined) => vec![combined],
+                        Err(_) => vec![first_measure, second_measure],
+                    };
+                    (next_input, measures)
                 },
             ),
-            |m: &Measure| m.to_string(),
+            |measures: &Vec<Measure>| measures
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" + "),
             "no plus expression"
         )
     }

@@ -49,6 +49,10 @@ impl IngredientParser {
             return ingredient;
         }
 
+        if let Some(ingredient) = self.try_parse_x_of_construction(input) {
+            return ingredient;
+        }
+
         self.parse_core_ingredient(input)
             // Reject a "successful" parse that lost the ingredient name into the
             // modifier (seen on real recipes: a decimal comma in "1,000 grams
@@ -78,7 +82,7 @@ impl IngredientParser {
         ingredient.name = collapse_whitespace(&ingredient.name);
         self.extract_alternative_from_name(&mut ingredient);
         self.extract_secondary_amounts_from_modifier(&mut ingredient);
-        ingredient.modifier = clean_modifier(ingredient.modifier);
+        ingredient.modifier = strip_wrapping_parens(clean_modifier(ingredient.modifier));
         ingredient
     }
 
@@ -139,6 +143,48 @@ impl IngredientParser {
         }
 
         None
+    }
+
+    /// Try to parse an "X of N item" construction such as "Juice of 1 lemon" or
+    /// "Grated zest of 2 limes". These describe a component derived from a
+    /// countable item; the item becomes the name (with its count), and the leading
+    /// phrase ("juice of", "zest of", ...) moves into the modifier.
+    fn try_parse_x_of_construction(&self, input: &str) -> Option<Ingredient> {
+        // Longest phrases first so e.g. "grated zest of" wins over "zest of".
+        const PHRASES: &[&str] = &[
+            "finely grated zest of",
+            "grated zest of",
+            "juice and zest of",
+            "zest and juice of",
+            "the juice of",
+            "the zest of",
+            "juice of",
+            "zest of",
+        ];
+
+        let trimmed = input.trim();
+        let lower = trimmed.to_lowercase();
+        // Require a space right after the phrase so "zest often..." can't match.
+        let phrase = PHRASES
+            .iter()
+            .find(|p| lower.starts_with(**p) && lower.as_bytes().get(p.len()) == Some(&b' '))?;
+
+        // The phrase is ASCII, so its byte length indexes a char boundary in `trimmed`.
+        let rest = trimmed[phrase.len()..].trim_start();
+        let mut parsed = self.parse_core_ingredient(rest)?;
+
+        // Only treat this as the construction when the remainder actually carried a
+        // quantity and an item (e.g. "1 lemon"); otherwise fall through to normal
+        // parsing so "zest of lemon" (no count) stays name-only.
+        if parsed.amounts.is_empty() || parsed.name.trim().is_empty() {
+            return None;
+        }
+
+        parsed.modifier = match parsed.modifier.take() {
+            Some(existing) if !existing.trim().is_empty() => Some(format!("{phrase}, {existing}")),
+            _ => Some((*phrase).to_string()),
+        };
+        Some(parsed)
     }
 
     /// Parse a complete ingredient line including amounts, name, and modifiers.
@@ -238,6 +284,18 @@ impl IngredientParser {
             // offsets may not fall on char boundaries in the original `name`.
             // Skip rather than panic when slicing `name` would split a char.
             if !name.is_char_boundary(pos) || !name.is_char_boundary(end) {
+                continue;
+            }
+
+            // Require a whitespace/string-edge boundary on both sides, so an
+            // adjective embedded in a larger token is left alone (e.g. "chopped"
+            // inside "well-chopped" must not corrupt the name into "well-").
+            let before_boundary = name[..pos]
+                .chars()
+                .next_back()
+                .is_none_or(char::is_whitespace);
+            let after_boundary = name[end..].chars().next().is_none_or(char::is_whitespace);
+            if !before_boundary || !after_boundary {
                 continue;
             }
 
@@ -356,6 +414,21 @@ fn append_modifier(modifier: &mut Option<String>, addition: &str) {
     }
 }
 
+/// Strip a single pair of parentheses that wraps the *entire* modifier, e.g.
+/// "(softened)" -> "softened". Modifiers with internal parentheses or only
+/// partial wrapping are left untouched.
+fn strip_wrapping_parens(modifier: Option<String>) -> Option<String> {
+    let modifier = modifier?;
+    let trimmed = modifier.trim();
+    if let Some(inner) = trimmed.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+        if !inner.contains('(') && !inner.contains(')') {
+            let inner = inner.trim();
+            return (!inner.is_empty()).then(|| inner.to_string());
+        }
+    }
+    Some(modifier)
+}
+
 fn clean_modifier(modifier: Option<String>) -> Option<String> {
     modifier.and_then(|modifier| {
         let trimmed = modifier.trim();
@@ -458,4 +531,36 @@ fn extract_secondary_amounts(
 
 fn is_temperature_unit(unit: &unit::Unit) -> bool {
     matches!(unit, unit::Unit::Fahrenheit | unit::Unit::Celsius)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    // Fully wrapped: outer parens are stripped.
+    #[case::simple("(sifted)", Some("sifted"))]
+    #[case::with_percent("(70% cacao)", Some("70% cacao"))]
+    #[case::inner_trimmed("(  softened  )", Some("softened"))]
+    // Not wrapped, or only partially: left untouched.
+    #[case::plain("softened", Some("softened"))]
+    #[case::open_only("(partial", Some("(partial"))]
+    #[case::close_only("partial)", Some("partial)"))]
+    // Internal parens must NOT be collapsed (would merge distinct clauses).
+    #[case::two_groups("(a) and (b)", Some("(a) and (b)"))]
+    #[case::nested("(note (nested))", Some("(note (nested))"))]
+    // An empty group collapses away entirely.
+    #[case::empty("()", None)]
+    fn test_strip_wrapping_parens(#[case] input: &str, #[case] expected: Option<&str>) {
+        assert_eq!(
+            strip_wrapping_parens(Some(input.to_string())),
+            expected.map(str::to_string)
+        );
+    }
+
+    #[test]
+    fn test_strip_wrapping_parens_none() {
+        assert_eq!(strip_wrapping_parens(None), None);
+    }
 }

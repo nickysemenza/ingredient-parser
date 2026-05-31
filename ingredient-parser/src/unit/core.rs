@@ -53,11 +53,23 @@ pub enum Unit {
 }
 
 impl Unit {
+    /// Canonicalize a unit.
+    ///
+    /// Built-in variants are already canonical and returned unchanged. An
+    /// `Other` may hold a known alias when constructed directly (the variant is
+    /// public), e.g. `Unit::Other("cup".into())`; such values are promoted to
+    /// their built-in (`Unit::Cup`). A genuinely-unknown unit is normalized to
+    /// its lowercase, singular form (e.g. `Other("Cloves")` -> `Other("clove")`).
     pub fn normalize(self) -> Unit {
-        //todo
         match self {
-            Unit::Other(x) => Unit::Other(singular(&x).into_owned()),
-            _ => self,
+            // `from_str` lower-cases/singularizes for lookup and promotes known
+            // aliases; it only ever returns `Other` for truly-unknown units (and
+            // never `Err`), in which case we canonicalize the stored text.
+            Unit::Other(x) => match Unit::from_str(&x) {
+                Ok(Unit::Other(_)) | Err(()) => Unit::Other(singular(&x).into_owned()),
+                Ok(known) => known,
+            },
+            canonical => canonical,
         }
     }
     pub fn to_str(&self) -> String {
