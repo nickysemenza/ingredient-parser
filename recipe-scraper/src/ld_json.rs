@@ -89,18 +89,35 @@ fn extract_tool_names(value: &Value) -> Vec<String> {
     }
 }
 
-/// Parse a yield string like "4 servings" or "12 pancakes" into RecipeYield
-/// Also returns servings as integer if the unit is "serving(s)"
+/// Parse a yield string into RecipeYield, returning servings as an integer when
+/// it represents servings.
+///
+/// Handles both clean JSON-LD yields ("4 servings", "12 pancakes") and freeform
+/// EPUB/prose yields ("Makes about 12 pancakes", "Serves 4"): a leading prose
+/// prefix before the first number is trimmed so the amount parser sees the
+/// quantity, and a "serv*" anywhere (Serves / servings) is treated as servings
+/// even when the number sits after the word ("Serves 4").
 pub fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
     let parser = IngredientParser::new().with_units(&["serving", "servings"]);
-    match parser.parse_amount(input) {
+
+    // Common unicode vulgar fractions also count as the start of the quantity.
+    const VULGAR_FRACTIONS: &str = "½⅓¼¾⅔⅜⅝⅞⅛⅙⅚";
+    let quantity_start = input
+        .char_indices()
+        .find(|(_, c)| c.is_ascii_digit() || VULGAR_FRACTIONS.contains(*c))
+        .map(|(i, _)| i);
+    // Prose like "Serves 4" / "Makes 4 servings" implies servings.
+    let implies_servings = input.to_lowercase().contains("serv");
+
+    let from_quantity = quantity_start.map(|i| &input[i..]).unwrap_or(input);
+
+    match parser.parse_amount(from_quantity) {
         Ok(amounts) if !amounts.is_empty() => {
             let first = &amounts[0];
-            let unit = first.unit().to_str(); // Use to_str() for proper string, not Debug format
+            let unit = first.unit().to_str(); // to_str() for a proper string, not Debug format
             let value = first.value();
 
-            // Check if this is servings
-            let servings = if unit == "serving" || unit == "servings" {
+            let servings = if unit == "serving" || unit == "servings" || implies_servings {
                 Some(value as u32)
             } else {
                 None
@@ -109,8 +126,8 @@ pub fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
             (Some(RecipeYield { value, unit }), servings)
         }
         _ => {
-            // Try to parse as a simple number (just servings)
-            if let Ok(num) = input.trim().parse::<u32>() {
+            // Fall back to a bare integer somewhere in the string.
+            if let Ok(num) = from_quantity.trim().parse::<u32>() {
                 (
                     Some(RecipeYield {
                         value: num as f64,
@@ -520,6 +537,11 @@ mod tests {
     #[case::plain_number("12", Some(RecipeYield { value: 12.0, unit: "whole".to_string() }), None)]
     #[case::empty("", None, None)]
     #[case::invalid_text("invalid", None, None)]
+    // Freeform/prose yields (e.g. from EPUB cookbooks): a leading prose prefix
+    // before the number is trimmed, and "serv*" implies servings.
+    #[case::makes_servings("Makes 8 servings", Some(RecipeYield { value: 8.0, unit: "serving".to_string() }), Some(8))]
+    #[case::makes_about("Makes about 12 pancakes", Some(RecipeYield { value: 12.0, unit: "whole".to_string() }), None)]
+    #[case::serves_n("Serves 4", Some(RecipeYield { value: 4.0, unit: "whole".to_string() }), Some(4))]
     fn test_parse_yield_string(
         #[case] input: &str,
         #[case] expected_yield: Option<RecipeYield>,

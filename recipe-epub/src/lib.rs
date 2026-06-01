@@ -84,6 +84,18 @@ impl Default for Options {
     }
 }
 
+/// An EPUB internal hyperlink found inside an ingredient/text line — the visible
+/// link text plus its href fragment target (e.g. `<a href="…#piecrust">The Only
+/// Piecrust</a>`). The author's literal pointer to another recipe; used to
+/// confirm/strengthen a title-match reference (Layer 2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Link {
+    /// The visible text inside the `<a>` tag.
+    pub text: String,
+    /// The href target (internal links only: `#frag` or `…html#frag`).
+    pub href: String,
+}
+
 /// A unit of cookbook text handed to the extractor. One chunk may contain zero,
 /// one, or many recipes; the extractor segments them.
 #[derive(Debug, Clone)]
@@ -94,6 +106,9 @@ pub struct Chunk {
     pub text: String,
     /// The originating spine-doc path, used to label `url`.
     pub doc_path: String,
+    /// Internal anchor links found anywhere in this chunk's text, with the line
+    /// they appeared on. Used to confirm cross-recipe references.
+    pub links: Vec<Link>,
 }
 
 /// How confident we are that an ingredient line references another recipe.
@@ -326,6 +341,10 @@ pub(crate) async fn extract_cookbook_with_stats<E: RecipeExtractor>(
     let chunks = epub_text::chunk_epub(bytes)?;
     tracing::info!("epub {source}: {} chunk(s)", chunks.len());
 
+    // Book-wide internal anchor links (author hyperlinks between recipes) —
+    // the Layer 2 confirmation signal for cross-recipe references.
+    let links: Vec<Link> = chunks.iter().flat_map(|c| c.links.clone()).collect();
+
     // Extract each chunk concurrently (bounded), preserving document order and
     // each recipe's originating doc. A single failing chunk is logged and
     // skipped rather than failing the whole book.
@@ -362,7 +381,7 @@ pub(crate) async fn extract_cookbook_with_stats<E: RecipeExtractor>(
         .collect();
 
     let mut recipes = assemble(recipes_by_doc, source);
-    resolve_references(&mut recipes);
+    resolve_references(&mut recipes, &links);
     tracing::info!(
         "epub {source}: {} recipe(s); {}",
         recipes.len(),
@@ -503,9 +522,11 @@ fn contains_whole_tokens(haystack: &str, needle: &str) -> bool {
 /// the (normalized) title of any *other* recipe in the same book. Generic/short
 /// titles only match when the line also carries a cross-reference marker
 /// ("recipe", "this page", …), and when several titles match a line the longest
-/// wins — so "The Only Piecrust" beats "Piecrust". Pure post-processing over the
-/// assembled recipes (no API calls); safe to recompute on cached data.
-fn resolve_references(recipes: &mut [CookbookRecipe]) {
+/// wins — so "The Only Piecrust" beats "Piecrust". A match is upgraded to
+/// `RefConfidence::Linked` when an EPUB internal anchor (`links`) has link text
+/// matching the referenced title — the author's literal pointer (Layer 2). Pure
+/// post-processing over the assembled recipes (no API calls).
+fn resolve_references(recipes: &mut [CookbookRecipe], links: &[Link]) {
     // (normalized_title, real_title, idx), longest normalized title first so the
     // most specific match wins.
     let mut titles: Vec<(String, String, usize)> = recipes
@@ -515,6 +536,11 @@ fn resolve_references(recipes: &mut [CookbookRecipe]) {
         .filter(|(norm, _, _)| !norm.is_empty())
         .collect();
     titles.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+    // Normalized link texts (e.g. "the only piecrust" from <a>The Only Piecrust</a>)
+    // — the set of titles the author hyperlinked anywhere in the book.
+    let linked_titles: std::collections::HashSet<String> =
+        links.iter().map(|l| normalize_title(&l.text)).collect();
 
     // Compute each recipe's references against the shared title index, then
     // assign in a second pass (read-all / write-each avoids aliasing `recipes`).
@@ -547,10 +573,17 @@ fn resolve_references(recipes: &mut [CookbookRecipe]) {
                             .iter()
                             .any(|r| r.title == *real_title && r.line == *line);
                         if !already {
+                            // Upgrade to Linked when the author hyperlinked this
+                            // exact title somewhere — a confirmed reference.
+                            let confidence = if linked_titles.contains(norm_title) {
+                                RefConfidence::Linked
+                            } else {
+                                RefConfidence::TitleMatch
+                            };
                             found.push(RecipeRef {
                                 title: real_title.clone(),
                                 line: line.clone(),
-                                confidence: RefConfidence::TitleMatch,
+                                confidence,
                             });
                         }
                         break; // one (best) reference per line
@@ -742,7 +775,7 @@ mod tests {
                 &["1 recipe The Only Piecrust (this page)", "3 apples"],
             ),
         ];
-        resolve_references(&mut recipes);
+        resolve_references(&mut recipes, &[]);
         // Piecrust references nothing; Galette references the Piecrust.
         assert!(recipes[0].references.is_empty());
         assert_eq!(recipes[1].references.len(), 1);
@@ -763,7 +796,7 @@ mod tests {
             // Same generic title WITH a marker → should match.
             recipe("Lemonade", &["1 cup Syrup (recipe follows)", "lemons"]),
         ];
-        resolve_references(&mut recipes);
+        resolve_references(&mut recipes, &[]);
         assert!(recipes[0].references.is_empty(), "self-ref skipped");
         assert!(
             recipes[1].references.is_empty(),
@@ -784,7 +817,7 @@ mod tests {
             recipe("The Only Piecrust", &["flour", "butter"]),
             recipe("Tart", &["1 recipe The Only Piecrust (this page)"]),
         ];
-        resolve_references(&mut recipes);
+        resolve_references(&mut recipes, &[]);
         // The Tart's line matches both "Piecrust" and "The Only Piecrust"; the
         // longer, more specific title wins and only one ref is recorded.
         assert_eq!(recipes[2].references.len(), 1);

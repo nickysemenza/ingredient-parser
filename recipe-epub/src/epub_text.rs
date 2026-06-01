@@ -9,7 +9,24 @@ use ego_tree::iter::Edge;
 use epub::doc::EpubDoc;
 use scraper::{Html, Node};
 
-use crate::{Chunk, EpubError};
+use crate::{Chunk, EpubError, Link};
+
+/// A cleaned text line plus any internal anchor links it contained.
+struct CleanLine {
+    text: String,
+    links: Vec<Link>,
+}
+
+/// Whether an href is an EPUB *internal* link (points within the book) rather
+/// than an external URL. Internal links are the cross-recipe signal.
+fn is_internal_href(href: &str) -> bool {
+    let h = href.trim();
+    !h.is_empty()
+        && !h.starts_with("http://")
+        && !h.starts_with("https://")
+        && !h.starts_with("mailto:")
+        && (h.starts_with('#') || h.contains(".htm") || h.contains(".xhtml") || h.contains('#'))
+}
 
 /// Target chunk size in characters. Large enough that a single long recipe
 /// (e.g. Claire Saffitz's detailed methods) stays whole within one chunk —
@@ -34,7 +51,7 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
     let mut doc = EpubDoc::from_reader(Cursor::new(bytes.to_vec()))
         .map_err(|e| EpubError::Open(e.to_string()))?;
 
-    let mut tagged: Vec<(String, String)> = Vec::new();
+    let mut tagged: Vec<(String, CleanLine)> = Vec::new();
     loop {
         if let Some((content, mime)) = doc.get_current_str() {
             if mime.contains("html") {
@@ -63,9 +80,10 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
 /// and be dropped downstream. To avoid that, the continuation chunk inherits the
 /// last-seen title as its [`Chunk::title_hint`], so the model re-emits the same
 /// titled recipe and `assemble()` merges the two halves.
-fn window_chunks(tagged: Vec<(String, String)>) -> Vec<Chunk> {
+fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
     let mut chunks = Vec::new();
     let mut lines: Vec<String> = Vec::new();
+    let mut chunk_links: Vec<Link> = Vec::new();
     let mut len = 0usize;
     let mut doc: Option<String> = None;
     // The most recent title-like line, and the hint carried into the next chunk
@@ -74,7 +92,7 @@ fn window_chunks(tagged: Vec<(String, String)>) -> Vec<Chunk> {
     let mut next_hint: Option<String> = None;
 
     for (path, line) in tagged {
-        let at_title = len >= CHUNK_BUDGET && looks_like_title(&line);
+        let at_title = len >= CHUNK_BUDGET && looks_like_title(&line.text);
         let hard_split = len >= CHUNK_BUDGET + CHUNK_SLACK;
         let want_break = !lines.is_empty() && (at_title || hard_split);
         if want_break {
@@ -82,6 +100,7 @@ fn window_chunks(tagged: Vec<(String, String)>) -> Vec<Chunk> {
                 title_hint: next_hint.take(),
                 text: lines.join("\n"),
                 doc_path: doc.take().unwrap_or_default(),
+                links: std::mem::take(&mut chunk_links),
             });
             lines = Vec::new();
             len = 0;
@@ -94,17 +113,19 @@ fn window_chunks(tagged: Vec<(String, String)>) -> Vec<Chunk> {
         if doc.is_none() {
             doc = Some(path);
         }
-        if looks_like_title(&line) {
-            last_title = Some(line.clone());
+        if looks_like_title(&line.text) {
+            last_title = Some(line.text.clone());
         }
-        len += line.len() + 1;
-        lines.push(line);
+        len += line.text.len() + 1;
+        lines.push(line.text);
+        chunk_links.extend(line.links);
     }
     if !lines.is_empty() {
         chunks.push(Chunk {
             title_hint: next_hint,
             text: lines.join("\n"),
             doc_path: doc.unwrap_or_default(),
+            links: chunk_links,
         });
     }
     chunks
@@ -179,19 +200,29 @@ fn is_skip(tag: &str) -> bool {
 /// Strip XHTML to text and join into one string (one line per block element).
 #[cfg(test)]
 pub(crate) fn clean_xhtml_to_text(xhtml: &str) -> String {
-    clean_xhtml_to_lines(xhtml).join("\n")
+    clean_xhtml_to_lines(xhtml)
+        .into_iter()
+        .map(|l| l.text)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Strip XHTML to text, one line per block-level element, by walking the DOM and
 /// inserting a newline at every block boundary. Captures `<div>`/`<span>`-based
 /// layouts that a tag allowlist would miss, and drops `<script>`/`<style>`/`<head>`.
-fn clean_xhtml_to_lines(xhtml: &str) -> Vec<String> {
+/// Also captures internal `<a href>` links per line (the cross-recipe signal).
+fn clean_xhtml_to_lines(xhtml: &str) -> Vec<CleanLine> {
     // NUL marks block boundaries — distinct from source newlines/indentation,
     // which appear inside text nodes and must NOT split a logical line.
     const SEP: char = '\u{0}';
     let dom = Html::parse_document(xhtml);
     let mut buf = String::new();
     let mut skip_depth = 0usize;
+    // Internal anchors, recorded as (byte offset in `buf` where the link text
+    // began, href, link text) so each can later be mapped to its split line.
+    let mut links: Vec<(usize, String, String)> = Vec::new();
+    // Open <a> with an internal href: (start offset in buf, href).
+    let mut open_anchor: Option<(usize, String)> = None;
 
     for edge in dom.tree.root().traverse() {
         match edge {
@@ -200,8 +231,17 @@ fn clean_xhtml_to_lines(xhtml: &str) -> Vec<String> {
                     let name = e.name();
                     if is_skip(name) {
                         skip_depth += 1;
-                    } else if skip_depth == 0 && is_block(name) {
-                        buf.push(SEP);
+                    } else if skip_depth == 0 {
+                        if is_block(name) {
+                            buf.push(SEP);
+                        }
+                        if name == "a" {
+                            if let Some(href) = e.attr("href") {
+                                if is_internal_href(href) {
+                                    open_anchor = Some((buf.len(), href.to_string()));
+                                }
+                            }
+                        }
                     }
                 }
                 Node::Text(t) if skip_depth == 0 => buf.push_str(t),
@@ -212,18 +252,50 @@ fn clean_xhtml_to_lines(xhtml: &str) -> Vec<String> {
                     let name = e.name();
                     if is_skip(name) {
                         skip_depth = skip_depth.saturating_sub(1);
-                    } else if skip_depth == 0 && is_block(name) {
-                        buf.push(SEP);
+                    } else if skip_depth == 0 {
+                        if name == "a" {
+                            if let Some((start, href)) = open_anchor.take() {
+                                let text = buf[start..].to_string();
+                                links.push((start, href, text));
+                            }
+                        }
+                        if is_block(name) {
+                            buf.push(SEP);
+                        }
                     }
                 }
             }
         }
     }
 
-    buf.split(SEP)
-        .map(normalize_ws)
-        .filter(|l| !l.is_empty())
-        .collect()
+    // Map each captured anchor to the split-line it falls in (by byte offset),
+    // then normalize. A line's links are those whose start offset lands between
+    // that line's start and the next SEP.
+    let mut out: Vec<CleanLine> = Vec::new();
+    let mut line_start = 0usize;
+    for segment in buf.split(SEP) {
+        let line_end = line_start + segment.len();
+        let text = normalize_ws(segment);
+        if !text.is_empty() {
+            let line_links: Vec<Link> = links
+                .iter()
+                .filter(|(off, _, _)| *off >= line_start && *off < line_end)
+                .filter_map(|(_, href, t)| {
+                    let lt = normalize_ws(t);
+                    (!lt.is_empty()).then(|| Link {
+                        text: lt,
+                        href: href.clone(),
+                    })
+                })
+                .collect();
+            out.push(CleanLine {
+                text,
+                links: line_links,
+            });
+        }
+        line_start = line_end + SEP.len_utf8();
+    }
+    out
 }
 
 /// Collapse all whitespace (incl. non-breaking spaces) to single spaces, trim,
@@ -243,6 +315,17 @@ fn normalize_ws(s: &str) -> String {
 mod tests {
     use super::*;
     use rstest::rstest;
+
+    /// A `(doc, CleanLine)` pair with no links, for window_chunks tests.
+    fn tag(doc: &str, text: &str) -> (String, CleanLine) {
+        (
+            doc.to_string(),
+            CleanLine {
+                text: text.to_string(),
+                links: Vec::new(),
+            },
+        )
+    }
 
     #[rstest]
     // each <p>/<li> becomes its own line
@@ -292,9 +375,9 @@ mod tests {
         let lines_per_recipe = CHUNK_BUDGET / line.len() + 1;
         let mut tagged = Vec::new();
         for title in ["Chocolate Cake", "Vanilla Cake"] {
-            tagged.push(("big.html".to_string(), title.to_string()));
+            tagged.push(tag("big.html", title));
             for _ in 0..lines_per_recipe {
-                tagged.push(("big.html".to_string(), line.clone()));
+                tagged.push(tag("big.html", &line));
             }
         }
         let chunks = window_chunks(tagged);
@@ -307,13 +390,31 @@ mod tests {
         assert!(chunks.iter().any(|c| c.text.starts_with("Vanilla Cake")));
 
         // Two tiny docs merge into a single chunk (split-across-files case).
-        let small = vec![
-            ("a.html".to_string(), "Pancakes".to_string()),
-            ("b.html".to_string(), "1 cup flour".to_string()),
-        ];
+        let small = vec![tag("a.html", "Pancakes"), tag("b.html", "1 cup flour")];
         let merged = window_chunks(small);
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].doc_path, "a.html");
+    }
+
+    #[test]
+    fn captures_internal_anchor_links_and_strips_markup() {
+        let xhtml = r#"<html><body>
+            <p>1 recipe <a href="recipes.xhtml#piecrust">The Only Piecrust</a> (this page)</p>
+            <p>2 cups flour</p>
+            <p>See <a href="https://example.com">our site</a> for more</p>
+        </body></html>"#;
+        let lines = clean_xhtml_to_lines(xhtml);
+        // Visible text is intact (link text inlined, no href leakage).
+        assert_eq!(lines[0].text, "1 recipe The Only Piecrust (this page)");
+        // The internal anchor is captured on its line.
+        assert_eq!(lines[0].links.len(), 1);
+        assert_eq!(lines[0].links[0].text, "The Only Piecrust");
+        assert!(lines[0].links[0].href.contains("piecrust"));
+        // A plain line has no links.
+        assert!(lines[1].links.is_empty());
+        // External (http) links are ignored.
+        assert_eq!(lines[2].text, "See our site for more");
+        assert!(lines[2].links.is_empty());
     }
 
     #[test]
@@ -325,9 +426,9 @@ mod tests {
         // constants so it survives changes to them.
         let line = "x".repeat(140);
         let lines = (CHUNK_BUDGET + CHUNK_SLACK) / line.len() + 5;
-        let mut tagged = vec![("big.html".to_string(), "Lone Long Recipe".to_string())];
+        let mut tagged = vec![tag("big.html", "Lone Long Recipe")];
         for _ in 0..lines {
-            tagged.push(("big.html".to_string(), line.clone()));
+            tagged.push(tag("big.html", &line));
         }
         let chunks = window_chunks(tagged);
         assert!(
