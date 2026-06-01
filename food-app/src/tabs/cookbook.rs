@@ -205,8 +205,9 @@ impl CookbookTab {
                                 *show_graph = false;
                             }
                         }
-                    } else {
-                        show_recipe_detail(ui, &recipes[*selected]);
+                    } else if let Some(nav) = show_recipe_detail(ui, recipes, *selected) {
+                        // Clicked a "Uses recipes" link → navigate to it.
+                        *selected = nav;
                     }
                 });
             }
@@ -241,7 +242,15 @@ impl CookbookTab {
     }
 }
 
-fn show_recipe_detail(ui: &mut egui::Ui, r: &CookbookRecipe) {
+/// Render the selected recipe's detail view. Returns `Some(idx)` if the user
+/// clicked one of the "Uses recipes" links, so the caller can navigate there.
+fn show_recipe_detail(
+    ui: &mut egui::Ui,
+    recipes: &[CookbookRecipe],
+    selected: usize,
+) -> Option<usize> {
+    let r = &recipes[selected];
+    let mut navigate_to = None;
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading(&r.meta.title);
         if let Some(category) = &r.meta.category {
@@ -287,16 +296,31 @@ fn show_recipe_detail(ui: &mut egui::Ui, r: &CookbookRecipe) {
             }
         }
 
-        // Other recipes in this book that this one uses as ingredients.
+        // Other recipes in this book that this one uses as ingredients —
+        // rendered as links that navigate to the referenced recipe.
         if !r.references.is_empty() {
             ui.separator();
-            let targets: Vec<&str> = r.references.iter().map(|x| x.title.as_str()).collect();
-            ui.label(RichText::new(format!("↳ Uses recipes: {}", targets.join(", "))).strong());
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("↳ Uses recipes:").strong());
+                for reference in &r.references {
+                    // Resolve the reference title to a recipe index (titles are
+                    // unique per book). If found, render a clickable link.
+                    let target = recipes.iter().position(|o| o.meta.title == reference.title);
+                    if let Some(idx) = target {
+                        if ui.link(&reference.title).clicked() {
+                            navigate_to = Some(idx);
+                        }
+                    } else {
+                        ui.label(&reference.title);
+                    }
+                }
+            });
         }
 
         ui.add_space(8.0);
         ui.label(RichText::new(&r.url).weak().small());
     });
+    navigate_to
 }
 
 /// Build the recipe-reference digraph: a node per recipe that participates in at
