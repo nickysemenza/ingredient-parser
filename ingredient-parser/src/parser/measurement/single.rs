@@ -16,8 +16,8 @@ use crate::traced_parser;
 use crate::unit::{self, Measure};
 
 use super::guards::{
-    looks_like_step_number, optional_article, optional_dash_separator, optional_period_or_of,
-    starts_with_dimension_suffix,
+    is_distance_unit, looks_like_step_number, optional_article, optional_dash_separator,
+    optional_period_or_of, starts_with_dimension_suffix,
 };
 use super::{MeasurementParser, DEFAULT_UNIT};
 
@@ -93,8 +93,16 @@ impl<'a> MeasurementParser<'a> {
             return Err(reject_measurement(input));
         }
 
-        if starts_with_dimension_suffix(next_input) {
+        // In rich text (prose), a hyphenated dimension like "1-inch" in
+        // "1-inch piece ginger" is descriptive, not a quantity, so reject it. In
+        // ingredient-list mode the dimension IS the amount (e.g. "2-inch piece
+        // ginger" → 2"), parsed below by parse_dimension_unit.
+        if self.is_rich_text && starts_with_dimension_suffix(next_input) {
             return Err(reject_measurement(input));
+        }
+
+        if let Some((after_dim, unit)) = parse_dimension_unit(next_input) {
+            return Ok((after_dim, unit));
         }
 
         Ok((next_input, DEFAULT_UNIT.to_string()))
@@ -232,6 +240,23 @@ fn reject_measurement(input: &str) -> nom::Err<VerboseError<&str>> {
     ))
 }
 
+/// Consume a leading hyphenated dimension unit ("-inch", "-cm", …) and return it
+/// as the measurement's unit, leaving the rest of the input. This lets the
+/// hyphen form "2-inch piece ginger" parse the dimension as the amount (2"),
+/// mirroring the space form "2 inch piece ginger". Returns `None` when the input
+/// doesn't start with a hyphen + distance unit.
+fn parse_dimension_unit(input: &str) -> Option<(&str, String)> {
+    let after_hyphen = input.strip_prefix('-')?;
+    let end = after_hyphen
+        .find(|c: char| !c.is_alphabetic())
+        .unwrap_or(after_hyphen.len());
+    let unit = &after_hyphen[..end];
+    if unit.is_empty() || !is_distance_unit(unit) {
+        return None;
+    }
+    Some((&after_hyphen[end..], unit.to_lowercase()))
+}
+
 /// Consume a leading approximation qualifier ("about", "generous", "scant",
 /// "heaping", …), optionally preceded by an article ("a"/"an"), so the amount
 /// after it still parses. Case-insensitive; the qualifier text is discarded.
@@ -241,6 +266,8 @@ fn reject_measurement(input: &str) -> nom::Err<VerboseError<&str>> {
 fn leading_qualifier(input: &str) -> Res<&str, ()> {
     let (input, _) = opt(alt((tag_no_case("a "), tag_no_case("an ")))).parse(input)?;
     let (input, _) = alt((
+        // Multi-word phrases first so the trailing word isn't mistaken for the unit.
+        tag_no_case("less than"),
         tag_no_case("about"),
         tag_no_case("approximately"),
         tag_no_case("approx"),
@@ -251,6 +278,7 @@ fn leading_qualifier(input: &str) -> Res<&str, ()> {
         tag_no_case("heaping"),
         tag_no_case("heaped"),
         tag_no_case("rounded"),
+        tag_no_case("brimming"),
     ))
     .parse(input)?;
     let (input, _) = space1(input)?;

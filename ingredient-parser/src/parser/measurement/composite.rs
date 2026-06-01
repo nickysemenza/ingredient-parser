@@ -22,7 +22,8 @@ use super::MeasurementParser;
 const CONTAINER_NOUNS: &[&str] = &[
     "piece", "pieces", "can", "cans", "knob", "knobs", "package", "packages", "packet", "packets",
     "bottle", "bottles", "jar", "jars", "block", "blocks", "bunch", "bunches", "head", "heads",
-    "stick", "sticks", "fillet", "fillets", "loaf", "chunk", "chunks",
+    "stick", "sticks", "fillet", "fillets", "loaf", "chunk", "chunks", "ball", "balls", "box",
+    "boxes", "disk", "disks", "wedge", "wedges",
 ];
 
 impl<'a> MeasurementParser<'a> {

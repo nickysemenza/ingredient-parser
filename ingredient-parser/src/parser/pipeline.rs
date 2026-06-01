@@ -174,21 +174,28 @@ impl IngredientParser {
         None
     }
 
-    /// Try to parse an "X of N item" construction such as "Juice of 1 lemon" or
-    /// "Grated zest of 2 limes". These describe a component derived from a
-    /// countable item; the item becomes the name (with its count), and the leading
-    /// phrase ("juice of", "zest of", ...) moves into the modifier.
+    /// Try to parse an "X of/from N item" construction such as "Juice of 1 lemon",
+    /// "Grated zest of 2 limes", "Finely grated zest from 1 lemon", or
+    /// "Peel of 1 grapefruit". These describe a component derived from a countable
+    /// item; the item becomes the name (with its count), and the leading phrase
+    /// ("juice of", "zest from", "peel of", ...) moves into the modifier.
     fn try_parse_x_of_construction(&self, input: &str) -> Option<Ingredient> {
         // Longest phrases first so e.g. "grated zest of" wins over "zest of".
         const PHRASES: &[&str] = &[
+            "finely grated zest from",
             "finely grated zest of",
+            "grated zest from",
             "grated zest of",
             "juice and zest of",
             "zest and juice of",
             "the juice of",
             "the zest of",
+            "juice from",
+            "zest from",
+            "peel from",
             "juice of",
             "zest of",
+            "peel of",
         ];
 
         let trimmed = input.trim();

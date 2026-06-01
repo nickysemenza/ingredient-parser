@@ -55,6 +55,8 @@ impl<'a> MeasurementParser<'a> {
         let amount_separators = alt((
             tag("; "),  // semicolon with space
             tag(" / "), // slash with spaces
+            tag(" /"),  // slash, space before only ("175 grams /1¾ cups")
+            tag("/ "),  // slash, space after only
             tag(" | "), // pipe with spaces (Bouchon format: metric | volume)
             tag(" × "), // multiplication sign with spaces (UK format: "1 × 400g tin")
             tag("× "),  // multiplication sign when leading space was consumed

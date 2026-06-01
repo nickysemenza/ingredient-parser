@@ -247,23 +247,23 @@
 {"input": "1 (28-ounce) can whole peeled tomatoes", "name": "whole peeled tomatoes", "amounts": [{"unit": "can", "value": 1.0}, {"unit": "oz", "value": 28.0}]}
 //
 // --- harvested from Calibre library fuzz pass (15 books, 2026-05-31); xfail = real parser gaps ---
-{"input": "175 grams /1¾ cups sifted almond flour", "name": "almond flour", "amounts": [{"unit": "g", "value": 175.0}, {"unit": "cup", "value": 1.75}], "modifier": "sifted", "xfail": "metric/imperial dual unit separated by / with no leading space"}
-{"input": "50 grams /¼ cup granulated sugar", "name": "granulated sugar", "amounts": [{"unit": "g", "value": 50.0}, {"unit": "cup", "value": 0.25}], "xfail": "metric/imperial dual unit (g / cup)"}
-{"input": "85 grams /6 Tbsp unsalted butter", "name": "unsalted butter", "amounts": [{"unit": "g", "value": 85.0}, {"unit": "tbsp", "value": 6.0}], "xfail": "metric/imperial dual unit (g / Tbsp)"}
-{"input": "610 grams /2½ cups heavy cream, plus more as needed", "name": "heavy cream", "amounts": [{"unit": "g", "value": 610.0}, {"unit": "cup", "value": 2.5}], "modifier": "plus more as needed", "xfail": "metric/imperial dual unit with trailing note"}
+{"input": "175 grams /1¾ cups sifted almond flour", "name": "almond flour", "amounts": [{"unit": "g", "value": 175.0}, {"unit": "cup", "value": 1.75}], "modifier": "sifted"}
+{"input": "50 grams /¼ cup granulated sugar", "name": "granulated sugar", "amounts": [{"unit": "g", "value": 50.0}, {"unit": "cup", "value": 0.25}]}
+{"input": "85 grams /6 Tbsp unsalted butter", "name": "unsalted butter", "amounts": [{"unit": "g", "value": 85.0}, {"unit": "tbsp", "value": 6.0}]}
+{"input": "610 grams /2½ cups heavy cream, plus more as needed", "name": "heavy cream", "amounts": [{"unit": "g", "value": 610.0}, {"unit": "cup", "value": 2.5}], "modifier": "plus more as needed"}
 {"input": "160 grams /⅔ cup room-temperature (70° to 80°F) water", "name": "room-temperature water", "amounts": [{"unit": "g", "value": 160.0}, {"unit": "cup", "value": 0.6666666666666666}], "xfail": "metric/imperial dual unit with inline parenthetical temp"}
 {"input": "10 g / 2 tablespoons sliced (¼ inch / 6 mm) green onions", "name": "green onions", "amounts": [{"unit": "g", "value": 10.0}, {"unit": "tbsp", "value": 2.0}], "modifier": "sliced", "xfail": "g / unit dual with nested size parenthetical"}
 {"input": "One 2-inch stick of canela (Mexican cinnamon)", "name": "canela", "amounts": [{"unit": "stick", "value": 1.0}, {"unit": "\"", "value": 2.0}], "modifier": "Mexican cinnamon", "xfail": "spelled One + dimension + 'stick of' container"}
 {"input": "One 10-ounce disk Pie Dough", "name": "Pie Dough", "amounts": [{"unit": "disk", "value": 1.0}, {"unit": "oz", "value": 10.0}], "xfail": "spelled One + weight + container noun (disk); convention [count container, size]"}
 {"input": "One 8-ounce package cream cheese, room temperature", "name": "cream cheese", "amounts": [{"unit": "package", "value": 1.0}, {"unit": "oz", "value": 8.0}], "modifier": "room temperature", "xfail": "spelled One + weight + container noun (package)"}
-{"input": "1 (8-ounce) ball burrata", "name": "burrata", "amounts": [{"unit": "ball", "value": 1.0}, {"unit": "oz", "value": 8.0}], "xfail": "numeric count + parenthetical weight + uncovered container noun (ball)"}
-{"input": "1 (11-ounce) box Nilla wafers or graham crackers", "name": "Nilla wafers or graham crackers", "amounts": [{"unit": "box", "value": 1.0}, {"unit": "oz", "value": 11.0}], "xfail": "numeric count + parenthetical weight + uncovered container noun (box)"}
-{"input": "2-inch piece ginger", "name": "ginger", "amounts": [{"unit": "piece", "value": 1.0}, {"unit": "\"", "value": 2.0}], "xfail": "bare N-inch dimension + container noun (piece), implicit count 1"}
-{"input": "3-inch cinnamon stick", "name": "cinnamon stick", "amounts": [{"unit": "\"", "value": 3.0}], "xfail": "bare N-inch dimension prefix on plain name"}
-{"input": "Finely grated zest from 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "finely grated zest from", "xfail": "'from N item' sibling of existing 'of' handler"}
-{"input": "Juice from 2 limes", "name": "limes", "amounts": [{"unit": "whole", "value": 2.0}], "modifier": "juice from", "xfail": "'from N item' sibling of existing 'of' handler"}
-{"input": "Peel of 1 grapefruit", "name": "grapefruit", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "peel of", "xfail": "'of N item' handler missing head noun 'peel'"}
-{"input": "Brimming 1 tablespoon oyster sauce", "name": "oyster sauce", "amounts": [{"unit": "tbsp", "value": 1.0}], "xfail": "leading qualifier 'Brimming' not recognized"}
-{"input": "Less than 1 g / ¼ teaspoon kosher salt", "name": "kosher salt", "amounts": [{"unit": "g", "value": 1.0}, {"unit": "tsp", "value": 0.25}], "xfail": "leading qualifier 'Less than' + metric/imperial dual unit"}
+{"input": "1 (8-ounce) ball burrata", "name": "burrata", "amounts": [{"unit": "ball", "value": 1.0}, {"unit": "oz", "value": 8.0}]}
+{"input": "1 (11-ounce) box Nilla wafers or graham crackers", "name": "Nilla wafers or graham crackers", "amounts": [{"unit": "box", "value": 1.0}, {"unit": "oz", "value": 11.0}]}
+{"input": "2-inch piece ginger", "name": "piece ginger", "amounts": [{"unit": "\"", "value": 2.0}]}
+{"input": "3-inch cinnamon stick", "name": "cinnamon stick", "amounts": [{"unit": "\"", "value": 3.0}]}
+{"input": "Finely grated zest from 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "finely grated zest from"}
+{"input": "Juice from 2 limes", "name": "limes", "amounts": [{"unit": "whole", "value": 2.0}], "modifier": "juice from"}
+{"input": "Peel of 1 grapefruit", "name": "grapefruit", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "peel of"}
+{"input": "Brimming 1 tablespoon oyster sauce", "name": "oyster sauce", "amounts": [{"unit": "tbsp", "value": 1.0}]}
+{"input": "Less than 1 g / ¼ teaspoon kosher salt", "name": "kosher salt", "amounts": [{"unit": "g", "value": 1.0}, {"unit": "tsp", "value": 0.25}]}
 {"input": "One ¼-ounce packet unflavored gelatin", "name": "unflavored gelatin", "amounts": [{"unit": "packet", "value": 1.0}, {"unit": "oz", "value": 0.25}], "xfail": "spelled One + vulgar-fraction weight + container noun (packet)"}
 {"input": "4 (4- to 6-ounce) halibut fillets", "name": "halibut fillets", "amounts": [{"unit": "fillet", "value": 4.0}, {"unit": "oz", "value": 4.0, "upper_value": 6.0}], "xfail": "numeric count + parenthetical weight RANGE + container noun (fillets)"}
