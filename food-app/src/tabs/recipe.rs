@@ -127,4 +127,15 @@ pub fn show_raw(ui: &mut egui::Ui, recipe: &ScrapedRecipe) {
             });
         });
     }
+
+    // Equipment + notes, mirroring the Cookbook tab's detail view.
+    if !recipe.equipment.is_empty() || !recipe.notes.is_empty() {
+        ui.separator();
+        for e in &recipe.equipment {
+            ui.label(format!("🔧 {e}"));
+        }
+        for n in &recipe.notes {
+            ui.label(RichText::new(format!("📝 {n}")).weak());
+        }
+    }
 }

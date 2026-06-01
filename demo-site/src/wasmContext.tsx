@@ -15,11 +15,23 @@ export interface RecipeSection {
   instructions: string[];
 }
 
+export interface RecipeTimes {
+  active?: string;
+  total?: string;
+  prep?: string;
+  cook?: string;
+}
+
 export interface ScrapedRecipe {
   image?: string;
   sections: RecipeSection[];
   name?: string;
   url?: string;
+  description?: string;
+  times?: RecipeTimes;
+  category?: string;
+  notes?: string[];
+  equipment?: string[];
 }
 
 export const WasmContext = createContext<wasm | undefined>(undefined);

@@ -3,7 +3,8 @@
 
 mod tabs;
 
-use eframe::egui::{self, Image};
+use eframe::egui::{self, Image, RichText};
+use eframe::epaint::Color32;
 use ingredient::trace::ParseTrace;
 use poll_promise::Promise;
 use rand::RngExt;
@@ -167,15 +168,45 @@ impl eframe::App for MyApp {
                                 ui.set_min_height(200.0);
                                 ui.vertical(|ui| {
                                     ui.heading(w.recipe.name.clone());
-                                    // Display yield and servings if present
-                                    if let Some(recipe_yield) = &w.recipe.recipe_yield {
-                                        ui.label(format!(
-                                            "📊 Yield: {} {}",
-                                            recipe_yield.value, recipe_yield.unit
-                                        ));
+                                    if let Some(category) = &w.recipe.category {
+                                        ui.label(RichText::new(category).italics().weak());
                                     }
-                                    if let Some(servings) = &w.recipe.servings {
-                                        ui.label(format!("🍽️ Servings: {servings}"));
+                                    // Display yield, servings, and times if present.
+                                    ui.horizontal_wrapped(|ui| {
+                                        if let Some(recipe_yield) = &w.recipe.recipe_yield {
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "📊 Yield: {} {}",
+                                                    recipe_yield.value, recipe_yield.unit
+                                                ))
+                                                .color(Color32::GOLD),
+                                            );
+                                        }
+                                        if let Some(servings) = &w.recipe.servings {
+                                            ui.label(
+                                                RichText::new(format!("🍽️ Servings: {servings}"))
+                                                    .color(Color32::GOLD),
+                                            );
+                                        }
+                                        if let Some(t) = &w.recipe.times {
+                                            for (label, value) in [
+                                                ("active", &t.active),
+                                                ("total", &t.total),
+                                                ("prep", &t.prep),
+                                                ("cook", &t.cook),
+                                            ] {
+                                                if let Some(value) = value {
+                                                    ui.label(format!("⏱ {label}: {value}"));
+                                                }
+                                            }
+                                        }
+                                    });
+                                    if let Some(description) = &w.recipe.description {
+                                        ui.add_space(4.0);
+                                        ui.label(RichText::new(description).italics());
+                                    }
+                                    if !w.recipe.url.is_empty() {
+                                        ui.hyperlink(&w.recipe.url);
                                     }
                                 });
                                 if let Some(image) = &w.recipe.image {

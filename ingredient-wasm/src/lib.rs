@@ -194,11 +194,22 @@ interface WRecipeSection {
     ingredients: string[];
     instructions: string[];
 }
+interface WRecipeTimes {
+    active?: string;
+    total?: string;
+    prep?: string;
+    cook?: string;
+}
 interface WScrapedRecipe {
     sections: WRecipeSection[];
     name?: string;
     url?: string;
     image?: string;
+    description?: string;
+    times?: WRecipeTimes;
+    category?: string;
+    notes?: string[];
+    equipment?: string[];
 }
 
 type AmountKind =

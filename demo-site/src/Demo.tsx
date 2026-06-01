@@ -253,6 +253,49 @@ const Scraper: React.FC = () => {
                 <h3 className="text-2xl font-bold text-gray-800 mb-2">
                   {scrapedRecipe.name}
                 </h3>
+                {scrapedRecipe.category && (
+                  <p className="text-sm italic text-gray-500 mb-1">
+                    {scrapedRecipe.category}
+                  </p>
+                )}
+                {scrapedRecipe.times && (
+                  <div className="flex flex-wrap gap-3 text-sm text-gray-600 mb-2">
+                    {(
+                      [
+                        ["active", scrapedRecipe.times.active],
+                        ["total", scrapedRecipe.times.total],
+                        ["prep", scrapedRecipe.times.prep],
+                        ["cook", scrapedRecipe.times.cook],
+                      ] as const
+                    )
+                      .filter(([, value]) => value)
+                      .map(([label, value]) => (
+                        <span key={label}>
+                          ⏱ {label}: {value}
+                        </span>
+                      ))}
+                  </div>
+                )}
+                {scrapedRecipe.description && (
+                  <p className="text-gray-700 italic mb-2">
+                    {scrapedRecipe.description}
+                  </p>
+                )}
+                {scrapedRecipe.equipment &&
+                  scrapedRecipe.equipment.length > 0 && (
+                    <ul className="text-sm text-gray-600 mb-2">
+                      {scrapedRecipe.equipment.map((e, i) => (
+                        <li key={i}>🔧 {e}</li>
+                      ))}
+                    </ul>
+                  )}
+                {scrapedRecipe.notes && scrapedRecipe.notes.length > 0 && (
+                  <ul className="text-sm text-gray-500 mb-2">
+                    {scrapedRecipe.notes.map((n, i) => (
+                      <li key={i}>📝 {n}</li>
+                    ))}
+                  </ul>
+                )}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center text-gray-600">
                     <span className="mr-2">🍽️</span>

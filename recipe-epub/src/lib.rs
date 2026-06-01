@@ -19,10 +19,10 @@ use std::path::PathBuf;
 
 pub use extractor::{
     Backend, ChunkOutcome, ClaudeExtractor, ExtractedRecipe, MockExtractor, OpenAiExtractor,
-    RecipeExtractor, RecipeMeta, RecipeTimes, Usage,
+    RecipeExtractor, RecipeMeta, Usage,
 };
-// Section types are shared with the web scraper — one section shape workspace-wide.
-pub use recipe_scraper::{ParsedSection, RecipeSection};
+// Section + time types are shared with the web scraper — one shape workspace-wide.
+pub use recipe_scraper::{ParsedSection, RecipeSection, RecipeTimes};
 
 use futures::stream::{self, StreamExt};
 use recipe_scraper::parse_sections;

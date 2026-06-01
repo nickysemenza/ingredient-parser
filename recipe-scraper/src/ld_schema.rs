@@ -15,6 +15,30 @@ pub enum RecipeYieldWrapper {
     NumberArray(Vec<f64>),
 }
 
+/// A schema.org value that may be a single string, a list of strings, or some
+/// other shape entirely. The `Other(Value)` catch-all keeps the untagged enum
+/// **total** so a surprising shape (a number, an object) never fails `RootRecipe`
+/// deserialization — which would silently regress a working site into the HTML
+/// fallback. Used for the soft metadata fields (description, category, …).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum StringOrList {
+    String(String),
+    List(Vec<String>),
+    Other(Value),
+}
+
+impl StringOrList {
+    /// The first usable string: the value itself, or the first list element.
+    pub fn first_string(&self) -> Option<String> {
+        match self {
+            StringOrList::String(s) => Some(s.clone()),
+            StringOrList::List(l) => l.first().cloned(),
+            StringOrList::Other(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "recipe")]
 pub struct RootRecipe {
@@ -23,15 +47,26 @@ pub struct RootRecipe {
     // #[serde(rename = "@type")]
     // pub type_field: String,
     pub name: String,
-    // pub description: String,
+    #[serde(default)]
+    pub description: Option<StringOrList>,
     // pub author: Author,
     pub image: Option<ImageOrList>,
-    // pub total_time: String,
+    #[serde(default)]
+    pub total_time: Option<StringOrList>,
+    #[serde(default)]
+    pub prep_time: Option<StringOrList>,
+    #[serde(default)]
+    pub cook_time: Option<StringOrList>,
     pub recipe_yield: Option<RecipeYieldWrapper>,
     // pub recipe_cuisine: String,
-    // pub recipe_category: String,
+    #[serde(default)]
+    pub recipe_category: Option<StringOrList>,
     // pub keywords: String,
     // pub aggregate_rating: AggregateRating,
+    /// schema.org HowTo `tool`; items are bare strings or `{ "name": ... }`
+    /// objects, so we keep it a raw `Value` and extract names in `ld_json`.
+    #[serde(default)]
+    pub tool: Option<Value>,
     pub recipe_ingredient: Vec<String>,
     pub recipe_instructions: InstructionWrapper,
     // pub is_accessible_for_free: String,
@@ -101,7 +136,8 @@ pub enum ImageOrList {
 #[serde(untagged)]
 pub enum Root {
     Graph(RootGraph),
-    Recipe(RootRecipe),
+    // Boxed: RootRecipe is large; keeps the enum's variants similarly sized.
+    Recipe(Box<RootRecipe>),
     List(Vec<RootRecipe>),
 }
 
@@ -117,7 +153,8 @@ pub struct RootGraph {
 // #[serde(tag = "@type")]
 #[serde(untagged)]
 pub enum Graph {
-    Recipe(RootRecipe),
+    // Boxed: RootRecipe is much larger than the other (Value-shaped) variants.
+    Recipe(Box<RootRecipe>),
     Article(Value),
     WebPage(Value),
     ImageObject(Image),

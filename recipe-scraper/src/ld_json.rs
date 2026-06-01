@@ -3,7 +3,91 @@ use scraper::{Html, Selector};
 use serde_json::Value;
 use tracing::{error, info};
 
-use crate::{ld_schema, RecipeYield, ScrapeError, ScrapedRecipe};
+use crate::{ld_schema, RecipeTimes, RecipeYield, ScrapeError, ScrapedRecipe};
+
+/// Heading names that mark a trailing "notes"/"tips" section rather than steps.
+fn is_notes_heading(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "note" | "notes" | "tip" | "tips"
+    )
+}
+
+/// Humanize an ISO-8601 duration (e.g. `PT1H30M` -> "1 hour 30 minutes",
+/// `PT35M` -> "35 minutes"). Returns `None` for anything that isn't a `PT…`
+/// duration with at least one component. Only hours/minutes are surfaced
+/// (seconds are dropped — recipe times never need them).
+fn humanize_iso8601_duration(input: &str) -> Option<String> {
+    let rest = input.trim().strip_prefix("PT")?;
+    let mut hours: u64 = 0;
+    let mut minutes: u64 = 0;
+    let mut num = String::new();
+    let mut saw_component = false;
+    for c in rest.chars() {
+        match c {
+            '0'..='9' => num.push(c),
+            'H' => {
+                hours = num.parse().ok()?;
+                num.clear();
+                saw_component = true;
+            }
+            'M' => {
+                minutes = num.parse().ok()?;
+                num.clear();
+                saw_component = true;
+            }
+            'S' => {
+                // Seconds: consume the digits but ignore the value.
+                num.clear();
+                saw_component = true;
+            }
+            _ => return None,
+        }
+    }
+    // Trailing digits with no unit, or no component at all -> not a duration.
+    if !num.is_empty() || !saw_component {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    if hours > 0 {
+        parts.push(format!("{hours} hour{}", if hours == 1 { "" } else { "s" }));
+    }
+    if minutes > 0 {
+        parts.push(format!(
+            "{minutes} minute{}",
+            if minutes == 1 { "" } else { "s" }
+        ));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" "))
+    }
+}
+
+/// Extract equipment names from schema.org HowTo `tool`, which may be a bare
+/// string, an array of strings, or an array of `{ "name": ... }` objects. The
+/// generic placeholder "n/a" some sites emit is dropped.
+fn extract_tool_names(value: &Value) -> Vec<String> {
+    fn one(value: &Value) -> Option<String> {
+        let name = match value {
+            Value::String(s) => s.clone(),
+            Value::Object(o) => o.get("name")?.as_str()?.to_string(),
+            _ => return None,
+        };
+        let name = name.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("n/a") {
+            None
+        } else {
+            Some(name.to_string())
+        }
+    }
+    match value {
+        Value::Array(items) => items.iter().filter_map(one).collect(),
+        other => one(other).into_iter().collect(),
+    }
+}
 
 /// Parse a yield string like "4 servings" or "12 pancakes" into RecipeYield
 /// Also returns servings as integer if the unit is "serving(s)"
@@ -85,19 +169,27 @@ fn normalize_root_recipe(
     ld_schema: ld_schema::RootRecipe,
     url: &str,
 ) -> Result<ScrapedRecipe, ScrapeError> {
+    // A "Notes"/"Tips" HowToSection is split out of the steps into `notes`.
+    let mut notes: Vec<String> = Vec::new();
     let instructions = match ld_schema.recipe_instructions {
         ld_schema::InstructionWrapper::A(a) => a.into_iter().map(|i| i.text).collect(),
-        ld_schema::InstructionWrapper::B(b) => b
-            .into_iter()
-            .flat_map(|i| match i {
-                ld_schema::BOrWrapper::B(b) => b
-                    .item_list_element
-                    .iter()
-                    .filter_map(|i| i.text.clone())
-                    .collect::<Vec<_>>(),
-                ld_schema::BOrWrapper::Wrapper(w) => w.text.into_iter().collect::<Vec<_>>(),
-            })
-            .collect(),
+        ld_schema::InstructionWrapper::B(b) => {
+            let mut instructions = Vec::new();
+            for i in b {
+                match i {
+                    ld_schema::BOrWrapper::B(b) => {
+                        let texts = b.item_list_element.iter().filter_map(|i| i.text.clone());
+                        if is_notes_heading(&b.name) {
+                            notes.extend(texts);
+                        } else {
+                            instructions.extend(texts);
+                        }
+                    }
+                    ld_schema::BOrWrapper::Wrapper(w) => instructions.extend(w.text),
+                }
+            }
+            instructions
+        }
 
         ld_schema::InstructionWrapper::C(c) => {
             let selector = Selector::parse("p")
@@ -124,6 +216,35 @@ fn normalize_root_recipe(
         .map(extract_yield_from_wrapper)
         .unwrap_or((None, None));
 
+    // Humanize the ISO-8601 durations; `active` has no schema.org source.
+    let times = RecipeTimes {
+        active: None,
+        total: ld_schema
+            .total_time
+            .as_ref()
+            .and_then(|t| t.first_string())
+            .as_deref()
+            .and_then(humanize_iso8601_duration),
+        prep: ld_schema
+            .prep_time
+            .as_ref()
+            .and_then(|t| t.first_string())
+            .as_deref()
+            .and_then(humanize_iso8601_duration),
+        cook: ld_schema
+            .cook_time
+            .as_ref()
+            .and_then(|t| t.first_string())
+            .as_deref()
+            .and_then(humanize_iso8601_duration),
+    };
+
+    let equipment = ld_schema
+        .tool
+        .as_ref()
+        .map(extract_tool_names)
+        .unwrap_or_default();
+
     Ok(ScrapedRecipe {
         sections: vec![crate::RecipeSection::new(
             ld_schema.recipe_ingredient,
@@ -139,6 +260,17 @@ fn normalize_root_recipe(
         }),
         recipe_yield,
         servings,
+        description: ld_schema
+            .description
+            .as_ref()
+            .and_then(|d| d.first_string()),
+        times: if times.is_empty() { None } else { Some(times) },
+        category: ld_schema
+            .recipe_category
+            .as_ref()
+            .and_then(|c| c.first_string()),
+        notes,
+        equipment,
     })
 }
 #[tracing::instrument]
@@ -151,15 +283,15 @@ fn normalize_ld_json(
             Some(recipe) => normalize_root_recipe(recipe, url),
             None => Err(ScrapeError::LDJSONMissingRecipe(url.to_string(), 0)),
         },
-        ld_schema::Root::Recipe(ld_schema) => normalize_root_recipe(ld_schema, url),
+        ld_schema::Root::Recipe(ld_schema) => normalize_root_recipe(*ld_schema, url),
         ld_schema::Root::Graph(g) => {
             let items = g.graph.len();
             let recipe = g.graph.iter().find_map(|d| match d {
-                ld_schema::Graph::Recipe(a) => Some(a.to_owned()),
+                ld_schema::Graph::Recipe(a) => Some(a.clone()),
                 _ => None,
             });
             match recipe {
-                Some(r) => normalize_root_recipe(r, url),
+                Some(r) => normalize_root_recipe(*r, url),
                 None => Err(ScrapeError::LDJSONMissingRecipe(
                     "failed to find recipe in ld json graph".to_string(),
                     items,
@@ -214,14 +346,15 @@ pub fn scrape_from_ld_json(json: &str, url: &str) -> Result<ScrapedRecipe, Scrap
 mod tests {
     use crate::{
         ld_json::{
-            extract_ld, extract_yield_from_wrapper, normalize_ld_json, parse_ld_json,
-            parse_yield_string, scrape_from_ld_json,
+            extract_ld, extract_tool_names, extract_yield_from_wrapper, humanize_iso8601_duration,
+            normalize_ld_json, parse_ld_json, parse_yield_string, scrape_from_ld_json,
         },
         ld_schema::{InstructionWrapper, RecipeYieldWrapper, Root, RootRecipe},
         RecipeYield,
     };
     use rstest::rstest;
     use scraper::Html;
+    use serde_json::json;
 
     // ============================================================================
     // parse_ld_json() Tests
@@ -240,14 +373,20 @@ mod tests {
                 .to_string()
             )
             .unwrap(),
-            crate::ld_schema::Root::Recipe(crate::ld_schema::RootRecipe {
+            crate::ld_schema::Root::Recipe(Box::new(crate::ld_schema::RootRecipe {
                 context: None,
                 name: "".to_string(),
+                description: None,
                 image: None,
+                total_time: None,
+                prep_time: None,
+                cook_time: None,
                 recipe_yield: None,
+                recipe_category: None,
+                tool: None,
                 recipe_ingredient: vec![],
                 recipe_instructions: InstructionWrapper::A(vec![]),
-            })
+            }))
         );
     }
 
@@ -269,8 +408,14 @@ mod tests {
         let root = Root::List(vec![RootRecipe {
             context: None,
             name: "Test Recipe".to_string(),
+            description: None,
             image: None,
+            total_time: None,
+            prep_time: None,
+            cook_time: None,
             recipe_yield: None,
+            recipe_category: None,
+            tool: None,
             recipe_ingredient: vec!["1 cup flour".to_string()],
             recipe_instructions: InstructionWrapper::A(vec![]),
         }]);
@@ -433,5 +578,126 @@ mod tests {
         let (recipe_yield, servings) = extract_yield_from_wrapper(&wrapper);
         assert_eq!(recipe_yield, expected_yield);
         assert_eq!(servings, expected_servings);
+    }
+
+    // ============================================================================
+    // humanize_iso8601_duration() Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::minutes("PT35M", Some("35 minutes"))]
+    #[case::one_minute("PT1M", Some("1 minute"))]
+    #[case::hour_and_minutes("PT1H30M", Some("1 hour 30 minutes"))]
+    #[case::leading_zero_hours("PT0H15M", Some("15 minutes"))]
+    #[case::whole_hours("PT2H", Some("2 hours"))]
+    #[case::one_hour("PT1H", Some("1 hour"))]
+    // Seconds are consumed but dropped; with only seconds there's nothing to show.
+    #[case::seconds_only("PT45S", None)]
+    #[case::hour_minute_seconds("PT1H5M30S", Some("1 hour 5 minutes"))]
+    #[case::zero("PT0M", None)]
+    #[case::no_prefix("35M", None)]
+    #[case::garbage("nonsense", None)]
+    #[case::empty("", None)]
+    fn test_humanize_iso8601_duration(#[case] input: &str, #[case] expected: Option<&str>) {
+        assert_eq!(
+            humanize_iso8601_duration(input),
+            expected.map(|s| s.to_string())
+        );
+    }
+
+    // ============================================================================
+    // extract_tool_names() Tests
+    // ============================================================================
+
+    #[test]
+    fn test_extract_tool_names_single_string() {
+        assert_eq!(extract_tool_names(&json!("Whisk")), vec!["Whisk"]);
+    }
+
+    #[test]
+    fn test_extract_tool_names_string_array() {
+        assert_eq!(
+            extract_tool_names(&json!(["9-inch pan", "Whisk"])),
+            vec!["9-inch pan", "Whisk"]
+        );
+    }
+
+    #[test]
+    fn test_extract_tool_names_object_array() {
+        // schema.org HowToTool objects, plus the "n/a" placeholder some sites emit.
+        let tool = json!([
+            { "@type": "HowToTool", "name": "Stand mixer" },
+            { "@type": "HowToTool", "name": "n/a" },
+            "Rolling pin"
+        ]);
+        assert_eq!(
+            extract_tool_names(&tool),
+            vec!["Stand mixer", "Rolling pin"]
+        );
+    }
+
+    // ============================================================================
+    // Metadata extraction via scrape_from_ld_json()
+    // ============================================================================
+
+    #[test]
+    fn test_scrape_extracts_metadata() {
+        let json = r#"{
+            "name": "Cake",
+            "description": "A nice cake",
+            "prepTime": "PT15M",
+            "cookTime": "PT1H30M",
+            "totalTime": "PT1H45M",
+            "recipeCategory": "Dessert",
+            "tool": ["9-inch pan", { "@type": "HowToTool", "name": "Whisk" }],
+            "recipeIngredient": [],
+            "recipeInstructions": []
+        }"#;
+
+        let recipe = scrape_from_ld_json(json, "https://example.com").unwrap();
+        assert_eq!(recipe.description.as_deref(), Some("A nice cake"));
+        assert_eq!(recipe.category.as_deref(), Some("Dessert"));
+        let times = recipe.times.unwrap();
+        assert_eq!(times.prep.as_deref(), Some("15 minutes"));
+        assert_eq!(times.cook.as_deref(), Some("1 hour 30 minutes"));
+        assert_eq!(times.total.as_deref(), Some("1 hour 45 minutes"));
+        assert_eq!(times.active, None); // no JSON-LD source for active
+        assert_eq!(recipe.equipment, vec!["9-inch pan", "Whisk"]);
+    }
+
+    #[test]
+    fn test_scrape_splits_notes_section_from_instructions() {
+        // A trailing "Notes" HowToSection is routed into `notes`, not the steps.
+        let json = r#"{
+            "name": "Test",
+            "recipeIngredient": [],
+            "recipeInstructions": [
+                { "@type": "HowToSection", "name": "Steps",
+                  "itemListElement": [{ "@type": "HowToStep", "text": "Mix everything" }] },
+                { "@type": "HowToSection", "name": "Notes",
+                  "itemListElement": [{ "@type": "HowToStep", "text": "Store airtight" }] }
+            ]
+        }"#;
+
+        let recipe = scrape_from_ld_json(json, "https://example.com").unwrap();
+        let instructions: Vec<&str> = recipe.instructions().collect();
+        assert_eq!(instructions, vec!["Mix everything"]);
+        assert_eq!(recipe.notes, vec!["Store airtight"]);
+    }
+
+    #[test]
+    fn test_scrape_no_metadata_leaves_fields_empty() {
+        let json = r#"{
+            "name": "Bare",
+            "recipeIngredient": ["1 cup flour"],
+            "recipeInstructions": []
+        }"#;
+
+        let recipe = scrape_from_ld_json(json, "https://example.com").unwrap();
+        assert_eq!(recipe.description, None);
+        assert_eq!(recipe.times, None);
+        assert_eq!(recipe.category, None);
+        assert!(recipe.notes.is_empty());
+        assert!(recipe.equipment.is_empty());
     }
 }

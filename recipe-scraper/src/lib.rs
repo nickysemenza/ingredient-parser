@@ -36,6 +36,28 @@ pub struct RecipeYield {
     pub unit: String,
 }
 
+/// Printed times. Any field may be absent. Shared workspace-wide: the web scraper
+/// fills it from JSON-LD ISO-8601 durations, `recipe-epub` from the model's output.
+/// `active` has no JSON-LD source, so it stays `None` for scraped recipes.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+pub struct RecipeTimes {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prep: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cook: Option<String>,
+}
+
+impl RecipeTimes {
+    /// `true` when every field is absent (so callers can collapse to `None`).
+    pub fn is_empty(&self) -> bool {
+        self.active.is_none() && self.total.is_none() && self.prep.is_none() && self.cook.is_none()
+    }
+}
+
 /// One component of a recipe (e.g. "For the sauce"). A recipe is fundamentally
 /// metadata + sections; the common case is a single unnamed section. Ingredient
 /// and instruction lines are raw strings — [`ScrapedRecipe::parse`] structures
@@ -70,7 +92,12 @@ pub struct ParsedSection {
     pub instructions: Vec<Rich>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+/// A scraped recipe: sections plus the metadata we can source from a page. The
+/// metadata fields mirror `recipe-epub::RecipeMeta`'s names/types so the web and
+/// EPUB flows converge on one shape (with `recipe_yield`/`servings`/`image` being
+/// the web-only structured extras). `Default` lets the non-LD-JSON scrapers omit
+/// the metadata fields via struct-update syntax.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct ScrapedRecipe {
     /// Recipe components; most recipes have a single unnamed section.
     pub sections: Vec<RecipeSection>,
@@ -81,6 +108,21 @@ pub struct ScrapedRecipe {
     pub recipe_yield: Option<RecipeYield>,
     /// Servings as integer (extracted from yield if unit is "serving(s)")
     pub servings: Option<u32>,
+    /// Headnote / intro blurb (schema.org `description`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Prep/cook/total times (humanized from JSON-LD ISO-8601 durations).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub times: Option<RecipeTimes>,
+    /// Dish category (schema.org `recipeCategory`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Tips / do-ahead notes (best-effort: a "Notes"/"Tips" instruction section).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+    /// Special equipment (best-effort: schema.org HowTo `tool`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub equipment: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]

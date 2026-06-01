@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use recipe_scraper::RecipeSection;
+use recipe_scraper::{RecipeSection, RecipeTimes};
 
 use crate::{Chunk, EpubError, Options};
 
@@ -36,19 +36,6 @@ pub struct RecipeMeta {
     /// Page number, if printed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<String>,
-}
-
-/// Printed times. Any field may be absent.
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
-pub struct RecipeTimes {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub total: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prep: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cook: Option<String>,
 }
 
 /// A recipe as segmented + labeled by the extractor (model output). Sections use
