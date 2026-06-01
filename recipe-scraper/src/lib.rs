@@ -6,6 +6,7 @@ use ingredient::{
     IngredientParser,
 };
 use ld_json::extract_ld;
+pub use ld_json::parse_yield_string;
 use scraper::Html;
 
 use serde::{Deserialize, Serialize};

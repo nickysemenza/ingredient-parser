@@ -154,6 +154,23 @@ async fn main() {
                 Ok((recipes, stats)) => {
                     // Cost/cache summary goes to stderr so --json stdout stays clean.
                     eprintln!("[{}] {}", stats.model, stats.summary());
+                    // Cross-recipe references (recipe A uses recipe B) to stderr too.
+                    let with_refs: Vec<_> = recipes
+                        .iter()
+                        .filter(|r| !r.references.is_empty())
+                        .collect();
+                    if !with_refs.is_empty() {
+                        let total: usize = with_refs.iter().map(|r| r.references.len()).sum();
+                        eprintln!(
+                            "cross-recipe references: {total} across {} recipe(s)",
+                            with_refs.len()
+                        );
+                        for r in with_refs {
+                            let targets: Vec<&str> =
+                                r.references.iter().map(|x| x.title.as_str()).collect();
+                            eprintln!("  {} → {}", r.meta.title, targets.join(", "));
+                        }
+                    }
                     if *parse {
                         let parsed: Vec<_> = recipes.iter().map(|r| r.parse()).collect();
                         if *json {

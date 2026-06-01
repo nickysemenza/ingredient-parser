@@ -96,6 +96,30 @@ pub struct Chunk {
     pub doc_path: String,
 }
 
+/// How confident we are that an ingredient line references another recipe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefConfidence {
+    /// Backed by an EPUB internal hyperlink (`<a href="#…">`) — the author's
+    /// literal pointer to the target recipe (Layer 2).
+    Linked,
+    /// The target recipe's title appears in the ingredient line (Layer 1).
+    TitleMatch,
+}
+
+/// A detected reference from one recipe to another in the same cookbook, e.g.
+/// the ingredient line "1 recipe The Only Piecrust (this page)" referencing the
+/// "The Only Piecrust" recipe.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecipeRef {
+    /// The referenced recipe's title (as that recipe reports it).
+    pub title: String,
+    /// The verbatim ingredient line the reference was found in.
+    pub line: String,
+    /// How the reference was detected.
+    pub confidence: RefConfidence,
+}
+
 /// A fully assembled recipe (raw verbatim strings) with provenance. This is the
 /// crate's output type; call [`CookbookRecipe::parse`] to structure the lines.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -106,6 +130,11 @@ pub struct CookbookRecipe {
     pub source: String,
     /// `source#doc_path` for traceability.
     pub url: String,
+    /// Other recipes in the same book this one references as ingredients.
+    /// Derived after assembly (not extracted by the LLM, not part of the cache
+    /// payload), so it defaults to empty when deserializing older cached JSON.
+    #[serde(default)]
+    pub references: Vec<RecipeRef>,
 }
 
 /// [`CookbookRecipe`] with each ingredient line parsed into a structured
@@ -116,6 +145,9 @@ pub struct ParsedCookbookRecipe {
     pub source: String,
     pub url: String,
     pub sections: Vec<ParsedSection>,
+    /// Cross-recipe references, carried through from [`CookbookRecipe`].
+    #[serde(default)]
+    pub references: Vec<RecipeRef>,
 }
 
 impl CookbookRecipe {
@@ -127,6 +159,7 @@ impl CookbookRecipe {
             source: self.source.clone(),
             url: self.url.clone(),
             sections: parse_sections(&self.sections),
+            references: self.references.clone(),
         }
     }
 
@@ -328,7 +361,8 @@ pub(crate) async fn extract_cookbook_with_stats<E: RecipeExtractor>(
         })
         .collect();
 
-    let recipes = assemble(recipes_by_doc, source);
+    let mut recipes = assemble(recipes_by_doc, source);
+    resolve_references(&mut recipes);
     tracing::info!(
         "epub {source}: {} recipe(s); {}",
         recipes.len(),
@@ -366,6 +400,7 @@ fn assemble(per_chunk: Vec<(String, Vec<ExtractedRecipe>)>, source: &str) -> Vec
                         sections: r.sections,
                         source: source.to_string(),
                         url: format!("{source}#{doc_path}"),
+                        references: Vec::new(),
                     });
                 }
             }
@@ -396,6 +431,138 @@ fn merge_recipe(into: &mut CookbookRecipe, from: ExtractedRecipe) {
         if !m.equipment.contains(&eq) {
             m.equipment.push(eq);
         }
+    }
+}
+
+/// Normalize a title or ingredient line for substring matching: lowercase, drop
+/// a leading article ("the "/"a "/"an "), replace every non-alphanumeric run
+/// with a single space, and trim. Padding with surrounding spaces lets callers
+/// test whole-token containment (" needle " in " haystack ").
+fn normalize_title(s: &str) -> String {
+    let lower = s.to_lowercase();
+    let mut squashed = String::with_capacity(lower.len());
+    let mut prev_space = false;
+    for c in lower.chars() {
+        if c.is_alphanumeric() {
+            squashed.push(c);
+            prev_space = false;
+        } else if !prev_space {
+            squashed.push(' ');
+            prev_space = true;
+        }
+    }
+    let trimmed = squashed.trim();
+    let stripped = trimmed
+        .strip_prefix("the ")
+        .or_else(|| trimmed.strip_prefix("an "))
+        .or_else(|| trimmed.strip_prefix("a "))
+        .unwrap_or(trimmed);
+    stripped.to_string()
+}
+
+/// Markers that signal an ingredient line points at another recipe in the book
+/// (e.g. "(this page)", "1 recipe …", "see page 212"). Lets short/generic titles
+/// match only when the line itself looks like a cross-reference.
+fn has_cross_ref_marker(normalized_line: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "recipe",
+        "this page",
+        "see page",
+        "page",
+        "see recipe",
+        "opposite",
+    ];
+    MARKERS.iter().any(|m| normalized_line.contains(m))
+}
+
+/// Whether `needle` occurs in `haystack` on whole-token boundaries. Both inputs
+/// are already `normalize_title`d (single-spaced, alphanumeric). Checks that the
+/// match isn't glued to adjacent word characters.
+fn contains_whole_tokens(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return false;
+    }
+    let h = haystack.as_bytes();
+    let n = needle.as_bytes();
+    let mut i = 0;
+    while i + n.len() <= h.len() {
+        if &h[i..i + n.len()] == n {
+            let before_ok = i == 0 || h[i - 1] == b' ';
+            let after = i + n.len();
+            let after_ok = after == h.len() || h[after] == b' ';
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Detect cross-recipe references: for each recipe, scan its ingredient lines for
+/// the (normalized) title of any *other* recipe in the same book. Generic/short
+/// titles only match when the line also carries a cross-reference marker
+/// ("recipe", "this page", …), and when several titles match a line the longest
+/// wins — so "The Only Piecrust" beats "Piecrust". Pure post-processing over the
+/// assembled recipes (no API calls); safe to recompute on cached data.
+fn resolve_references(recipes: &mut [CookbookRecipe]) {
+    // (normalized_title, real_title, idx), longest normalized title first so the
+    // most specific match wins.
+    let mut titles: Vec<(String, String, usize)> = recipes
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (normalize_title(&r.meta.title), r.meta.title.clone(), i))
+        .filter(|(norm, _, _)| !norm.is_empty())
+        .collect();
+    titles.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+    // Compute each recipe's references against the shared title index, then
+    // assign in a second pass (read-all / write-each avoids aliasing `recipes`).
+    let resolved: Vec<Vec<RecipeRef>> = recipes
+        .iter()
+        .enumerate()
+        .map(|(idx, recipe)| {
+            let mut found: Vec<RecipeRef> = Vec::new();
+            for line in recipe.sections.iter().flat_map(|s| &s.ingredients) {
+                let norm_line = normalize_title(line);
+                if norm_line.is_empty() {
+                    continue;
+                }
+                for (norm_title, real_title, t_idx) in &titles {
+                    if *t_idx == idx {
+                        continue; // no self-references
+                    }
+                    // A short/generic title (< 3 words and < 12 chars) only counts
+                    // when the line looks like a cross-reference.
+                    let words = norm_title.split(' ').count();
+                    let specific = words >= 3 || norm_title.len() >= 12;
+                    if !specific && !has_cross_ref_marker(&norm_line) {
+                        continue;
+                    }
+                    if contains_whole_tokens(&norm_line, norm_title) {
+                        // Dedup by target title; keep the first (longest-title)
+                        // hit per line so "Piecrust" doesn't also fire after the
+                        // full "The Only Piecrust" already matched this line.
+                        let already = found
+                            .iter()
+                            .any(|r| r.title == *real_title && r.line == *line);
+                        if !already {
+                            found.push(RecipeRef {
+                                title: real_title.clone(),
+                                line: line.clone(),
+                                confidence: RefConfidence::TitleMatch,
+                            });
+                        }
+                        break; // one (best) reference per line
+                    }
+                }
+            }
+            found
+        })
+        .collect();
+
+    for (recipe, refs) in recipes.iter_mut().zip(resolved) {
+        recipe.references = refs;
     }
 }
 
@@ -523,5 +690,104 @@ mod tests {
         assert_eq!(out[0].sections.len(), 2);
         // Metadata only the continuation chunk captured is filled in.
         assert_eq!(out[0].meta.recipe_yield.as_deref(), Some("Makes 18"));
+    }
+
+    #[test]
+    fn normalize_title_strips_punct_and_articles() {
+        assert_eq!(normalize_title("The Only Piecrust"), "only piecrust");
+        assert_eq!(
+            normalize_title("Soft & Pillowy Flatbread!"),
+            "soft pillowy flatbread"
+        );
+        assert_eq!(normalize_title("A Simple Syrup"), "simple syrup");
+        assert_eq!(normalize_title("  spaced   out  "), "spaced out");
+    }
+
+    #[test]
+    fn contains_whole_tokens_respects_boundaries() {
+        assert!(contains_whole_tokens(
+            "1 recipe only piecrust this page",
+            "only piecrust"
+        ));
+        // Not glued inside a larger word.
+        assert!(!contains_whole_tokens("piecrustless pie", "piecrust"));
+        assert!(contains_whole_tokens("only piecrust", "only piecrust"));
+        assert!(!contains_whole_tokens("only", "only piecrust"));
+    }
+
+    /// Build an assembled recipe directly (post-`assemble` shape) for ref tests.
+    fn recipe(title: &str, ings: &[&str]) -> CookbookRecipe {
+        CookbookRecipe {
+            meta: RecipeMeta {
+                title: title.to_string(),
+                ..Default::default()
+            },
+            sections: vec![RecipeSection {
+                name: None,
+                ingredients: ings.iter().map(|s| s.to_string()).collect(),
+                instructions: vec![],
+            }],
+            source: "book.epub".to_string(),
+            url: "book.epub#c.xhtml".to_string(),
+            references: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn resolve_references_finds_specific_titles() {
+        let mut recipes = vec![
+            recipe("The Only Piecrust", &["2 cups flour", "1 cup butter"]),
+            recipe(
+                "Apple Galette",
+                &["1 recipe The Only Piecrust (this page)", "3 apples"],
+            ),
+        ];
+        resolve_references(&mut recipes);
+        // Piecrust references nothing; Galette references the Piecrust.
+        assert!(recipes[0].references.is_empty());
+        assert_eq!(recipes[1].references.len(), 1);
+        assert_eq!(recipes[1].references[0].title, "The Only Piecrust");
+        assert_eq!(
+            recipes[1].references[0].confidence,
+            RefConfidence::TitleMatch
+        );
+    }
+
+    #[test]
+    fn resolve_references_skips_self_and_generic_without_marker() {
+        let mut recipes = vec![
+            // A short/generic title: must NOT match a bare mention with no marker.
+            recipe("Syrup", &["1 cup syrup", "2 cups water"]),
+            // Mentions "Syrup" but only as a plain word, no cross-ref marker.
+            recipe("Iced Tea", &["2 cups water", "splash of syrup"]),
+            // Same generic title WITH a marker → should match.
+            recipe("Lemonade", &["1 cup Syrup (recipe follows)", "lemons"]),
+        ];
+        resolve_references(&mut recipes);
+        assert!(recipes[0].references.is_empty(), "self-ref skipped");
+        assert!(
+            recipes[1].references.is_empty(),
+            "generic title without marker must not match"
+        );
+        assert_eq!(
+            recipes[2].references.len(),
+            1,
+            "generic title with marker matches"
+        );
+        assert_eq!(recipes[2].references[0].title, "Syrup");
+    }
+
+    #[test]
+    fn resolve_references_prefers_longest_title() {
+        let mut recipes = vec![
+            recipe("Piecrust", &["flour"]),
+            recipe("The Only Piecrust", &["flour", "butter"]),
+            recipe("Tart", &["1 recipe The Only Piecrust (this page)"]),
+        ];
+        resolve_references(&mut recipes);
+        // The Tart's line matches both "Piecrust" and "The Only Piecrust"; the
+        // longer, more specific title wins and only one ref is recorded.
+        assert_eq!(recipes[2].references.len(), 1);
+        assert_eq!(recipes[2].references[0].title, "The Only Piecrust");
     }
 }

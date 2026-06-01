@@ -188,6 +188,13 @@ fn show_recipe_detail(ui: &mut egui::Ui, r: &CookbookRecipe) {
             }
         }
 
+        // Other recipes in this book that this one uses as ingredients.
+        if !r.references.is_empty() {
+            ui.separator();
+            let targets: Vec<&str> = r.references.iter().map(|x| x.title.as_str()).collect();
+            ui.label(RichText::new(format!("↳ Uses recipes: {}", targets.join(", "))).strong());
+        }
+
         ui.add_space(8.0);
         ui.label(RichText::new(&r.url).weak().small());
     });

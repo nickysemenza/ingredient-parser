@@ -91,7 +91,7 @@ fn extract_tool_names(value: &Value) -> Vec<String> {
 
 /// Parse a yield string like "4 servings" or "12 pancakes" into RecipeYield
 /// Also returns servings as integer if the unit is "serving(s)"
-fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
+pub fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
     let parser = IngredientParser::new().with_units(&["serving", "servings"]);
     match parser.parse_amount(input) {
         Ok(amounts) if !amounts.is_empty() => {
