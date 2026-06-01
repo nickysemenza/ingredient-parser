@@ -14,6 +14,12 @@
 //! The headline metric is `exact matches / total`; it rises as Phase-2 work
 //! closes known gaps. Grow the corpus by appending real lines: if a new line
 //! parses correctly it's a committed row; if not, mark it `xfail` with a reason.
+//!
+//! Scope: this corpus is the home for `from_str` *accuracy*. The whole corpus is
+//! also run through the traced parse path by `trace_path_matches_from_str` below,
+//! so `trace.rs` only needs to assert trace-tree *structure*. Other orthogonal
+//! shapes live in `parsing.rs` (`parse_amount`, `RichParser`, `Display`,
+//! custom-parser config) — the row schema below cannot express those.
 
 #![allow(clippy::unwrap_used)]
 // Test-harness code: a malformed corpus line should fail the test loudly.
@@ -176,9 +182,12 @@ fn never_empty_name() {
 }
 
 /// The traced parse path must produce the same result as `from_str` for every
-/// corpus input. Preserves the `from_str`-vs-trace equivalence that
-/// `parsing.rs::test_ingredient_parsing` previously checked case by case (before
-/// those cases were ported into the corpus).
+/// corpus input, and must build a non-empty trace tree. Preserves the
+/// `from_str`-vs-trace equivalence that `parsing.rs::test_ingredient_parsing`
+/// previously checked case by case (before those cases were ported into the
+/// corpus). This is the trace path's smoke test — it runs the whole corpus, so
+/// `trace.rs` needs no hand-maintained list of input shapes; that file is left
+/// to assert trace-tree *structure* (nesting, outcomes, formatting, Jaeger).
 #[test]
 fn trace_path_matches_from_str() {
     let parser = IngredientParser::new();
@@ -189,6 +198,15 @@ fn trace_path_matches_from_str() {
             traced.result.unwrap(),
             plain,
             "trace path diverged from from_str for {:?}",
+            row.input
+        );
+        // Non-empty rather than `contains("parse_ingredient")`: special-format
+        // inputs (trailing-amount, "X of N", optional) parse before the core
+        // `parse_ingredient` span is entered, so they root the tree under a
+        // different span. Any root still formats to a non-empty tree.
+        assert!(
+            !traced.trace.format_tree(false).is_empty(),
+            "empty trace tree for {:?}",
             row.input
         );
     }

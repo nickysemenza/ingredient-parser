@@ -230,6 +230,14 @@
 {"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": 0.6666666666666666}, {"unit": "g", "value": 85}], "modifier": "finely chopped"}
 {"input": "1 cup sifted, cake flour", "name": "cake flour", "amounts": [{"unit": "cup", "value": 1}], "modifier": "sifted"}
 //
+// --- range/separator/multiplier shapes ---
+{"input": "up to 5 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 0.0, "upper_value": 5.0}]}
+{"input": "at most 10 cups water", "name": "water", "amounts": [{"unit": "cup", "value": 0.0, "upper_value": 10.0}]}
+{"input": "2 or 3 cups sugar", "name": "sugar", "amounts": [{"unit": "cup", "value": 2.0, "upper_value": 3.0}]}
+{"input": "2 through 3 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0, "upper_value": 3.0}]}
+{"input": "1 cup, 2 tablespoons flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "tbsp", "value": 2.0}]}
+{"input": "2 x 3 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 6.0}]}
+//
 // --- known gaps (xfail = desired parse the parser does not yet produce) ---
 {"input": "About 2 cups vegetable oil", "name": "vegetable oil", "amounts": [{"unit": "cup", "value": 2.0}]}
 {"input": "Generous ¼ cup chopped cilantro", "name": "cilantro", "amounts": [{"unit": "cup", "value": 0.25}], "modifier": "chopped"}

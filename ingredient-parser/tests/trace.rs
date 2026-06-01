@@ -130,34 +130,29 @@ fn test_is_tracing_enabled() {
     assert!(!is_tracing_enabled());
 }
 
-#[test]
-fn test_nested_tracing() {
+#[rstest]
+#[case::depth_2(vec!["outer", "inner"])]
+#[case::depth_3(vec!["level1", "level2", "level3"])]
+fn test_nested_tracing(#[case] names: Vec<&str>) {
     enable_tracing();
-    trace_enter("outer", "full input");
-    trace_enter("inner", "full input");
-    trace_exit_success(4, "inner result");
-    trace_exit_success(10, "outer result");
-
-    let trace = disable_tracing("full input");
-    assert_eq!(trace.root.name, "outer");
-    assert_eq!(trace.root.children.len(), 1);
-    assert_eq!(trace.root.children[0].name, "inner");
-}
-
-#[test]
-fn test_trace_deeply_nested() {
-    enable_tracing();
-    trace_enter("level1", "input");
-    trace_enter("level2", "input");
-    trace_enter("level3", "input");
-    trace_exit_success(1, "l3");
-    trace_exit_success(2, "l2");
-    trace_exit_success(3, "l1");
+    for name in &names {
+        trace_enter(name, "input");
+    }
+    for _ in &names {
+        trace_exit_success(1, "result");
+    }
 
     let trace = disable_tracing("input");
-    assert_eq!(trace.root.name, "level1");
-    assert_eq!(trace.root.children[0].name, "level2");
-    assert_eq!(trace.root.children[0].children[0].name, "level3");
+
+    // Each level must nest exactly the next one along the spine.
+    let mut node = &trace.root;
+    for (i, name) in names.iter().enumerate() {
+        assert_eq!(node.name, *name);
+        if i + 1 < names.len() {
+            assert_eq!(node.children.len(), 1);
+            node = &node.children[0];
+        }
+    }
 }
 
 // ============================================================================
@@ -223,122 +218,11 @@ fn test_trace_incomplete_outcome() {
     assert!(trace.format_tree(false).contains("..."));
 }
 
-// ============================================================================
-// parse_with_trace() - Basic Tests
-// ============================================================================
-
-#[rstest]
-fn test_parse_with_trace_success(parser: IngredientParser) {
-    let result = parser.parse_with_trace("2 cups flour");
-    assert!(result.result.is_ok());
-    let ingredient = result.result.unwrap();
-    assert_eq!(ingredient.name, "flour");
-    assert!(result.trace.format_tree(false).contains("parse_ingredient"));
-}
-
-#[rstest]
-fn test_parse_with_trace_minimal(parser: IngredientParser) {
-    let result = parser.parse_with_trace("salt");
-    assert!(result.result.is_ok());
-    let ingredient = result.result.unwrap();
-    assert_eq!(ingredient.name, "salt");
-    assert!(ingredient.amounts.is_empty());
-}
-
-// ============================================================================
-// parse_with_trace() - Parameterized Tests
-// ============================================================================
-
-/// Test various range formats
-#[rstest]
-#[case::hyphen("2-3 cups flour", "flour")]
-#[case::em_dash("2–3 cups flour", "flour")]
-#[case::to("2 to 3 cups water", "water")]
-#[case::or("2 or 3 cups sugar", "sugar")]
-#[case::through("2 through 3 cups flour", "flour")]
-fn test_range_formats(parser: IngredientParser, #[case] input: &str, #[case] expected: &str) {
-    let result = parser.parse_with_trace(input);
-    assert!(result.result.is_ok(), "Failed to parse: {input}");
-    assert_eq!(result.result.unwrap().name, expected);
-}
-
-/// Test various separator formats
-#[rstest]
-#[case::semicolon("2 cups; 1 tablespoon flour", 2)]
-#[case::slash_spaces("1 cup / 240 ml flour", 2)]
-#[case::slash_bare("1 cup/240 ml flour", 2)]
-#[case::comma("1 cup, 2 tablespoons flour", 2)]
-fn test_separator_formats(
-    parser: IngredientParser,
-    #[case] input: &str,
-    #[case] expected_amounts: usize,
-) {
-    let result = parser.parse_with_trace(input);
-    assert!(result.result.is_ok(), "Failed to parse: {input}");
-    assert_eq!(result.result.unwrap().amounts.len(), expected_amounts);
-}
-
-/// Test fraction formats
-#[rstest]
-#[case::unicode_half("½ cup flour", 0.5)]
-#[case::mixed_unicode("1½ cups flour", 1.5)]
-#[case::slash_fraction("1/2 cup flour", 0.5)]
-#[case::decimal("2.5 cups flour", 2.5)]
-fn test_fraction_formats(parser: IngredientParser, #[case] input: &str, #[case] expected: f64) {
-    let result = parser.parse_with_trace(input);
-    assert!(result.result.is_ok(), "Failed to parse: {input}");
-    let amount = result.result.unwrap().amounts[0].value();
-    assert!(
-        (amount - expected).abs() < 0.001,
-        "Expected {expected}, got {amount}"
-    );
-}
-
-/// Test special prefixes and suffixes
-#[rstest]
-#[case::about("about 2 cups flour", "flour")]
-#[case::up_to("up to 5 cups flour", "flour")]
-#[case::at_most("at most 5 cups flour", "flour")]
-#[case::period_suffix("1 tsp. salt", "salt")]
-#[case::of_suffix("1 cup of flour", "flour")]
-#[case::text_number_one("one cup flour", "flour")]
-fn test_special_formats(parser: IngredientParser, #[case] input: &str, #[case] expected: &str) {
-    let result = parser.parse_with_trace(input);
-    assert!(result.result.is_ok(), "Failed to parse: {input}");
-    assert_eq!(result.result.unwrap().name, expected);
-}
-
-/// Test upper bound expressions return proper ranges
-#[rstest]
-#[case::up_to("up to 5 cups flour")]
-#[case::at_most("at most 10 cups water")]
-fn test_upper_bound_has_range(parser: IngredientParser, #[case] input: &str) {
-    let result = parser.parse_with_trace(input);
-    assert!(result.result.is_ok());
-    let amount = &result.result.unwrap().amounts[0];
-    assert!(
-        amount.upper_value().is_some(),
-        "Expected upper value for: {input}"
-    );
-}
-
-/// Test complex inputs
-#[rstest]
-#[case::multi_unit("1½ cups / 180g all-purpose flour, sifted", "all-purpose flour", 2)]
-#[case::multiplier("2 x 3 cups flour", "flour", 1)]
-#[case::parenthesized("flour (2 cups)", "flour", 1)]
-fn test_complex_inputs(
-    parser: IngredientParser,
-    #[case] input: &str,
-    #[case] expected_name: &str,
-    #[case] expected_amounts: usize,
-) {
-    let result = parser.parse_with_trace(input);
-    assert!(result.result.is_ok(), "Failed to parse: {input}");
-    let ingredient = result.result.unwrap();
-    assert_eq!(ingredient.name, expected_name);
-    assert_eq!(ingredient.amounts.len(), expected_amounts);
-}
+// NOTE: the parse_with_trace happy path (result == from_str + non-empty tree) is
+// smoke-tested across the WHOLE corpus by `accuracy.rs::trace_path_matches_from_str`.
+// Tests below cover trace-specific behavior that the corpus can't express:
+// custom-parser config through the traced path, permissive edge cases, and the
+// range-unit-mismatch formatting path.
 
 // ============================================================================
 // Adjective Tests
@@ -443,10 +327,19 @@ fn test_jaeger_json_structure(#[case] with_children: bool, #[case] with_baseline
     }
 }
 
-#[test]
-fn test_jaeger_json_success_tags() {
-    let mut root = TraceNode::new("success_parser", "input");
-    root.success(5, "success_output");
+/// Each outcome emits its own tag set on the Jaeger span. `incomplete` is the
+/// default (no `success`/`failure` call); its status value is asserted too.
+#[rstest]
+#[case::success("success", &["status", "consumed", "output"])]
+#[case::failure("failure", &["status", "error", "error.message"])]
+#[case::incomplete("incomplete", &["status"])]
+fn test_jaeger_json_tags(#[case] outcome: &str, #[case] expected_keys: &[&str]) {
+    let mut root = TraceNode::new("parser", "input");
+    match outcome {
+        "success" => root.success(5, "output"),
+        "failure" => root.failure("parse error"),
+        _ => {} // incomplete: leave the node untouched
+    }
 
     let trace = ParseTrace {
         input: "input".to_string(),
@@ -460,48 +353,14 @@ fn test_jaeger_json_success_tags() {
     let tags = parsed["data"][0]["spans"][0]["tags"].as_array().unwrap();
     let tag_keys: Vec<&str> = tags.iter().map(|t| t["key"].as_str().unwrap()).collect();
 
-    assert!(tag_keys.contains(&"status"));
-    assert!(tag_keys.contains(&"consumed"));
-    assert!(tag_keys.contains(&"output"));
-}
+    for key in expected_keys {
+        assert!(tag_keys.contains(key), "Expected tag '{key}' for {outcome}");
+    }
 
-#[test]
-fn test_jaeger_json_failure_tags() {
-    let mut root = TraceNode::new("failure_parser", "bad input");
-    root.failure("parse error");
-
-    let trace = ParseTrace {
-        input: "bad input".to_string(),
-        root,
-        baseline_instant: Some(std::time::Instant::now()),
-        baseline_unix_micros: 1000000,
-    };
-
-    let json = trace.to_jaeger_json();
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let tags = parsed["data"][0]["spans"][0]["tags"].as_array().unwrap();
-    let tag_keys: Vec<&str> = tags.iter().map(|t| t["key"].as_str().unwrap()).collect();
-
-    assert!(tag_keys.contains(&"status"));
-    assert!(tag_keys.contains(&"error"));
-    assert!(tag_keys.contains(&"error.message"));
-}
-
-#[test]
-fn test_jaeger_json_incomplete_tags() {
-    let root = TraceNode::new("incomplete_parser", "input");
-    let trace = ParseTrace {
-        input: "input".to_string(),
-        root,
-        baseline_instant: Some(std::time::Instant::now()),
-        baseline_unix_micros: 1000000,
-    };
-
-    let json = trace.to_jaeger_json();
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let tags = parsed["data"][0]["spans"][0]["tags"].as_array().unwrap();
-    let status_tag = tags.iter().find(|t| t["key"] == "status").unwrap();
-    assert_eq!(status_tag["value"], "incomplete");
+    if outcome == "incomplete" {
+        let status_tag = tags.iter().find(|t| t["key"] == "status").unwrap();
+        assert_eq!(status_tag["value"], "incomplete");
+    }
 }
 
 #[test]
@@ -531,26 +390,6 @@ fn test_jaeger_json_references() {
 
     assert_eq!(references.len(), 1);
     assert_eq!(references[0]["refType"], "CHILD_OF");
-}
-
-// ============================================================================
-// TraceCollector Default Test
-// ============================================================================
-
-#[test]
-fn test_trace_collector_default() {
-    if is_tracing_enabled() {
-        disable_tracing("cleanup");
-    }
-
-    enable_tracing();
-    assert!(is_tracing_enabled());
-
-    trace_enter("test", "input");
-    trace_exit_success(5, "done");
-
-    let trace = disable_tracing("input");
-    assert_eq!(trace.root.name, "test");
 }
 
 // ============================================================================
