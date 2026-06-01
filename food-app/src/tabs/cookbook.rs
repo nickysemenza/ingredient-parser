@@ -3,12 +3,37 @@
 //! don't build for wasm, so the whole module is gated out of the web build.
 
 use eframe::egui::{self, Color32, RichText};
+use egui_graphs::{
+    DefaultNodeShape, FruchtermanReingold, FruchtermanReingoldState, Graph as EguiGraph, GraphView,
+    LayoutForceDirected, SettingsInteraction, SettingsNavigation, SettingsStyle,
+};
+use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
+use petgraph::Directed;
 use poll_promise::Promise;
 use recipe_epub::{CookbookRecipe, ExtractionStats, Options};
 
 use super::recipe::show_parsed_sections;
 
 type LoadResult = Result<(Vec<CookbookRecipe>, ExtractionStats), String>;
+
+/// egui_graphs `Graph` specialized to our payload-free directed graph. Node
+/// labels carry the recipe title; the node payload is the recipe's index in the
+/// loaded `recipes` Vec so a click can jump back to the browser.
+type RefGraph = EguiGraph<usize, (), Directed, DefaultIx>;
+
+/// Force-directed `GraphView` — clusters the "building block" recipes (Pie
+/// Dough, Pastry Cream, …) toward the center as hubs.
+type RefGraphView<'a> = GraphView<
+    'a,
+    usize,
+    (),
+    Directed,
+    DefaultIx,
+    DefaultNodeShape,
+    egui_graphs::DefaultEdgeShape,
+    FruchtermanReingoldState,
+    LayoutForceDirected<FruchtermanReingold>,
+>;
 
 /// State for the Cookbook (EPUB) tab.
 #[derive(Default)]
@@ -18,6 +43,11 @@ pub struct CookbookTab {
     /// `None` until a load is started.
     promise: Option<Promise<LoadResult>>,
     selected: usize,
+    /// Whether the central panel shows the reference digraph vs the browser.
+    show_graph: bool,
+    /// The reference digraph, rebuilt only when the loaded book changes.
+    /// `graph_nodes[node_index] = recipe index` for click-to-select.
+    graph: Option<RefGraph>,
 }
 
 impl CookbookTab {
@@ -68,13 +98,16 @@ impl CookbookTab {
                 ui.label("No recipes found in this EPUB.");
             }
             Some(Ok((recipes, stats))) => {
-                // Disjoint field borrows: `recipes` from self.promise (shared),
-                // `selected` from self.selected (mut). Bind both before any
-                // closure so neither closure captures all of `self`.
+                // Disjoint field borrows: `recipes` from self.promise (shared);
+                // the rest from distinct `self` fields. Bind each before any
+                // closure so no closure captures all of `self`.
                 let selected = &mut self.selected;
+                let show_graph = &mut self.show_graph;
+                let graph_slot = &mut self.graph;
                 if *selected >= recipes.len() {
                     *selected = 0;
                 }
+                let ref_count: usize = recipes.iter().map(|r| r.references.len()).sum();
 
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{} recipes", recipes.len())).weak());
@@ -98,7 +131,23 @@ impl CookbookTab {
                         stats.usage.cache_read_input_tokens,
                         stats.usage.cache_creation_input_tokens,
                     ));
+                    ui.separator();
+                    // Browse | Graph toggle. The graph is only useful when there
+                    // are references to draw.
+                    ui.selectable_value(show_graph, false, "Browse");
+                    ui.add_enabled_ui(ref_count > 0, |ui| {
+                        ui.selectable_value(show_graph, true, "Graph")
+                            .on_disabled_hover_text("no cross-recipe references in this book");
+                    });
+                    if ref_count > 0 {
+                        ui.label(
+                            RichText::new(format!("{ref_count} references"))
+                                .weak()
+                                .small(),
+                        );
+                    }
                 });
+
                 egui::Panel::left("cookbook_list")
                     .resizable(true)
                     .default_size(240.0)
@@ -110,7 +159,18 @@ impl CookbookTab {
                         });
                     });
                 egui::CentralPanel::default().show_inside(ui, |ui| {
-                    show_recipe_detail(ui, &recipes[*selected]);
+                    if *show_graph {
+                        // Build the graph lazily; rebuild when the recipe set
+                        // changes (node count won't line up otherwise).
+                        if graph_slot.is_none() {
+                            *graph_slot = Some(build_reference_graph(recipes));
+                        }
+                        if let Some(graph) = graph_slot {
+                            show_reference_graph(ui, graph, selected);
+                        }
+                    } else {
+                        show_recipe_detail(ui, &recipes[*selected]);
+                    }
                 });
             }
         }
@@ -120,6 +180,7 @@ impl CookbookTab {
         let path = self.path.trim().to_string();
         let no_cache = self.no_cache;
         self.selected = 0;
+        self.graph = None; // rebuilt for the newly loaded book
         self.promise = Some(Promise::spawn_thread("scrape_epub", move || {
             let result = (|| -> LoadResult {
                 let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
@@ -198,4 +259,83 @@ fn show_recipe_detail(ui: &mut egui::Ui, r: &CookbookRecipe) {
         ui.add_space(8.0);
         ui.label(RichText::new(&r.url).weak().small());
     });
+}
+
+/// Build the recipe-reference digraph: a node per recipe that participates in at
+/// least one reference (uses or is used), and a directed edge A→B for every
+/// "recipe A uses recipe B" reference. Node payload = the recipe's index in
+/// `recipes` (for click-to-select); node label = the recipe title.
+fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
+    // Title → recipe index, to resolve each reference's target title to a node.
+    let title_to_idx: std::collections::HashMap<&str, usize> = recipes
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.meta.title.as_str(), i))
+        .collect();
+
+    // Collect the directed edges (by recipe index) and the set of participants.
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    let mut participates: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for (src, r) in recipes.iter().enumerate() {
+        for reference in &r.references {
+            if let Some(&dst) = title_to_idx.get(reference.title.as_str()) {
+                if src != dst {
+                    edges.push((src, dst));
+                    participates.insert(src);
+                    participates.insert(dst);
+                }
+            }
+        }
+    }
+
+    // Build a petgraph StableGraph keyed by recipe index, then convert. Only
+    // participating recipes get a node so the canvas isn't a field of lone dots.
+    let mut sg: StableGraph<usize, (), Directed> = StableGraph::new();
+    let mut node_for: std::collections::HashMap<usize, NodeIndex> =
+        std::collections::HashMap::new();
+    for &recipe_idx in &participates {
+        let n = sg.add_node(recipe_idx);
+        node_for.insert(recipe_idx, n);
+    }
+    for (src, dst) in edges {
+        // Unwraps safe: both endpoints were inserted into `participates` above.
+        sg.add_edge(node_for[&src], node_for[&dst], ());
+    }
+
+    // Convert to an egui_graphs Graph and set each node's label to its title.
+    let mut graph = RefGraph::from(&sg);
+    let node_ids: Vec<NodeIndex> = graph.g().node_indices().collect();
+    for nid in node_ids {
+        if let Some(node) = graph.node_mut(nid) {
+            let recipe_idx = *node.payload();
+            node.set_label(recipes[recipe_idx].meta.title.clone());
+        }
+    }
+    graph
+}
+
+/// Render the reference digraph and sync a node click back to `selected` so
+/// switching to Browse lands on the clicked recipe.
+fn show_reference_graph(ui: &mut egui::Ui, graph: &mut RefGraph, selected: &mut usize) {
+    // A click selects a node; map it back to the recipe index.
+    if let Some(nid) = graph.selected_nodes().first().copied() {
+        if let Some(node) = graph.node(nid) {
+            *selected = *node.payload();
+        }
+    }
+
+    let mut view = RefGraphView::new(graph)
+        .with_interactions(
+            &SettingsInteraction::default()
+                .with_dragging_enabled(true)
+                .with_node_clicking_enabled(true)
+                .with_node_selection_enabled(true),
+        )
+        .with_navigations(
+            &SettingsNavigation::default()
+                .with_fit_to_screen_enabled(true)
+                .with_zoom_and_pan_enabled(true),
+        )
+        .with_styles(&SettingsStyle::default().with_labels_always(true));
+    ui.add(&mut view);
 }
