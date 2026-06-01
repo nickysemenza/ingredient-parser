@@ -326,11 +326,13 @@ mod tests {
         assert!(measure.value() >= 1.0, "input: {input}");
     }
 
-    /// A hyphenated parenthetical size is hoisted into a second measure while the
-    /// count keeps the container unit: "1 (1-ounce) piece" -> [1 piece, 1 oz].
+    /// A parenthetical size — hyphenated ("1-ounce") or space form ("14.5 oz") —
+    /// is hoisted into a second measure while the count keeps the container unit:
+    /// "1 (1-ounce) piece" -> [1 piece, 1 oz]; "2 (14.5 oz) cans" -> [2 can, 14.5 oz].
     #[rstest]
     #[case::piece("1 (1-ounce) piece ginger", 2, "piece")]
     #[case::can("1 (28-ounce) can tomatoes", 2, "can")]
+    #[case::space_form("2 (14.5 oz) cans tomatoes", 2, "can")]
     fn test_count_with_parenthetical_size(
         units: HashSet<String>,
         #[case] input: &str,
@@ -344,13 +346,14 @@ mod tests {
         assert_eq!(measures[1].unit_as_string(), "oz");
     }
 
-    /// The space form "(14.5 oz)" is NOT hoisted by the size parser (left to the
-    /// parenthesized-amount path), so this parser rejects it.
+    /// A parenthetical that is NOT a size (no parseable measurement inside) is
+    /// rejected even when a container noun follows, so it falls through to the
+    /// plain parenthesized-amount / name paths.
     #[rstest]
-    fn test_parenthetical_size_rejects_space_form(units: HashSet<String>) {
+    fn test_parenthetical_size_rejects_non_size(units: HashSet<String>) {
         let parser = MeasurementParser::new(&units, false);
         assert!(parser
-            .parse_count_with_parenthetical_size("1 (14.5 oz) can tomatoes")
+            .parse_count_with_parenthetical_size("1 (not defrosted) can tomatoes")
             .is_err());
     }
 

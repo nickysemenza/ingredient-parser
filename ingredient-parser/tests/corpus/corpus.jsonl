@@ -60,8 +60,8 @@
 {"input": "1/2 teaspoon kosher salt", "name": "kosher salt", "amounts": [{"unit": "tsp", "value": 0.5}]}
 //
 // --- parenthesized secondary amounts ---
-{"input": "1 (14.5 oz) can diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 1}], "modifier": "diced"}
-{"input": "1 (15 oz) can chickpeas, drained", "name": "chickpeas", "amounts": [{"unit": "can", "value": 1}], "modifier": "drained"}
+{"input": "1 (14.5 oz) can diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 1}, {"unit": "oz", "value": 14.5}], "modifier": "diced"}
+{"input": "1 (15 oz) can chickpeas, drained", "name": "chickpeas", "amounts": [{"unit": "can", "value": 1}, {"unit": "oz", "value": 15}], "modifier": "drained"}
 {"input": "1 cup (2 sticks) butter", "name": "butter", "amounts": [{"unit": "cup", "value": 1}, {"unit": "stick", "value": 2}]}
 //
 // --- trailing clauses ---
@@ -226,10 +226,10 @@
 {"input": "2 and 1/4 cups water", "name": "water", "amounts": [{"unit": "cup", "value": 2.25}]}
 {"input": "half a cup of milk", "name": "milk", "amounts": [{"unit": "cup", "value": 0.5}]}
 {"input": "half a teaspoon salt", "name": "salt", "amounts": [{"unit": "tsp", "value": 0.5}]}
+{"input": "2 (14.5 oz) cans diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 2}, {"unit": "oz", "value": 14.5}], "modifier": "diced"}
 //
 // --- known gaps (xfail = desired parse the parser does not yet produce) ---
 {"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": 0.667}, {"unit": "g", "value": 85}], "modifier": "finely chopped", "xfail": "leading prep phrase before name; now falls back to full-input name (no longer empty)"}
-{"input": "2 (14.5 oz) cans diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 2}], "modifier": "diced", "xfail": "leading count + parenthesized size + plural container unit falls back to name-only"}
 {"input": "About 2 cups vegetable oil", "name": "vegetable oil", "amounts": [{"unit": "cup", "value": 2.0}]}
 {"input": "Generous ¼ cup chopped cilantro", "name": "cilantro", "amounts": [{"unit": "cup", "value": 0.25}], "modifier": "chopped"}
 {"input": "Scant 1 cup flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}]}
