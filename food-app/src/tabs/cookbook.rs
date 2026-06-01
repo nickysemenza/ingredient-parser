@@ -193,7 +193,14 @@ impl CookbookTab {
                             *graph_prewarmed = false;
                         }
                         if let Some(graph) = graph_slot {
-                            show_reference_graph(ui, graph, selected, graph_prewarmed);
+                            if let Some(open_idx) =
+                                show_reference_graph(ui, graph, selected, graph_prewarmed)
+                            {
+                                // "Open" clicked on a node: jump to that recipe
+                                // in the Browse view.
+                                *selected = open_idx;
+                                *show_graph = false;
+                            }
                         }
                     } else {
                         show_recipe_detail(ui, &recipes[*selected]);
@@ -350,18 +357,15 @@ fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
         if let Some(node) = graph.node_mut(nid) {
             let recipe_idx = *node.payload();
             let is_hub = in_degree >= HUB_MIN_INDEGREE;
-            // Label only the hubs always-on (set via labels_always below); leaf
-            // nodes get an empty label so the canvas stays uncluttered — hover
-            // any node to see its title regardless.
-            if is_hub {
-                node.set_label(recipes[recipe_idx].meta.title.clone());
-            } else {
-                node.set_label(String::new());
-            }
+            // Every node carries its recipe title as the label, so hovering ANY
+            // node shows its name. Labels are hover-only (labels_always=false in
+            // the view) to avoid a wall of text; hubs still stand out by size +
+            // color.
+            node.set_label(recipes[recipe_idx].meta.title.clone());
             // Bigger nodes: the default radius (5) makes a tiny hover target and,
             // since the label font size IS the node radius, near-unreadable
-            // labels. Hubs are drawn larger still so the important recipes stand
-            // out and their always-on labels are bigger.
+            // labels. Hubs (building blocks like Pastry Cream) are drawn larger
+            // and tinted so the important recipes stand out.
             node.display_mut().radius = if is_hub {
                 NODE_RADIUS * 1.6
             } else {
@@ -377,17 +381,28 @@ fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
             node.set_location(egui::Pos2::new(r * angle.cos(), r * angle.sin()));
         }
     }
+
+    // Clear the auto-generated "edge N" labels (default_edge_transform names
+    // every edge by index). We don't label edges; "A → B" is conveyed by the
+    // arrow plus the two node names.
+    let edge_ids: Vec<_> = graph.g().edge_indices().collect();
+    for eid in edge_ids {
+        if let Some(edge) = graph.edge_mut(eid) {
+            edge.set_label(String::new());
+        }
+    }
     graph
 }
 
-/// Render the reference digraph and sync a node click back to `selected` so
-/// switching to Browse lands on the clicked recipe.
+/// Render the reference digraph, sync a node click to `selected`, and return
+/// `Some(recipe_idx)` if the user clicked the "Open" affordance to jump to that
+/// recipe in the Browse view.
 fn show_reference_graph(
     ui: &mut egui::Ui,
     graph: &mut RefGraph,
     selected: &mut usize,
     prewarmed: &mut bool,
-) {
+) -> Option<usize> {
     // Tighten the force layout: pull k_scale below the default 1.0 so nodes pack
     // closer (the cookbook graph is otherwise too sparse for the panel). Read
     // the persisted state, override k_scale, write it back.
@@ -405,10 +420,27 @@ fn show_reference_graph(
         *prewarmed = true;
     }
 
-    // A click selects a node; map it back to the recipe index.
+    // Clicking a node selects it; map the selection back to its recipe index
+    // and surface a one-click "open" affordance (a graph click selecting a node
+    // is more discoverable than expecting the user to also switch tabs).
+    let mut clicked_open: Option<usize> = None;
     if let Some(nid) = graph.selected_nodes().first().copied() {
         if let Some(node) = graph.node(nid) {
-            *selected = *node.payload();
+            let recipe_idx = *node.payload();
+            *selected = recipe_idx;
+            let title = node.label();
+            egui::Area::new(egui::Id::new("graph_selection"))
+                .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0))
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&title).strong());
+                            if ui.button("Open ↗").clicked() {
+                                clicked_open = Some(recipe_idx);
+                            }
+                        });
+                    });
+                });
         }
     }
 
@@ -428,11 +460,11 @@ fn show_reference_graph(
                 .with_fit_to_screen_enabled(false)
                 .with_zoom_and_pan_enabled(true),
         )
-        // Always-on labels: only the hubs carry a label (leaf nodes were given
-        // an empty label in build_reference_graph), so the building-block
-        // recipes are named at a glance while the canvas stays uncluttered.
-        // Hover any node to see its title. (The earlier zero-zoom font panic is
-        // gone now that positions are seeded and the layout is pre-warmed.)
-        .with_styles(&SettingsStyle::default().with_labels_always(true));
+        // Labels on hover/select only (not always) — every node carries its
+        // recipe title, so hovering any node shows its name without cluttering
+        // the canvas with 41 overlapping labels. Hubs stand out by size + color.
+        .with_styles(&SettingsStyle::default().with_labels_always(false));
     ui.add(&mut view);
+
+    clicked_open
 }
