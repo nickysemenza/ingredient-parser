@@ -161,6 +161,13 @@ const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     "lightly packed",
     "packed",
     "sifted",
+    // Temperature/state qualifier that describes how the ingredient should be,
+    // not which product it is (e.g. "room-temperature butter"). Both spellings
+    // reduce to the same modifier; the parser already pulls the *trailing* form
+    // ("egg, room temperature") into the modifier, so this also covers the
+    // *leading* form ("room-temperature water" → water, "room temperature").
+    "room temperature",
+    "room-temperature",
 ];
 
 /// Default purpose phrases that get extracted to the modifier field.
