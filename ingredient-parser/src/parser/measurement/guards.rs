@@ -91,7 +91,7 @@ const DISTANCE_UNIT_BASES: &[&str] = &[
 
 /// Check if a string is a distance unit (used for dimension detection).
 /// Handles both singular and plural forms automatically.
-pub(super) fn is_distance_unit(s: &str) -> bool {
+pub(crate) fn is_distance_unit(s: &str) -> bool {
     let lower = s.to_lowercase();
 
     for base in DISTANCE_UNIT_BASES {

@@ -251,8 +251,8 @@
 {"input": "50 grams /¼ cup granulated sugar", "name": "granulated sugar", "amounts": [{"unit": "g", "value": 50.0}, {"unit": "cup", "value": 0.25}]}
 {"input": "85 grams /6 Tbsp unsalted butter", "name": "unsalted butter", "amounts": [{"unit": "g", "value": 85.0}, {"unit": "tbsp", "value": 6.0}]}
 {"input": "610 grams /2½ cups heavy cream, plus more as needed", "name": "heavy cream", "amounts": [{"unit": "g", "value": 610.0}, {"unit": "cup", "value": 2.5}], "modifier": "plus more as needed"}
-{"input": "160 grams /⅔ cup room-temperature (70° to 80°F) water", "name": "room-temperature water", "amounts": [{"unit": "g", "value": 160.0}, {"unit": "cup", "value": 0.6666666666666666}], "xfail": "metric/imperial dual unit with inline parenthetical temp"}
-{"input": "10 g / 2 tablespoons sliced (¼ inch / 6 mm) green onions", "name": "green onions", "amounts": [{"unit": "g", "value": 10.0}, {"unit": "tbsp", "value": 2.0}], "modifier": "sliced", "xfail": "g / unit dual with nested size parenthetical"}
+{"input": "160 grams /⅔ cup room-temperature (70° to 80°F) water", "name": "room-temperature water", "amounts": [{"unit": "g", "value": 160.0}, {"unit": "cup", "value": 0.6666666666666666}], "modifier": "70° to 80°F"}
+{"input": "10 g / 2 tablespoons sliced (¼ inch / 6 mm) green onions", "name": "green onions", "amounts": [{"unit": "g", "value": 10.0}, {"unit": "tbsp", "value": 2.0}], "modifier": "sliced, ¼ inch / 6 mm"}
 {"input": "One 2-inch stick of canela (Mexican cinnamon)", "name": "canela", "amounts": [{"unit": "stick", "value": 1.0}, {"unit": "\"", "value": 2.0}], "modifier": "Mexican cinnamon"}
 {"input": "One 10-ounce disk Pie Dough", "name": "Pie Dough", "amounts": [{"unit": "disk", "value": 1.0}, {"unit": "oz", "value": 10.0}]}
 {"input": "One 8-ounce package cream cheese, room temperature", "name": "cream cheese", "amounts": [{"unit": "package", "value": 1.0}, {"unit": "oz", "value": 8.0}], "modifier": "room temperature"}

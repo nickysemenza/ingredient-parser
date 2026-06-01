@@ -4,7 +4,7 @@
 //! strings, including single measurements, ranges, and combined expressions.
 
 mod composite;
-mod guards;
+pub(crate) mod guards;
 mod number;
 mod range;
 mod single;
