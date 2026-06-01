@@ -336,6 +336,12 @@ fn show_reference_graph(ui: &mut egui::Ui, graph: &mut RefGraph, selected: &mut 
                 .with_fit_to_screen_enabled(true)
                 .with_zoom_and_pan_enabled(true),
         )
-        .with_styles(&SettingsStyle::default().with_labels_always(true));
+        // Labels only on hover/select/drag — NOT always. `with_labels_always`
+        // forces a text galley for every node on the first frame, before the
+        // layout + fit-to-screen settle the zoom; a sub-pixel node then renders
+        // a 0px font and epaint panics ("Bad px_scale_factor: 0"). On hover the
+        // node is at interaction scale, so the font size is always > 0. It's
+        // also far more legible than 41 overlapping labels.
+        .with_styles(&SettingsStyle::default().with_labels_always(false));
     ui.add(&mut view);
 }
