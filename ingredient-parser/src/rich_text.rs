@@ -195,6 +195,18 @@ mod tests {
     }
 
     #[rstest]
+    #[case("Reinforce the edges of the tart")]
+    #[case("infused with vanilla")]
+    #[case("nantucket cranberries")]
+    fn test_rich_parser_no_inf_nan_words(parser: RichParser, #[case] input: &str) {
+        // nom's float parser accepts "inf"/"infinity"/"nan"; words containing
+        // them must NOT extract a (non-finite) measurement.
+        let result = parser.parse(input).unwrap();
+        let has_measure = result.iter().any(|c| matches!(c, Chunk::Measure(_)));
+        assert!(!has_measure, "should not extract a measurement: {result:?}");
+    }
+
+    #[rstest]
     fn test_rich_parser_multiple_measures(parser: RichParser) {
         let result = parser.parse("Mix 1 cup flour with 2 tbsp sugar").unwrap();
         let measures: Vec<_> = result

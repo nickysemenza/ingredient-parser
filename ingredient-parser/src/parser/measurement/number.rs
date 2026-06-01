@@ -2,7 +2,7 @@
 
 use nom::{
     branch::alt, bytes::complete::tag, character::complete::space1, combinator::opt,
-    error::context, number::complete::double, Parser,
+    error::context, error::ParseError, number::complete::double, Parser,
 };
 
 use crate::fraction::fraction_number;
@@ -10,6 +10,23 @@ use crate::parser::{text_number, thousands_number, Res};
 use crate::traced_parser;
 
 use super::MeasurementParser;
+
+/// Parse a finite f64, rejecting the non-finite spellings `nom::double` accepts.
+///
+/// Rust's float parser (and thus `nom::double`) treats "inf", "infinity", and
+/// "nan" as valid floats. In prose that means words like "Reinforce" or
+/// "infused" get their "inf" matched as a `Measure { value: inf }`. Reject any
+/// non-finite result so only real numbers parse.
+fn finite_double(input: &str) -> Res<&str, f64> {
+    let (remaining, value) = double(input)?;
+    if value.is_finite() {
+        Ok((remaining, value))
+    } else {
+        Err(nom::Err::Error(
+            nom_language::error::VerboseError::from_error_kind(input, nom::error::ErrorKind::Float),
+        ))
+    }
+}
 
 /// Parse a double but don't consume trailing periods that aren't part of decimals.
 ///
@@ -20,7 +37,7 @@ use super::MeasurementParser;
 ///
 /// This parser ensures trailing periods are only consumed if followed by a digit.
 fn double_no_trailing_period(input: &str) -> Res<&str, f64> {
-    let (remaining, value) = double(input)?;
+    let (remaining, value) = finite_double(input)?;
 
     // Calculate what was consumed
     let consumed_len = input.len() - remaining.len();
@@ -64,7 +81,7 @@ impl<'a> MeasurementParser<'a> {
                         fraction_number,  // Parse fractions like "½" or "1/2"
                         text_number,      // Parse text numbers like "one" or "a"
                         thousands_number, // Parse "1,000" before double stops at the comma
-                        double,           // Parse decimal numbers like "2.5"
+                        finite_double,    // Parse decimals like "2.5" (rejects inf/nan)
                     )),
                 )
                 .parse(input)
