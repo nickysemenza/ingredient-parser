@@ -15,6 +15,19 @@ pub(super) fn optional_period_or_of(input: &str) -> Res<&str, Option<&str>> {
     opt(alt((tag(". "), tag("."), tag(" of")))).parse(input)
 }
 
+/// Consume an optional indefinite article ("a "/"an ") sitting between the value
+/// and the unit, e.g. the "a" in "half a cup". Case-insensitive. Lets "half a
+/// cup of milk" reach the `cup` unit instead of leaving "a cup of milk" as the
+/// name. ("a cup" with no leading number is already handled because `parse_value`
+/// reads a bare "a"/"an" as 1.)
+pub(super) fn optional_article(input: &str) -> Res<&str, Option<&str>> {
+    opt(alt((
+        nom::bytes::complete::tag_no_case("a "),
+        nom::bytes::complete::tag_no_case("an "),
+    )))
+    .parse(input)
+}
+
 /// Check if a bare number looks like a step number in instructions.
 ///
 /// Returns true if the remaining input starts with whitespace followed by

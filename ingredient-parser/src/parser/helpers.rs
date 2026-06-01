@@ -159,6 +159,7 @@ pub(crate) fn text_number(input: &str) -> Res<&str, f64> {
             |i| number_word("two", 2.0, i),
             |i| number_word("one", 1.0, i),
             |i| number_word("dozen", 12.0, i),
+            |i| number_word("half", 0.5, i),
             |i| tag("an ").parse(i).map(|(r, _)| (r, 1.0)),
             |i| tag("a ").parse(i).map(|(r, _)| (r, 1.0)),
         )),
@@ -224,6 +225,8 @@ mod tests {
     #[case::dozen("dozen", "", 12.0)]
     #[case::a("a ", "", 1.0)]
     #[case::an("an ", "", 1.0)]
+    #[case::half("half", "", 0.5)]
+    #[case::half_a("half a cup", " a cup", 0.5)]
     #[case::two_with_remainder("two eggs", " eggs", 2.0)]
     #[case::ten_with_remainder("ten cloves", " cloves", 10.0)]
     fn test_text_number_success(

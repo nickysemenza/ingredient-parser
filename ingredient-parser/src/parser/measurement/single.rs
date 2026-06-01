@@ -16,7 +16,7 @@ use crate::traced_parser;
 use crate::unit::{self, Measure};
 
 use super::guards::{
-    looks_like_step_number, optional_dash_separator, optional_period_or_of,
+    looks_like_step_number, optional_article, optional_dash_separator, optional_period_or_of,
     starts_with_dimension_suffix,
 };
 use super::{MeasurementParser, DEFAULT_UNIT};
@@ -34,6 +34,7 @@ impl<'a> MeasurementParser<'a> {
             |a| self.parse_value(a),
             space0,
             optional_dash_separator,
+            optional_article,
             opt(|a| self.unit(a)),
             optional_period_or_of,
         );
@@ -44,8 +45,16 @@ impl<'a> MeasurementParser<'a> {
             context("single_measurement", tuple(measurement_parser))
                 .parse(input)
                 .and_then(|(next_input, res)| {
-                    let (_estimate_prefix, multiplier, value, _, _dash, unit, period_consumed) =
-                        res;
+                    let (
+                        _estimate_prefix,
+                        multiplier,
+                        value,
+                        _,
+                        _dash,
+                        _article,
+                        unit,
+                        period_consumed,
+                    ) = res;
 
                     let final_value = multiplier.map_or(value.0, |multiplier| value.0 * multiplier);
                     let (final_next_input, final_unit) = self.resolve_single_measurement_unit(
