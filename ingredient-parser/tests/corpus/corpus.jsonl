@@ -267,3 +267,13 @@
 {"input": "Less than 1 g / ¼ teaspoon kosher salt", "name": "kosher salt", "amounts": [{"unit": "g", "value": 1.0}, {"unit": "tsp", "value": 0.25}]}
 {"input": "One ¼-ounce packet unflavored gelatin", "name": "unflavored gelatin", "amounts": [{"unit": "packet", "value": 1.0}, {"unit": "oz", "value": 0.25}]}
 {"input": "4 (4- to 6-ounce) halibut fillets", "name": "halibut", "amounts": [{"unit": "fillet", "value": 4.0}, {"unit": "oz", "value": 4.0, "upper_value": 6.0}]}
+//
+// --- harvested follow-ups: footnote markers, tube/envelope, seeds/leaves-from (2026-05-31) ---
+{"input": "2 teaspoons Chinese 5-spice powder ③", "name": "Chinese 5-spice powder", "amounts": [{"unit": "tsp", "value": 2.0}]}
+{"input": "1 (7 oz / 198g) tube almond paste", "name": "almond paste", "amounts": [{"unit": "tube", "value": 1.0}, {"unit": "oz", "value": 7.0}, {"unit": "g", "value": 198.0}]}
+{"input": "1 (0.25 oz / 7g) envelope active dry yeast", "name": "active dry yeast", "amounts": [{"unit": "envelope", "value": 1.0}, {"unit": "oz", "value": 0.25}, {"unit": "g", "value": 7.0}]}
+{"input": "Seeds scraped from 1 vanilla bean", "name": "vanilla bean", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "seeds scraped from"}
+{"input": "Leaves from 3 sprigs fresh thyme", "name": "sprigs fresh thyme", "amounts": [{"unit": "whole", "value": 3.0}], "modifier": "leaves from"}
+// negative guards: 'of' inside a name must NOT trigger the of-construction
+{"input": "1 cup cream of tartar", "name": "cream of tartar", "amounts": [{"unit": "cup", "value": 1.0}]}
+{"input": "2 cups heart of palm", "name": "heart of palm", "amounts": [{"unit": "cup", "value": 2.0}]}

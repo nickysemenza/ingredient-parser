@@ -38,6 +38,11 @@ fn v_frac_to_num(input: char) -> Option<f64> {
     Some(n as f64 / d as f64)
 }
 
+/// Whether `c` is a unicode vulgar-fraction glyph (½, ⅓, ¼, …).
+pub(crate) fn is_vulgar(c: char) -> bool {
+    v_frac_to_num(c).is_some()
+}
+
 /// parses unicode vulgar fractions
 fn v_fraction(input: &str) -> Res<&str, f64> {
     // Get the first character and try to convert it

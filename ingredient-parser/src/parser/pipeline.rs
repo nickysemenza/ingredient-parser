@@ -193,38 +193,47 @@ impl IngredientParser {
     }
 
     /// Try to parse an "X of/from N item" construction such as "Juice of 1 lemon",
-    /// "Grated zest of 2 limes", "Finely grated zest from 1 lemon", or
-    /// "Peel of 1 grapefruit". These describe a component derived from a countable
-    /// item; the item becomes the name (with its count), and the leading phrase
-    /// ("juice of", "zest from", "peel of", ...) moves into the modifier.
+    /// "Grated zest of 2 limes", "Finely grated zest from 1 lemon", "Peel of 1
+    /// grapefruit", "Seeds scraped from 1 vanilla bean", or "Leaves from 3 sprigs
+    /// thyme". These describe a component derived from a countable item; the item
+    /// becomes the name (with its count), and the leading phrase ("juice of",
+    /// "seeds scraped from", ...) moves into the modifier.
     fn try_parse_x_of_construction(&self, input: &str) -> Option<Ingredient> {
-        // Longest phrases first so e.g. "grated zest of" wins over "zest of".
-        const PHRASES: &[&str] = &[
-            "finely grated zest from",
-            "finely grated zest of",
-            "grated zest from",
-            "grated zest of",
-            "juice and zest of",
-            "zest and juice of",
-            "the juice of",
-            "the zest of",
-            "juice from",
-            "zest from",
-            "peel from",
-            "juice of",
-            "zest of",
-            "peel of",
-        ];
-
         let trimmed = input.trim();
-        let lower = trimmed.to_lowercase();
-        // Require a space right after the phrase so "zest often..." can't match.
-        let phrase = PHRASES
-            .iter()
-            .find(|p| lower.starts_with(**p) && lower.as_bytes().get(p.len()) == Some(&b' '))?;
 
-        // The phrase is ASCII, so its byte length indexes a char boundary in `trimmed`.
-        let rest = trimmed[phrase.len()..].trim_start();
+        // Find the leading "… of " / "… from " clause whose pivot is immediately
+        // followed by a number (e.g. "Seeds scraped from 1 …"). Requiring the
+        // number keeps normal names with "of"/"from" (e.g. "cream of tartar",
+        // "heart of palm") from being captured. Use the LAST such pivot before a
+        // number so multi-word leads ("finely grated zest of") are kept whole.
+        let lower = trimmed.to_lowercase();
+        let pivot_end = [" of ", " from "]
+            .iter()
+            .filter_map(|sep| {
+                lower.find(sep).and_then(|pos| {
+                    let after = pos + sep.len();
+                    // A number must follow the separator: a digit/vulgar fraction
+                    // or a spelled-out count ("one lemon"). This keeps normal
+                    // names with "of"/"from" (e.g. "cream of tartar", "heart of
+                    // palm") from being captured.
+                    let tail = &trimmed[after..];
+                    let starts_number = tail
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
+                        || crate::parser::text_number(tail).is_ok();
+                    starts_number.then_some(after)
+                })
+            })
+            .min()?;
+
+        let phrase = trimmed[..pivot_end].trim();
+        // Guard against a bare leading pivot ("of 1 lemon") with no descriptor.
+        if phrase.is_empty() || phrase.split_whitespace().count() > 5 {
+            return None;
+        }
+
+        let rest = trimmed[pivot_end..].trim_start();
         let mut parsed = self.parse_core_ingredient(rest)?;
 
         // Only treat this as the construction when the remainder actually carried a
@@ -234,9 +243,12 @@ impl IngredientParser {
             return None;
         }
 
+        let phrase_lower = phrase.to_lowercase();
         parsed.modifier = match parsed.modifier.take() {
-            Some(existing) if !existing.trim().is_empty() => Some(format!("{phrase}, {existing}")),
-            _ => Some((*phrase).to_string()),
+            Some(existing) if !existing.trim().is_empty() => {
+                Some(format!("{phrase_lower}, {existing}"))
+            }
+            _ => Some(phrase_lower),
         };
         Some(parsed)
     }
@@ -439,6 +451,21 @@ fn lift_inline_descriptive_paren(input: &str) -> Option<(String, String)> {
     Some((cleaned, inner.to_string()))
 }
 
+/// A circled-number glyph (①②③ …) used as a footnote/technique-note marker in
+/// some cookbooks (e.g. Claire Saffitz's *Dessert Person*). They're not part of
+/// the ingredient, so they're stripped during normalization rather than leaking
+/// into the name or modifier.
+fn is_footnote_marker(c: char) -> bool {
+    matches!(c,
+        '\u{2460}'..='\u{2473}'   // ① .. ⑳  circled 1–20
+        | '\u{2474}'..='\u{2487}' // ⑴ .. ⒈  parenthesized / full-stop digits
+        | '\u{2488}'..='\u{249B}'
+        | '\u{24EA}'              // ⓪ circled zero
+        | '\u{24F5}'..='\u{24FF}' // double-circled / negative-circled digits
+        | '\u{2776}'..='\u{2793}' // dingbat negative/sans-serif circled digits
+    )
+}
+
 fn normalize_input(input: &str) -> Cow<'_, str> {
     let normalized = if input.contains('\u{a0}') {
         Cow::Owned(input.replace('\u{a0}', " "))
@@ -446,12 +473,28 @@ fn normalize_input(input: &str) -> Cow<'_, str> {
         Cow::Borrowed(input)
     };
 
+    // Drop footnote markers (e.g. "rye flour ①" → "rye flour ").
+    let normalized = if normalized.chars().any(is_footnote_marker) {
+        Cow::Owned(
+            normalized
+                .chars()
+                .filter(|c| !is_footnote_marker(*c))
+                .collect(),
+        )
+    } else {
+        normalized
+    };
+
     let has_multiple_spaces = normalized
         .as_bytes()
         .windows(2)
         .any(|w| w[0] == b' ' && w[1] == b' ');
 
-    if has_multiple_spaces {
+    // A stripped marker can leave a trailing/doubled space ("rye flour ").
+    let needs_trim =
+        has_multiple_spaces || normalized.starts_with(' ') || normalized.ends_with(' ');
+
+    if needs_trim {
         Cow::Owned(collapse_whitespace(normalized.as_ref()))
     } else {
         normalized
