@@ -49,6 +49,10 @@ enum Commands {
         /// How many of the worst (most frequent) miss lines to print
         #[arg(long, default_value_t = 30)]
         bottom: usize,
+        /// How many books to extract concurrently (each book still parallelizes
+        /// its own chunks internally).
+        #[arg(long, default_value_t = 8)]
+        concurrency: usize,
     },
     ParseIngredient {
         #[clap(value_parser)]
@@ -169,11 +173,39 @@ async fn main() {
                 }
             }
         }
-        Commands::ScanCookbooks { dir, limit, bottom } => {
+        Commands::ScanCookbooks {
+            dir,
+            limit,
+            bottom,
+            concurrency,
+        } => {
             let mut epubs = find_epubs(std::path::Path::new(dir));
             epubs.sort();
             epubs.truncate(*limit);
+
+            // Per-book extraction is independent, so run several books at once
+            // (each book already parallelizes its own chunks internally).
+            // `buffer_unordered` keeps up to `concurrency` books in flight on a
+            // single task; results are aggregated as they complete.
+            use futures::stream::{self, StreamExt};
             let opts = recipe_epub::Options::default();
+            let mut stream = stream::iter(epubs.clone())
+                .map(|path| {
+                    let opts = &opts;
+                    async move {
+                        let p = path.to_string_lossy().to_string();
+                        let bytes = match std::fs::read(&path) {
+                            Ok(b) => b,
+                            Err(e) => return (p, Err(format!("read error: {e}"))),
+                        };
+                        let result = recipe_epub::extract_cookbook(&bytes, &p, opts)
+                            .await
+                            .map_err(|e| e.to_string());
+                        (p, result)
+                    }
+                })
+                .buffer_unordered((*concurrency).max(1));
+
             let mut candidates: std::collections::HashMap<String, usize> =
                 std::collections::HashMap::new();
             let mut total_recipes = 0usize;
@@ -182,16 +214,8 @@ async fn main() {
             let mut total_chunks_cached = 0usize;
             let mut total_cost = 0.0f64;
             let mut cost_known = true;
-            for path in &epubs {
-                let p = path.to_string_lossy().to_string();
-                let bytes = match std::fs::read(path) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        eprintln!("{p}: read error: {e}");
-                        continue;
-                    }
-                };
-                match recipe_epub::extract_cookbook(&bytes, &p, &opts).await {
+            while let Some((p, result)) = stream.next().await {
+                match result {
                     Ok((recipes, stats)) => {
                         total_recipes += recipes.len();
                         total_chunks += stats.chunks_total;
