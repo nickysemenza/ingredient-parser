@@ -4,7 +4,7 @@
 
 use eframe::egui::{self, Color32, RichText};
 use egui_graphs::{
-    DefaultNodeShape, FruchtermanReingoldWithCenterGravity,
+    get_layout_state, set_layout_state, DefaultNodeShape, FruchtermanReingoldWithCenterGravity,
     FruchtermanReingoldWithCenterGravityState, Graph as EguiGraph, GraphView, LayoutForceDirected,
     SettingsInteraction, SettingsNavigation, SettingsStyle,
 };
@@ -16,6 +16,14 @@ use recipe_epub::{CookbookRecipe, ExtractionStats, Options};
 use super::recipe::show_parsed_sections;
 
 type LoadResult = Result<(Vec<CookbookRecipe>, ExtractionStats), String>;
+
+/// Node circle radius in canvas units. egui_graphs sizes the node label font to
+/// the radius, so this also controls label legibility (default 5 is too small).
+const NODE_RADIUS: f32 = 14.0;
+
+/// Force-directed spread multiplier (`k_scale`). < 1 packs nodes tighter; the
+/// default (1.0) leaves the cookbook graph too sparse for the panel.
+const LAYOUT_K_SCALE: f32 = 0.35;
 
 /// egui_graphs `Graph` specialized to our payload-free directed graph. Node
 /// labels carry the recipe title; the node payload is the recipe's index in the
@@ -318,15 +326,18 @@ fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
     // infinity (one giant circle). Seeding distinct positions fixes that.
     let mut graph = RefGraph::from(&sg);
     let node_ids: Vec<NodeIndex> = graph.g().node_indices().collect();
-    let n = node_ids.len().max(1) as f32;
     for (i, nid) in node_ids.into_iter().enumerate() {
         if let Some(node) = graph.node_mut(nid) {
             let recipe_idx = *node.payload();
             node.set_label(recipes[recipe_idx].meta.title.clone());
+            // Bigger nodes: the default radius (5) makes a tiny hover target and,
+            // since the label font size IS the node radius, near-unreadable
+            // labels. ~14 gives a comfortable click/hover area and legible text.
+            node.display_mut().radius = NODE_RADIUS;
             // Place on a phyllotaxis-style spiral so initial positions are
             // distinct and roughly even — a good seed for force-directed layout.
             let angle = i as f32 * 2.399_963; // golden angle (radians)
-            let r = 30.0 * (i as f32 / n).sqrt() * n.sqrt();
+            let r = NODE_RADIUS * 1.6 * (i as f32 + 1.0).sqrt();
             node.set_location(egui::Pos2::new(r * angle.cos(), r * angle.sin()));
         }
     }
@@ -336,6 +347,15 @@ fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
 /// Render the reference digraph and sync a node click back to `selected` so
 /// switching to Browse lands on the clicked recipe.
 fn show_reference_graph(ui: &mut egui::Ui, graph: &mut RefGraph, selected: &mut usize) {
+    // Tighten the force layout: pull k_scale below the default 1.0 so nodes pack
+    // closer (the cookbook graph is otherwise too sparse for the panel). Read
+    // the persisted state, override k_scale, write it back.
+    let mut state: FruchtermanReingoldWithCenterGravityState = get_layout_state(ui, None);
+    if (state.base.k_scale - LAYOUT_K_SCALE).abs() > f32::EPSILON {
+        state.base.k_scale = LAYOUT_K_SCALE;
+        set_layout_state(ui, state, None);
+    }
+
     // A click selects a node; map it back to the recipe index.
     if let Some(nid) = graph.selected_nodes().first().copied() {
         if let Some(node) = graph.node(nid) {
