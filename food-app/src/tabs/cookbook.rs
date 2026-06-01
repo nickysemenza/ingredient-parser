@@ -4,10 +4,12 @@
 
 use eframe::egui::{self, Color32, RichText};
 use egui_graphs::{
-    get_layout_state, set_layout_state, DefaultNodeShape, FruchtermanReingoldWithCenterGravity,
+    get_layout_state, set_layout_state, FruchtermanReingoldWithCenterGravity,
     FruchtermanReingoldWithCenterGravityState, Graph as EguiGraph, GraphView, LayoutForceDirected,
     SettingsInteraction, SettingsNavigation, SettingsStyle,
 };
+
+use hub_shape::HubLabelNodeShape;
 use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use petgraph::Directed;
 use poll_promise::Promise;
@@ -36,7 +38,8 @@ const PREWARM_STEPS: u32 = 250;
 /// egui_graphs `Graph` specialized to our payload-free directed graph. Node
 /// labels carry the recipe title; the node payload is the recipe's index in the
 /// loaded `recipes` Vec so a click can jump back to the browser.
-type RefGraph = EguiGraph<usize, (), Directed, DefaultIx>;
+type RefGraph =
+    EguiGraph<usize, (), Directed, DefaultIx, HubLabelNodeShape, egui_graphs::DefaultEdgeShape>;
 
 /// Force-directed `GraphView` with center gravity — clusters the "building
 /// block" recipes (Pie Dough, Pastry Cream, …) toward the center as hubs. The
@@ -51,7 +54,7 @@ type RefGraphView<'a> = GraphView<
     (),
     Directed,
     DefaultIx,
-    DefaultNodeShape,
+    HubLabelNodeShape,
     egui_graphs::DefaultEdgeShape,
     FruchtermanReingoldWithCenterGravityState,
     LayoutForceDirected<FruchtermanReingoldWithCenterGravity>,
@@ -460,11 +463,127 @@ fn show_reference_graph(
                 .with_fit_to_screen_enabled(false)
                 .with_zoom_and_pan_enabled(true),
         )
-        // Labels on hover/select only (not always) — every node carries its
-        // recipe title, so hovering any node shows its name without cluttering
-        // the canvas with 41 overlapping labels. Hubs stand out by size + color.
+        // Per-node label policy lives in HubLabelNodeShape: hubs (which carry a
+        // color) are ALWAYS labeled; leaf nodes label on hover/select only. So
+        // the view-level labels_always stays false — hover any node for its name
+        // without cluttering the canvas with 41 overlapping labels.
         .with_styles(&SettingsStyle::default().with_labels_always(false));
     ui.add(&mut view);
 
     clicked_open
+}
+
+/// A node shape that mirrors egui_graphs' default circle+label, but forces the
+/// label to always show for "hub" nodes (those we gave a color in
+/// `build_reference_graph`). egui_graphs' `labels_always` is global, so
+/// per-node always-on labels need a custom [`DisplayNode`]. Leaf nodes keep the
+/// default hover/select-only behavior.
+mod hub_shape {
+    use eframe::egui::{
+        epaint::{CircleShape, TextShape},
+        Color32, FontFamily, FontId, Pos2, Shape, Stroke, Vec2,
+    };
+    use egui_graphs::{DisplayNode, DrawContext, NodeProps};
+    use petgraph::{stable_graph::IndexType, EdgeType};
+
+    /// Floor for the label font size (canvas units × zoom). Guards epaint's
+    /// `FontId::new(0)` panic when an always-on label is drawn at a tiny zoom.
+    const MIN_LABEL_PX: f32 = 6.0;
+
+    #[derive(Clone, Debug)]
+    pub struct HubLabelNodeShape {
+        pos: Pos2,
+        selected: bool,
+        dragged: bool,
+        hovered: bool,
+        color: Option<Color32>,
+        label_text: String,
+        pub radius: f32,
+        /// True when this node should always show its label (set for hubs, which
+        /// are the only nodes given a color).
+        always_label: bool,
+    }
+
+    impl<N: Clone> From<NodeProps<N>> for HubLabelNodeShape {
+        fn from(p: NodeProps<N>) -> Self {
+            let color = p.color();
+            Self {
+                pos: p.location(),
+                selected: p.selected,
+                dragged: p.dragged,
+                hovered: p.hovered,
+                color,
+                label_text: p.label.to_string(),
+                radius: 5.0,
+                always_label: color.is_some(),
+            }
+        }
+    }
+
+    impl<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType> DisplayNode<N, E, Ty, Ix>
+        for HubLabelNodeShape
+    {
+        fn is_inside(&self, pos: Pos2) -> bool {
+            (pos - self.pos).length() <= self.radius
+        }
+
+        fn closest_boundary_point(&self, dir: Vec2) -> Pos2 {
+            self.pos + dir.normalized() * self.radius
+        }
+
+        fn shapes(&mut self, ctx: &DrawContext) -> Vec<Shape> {
+            let center = ctx.meta.canvas_to_screen_pos(self.pos);
+            let radius = ctx.meta.canvas_to_screen_size(self.radius);
+            let color = self.effective_color(ctx);
+            let mut res = vec![CircleShape {
+                center,
+                radius,
+                fill: color,
+                stroke: Stroke::default(),
+            }
+            .into()];
+
+            // Hubs (always_label) show their label every frame; every other
+            // node shows it only while interacted. The view-level
+            // `labels_always` is left false, so it isn't consulted here.
+            let show_label = self.always_label || self.selected || self.dragged || self.hovered;
+            if show_label && !self.label_text.is_empty() {
+                let font_px = radius.max(MIN_LABEL_PX);
+                let galley = ctx.ctx.fonts_mut(|f| {
+                    f.layout_no_wrap(
+                        self.label_text.clone(),
+                        FontId::new(font_px, FontFamily::Monospace),
+                        color,
+                    )
+                });
+                let pos = Pos2::new(center.x - galley.size().x / 2., center.y - radius * 2.);
+                res.push(TextShape::new(pos, galley, color).into());
+            }
+            res
+        }
+
+        fn update(&mut self, state: &NodeProps<N>) {
+            self.pos = state.location();
+            self.selected = state.selected;
+            self.dragged = state.dragged;
+            self.hovered = state.hovered;
+            self.label_text = state.label.to_string();
+            self.color = state.color();
+            self.always_label = self.color.is_some();
+        }
+    }
+
+    impl HubLabelNodeShape {
+        fn effective_color(&self, ctx: &DrawContext) -> Color32 {
+            if let Some(c) = self.color {
+                return c;
+            }
+            let style = if self.selected || self.dragged || self.hovered {
+                ctx.ctx.global_style().visuals.widgets.active
+            } else {
+                ctx.ctx.global_style().visuals.widgets.inactive
+            };
+            style.fg_stroke.color
+        }
+    }
 }
