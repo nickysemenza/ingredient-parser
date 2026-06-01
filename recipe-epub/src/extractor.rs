@@ -113,7 +113,6 @@ pub trait RecipeExtractor {
     }
 }
 
-const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 // Default to a current, cheap/fast Haiku (confirmed via the claude-api skill).
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
@@ -163,8 +162,8 @@ impl ClaudeExtractor {
     /// Build from the environment:
     /// - `ANTHROPIC_API_KEY` → `x-api-key` (optional if a gateway injects it).
     /// - `CF_AIG_TOKEN` / `AI_GATEWAY_API_KEY` → `cf-aig-authorization` (optional).
-    /// - `ANTHROPIC_BASE_URL` → base URL (default `https://api.anthropic.com`);
-    ///   e.g. a Cloudflare AI Gateway `…/{account}/{gateway}/anthropic`.
+    /// - `ANTHROPIC_BASE_URL` → base URL (required); e.g. a Cloudflare AI
+    ///   Gateway `…/{account}/{gateway}/anthropic`.
     /// - `opts.model` → model id (default Haiku).
     ///
     /// At least one of the API key or gateway token must be present.
@@ -176,8 +175,8 @@ impl ClaudeExtractor {
         if api_key.is_none() && gateway_token.is_none() {
             return Err(EpubError::MissingApiKey);
         }
-        let base = nonempty(std::env::var("ANTHROPIC_BASE_URL"))
-            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        let base =
+            nonempty(std::env::var("ANTHROPIC_BASE_URL")).ok_or(EpubError::MissingBaseUrl)?;
         let endpoint = format!("{}/v1/messages", base.trim_end_matches('/'));
         let model = opts
             .model
@@ -354,9 +353,6 @@ enum ContentBlock {
 // OpenAI-compatible backend (OpenAI + Gemini via its OpenAI-compat endpoint)
 // ===========================================================================
 
-const OPENAI_DEFAULT_BASE: &str = "https://api.openai.com/v1";
-const GEMINI_DEFAULT_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
-
 /// Whether a model id routes to the OpenAI-compatible backend rather than Claude.
 pub(crate) fn is_openai_compatible_model(model: &str) -> bool {
     let m = model.to_lowercase();
@@ -385,8 +381,10 @@ impl OpenAiExtractor {
     /// Build from the environment. Base URL resolution, in order:
     /// 1. `OPENAI_BASE_URL` / `GEMINI_BASE_URL` (provider-specific override);
     /// 2. derived from a Cloudflare gateway `ANTHROPIC_BASE_URL` ending in
-    ///    `/anthropic` (swapped to `/openai` or `/google-ai-studio/v1beta/openai`);
-    /// 3. the provider's public default.
+    ///    `/anthropic` (swapped to `/openai` or `/google-ai-studio/v1beta/openai`).
+    ///
+    /// Errors if neither is set — this crate routes through a gateway by design;
+    /// there is no public-API default.
     ///
     /// Auth: `OPENAI_API_KEY` / `GEMINI_API_KEY` → `Authorization: Bearer`
     /// (optional with a BYOK gateway), plus `CF_AIG_TOKEN` / `AI_GATEWAY_API_KEY`
@@ -430,13 +428,7 @@ impl OpenAiExtractor {
                         .map(|prefix| format!("{prefix}/{suffix}"))
                 })
             })
-            .unwrap_or_else(|| {
-                if is_gemini {
-                    GEMINI_DEFAULT_BASE.to_string()
-                } else {
-                    OPENAI_DEFAULT_BASE.to_string()
-                }
-            });
+            .ok_or(EpubError::MissingBaseUrl)?;
         let endpoint = format!("{}/chat/completions", base.trim_end_matches('/'));
 
         let client = reqwest::Client::builder()

@@ -39,6 +39,11 @@ pub enum EpubError {
     /// (`CF_AIG_TOKEN` / `AI_GATEWAY_API_KEY`) was set.
     #[error("no API auth: set ANTHROPIC_API_KEY, or CF_AIG_TOKEN/AI_GATEWAY_API_KEY (+ ANTHROPIC_BASE_URL) for a gateway")]
     MissingApiKey,
+    /// No base URL: neither `ANTHROPIC_BASE_URL` (a Cloudflare AI Gateway
+    /// `…/anthropic` endpoint) nor an explicit `OPENAI_BASE_URL`/`GEMINI_BASE_URL`
+    /// was set. This crate routes through a gateway by design — no public default.
+    #[error("no base URL: set ANTHROPIC_BASE_URL to your AI gateway (…/anthropic), or OPENAI_BASE_URL/GEMINI_BASE_URL")]
+    MissingBaseUrl,
     /// The HTTP request to the model API failed (connection, timeout, …).
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
