@@ -4,8 +4,9 @@
 
 use eframe::egui::{self, Color32, RichText};
 use egui_graphs::{
-    DefaultNodeShape, FruchtermanReingold, FruchtermanReingoldState, Graph as EguiGraph, GraphView,
-    LayoutForceDirected, SettingsInteraction, SettingsNavigation, SettingsStyle,
+    DefaultNodeShape, FruchtermanReingoldWithCenterGravity,
+    FruchtermanReingoldWithCenterGravityState, Graph as EguiGraph, GraphView, LayoutForceDirected,
+    SettingsInteraction, SettingsNavigation, SettingsStyle,
 };
 use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use petgraph::Directed;
@@ -21,8 +22,13 @@ type LoadResult = Result<(Vec<CookbookRecipe>, ExtractionStats), String>;
 /// loaded `recipes` Vec so a click can jump back to the browser.
 type RefGraph = EguiGraph<usize, (), Directed, DefaultIx>;
 
-/// Force-directed `GraphView` — clusters the "building block" recipes (Pie
-/// Dough, Pastry Cream, …) toward the center as hubs.
+/// Force-directed `GraphView` with center gravity — clusters the "building
+/// block" recipes (Pie Dough, Pastry Cream, …) toward the center as hubs. The
+/// center-gravity term is essential here: the cookbook graph is many
+/// *disconnected* clusters (each hub + its dependents), and plain
+/// Fruchterman-Reingold has no attraction between components, so repulsion
+/// pushes them apart forever (the graph shrinks toward invisible as
+/// fit-to-screen keeps zooming out). Gravity keeps it bounded.
 type RefGraphView<'a> = GraphView<
     'a,
     usize,
@@ -31,8 +37,8 @@ type RefGraphView<'a> = GraphView<
     DefaultIx,
     DefaultNodeShape,
     egui_graphs::DefaultEdgeShape,
-    FruchtermanReingoldState,
-    LayoutForceDirected<FruchtermanReingold>,
+    FruchtermanReingoldWithCenterGravityState,
+    LayoutForceDirected<FruchtermanReingoldWithCenterGravity>,
 >;
 
 /// State for the Cookbook (EPUB) tab.
@@ -345,8 +351,12 @@ fn show_reference_graph(ui: &mut egui::Ui, graph: &mut RefGraph, selected: &mut 
                 .with_node_selection_enabled(true),
         )
         .with_navigations(
+            // Fit ONCE (egui_graphs fits on the first frame regardless of this
+            // flag) then hand control to zoom/pan. Continuous fit-to-screen
+            // re-zooms every frame while the layout animates, which is what made
+            // the graph shrink toward invisible.
             &SettingsNavigation::default()
-                .with_fit_to_screen_enabled(true)
+                .with_fit_to_screen_enabled(false)
                 .with_zoom_and_pan_enabled(true),
         )
         // Labels only on hover/select/drag — NOT always. `with_labels_always`
