@@ -194,11 +194,6 @@ impl ClaudeExtractor {
             model,
         })
     }
-
-    /// The resolved model id (used as part of the cache key).
-    pub fn model_id(&self) -> &str {
-        &self.model
-    }
 }
 
 /// JSON Schema for the forced tool's input: `{ recipes: [ExtractedRecipe, ...] }`.
