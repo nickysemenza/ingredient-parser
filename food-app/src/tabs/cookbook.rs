@@ -15,7 +15,7 @@ use petgraph::Directed;
 use poll_promise::Promise;
 use recipe_epub::{CookbookRecipe, ExtractionStats, Options};
 
-use super::recipe::show_parsed_sections;
+use super::recipe::make_rich;
 
 type LoadResult = Result<(Vec<CookbookRecipe>, ExtractionStats), String>;
 
@@ -282,9 +282,12 @@ fn show_recipe_detail(
 
         ui.separator();
         // Parse this recipe's verbatim lines with the core nom parser for the
-        // color-coded view (cheap — one recipe per frame).
+        // color-coded view (cheap — one recipe per frame). Ingredient lines that
+        // reference another recipe get a clickable "→ <recipe>" link.
         let parsed = r.parse();
-        show_parsed_sections(ui, &parsed.sections);
+        if let Some(nav) = show_sections_with_links(ui, &r.sections, &parsed.sections, r, recipes) {
+            navigate_to = Some(nav);
+        }
 
         if !r.meta.equipment.is_empty() || !r.meta.notes.is_empty() {
             ui.separator();
@@ -317,9 +320,105 @@ fn show_recipe_detail(
             });
         }
 
+        // The reverse edge: other recipes in this book that reference THIS one
+        // (e.g. "Brioche Dough" is used by the Apricot Tart, the Bostock, …).
+        let this_title = r.meta.title.as_str();
+        let used_by: Vec<usize> = recipes
+            .iter()
+            .enumerate()
+            .filter(|(i, o)| *i != selected && o.references.iter().any(|x| x.title == this_title))
+            .map(|(i, _)| i)
+            .collect();
+        if !used_by.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("↰ Used by:").strong());
+                for idx in used_by {
+                    if ui.link(&recipes[idx].meta.title).clicked() {
+                        navigate_to = Some(idx);
+                    }
+                }
+            });
+        }
+
         ui.add_space(8.0);
         ui.label(RichText::new(&r.url).weak().small());
     });
+    navigate_to
+}
+
+/// Render a cookbook recipe's parsed sections (color-coded ingredients +
+/// measurement-aware instructions), like `recipe::show_parsed_sections`, but
+/// with an extra clickable "→ <recipe>" link after any ingredient line that
+/// references another recipe. Returns the recipe index to navigate to if a link
+/// was clicked.
+///
+/// `raw` is the verbatim section list (whose ingredient strings are matched
+/// against `recipe.references[].line`); `parsed` is the same sections after
+/// parsing. They align 1:1.
+fn show_sections_with_links(
+    ui: &mut egui::Ui,
+    raw: &[recipe_epub::RecipeSection],
+    parsed: &[recipe_epub::ParsedSection],
+    recipe: &CookbookRecipe,
+    recipes: &[CookbookRecipe],
+) -> Option<usize> {
+    use ingredient::rich_text::Chunk;
+
+    let mut navigate_to = None;
+    for (raw_sec, sec) in raw.iter().zip(parsed) {
+        if let Some(name) = &sec.name {
+            ui.heading(name);
+        }
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                for (raw_line, ing) in raw_sec.ingredients.iter().zip(&sec.ingredients) {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.collapsing(make_rich(ing), |ui| {
+                            ui.label(serde_json::to_string_pretty(ing).unwrap());
+                        });
+                        // If this verbatim line is a cross-recipe reference, add
+                        // a link to the target recipe.
+                        if let Some(idx) = recipe
+                            .references
+                            .iter()
+                            .find(|x| &x.line == raw_line)
+                            .and_then(|x| recipes.iter().position(|o| o.meta.title == x.title))
+                        {
+                            if ui.link(RichText::new("→ open").small()).clicked() {
+                                navigate_to = Some(idx);
+                            }
+                        }
+                    });
+                }
+            });
+            ui.vertical(|ui| {
+                for instr in &sec.instructions {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.group(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            for chunk in instr {
+                                match chunk {
+                                    Chunk::Measure(ms) => {
+                                        for m in ms {
+                                            ui.label(
+                                                RichText::new(m.to_string()).color(Color32::GOLD),
+                                            );
+                                        }
+                                    }
+                                    Chunk::Text(t) => {
+                                        ui.label(t);
+                                    }
+                                    Chunk::Ing(i) => {
+                                        ui.label(RichText::new(i).color(Color32::LIGHT_BLUE));
+                                    }
+                                }
+                            }
+                        });
+                    });
+                }
+            });
+        });
+    }
     navigate_to
 }
 

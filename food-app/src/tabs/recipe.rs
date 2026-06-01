@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use eframe::epaint::text::LayoutJob;
 
-fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
+pub(crate) fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
     let amounts: Vec<String> = i.amounts.iter().map(|id| id.to_string()).collect();
     let modifier = i
         .modifier
