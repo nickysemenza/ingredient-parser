@@ -30,7 +30,7 @@ enum Commands {
         json: bool,
         #[arg(short, long)]
         parse: bool,
-        /// Model id override (default: a current Claude Haiku)
+        /// Model id override (default: gpt-4o-mini; claude-* / gemini-* also work)
         #[arg(long)]
         model: Option<String>,
         /// Bypass the on-disk extraction cache

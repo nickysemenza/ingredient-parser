@@ -40,8 +40,9 @@ impl CookbookTab {
         });
         ui.label(
             RichText::new(
-                "Reads ANTHROPIC_BASE_URL / AI_GATEWAY_API_KEY / ANTHROPIC_API_KEY from the \
-                 environment. First load runs LLM extraction (cached afterwards).",
+                "Default model gpt-4o-mini. Reads AI_GATEWAY_API_KEY (+ ANTHROPIC_BASE_URL \
+                 gateway) or OPENAI_API_KEY / ANTHROPIC_API_KEY from the environment. First \
+                 load runs LLM extraction (cached afterwards).",
             )
             .weak()
             .small(),

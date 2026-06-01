@@ -8,7 +8,7 @@
 //! *strings* come back verbatim; [`CookbookRecipe::parse`] runs the core
 //! `ingredient` nom parser over them. The LLM never parses quantities.
 //!
-//! Entry point: [`extract_cookbook`] (uses the default Claude backend) or
+//! Entry point: [`extract_cookbook`] (selects a backend from `Options.model`) or
 //! [`extract_cookbook_with`] (any [`RecipeExtractor`], e.g. a mock in tests).
 
 mod cache;
@@ -56,7 +56,7 @@ pub enum EpubError {
 /// Tunables for [`extract_cookbook`].
 #[derive(Debug, Clone)]
 pub struct Options {
-    /// Model id override (default: a current Claude Haiku).
+    /// Model id override (default: `gpt-4o-mini`, via the OpenAI-compatible backend).
     pub model: Option<String>,
     /// Whether to use the on-disk extraction cache.
     pub use_cache: bool,
@@ -144,7 +144,7 @@ fn has_quantity_char(s: &str) -> bool {
         .any(|c| c.is_ascii_digit() || "½⅓¼¾⅔⅜⅝⅞⅛⅙⅚".contains(c))
 }
 
-/// Extract every recipe from an EPUB cookbook using the default Claude backend.
+/// Extract every recipe from an EPUB cookbook using the default backend.
 ///
 /// `bytes` is the full `.epub` (a zip). `source` labels each recipe (book path
 /// or title). Auth comes from the environment (see [`ClaudeExtractor::from_env`]).

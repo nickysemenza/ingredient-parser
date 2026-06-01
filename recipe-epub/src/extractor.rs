@@ -116,7 +116,8 @@ pub trait RecipeExtractor {
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 // Default to a current, cheap/fast Haiku (confirmed via the claude-api skill).
-const DEFAULT_MODEL: &str = "claude-haiku-4-5";
+const DEFAULT_MODEL: &str = "gpt-4o-mini";
+const CLAUDE_DEFAULT_MODEL: &str = "claude-haiku-4-5";
 const TOOL_NAME: &str = "emit_recipes";
 
 const SYSTEM_PROMPT: &str = "\
@@ -181,7 +182,7 @@ impl ClaudeExtractor {
         let model = opts
             .model
             .clone()
-            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+            .unwrap_or_else(|| CLAUDE_DEFAULT_MODEL.to_string());
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))
             .build()?;
