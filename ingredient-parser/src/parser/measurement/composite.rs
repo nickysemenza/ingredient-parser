@@ -69,16 +69,17 @@ impl<'a> MeasurementParser<'a> {
     }
 
     /// Parse "`<count> (<size>) <container>`" such as "1 (1-ounce) piece",
-    /// "1 (28-ounce) can", or "2 (14.5 oz) cans", producing
-    /// `[<count> <container>, <inner size>]` — e.g. "1 (1-ounce) piece ginger"
-    /// → `[1 piece, 1 oz]` and "2 (14.5 oz) cans tomatoes" → `[2 can, 14.5 oz]`.
+    /// "1 (28-ounce) can", or "2 (14.5 oz) cans", and the paren-less hyphenated
+    /// form "`<count> <N-unit> <container>`" such as "One 10-ounce disk" — all
+    /// producing `[<count> <container>, <size>]`, e.g. "1 (1-ounce) piece ginger"
+    /// → `[1 piece, 1 oz]`, "2 (14.5 oz) cans tomatoes" → `[2 can, 14.5 oz]`, and
+    /// "One 10-ounce disk Pie Dough" → `[1 disk, 10 oz]`.
     ///
-    /// Fires for both the hyphenated size adjective ("1-ounce", "13.5-gram") and
-    /// the space form ("14.5 oz"), as long as the parenthetical fully parses as a
-    /// measurement *and* a container noun follows. The container-noun requirement
-    /// is what keeps arbitrary parentheticals like "(not defrosted)" from matching
-    /// — so a bare "1 (14.5 oz) of stock" still falls through to
-    /// [`parse_parenthesized_amounts`].
+    /// A container noun must follow the size. That requirement keeps arbitrary
+    /// parentheticals like "(not defrosted)" from matching — so a bare
+    /// "1 (14.5 oz) of stock" still falls through to [`parse_parenthesized_amounts`].
+    /// For the paren-less form the size must be a *hyphenated* adjective
+    /// ("10-ounce"), so a plain "2 cups flour" isn't mistaken for this shape.
     pub(super) fn parse_count_with_parenthetical_size<'b>(
         &self,
         input: &'b str,
@@ -90,45 +91,69 @@ impl<'a> MeasurementParser<'a> {
             ))
         };
 
-        // Leading count, e.g. "1".
+        // Leading count, e.g. "1" or "One".
         let (rest, value) = self.parse_value(input).map_err(|_| reject())?;
         let (rest, _) = space0::<_, VerboseError<&str>>(rest).map_err(|_| reject())?;
-        if !rest.starts_with('(') {
-            return Err(reject());
-        }
 
-        // Find the matching close paren (handles nesting).
-        let mut depth = 0usize;
-        let mut close = None;
-        for (i, c) in rest.char_indices() {
-            match c {
-                '(' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close = Some(i);
-                        break;
+        // Extract the size string and the remainder after it, for either the
+        // parenthesized form "(…)" or the bare hyphenated adjective "10-ounce".
+        let (inner, after) = if rest.starts_with('(') {
+            // Find the matching close paren (handles nesting).
+            let mut depth = 0usize;
+            let mut close = None;
+            for (i, c) in rest.char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            close = Some(i);
+                            break;
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-        let close = close.ok_or_else(reject)?;
-        let inner = &rest[1..close];
+            let close = close.ok_or_else(reject)?;
+            (&rest[1..close], rest[close + 1..].trim_start())
+        } else {
+            // Bare hyphenated size adjective: "10-ounce", "1½-inch". Take the
+            // first whitespace-delimited token; require it to contain a hyphen so
+            // a normal "2 cups flour" doesn't match here.
+            let tok_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let size = &rest[..tok_end];
+            if !size.contains('-') {
+                return Err(reject());
+            }
+            (size, rest[tok_end..].trim_start())
+        };
 
-        // Require a container noun immediately after the parenthetical. This is
-        // the gate that keeps non-size parentheticals (e.g. "(not defrosted)")
-        // from matching — so both the hyphenated "1-ounce" and the space form
-        // "14.5 oz" are accepted here.
-        let after = rest[close + 1..].trim_start();
-        let word_end = after.find(char::is_whitespace).unwrap_or(after.len());
-        let container = after[..word_end].to_lowercase();
-        if !CONTAINER_NOUNS.contains(&container.as_str()) {
-            return Err(reject());
-        }
-        let after_rest = &after[word_end..];
+        // A container noun must follow the size. Usually it comes immediately
+        // after ("piece ginger"), but it can also trail the name
+        // ("halibut fillets" = 4 fillets of halibut), so fall back to the last
+        // word when the first isn't a container. `after_rest` stays a slice of
+        // the input so the parser can return the unconsumed remainder.
+        let first_end = after.find(char::is_whitespace).unwrap_or(after.len());
+        let first_word = after[..first_end].to_lowercase();
+        let (container, after_rest): (String, &str) =
+            if CONTAINER_NOUNS.contains(&first_word.as_str()) {
+                // "piece ginger" → container "piece", remainder "ginger" (drop a
+                // connecting " of ", mirroring how units consume a trailing "of").
+                let r = after[first_end..].trim_start();
+                let remainder = r.strip_prefix("of ").unwrap_or(r);
+                (first_word, remainder)
+            } else {
+                // "halibut fillets" → container = trailing "fillets", name "halibut".
+                let last_word = after.rsplit(char::is_whitespace).next().unwrap_or("");
+                let last_lower = last_word.to_lowercase();
+                if !CONTAINER_NOUNS.contains(&last_lower.as_str()) {
+                    return Err(reject());
+                }
+                let name = after[..after.len() - last_word.len()].trim_end();
+                (last_lower, name)
+            };
 
-        // The inner size must fully parse as a measurement (hyphen → space).
+        // The size must fully parse as a measurement (hyphen → space).
         let inner_norm = inner.replace('-', " ");
         let inner_measures = match self.parse_measurement_list(inner_norm.as_str()) {
             Ok((r, m)) if r.trim().is_empty() && !m.is_empty() => m,
@@ -136,7 +161,7 @@ impl<'a> MeasurementParser<'a> {
         };
 
         let mut measures = Vec::with_capacity(1 + inner_measures.len());
-        measures.push(Measure::from_parts(container.as_ref(), value.0, value.1));
+        measures.push(Measure::from_parts(container.as_str(), value.0, value.1));
         measures.extend(inner_measures);
         Ok((after_rest, measures))
     }

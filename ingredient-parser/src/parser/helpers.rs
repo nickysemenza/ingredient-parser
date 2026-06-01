@@ -4,7 +4,7 @@
 
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while1, take_while_m_n},
+    bytes::complete::{tag, tag_no_case, take_while1, take_while_m_n},
     character::complete::{alpha1, char},
     combinator::{map_res, opt, recognize},
     error::{context, ParseError},
@@ -127,9 +127,10 @@ pub(crate) fn parse_unit_text(input: &str) -> Res<&str, &str> {
 /// Match a spelled-out number word, requiring a trailing word boundary
 /// (whitespace or end of input). Without this, `tag("ten")` would match inside
 /// "tenderloin" and `tag("one")` inside a hyphenated "five-spice", producing
-/// nonsense amounts.
+/// nonsense amounts. Case-insensitive so a capitalized leading count
+/// ("One 10-ounce disk") parses like its lowercase form.
 fn number_word<'a>(word: &'static str, value: f64, input: &'a str) -> Res<&'a str, f64> {
-    let (rest, _) = tag(word).parse(input)?;
+    let (rest, _) = tag_no_case(word).parse(input)?;
     match rest.chars().next() {
         None => Ok((rest, value)),
         Some(c) if c.is_whitespace() => Ok((rest, value)),
