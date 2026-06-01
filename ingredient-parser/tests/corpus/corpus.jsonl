@@ -222,11 +222,12 @@
 {"input": "2 eggs (room temperature)", "name": "eggs", "amounts": [{"unit": "whole", "value": 2}], "modifier": "room temperature"}
 {"input": "1 stick butter (softened)", "name": "butter", "amounts": [{"unit": "stick", "value": 1}], "modifier": "softened"}
 {"input": "1 cup bittersweet chocolate (70% cacao)", "name": "bittersweet chocolate", "amounts": [{"unit": "cup", "value": 1}], "modifier": "70% cacao"}
+{"input": "1 and 1/2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.5}]}
+{"input": "2 and 1/4 cups water", "name": "water", "amounts": [{"unit": "cup", "value": 2.25}]}
 //
 // --- known gaps (xfail = desired parse the parser does not yet produce) ---
 {"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": 0.667}, {"unit": "g", "value": 85}], "modifier": "finely chopped", "xfail": "leading prep phrase before name; now falls back to full-input name (no longer empty)"}
 {"input": "2 (14.5 oz) cans diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 2}], "modifier": "diced", "xfail": "leading count + parenthesized size + plural container unit falls back to name-only"}
-{"input": "1 and 1/2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.5}], "xfail": "mixed number written 'N and M/D' not parsed"}
 {"input": "half a cup of milk", "name": "milk", "amounts": [{"unit": "cup", "value": 0.5}], "xfail": "'half a <unit>' quantity not parsed"}
 {"input": "About 2 cups vegetable oil", "name": "vegetable oil", "amounts": [{"unit": "cup", "value": 2.0}]}
 {"input": "Generous ¼ cup chopped cilantro", "name": "cilantro", "amounts": [{"unit": "cup", "value": 0.25}], "modifier": "chopped"}

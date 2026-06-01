@@ -1,8 +1,8 @@
 use nom::{
     branch::alt,
-    bytes::complete::tag,
+    bytes::complete::{tag, tag_no_case},
     character::complete::{space0, space1},
-    combinator::opt,
+    combinator::{opt, recognize},
     error::{context, ParseError},
     number::complete::double,
     Parser,
@@ -86,10 +86,15 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
         v_fraction,            // Unicode vulgar fraction like ½, ¼, etc.
     );
 
+    // Separator between a whole number and a slash fraction: either plain
+    // whitespace ("1 1/2") or a spelled-out "and" ("1 and 1/2"). The "and" form
+    // is tried first so the leading space isn't consumed by `space1` alone.
+    let whole_fraction_sep = alt((recognize((space1, tag_no_case("and"), space1)), space1));
+
     // Define parser for slash-notation fractions with optional whole number
     let slash_fraction_parser = (
-        opt((double, space1)), // Optional whole number with required whitespace
-        n_fraction,            // Standard fraction notation like 1/4, 3/8, etc.
+        opt((double, whole_fraction_sep)), // Optional whole number + separator
+        n_fraction,                        // Standard fraction notation like 1/4, 3/8, etc.
     );
 
     traced_parser!(
@@ -207,6 +212,8 @@ mod tests {
     #[case::three_and_fifth("3⅕", 3.2)]
     #[case::one_and_sixth("1 ⅙", 1.0 + 1.0 / 6.0)]
     #[case::two_and_seventh("2⅐", 2.0 + 1.0 / 7.0)]
+    #[case::one_and_half_word("1 and 1/2", 1.5)]
+    #[case::two_and_third_word("2 and 1/3", 2.0 + 1.0 / 3.0)]
     fn test_fraction_number_mixed(#[case] input: &str, #[case] expected: f64) {
         assert_eq!(fraction_number(input), Ok(("", expected)));
     }
