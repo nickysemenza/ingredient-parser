@@ -167,7 +167,7 @@ pub fn convert_measure_with_graph(
 ///
 /// # Returns
 /// `Some(converted_measure)` if a conversion path exists, `None` otherwise
-pub fn convert_measure_via_mappings(
+pub(crate) fn convert_measure_via_mappings(
     measure: &Measure,
     target: MeasureKind,
     mappings: &[(Measure, Measure)],

@@ -8,7 +8,9 @@ use std::str::FromStr;
 use tracing::debug;
 
 // Re-export conversion types and functions for backward compatibility
-pub use super::conversion::{convert_measure_via_mappings, make_graph, print_graph, MeasureGraph};
+pub use super::conversion::{make_graph, print_graph, MeasureGraph};
+// Crate-internal: the public entry point is the `Measure::convert_measure_via_mappings` method.
+use super::conversion::convert_measure_via_mappings;
 
 #[derive(Clone, PartialEq, PartialOrd, Debug, Serialize, Deserialize)]
 pub struct Measure {
@@ -276,7 +278,7 @@ impl Measure {
     /// Create a measure from parts (core implementation)
     ///
     /// This is the low-level constructor used by `new` and `with_range`.
-    pub fn from_parts(unit: &str, value: f64, upper_value: Option<f64>) -> Measure {
+    pub(crate) fn from_parts(unit: &str, value: f64, upper_value: Option<f64>) -> Measure {
         let normalized_unit = singular(unit);
         let unit =
             Unit::from_str(&normalized_unit).unwrap_or(Unit::Other(normalized_unit.into_owned()));

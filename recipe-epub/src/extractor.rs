@@ -144,7 +144,7 @@ they are recipe content. If the section contains no recipe, return an empty list
 
 /// Calls the Claude Messages API (directly, or via a proxy such as Cloudflare AI
 /// Gateway) with forced structured (tool) output.
-pub struct ClaudeExtractor {
+pub(crate) struct ClaudeExtractor {
     client: reqwest::Client,
     /// Full endpoint incl. `/v1/messages`.
     endpoint: String,
@@ -363,7 +363,7 @@ pub(crate) fn is_openai_compatible_model(model: &str) -> bool {
 /// Calls an OpenAI-compatible `/chat/completions` endpoint with a forced
 /// function call. Serves both OpenAI (`gpt-*`) and Google Gemini (`gemini-*`,
 /// via its OpenAI-compatible endpoint) — the wire format is identical.
-pub struct OpenAiExtractor {
+pub(crate) struct OpenAiExtractor {
     client: reqwest::Client,
     /// Full endpoint incl. `/chat/completions`.
     endpoint: String,
@@ -575,7 +575,7 @@ impl From<OpenAiUsage> for Usage {
 // ===========================================================================
 
 /// Runtime-selected extraction backend, chosen by model id.
-pub enum Backend {
+pub(crate) enum Backend {
     Claude(ClaudeExtractor),
     OpenAi(OpenAiExtractor),
 }

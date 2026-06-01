@@ -20,7 +20,9 @@ fn parser() -> IngredientParser {
 
 #[fixture]
 fn parser_with_adjectives() -> IngredientParser {
-    IngredientParser::new().with_adjectives(&["sliced", "thinly sliced", "freshly ground"])
+    // "sliced", "thinly sliced", and "freshly ground" are all default adjectives,
+    // so the default parser exercises the same longest-match behavior.
+    IngredientParser::new()
 }
 
 #[fixture]
@@ -251,7 +253,7 @@ fn test_longer_adjective_matches_first(parser_with_adjectives: IngredientParser)
 }
 
 #[rstest]
-fn test_custom_adjectives(parser_with_adjectives: IngredientParser) {
+fn test_multiword_adjective_extraction(parser_with_adjectives: IngredientParser) {
     let result = parser_with_adjectives.parse_with_trace("1 cup freshly ground pepper");
     assert!(result.result.is_ok());
     let ingredient = result.result.unwrap();

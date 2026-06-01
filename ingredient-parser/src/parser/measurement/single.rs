@@ -193,7 +193,9 @@ impl<'a> MeasurementParser<'a> {
         traced_parser!(
             name,
             input,
-            context("unit", verify(parse_unit_text, |s: &str| predicate(s))).parse(input),
+            context("unit", verify(parse_unit_text, |s: &str| predicate(s)))
+                .parse(input)
+                .map(|(rest, s)| (rest, s.to_string())),
             |s: &String| s.clone(),
             err_msg
         )

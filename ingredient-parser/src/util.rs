@@ -13,7 +13,7 @@ pub fn truncate_3_decimals(f: f64) -> f64 {
 
 /// Round a float to nearest integer
 /// Used for final conversion results
-pub fn round_to_int(x: f64) -> f64 {
+pub(crate) fn round_to_int(x: f64) -> f64 {
     x.round()
 }
 

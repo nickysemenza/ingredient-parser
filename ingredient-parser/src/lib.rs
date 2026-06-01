@@ -125,7 +125,7 @@
 use std::collections::HashSet;
 
 pub use crate::error::{IngredientError, IngredientResult};
-pub use crate::ingredient::{Ingredient, ParseQuality};
+pub use crate::ingredient::Ingredient;
 use parser::MeasurementParser;
 use unit::Measure;
 
@@ -165,7 +165,6 @@ const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
 
 /// Default purpose phrases that get extracted to the modifier field.
 /// These describe what the ingredient is used for (e.g., "for garnish").
-/// Use `with_purpose_phrases()` to add custom purpose phrases.
 const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
     "for dusting",
     "for garnish",
@@ -325,81 +324,6 @@ impl IngredientParser {
         for unit in units {
             self.units.insert((*unit).to_string());
         }
-        self
-    }
-
-    /// Add custom adjectives to the parser (chainable)
-    ///
-    /// Adjectives are extracted from ingredient names and moved to the modifier field.
-    ///
-    /// # Example
-    /// ```
-    /// use ingredient::IngredientParser;
-    ///
-    /// let parser = IngredientParser::new()
-    ///     .with_adjectives(&["roughly chopped", "finely diced"]);
-    ///
-    /// let ingredient = parser.from_str("1 cup roughly chopped onion");
-    /// assert_eq!(ingredient.name, "onion");
-    /// assert_eq!(ingredient.modifier, Some("roughly chopped".to_string()));
-    /// ```
-    pub fn with_adjectives(mut self, adjectives: &[&str]) -> Self {
-        for adjective in adjectives {
-            self.adjectives.insert((*adjective).to_string());
-        }
-        self
-    }
-
-    /// Add custom purpose phrases to the parser (chainable)
-    ///
-    /// Purpose phrases like "for garnish" describe what the ingredient is used for.
-    /// They are extracted from ingredient names and moved to the modifier field.
-    ///
-    /// # Example
-    /// ```
-    /// use ingredient::IngredientParser;
-    ///
-    /// let parser = IngredientParser::new()
-    ///     .with_purpose_phrases(&["for blooming", "for tempering"]);
-    ///
-    /// let ingredient = parser.from_str("1 tbsp butter, for blooming");
-    /// assert_eq!(ingredient.name, "butter");
-    /// assert_eq!(ingredient.modifier, Some("for blooming".to_string()));
-    /// ```
-    pub fn with_purpose_phrases(mut self, phrases: &[&str]) -> Self {
-        for phrase in phrases {
-            self.adjectives.insert((*phrase).to_string());
-        }
-        self
-    }
-
-    /// Remove all custom ("addon") units, including the defaults like "clove",
-    /// "packet", and "bunch" (chainable).
-    ///
-    /// Built-in units (cup, gram, tablespoon, ...) are always recognized and are
-    /// unaffected. Use this with [`with_units`](Self::with_units) to recognize
-    /// only a specific custom set:
-    ///
-    /// ```
-    /// use ingredient::IngredientParser;
-    ///
-    /// let parser = IngredientParser::new().clear_units().with_units(&["clove"]);
-    /// // "packet" is no longer a unit, so it stays in the name:
-    /// assert_eq!(parser.from_str("1 packet yeast").name, "packet yeast");
-    /// ```
-    pub fn clear_units(mut self) -> Self {
-        self.units.clear();
-        self
-    }
-
-    /// Remove all adjectives and purpose phrases, including the defaults like
-    /// "chopped" and "for garnish" (chainable).
-    ///
-    /// Use this with [`with_adjectives`](Self::with_adjectives) /
-    /// [`with_purpose_phrases`](Self::with_purpose_phrases) to recognize only a
-    /// specific set of modifiers.
-    pub fn clear_adjectives(mut self) -> Self {
-        self.adjectives.clear();
         self
     }
 

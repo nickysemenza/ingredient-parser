@@ -2,41 +2,6 @@ use std::fmt;
 
 use crate::{from_str, unit::Measure};
 
-/// Indicates how much structure the parser found in the input.
-///
-/// This is useful for classification tasks where you need to distinguish
-/// between text that parsed as a structured ingredient vs text that the
-/// parser couldn't extract structure from.
-///
-/// # Examples
-///
-/// ```
-/// use ingredient::{from_str, ingredient::ParseQuality};
-///
-/// // Structured: has amounts
-/// let ing = from_str("2 cups flour");
-/// assert_eq!(ing.parse_quality(), ParseQuality::Structured);
-///
-/// // Structured: has modifier
-/// let ing = from_str("flour, sifted");
-/// assert_eq!(ing.parse_quality(), ParseQuality::Structured);
-///
-/// // Unstructured: just a name
-/// let ing = from_str("salt");
-/// assert_eq!(ing.parse_quality(), ParseQuality::Unstructured);
-/// ```
-#[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ParseQuality {
-    /// Parser found amounts, units, modifiers, or optional marker.
-    /// High confidence this is an ingredient line.
-    Structured,
-
-    /// Parser returned the input as-is with no extracted structure.
-    /// May or may not be an ingredient - needs other context.
-    Unstructured,
-}
-
 #[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
 #[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
 /// A parsed ingredient with structured components
@@ -139,47 +104,6 @@ impl Ingredient {
             optional: true,
         }
     }
-
-    /// Returns the parse quality indicating how much structure was found.
-    ///
-    /// - `Structured`: Parser found amounts, modifiers, or optional marker
-    /// - `Unstructured`: Parser just returned the input as the name
-    ///
-    /// This is useful for classification tasks where you need to distinguish
-    /// ingredient lines from other text (titles, instructions, etc.).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ingredient::{from_str, ingredient::ParseQuality};
-    ///
-    /// // Has amounts -> Structured
-    /// let ing = from_str("2 cups flour");
-    /// assert_eq!(ing.parse_quality(), ParseQuality::Structured);
-    ///
-    /// // Has modifier -> Structured
-    /// let ing = from_str("flour, sifted");
-    /// assert_eq!(ing.parse_quality(), ParseQuality::Structured);
-    ///
-    /// // Optional ingredient -> Structured
-    /// let ing = from_str("(walnuts)");
-    /// assert_eq!(ing.parse_quality(), ParseQuality::Structured);
-    ///
-    /// // Just a name -> Unstructured
-    /// let ing = from_str("salt");
-    /// assert_eq!(ing.parse_quality(), ParseQuality::Unstructured);
-    ///
-    /// // Non-ingredient text -> Unstructured
-    /// let ing = from_str("Chocolate Chip Cookies");
-    /// assert_eq!(ing.parse_quality(), ParseQuality::Unstructured);
-    /// ```
-    pub fn parse_quality(&self) -> ParseQuality {
-        if !self.amounts.is_empty() || self.modifier.is_some() || self.optional {
-            ParseQuality::Structured
-        } else {
-            ParseQuality::Unstructured
-        }
-    }
 }
 
 impl From<&str> for Ingredient {
@@ -234,54 +158,6 @@ impl fmt::Display for Ingredient {
 mod tests {
     use super::*;
     use crate::unit::Measure;
-    use rstest::rstest;
-
-    #[rstest]
-    #[case("2 cups flour", ParseQuality::Structured, "has amounts")]
-    #[case("1/2 tsp salt", ParseQuality::Structured, "has amounts with fraction")]
-    #[case("flour, sifted", ParseQuality::Structured, "has modifier")]
-    #[case(
-        "butter, at room temperature",
-        ParseQuality::Structured,
-        "has modifier phrase"
-    )]
-    #[case("(walnuts)", ParseQuality::Structured, "optional ingredient")]
-    #[case(
-        "(1/2 cup chopped nuts)",
-        ParseQuality::Structured,
-        "optional with amounts"
-    )]
-    #[case("salt", ParseQuality::Unstructured, "bare ingredient")]
-    #[case("pepper", ParseQuality::Unstructured, "bare ingredient")]
-    #[case("Chocolate Chip Cookies", ParseQuality::Unstructured, "recipe title")]
-    #[case(
-        "Add flour and mix well.",
-        ParseQuality::Unstructured,
-        "instruction text"
-    )]
-    #[case(
-        "Preheat oven to 350°F",
-        ParseQuality::Structured,
-        "instruction with temp - parser finds °F modifier"
-    )]
-    #[case("FOR THE FILLING", ParseQuality::Unstructured, "section header")]
-    fn test_parse_quality(
-        #[case] input: &str,
-        #[case] expected: ParseQuality,
-        #[case] _description: &str,
-    ) {
-        let ingredient = from_str(input);
-        assert_eq!(
-            ingredient.parse_quality(),
-            expected,
-            "input: {:?}, got name={:?}, amounts={:?}, modifier={:?}, optional={}",
-            input,
-            ingredient.name,
-            ingredient.amounts,
-            ingredient.modifier,
-            ingredient.optional
-        );
-    }
 
     #[test]
     fn test_ingredient_display() {

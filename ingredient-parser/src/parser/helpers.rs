@@ -72,7 +72,7 @@ pub(crate) fn parse_amount_string(input: &str) -> Result<Measure, String> {
         // Could log warning here, but for now just ignore
     }
 
-    Ok(Measure::new(&unit_str, value))
+    Ok(Measure::new(unit_str, value))
 }
 
 /// Parse a number using fraction or decimal parsing
@@ -116,11 +116,12 @@ pub(crate) fn parse_ingredient_text(input: &str) -> Res<&str, &str> {
     .parse(input)
 }
 
-/// Parse unit/amount text including degrees and quotes
-pub(crate) fn parse_unit_text(input: &str) -> Res<&str, String> {
-    many0(alt((alpha1, tag("°"), tag("\""))))
-        .parse(input)
-        .map(|(next_input, res)| (next_input, res.join("")))
+/// Parse unit/amount text including degrees and quotes.
+///
+/// Returns the consumed slice directly via `recognize`, avoiding the per-token
+/// `Vec<&str>` + `join` allocation this used to do on every unit parse.
+pub(crate) fn parse_unit_text(input: &str) -> Res<&str, &str> {
+    recognize(many0(alt((alpha1, tag("°"), tag("\""))))).parse(input)
 }
 
 /// Match a spelled-out number word, requiring a trailing word boundary
@@ -207,10 +208,7 @@ mod tests {
     #[case::short_unit("oz", "", "oz")]
     #[case::empty("", "", "")]
     fn test_parse_unit_text(#[case] input: &str, #[case] remaining: &str, #[case] expected: &str) {
-        assert_eq!(
-            parse_unit_text(input),
-            Ok((remaining, expected.to_string()))
-        );
+        assert_eq!(parse_unit_text(input), Ok((remaining, expected)));
     }
 
     // ============================================================================

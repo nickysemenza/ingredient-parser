@@ -25,11 +25,6 @@ fn parser_custom_units() -> IngredientParser {
     IngredientParser::new().with_units(&["handful", "handfuls", "sprig", "sprigs", "knob"])
 }
 
-#[fixture]
-fn parser_custom_adjectives() -> IngredientParser {
-    IngredientParser::new().with_adjectives(&["roughly chopped", "finely diced"])
-}
-
 // ============================================================================
 // Test Helpers
 // ============================================================================
@@ -123,20 +118,6 @@ fn test_custom_units(
     assert_eq!(result.name, expected_name);
     assert_eq!(result.amounts[0].value(), expected_amount);
     assert_eq!(result.amounts[0].unit_as_string(), expected_unit);
-}
-
-#[rstest]
-#[case::roughly_chopped("1 cup roughly chopped onion", "onion", "roughly chopped")]
-#[case::finely_diced("2 cups finely diced tomatoes", "tomatoes", "finely diced")]
-fn test_custom_adjectives(
-    parser_custom_adjectives: IngredientParser,
-    #[case] input: &str,
-    #[case] expected_name: &str,
-    #[case] expected_modifier: &str,
-) {
-    let result = parser_custom_adjectives.from_str(input);
-    assert_eq!(result.name, expected_name);
-    assert_eq!(result.modifier.as_deref(), Some(expected_modifier));
 }
 
 // ============================================================================

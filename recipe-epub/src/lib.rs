@@ -18,9 +18,11 @@ mod extractor;
 use std::path::PathBuf;
 
 pub use extractor::{
-    Backend, ChunkOutcome, ClaudeExtractor, ExtractedRecipe, MockExtractor, OpenAiExtractor,
-    RecipeExtractor, RecipeMeta, Usage,
+    ChunkOutcome, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, Usage,
 };
+// Backend selection + the concrete extractors are internal; callers go through
+// `extract_cookbook` (auto-selects) or `extract_cookbook_with` (supply your own).
+use extractor::Backend;
 // Section + time types are shared with the web scraper — one shape workspace-wide.
 pub use recipe_scraper::{ParsedSection, RecipeSection, RecipeTimes};
 
@@ -282,7 +284,7 @@ pub async fn extract_cookbook_with<E: RecipeExtractor>(
 }
 
 /// Like [`extract_cookbook_with`] but also returns token-usage/cost stats.
-pub async fn extract_cookbook_with_stats<E: RecipeExtractor>(
+pub(crate) async fn extract_cookbook_with_stats<E: RecipeExtractor>(
     bytes: &[u8],
     source: &str,
     opts: &Options,

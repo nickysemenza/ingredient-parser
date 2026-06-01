@@ -286,7 +286,8 @@ impl IngredientParser {
                     self.adjectives.contains(&s.to_lowercase())
                 }),
             )
-            .parse(input),
+            .parse(input)
+            .map(|(rest, s)| (rest, s.to_string())),
             |s: &String| s.clone(),
             "not an adjective"
         )
