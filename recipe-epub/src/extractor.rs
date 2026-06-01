@@ -114,8 +114,12 @@ pub trait RecipeExtractor {
 }
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
-// Default to a current, cheap/fast Haiku (confirmed via the claude-api skill).
-const DEFAULT_MODEL: &str = "gpt-4o-mini";
+// Default model (OpenAI-compatible backend, via the Gemini OpenAI-compat
+// endpoint). Picked over gpt-4o-mini — which began dropping ~40% of a book's
+// recipes — and over Haiku for being ~2.5× cheaper at full recipe coverage.
+// Notes are best-effort on this model (occasionally drops a recipe's notes);
+// use `--model claude-haiku-4-5` when complete notes matter.
+const DEFAULT_MODEL: &str = "gemini-2.5-flash";
 const CLAUDE_DEFAULT_MODEL: &str = "claude-haiku-4-5";
 const TOOL_NAME: &str = "emit_recipes";
 
@@ -139,7 +143,13 @@ main section.\n\
 - times: an object with any of active / total / prep / cook (e.g. \"Active Time: \
 30 minutes\"); omit fields not present and omit the object if there are none.\n\
 - equipment: special-equipment lines, if listed.\n\
-- notes: do-ahead / make-ahead notes, tips, and \"serve with\" suggestions, each verbatim.\n\
+- notes: every do-ahead / make-ahead note, tip, \"serve with\" suggestion, and \
+numbered footnote/endnote (markers like ①②③ and their explanations, \
+or a \"Do Ahead\" / \"Make Ahead\" block), each as a SEPARATE entry copied \
+VERBATIM. Capture ALL of them — do not summarize, merge, or drop any. When the \
+section holds several recipes, attach each note to the recipe it belongs to \
+(use the inline ①②③ markers to map a footnote back to its recipe); \
+never copy one recipe's notes onto another.\n\
 - category: the chapter or category the recipe belongs to, if evident.\n\
 - page: the page number, if present in the text.\n\
 Ignore running chapter prose, page headers/footers, and photo captions unless \

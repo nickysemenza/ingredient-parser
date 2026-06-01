@@ -61,7 +61,7 @@ pub enum EpubError {
 /// Tunables for [`extract_cookbook`].
 #[derive(Debug, Clone)]
 pub struct Options {
-    /// Model id override (default: `gpt-4o-mini`, via the OpenAI-compatible backend).
+    /// Model id override (default: `gemini-2.5-flash`, via the OpenAI-compatible backend).
     pub model: Option<String>,
     /// Whether to use the on-disk extraction cache.
     pub use_cache: bool,
@@ -335,11 +335,17 @@ pub async fn extract_cookbook_with_stats<E: RecipeExtractor>(
     Ok((recipes, stats))
 }
 
-/// Attach each recipe's `source`/`url`, drop entries with no ingredients, and
-/// dedup by normalized title (a safety net against the same recipe twice).
+/// Attach each recipe's `source`/`url` and drop entries with no ingredients.
+///
+/// A recipe long enough to span a chunk boundary is emitted twice — once by its
+/// title-bearing chunk and once by the title-hinted continuation chunk (see
+/// [`epub_text`]) — so a second recipe with an already-seen title is *merged*
+/// into the first (sections, instructions, and notes are unioned) rather than
+/// dropped. This recovers the recipe's tail (extra steps, "Do Ahead" notes)
+/// instead of discarding it. For the common single-chunk recipe it's a no-op.
 fn assemble(per_chunk: Vec<(String, Vec<ExtractedRecipe>)>, source: &str) -> Vec<CookbookRecipe> {
-    let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut out: Vec<CookbookRecipe> = Vec::new();
     for (doc_path, recipes) in per_chunk {
         for r in recipes {
             let title = r.meta.title.trim().to_string();
@@ -347,20 +353,48 @@ fn assemble(per_chunk: Vec<(String, Vec<ExtractedRecipe>)>, source: &str) -> Vec
             if title.is_empty() || !has_ingredients {
                 continue;
             }
-            if !seen.insert(title.to_lowercase()) {
-                continue;
+            match index.get(&title.to_lowercase()) {
+                Some(&i) => merge_recipe(&mut out[i], r),
+                None => {
+                    index.insert(title.to_lowercase(), out.len());
+                    let mut meta = r.meta;
+                    meta.title = title;
+                    out.push(CookbookRecipe {
+                        meta,
+                        sections: r.sections,
+                        source: source.to_string(),
+                        url: format!("{source}#{doc_path}"),
+                    });
+                }
             }
-            let mut meta = r.meta;
-            meta.title = title;
-            out.push(CookbookRecipe {
-                meta,
-                sections: r.sections,
-                source: source.to_string(),
-                url: format!("{source}#{doc_path}"),
-            });
         }
     }
     out
+}
+
+/// Fold a continuation half of a recipe into the already-assembled one: append
+/// its sections and union its notes (and any newly-present metadata), de-duping
+/// identical strings so a recipe that merely repeats across the seam doesn't
+/// double up.
+fn merge_recipe(into: &mut CookbookRecipe, from: ExtractedRecipe) {
+    into.sections.extend(from.sections);
+    for note in from.meta.notes {
+        if !into.meta.notes.contains(&note) {
+            into.meta.notes.push(note);
+        }
+    }
+    // Fill metadata only the continuation chunk happened to capture.
+    let m = &mut into.meta;
+    m.description = m.description.take().or(from.meta.description);
+    m.recipe_yield = m.recipe_yield.take().or(from.meta.recipe_yield);
+    m.times = m.times.take().or(from.meta.times);
+    m.category = m.category.take().or(from.meta.category);
+    m.page = m.page.take().or(from.meta.page);
+    for eq in from.meta.equipment {
+        if !m.equipment.contains(&eq) {
+            m.equipment.push(eq);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -418,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn assemble_dedups_by_title_and_drops_empty() {
+    fn assemble_merges_by_title_and_drops_empty() {
         let per_chunk = vec![
             (
                 "c1.xhtml".to_string(),
@@ -427,7 +461,7 @@ mod tests {
             (
                 "c2.xhtml".to_string(),
                 vec![
-                    er("PANCAKES", &["dupe"]), // dedup (case-insensitive)
+                    er("PANCAKES", &["dupe"]), // merged (case-insensitive)
                     er("  ", &["no name"]),    // dropped: empty name
                     er("Soup", &[]),           // dropped: no ingredients
                     er("Omelette", &["3 eggs"]),
@@ -437,7 +471,55 @@ mod tests {
         let out = assemble(per_chunk, "book.epub");
         let names: Vec<_> = out.iter().map(|r| r.meta.title.as_str()).collect();
         assert_eq!(names, vec!["Pancakes", "Omelette"]);
+        // The first-seen title keeps its identity + url; the dup folds into it.
         assert_eq!(out[0].url, "book.epub#c1.xhtml");
+        assert_eq!(out[0].sections.len(), 2); // both halves' sections retained
         assert_eq!(out[1].url, "book.epub#c2.xhtml");
+    }
+
+    /// A recipe split across a chunk boundary: the title chunk has the body, the
+    /// (title-hinted) continuation chunk re-emits the same title with only the
+    /// tail / notes. They must merge into one recipe whose notes are the union.
+    #[test]
+    fn assemble_recovers_continuation_chunk_notes() {
+        let title_half = ExtractedRecipe {
+            meta: RecipeMeta {
+                title: "Chocolate Chip Cookies".to_string(),
+                notes: vec!["Note A".to_string()],
+                ..Default::default()
+            },
+            sections: vec![RecipeSection {
+                name: None,
+                ingredients: vec!["2 cups flour".to_string()],
+                instructions: vec!["mix".to_string()],
+            }],
+        };
+        let cont_half = ExtractedRecipe {
+            meta: RecipeMeta {
+                title: "Chocolate Chip Cookies".to_string(),
+                // Repeats Note A (across the seam) and adds the DO AHEAD tail.
+                notes: vec!["Note A".to_string(), "Note B".to_string()],
+                recipe_yield: Some("Makes 18".to_string()),
+                ..Default::default()
+            },
+            sections: vec![RecipeSection {
+                name: None,
+                ingredients: vec!["1 tsp salt".to_string()],
+                instructions: vec!["bake".to_string()],
+            }],
+        };
+        let out = assemble(
+            vec![
+                ("c1.xhtml".to_string(), vec![title_half]),
+                ("c2.xhtml".to_string(), vec![cont_half]),
+            ],
+            "book.epub",
+        );
+        assert_eq!(out.len(), 1);
+        // Union of notes, no duplicate of the seam-repeated "Note A".
+        assert_eq!(out[0].meta.notes, vec!["Note A", "Note B"]);
+        assert_eq!(out[0].sections.len(), 2);
+        // Metadata only the continuation chunk captured is filled in.
+        assert_eq!(out[0].meta.recipe_yield.as_deref(), Some("Makes 18"));
     }
 }

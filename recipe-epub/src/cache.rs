@@ -10,7 +10,7 @@ use crate::{EpubError, ExtractedRecipe};
 
 /// Bump when the system prompt or tool schema changes — old entries then miss
 /// and are re-extracted rather than returning stale-shaped data.
-pub(crate) const PROMPT_VERSION: &str = "2026-05-31-sections";
+pub(crate) const PROMPT_VERSION: &str = "2026-05-31-notes";
 
 /// Default cache directory: `$XDG_CACHE_HOME/recipe-epub` or `$TMPDIR/recipe-epub`.
 pub(crate) fn default_dir() -> PathBuf {

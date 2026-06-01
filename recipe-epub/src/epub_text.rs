@@ -56,34 +56,53 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
 
 /// Greedily window `(doc_path, line)` pairs into chunks, preferring to break
 /// before a title-like line once over budget.
+///
+/// When a chunk is cut mid-recipe (a *hard* split at `CHUNK_BUDGET+CHUNK_SLACK`
+/// rather than a clean title boundary), the recipe's tail — its remaining steps
+/// and "Do Ahead" / footnotes — would land in a title-less continuation chunk
+/// and be dropped downstream. To avoid that, the continuation chunk inherits the
+/// last-seen title as its [`Chunk::title_hint`], so the model re-emits the same
+/// titled recipe and `assemble()` merges the two halves.
 fn window_chunks(tagged: Vec<(String, String)>) -> Vec<Chunk> {
     let mut chunks = Vec::new();
     let mut lines: Vec<String> = Vec::new();
     let mut len = 0usize;
     let mut doc: Option<String> = None;
+    // The most recent title-like line, and the hint carried into the next chunk
+    // after a mid-recipe hard split.
+    let mut last_title: Option<String> = None;
+    let mut next_hint: Option<String> = None;
 
     for (path, line) in tagged {
-        let want_break = !lines.is_empty()
-            && ((len >= CHUNK_BUDGET && looks_like_title(&line))
-                || len >= CHUNK_BUDGET + CHUNK_SLACK);
+        let at_title = len >= CHUNK_BUDGET && looks_like_title(&line);
+        let hard_split = len >= CHUNK_BUDGET + CHUNK_SLACK;
+        let want_break = !lines.is_empty() && (at_title || hard_split);
         if want_break {
             chunks.push(Chunk {
-                title_hint: None,
+                title_hint: next_hint.take(),
                 text: lines.join("\n"),
                 doc_path: doc.take().unwrap_or_default(),
             });
             lines = Vec::new();
             len = 0;
+            // A clean break starts on a fresh title; a hard split severs a
+            // recipe, so carry its title forward to the continuation chunk.
+            if hard_split && !at_title {
+                next_hint = last_title.clone();
+            }
         }
         if doc.is_none() {
             doc = Some(path);
+        }
+        if looks_like_title(&line) {
+            last_title = Some(line.clone());
         }
         len += line.len() + 1;
         lines.push(line);
     }
     if !lines.is_empty() {
         chunks.push(Chunk {
-            title_hint: None,
+            title_hint: next_hint,
             text: lines.join("\n"),
             doc_path: doc.unwrap_or_default(),
         });
@@ -295,5 +314,32 @@ mod tests {
         let merged = window_chunks(small);
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].doc_path, "a.html");
+    }
+
+    #[test]
+    fn hard_split_carries_title_into_continuation_chunk() {
+        // One recipe whose body has NO interior title and exceeds budget+slack,
+        // forcing a mid-recipe hard split. The continuation chunk must inherit
+        // the recipe's title as its hint so the model re-emits the same recipe
+        // (and `assemble()` can merge the tail back in). Sized relative to the
+        // constants so it survives changes to them.
+        let line = "x".repeat(140);
+        let lines = (CHUNK_BUDGET + CHUNK_SLACK) / line.len() + 5;
+        let mut tagged = vec![("big.html".to_string(), "Lone Long Recipe".to_string())];
+        for _ in 0..lines {
+            tagged.push(("big.html".to_string(), line.clone()));
+        }
+        let chunks = window_chunks(tagged);
+        assert!(
+            chunks.len() >= 2,
+            "expected a hard split, got {}",
+            chunks.len()
+        );
+        // First chunk leads the recipe; it has no inherited hint.
+        assert!(chunks[0].text.starts_with("Lone Long Recipe"));
+        assert_eq!(chunks[0].title_hint, None);
+        // The continuation chunk inherits the title (no title line of its own).
+        assert_eq!(chunks[1].title_hint.as_deref(), Some("Lone Long Recipe"));
+        assert!(!chunks[1].text.starts_with("Lone Long Recipe"));
     }
 }

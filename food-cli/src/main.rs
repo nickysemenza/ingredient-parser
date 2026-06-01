@@ -30,7 +30,7 @@ enum Commands {
         json: bool,
         #[arg(short, long)]
         parse: bool,
-        /// Model id override (default: gpt-4o-mini; claude-* / gemini-* also work)
+        /// Model id override (default: gemini-2.5-flash; claude-* / gpt-* also work)
         #[arg(long)]
         model: Option<String>,
         /// Bypass the on-disk extraction cache
