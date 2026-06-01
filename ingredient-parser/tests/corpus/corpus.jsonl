@@ -227,9 +227,10 @@
 {"input": "half a cup of milk", "name": "milk", "amounts": [{"unit": "cup", "value": 0.5}]}
 {"input": "half a teaspoon salt", "name": "salt", "amounts": [{"unit": "tsp", "value": 0.5}]}
 {"input": "2 (14.5 oz) cans diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 2}, {"unit": "oz", "value": 14.5}], "modifier": "diced"}
+{"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": 0.6666666666666666}, {"unit": "g", "value": 85}], "modifier": "finely chopped"}
+{"input": "1 cup sifted, cake flour", "name": "cake flour", "amounts": [{"unit": "cup", "value": 1}], "modifier": "sifted"}
 //
 // --- known gaps (xfail = desired parse the parser does not yet produce) ---
-{"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": 0.667}, {"unit": "g", "value": 85}], "modifier": "finely chopped", "xfail": "leading prep phrase before name; now falls back to full-input name (no longer empty)"}
 {"input": "About 2 cups vegetable oil", "name": "vegetable oil", "amounts": [{"unit": "cup", "value": 2.0}]}
 {"input": "Generous ¼ cup chopped cilantro", "name": "cilantro", "amounts": [{"unit": "cup", "value": 0.25}], "modifier": "chopped"}
 {"input": "Scant 1 cup flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}]}

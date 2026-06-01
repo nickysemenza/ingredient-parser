@@ -78,12 +78,41 @@ impl IngredientParser {
     }
 
     fn postprocess_ingredient(&self, mut ingredient: Ingredient) -> Ingredient {
+        self.fix_leading_prep_phrase(&mut ingredient);
         self.extract_adjectives_from_name(&mut ingredient);
         ingredient.name = collapse_whitespace(&ingredient.name);
         self.extract_alternative_from_name(&mut ingredient);
         self.extract_secondary_amounts_from_modifier(&mut ingredient);
         ingredient.modifier = strip_wrapping_parens(clean_modifier(ingredient.modifier));
         ingredient
+    }
+
+    /// Recover from a leading prep phrase that displaced the ingredient name.
+    ///
+    /// A line like "2/3 cup finely chopped, raw pistachios" parses with the
+    /// text *before* the comma as the name and the text *after* as the modifier,
+    /// yielding name="finely chopped" / modifier="raw pistachios" — backwards.
+    /// When the whole name is a single known prep phrase and a modifier is
+    /// present, swap them so the prep phrase becomes the modifier and the real
+    /// name is restored. The exact-match guard keeps descriptive names (e.g.
+    /// "raw pistachios, finely chopped", where the name isn't a prep phrase) from
+    /// ever being touched.
+    fn fix_leading_prep_phrase(&self, ingredient: &mut Ingredient) {
+        let name = ingredient.name.trim();
+        if name.is_empty() || !self.adjectives.contains(&name.to_lowercase()) {
+            return;
+        }
+        let Some(modifier) = ingredient
+            .modifier
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+        else {
+            return;
+        };
+        let prep = name.to_string();
+        ingredient.name = modifier.to_string();
+        ingredient.modifier = Some(prep);
     }
 
     /// Try to parse an optional ingredient format: "(amount ingredient, modifier)"
