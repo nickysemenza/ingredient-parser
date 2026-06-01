@@ -302,13 +302,26 @@ fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
         sg.add_edge(node_for[&src], node_for[&dst], ());
     }
 
-    // Convert to an egui_graphs Graph and set each node's label to its title.
+    // Convert to an egui_graphs Graph, then set each node's label (its title)
+    // AND seed a spread-out starting position. egui_graphs' default node
+    // transform only sets the label — it leaves every node at the origin
+    // (its doc-comment claiming a "random location" is wrong). The random
+    // layout seeds positions itself, but the force-directed layout we use only
+    // *steps* from existing positions: coincident nodes produce zero repulsion,
+    // never separate, and the zero-size bounds make fit-to-screen zoom to
+    // infinity (one giant circle). Seeding distinct positions fixes that.
     let mut graph = RefGraph::from(&sg);
     let node_ids: Vec<NodeIndex> = graph.g().node_indices().collect();
-    for nid in node_ids {
+    let n = node_ids.len().max(1) as f32;
+    for (i, nid) in node_ids.into_iter().enumerate() {
         if let Some(node) = graph.node_mut(nid) {
             let recipe_idx = *node.payload();
             node.set_label(recipes[recipe_idx].meta.title.clone());
+            // Place on a phyllotaxis-style spiral so initial positions are
+            // distinct and roughly even — a good seed for force-directed layout.
+            let angle = i as f32 * 2.399_963; // golden angle (radians)
+            let r = 30.0 * (i as f32 / n).sqrt() * n.sqrt();
+            node.set_location(egui::Pos2::new(r * angle.cos(), r * angle.sin()));
         }
     }
     graph
