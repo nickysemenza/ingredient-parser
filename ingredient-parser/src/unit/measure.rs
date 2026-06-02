@@ -462,26 +462,33 @@ impl fmt::Display for Measure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let measure = self.denormalize();
         let value = measure.value();
+        // `Unit::Whole` is the parser-internal sentinel for a bare count ("2 eggs"); it
+        // renders as just the quantity. Serialization still emits "whole" via `to_str()`.
+        let suffix = if *self.unit() == Unit::Whole {
+            String::new()
+        } else {
+            format!(" {}", self.unit_as_string())
+        };
         if let Some(u) = measure.upper_value() {
             if u != 0.0 {
                 if value == 0.0 {
                     // "up to X" case - just show the upper bound
-                    write!(f, "{} {}", format_quantity(u), self.unit_as_string())
+                    write!(f, "{}{}", format_quantity(u), suffix)
                 } else {
                     // Normal range "X - Y"
                     write!(
                         f,
-                        "{} - {} {}",
+                        "{} - {}{}",
                         format_quantity(value),
                         format_quantity(u),
-                        self.unit_as_string()
+                        suffix
                     )
                 }
             } else {
-                write!(f, "{} {}", format_quantity(value), self.unit_as_string())
+                write!(f, "{}{}", format_quantity(value), suffix)
             }
         } else {
-            write!(f, "{} {}", format_quantity(value), self.unit_as_string())
+            write!(f, "{}{}", format_quantity(value), suffix)
         }
     }
 }
@@ -647,8 +654,11 @@ mod tests {
     #[case::simple_cup("cup", 2.0, None, "2 cups")]
     #[case::simple_gram("g", 100.0, None, "100 g")]
     #[case::range("cup", 1.0, Some(2.0), "1 - 2 cups")]
-    #[case::whole_unit("whole", 3.0, None, "3 whole")]
-    #[case::whole_range("whole", 2.0, Some(4.0), "2 - 4 whole")]
+    // `Unit::Whole` renders bare (no " whole") — it's the parser-internal bare-count
+    // sentinel. Serialization still emits "whole" (see core.rs `to_str` / `unit_as_string`).
+    #[case::whole_unit("whole", 3.0, None, "3")]
+    #[case::whole_single("whole", 1.0, None, "1")]
+    #[case::whole_range("whole", 2.0, Some(4.0), "2 - 4")]
     #[case::zero_upper_bound("cup", 1.0, Some(0.0), "1 cup")]
     fn test_measure_display(
         #[case] unit: &str,

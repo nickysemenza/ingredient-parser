@@ -306,7 +306,7 @@ impl IngredientParser {
     /// wrapper for [self.parse_ingredient]
     /// ```
     /// use ingredient::{from_str};
-    /// assert_eq!(from_str("one whole egg").to_string(),"1 whole egg");
+    /// assert_eq!(from_str("one whole egg").to_string(),"1 egg");
     /// ```
     /// Parse an ingredient string into an Ingredient object
     ///

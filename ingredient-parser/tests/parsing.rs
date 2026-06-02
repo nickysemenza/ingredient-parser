@@ -210,7 +210,7 @@ fn test_amount_range_display(parser: IngredientParser) {
 
 #[rstest]
 #[case::basic("12 cups flour", "12 cups flour")]
-#[case::text_one("one whole egg", "1 whole egg")]
+#[case::text_one("one whole egg", "1 egg")]
 #[case::text_a("a tsp flour", "1 tsp flour")]
 #[case::complex(
     "1 cup (125.5 grams) AP flour, sifted",
