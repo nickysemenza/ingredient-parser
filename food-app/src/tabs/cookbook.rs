@@ -175,6 +175,20 @@ impl CookbookTab {
                                 .small(),
                         );
                     }
+                    ui.separator();
+                    // Copy the whole book's extracted recipes (verbatim lines +
+                    // references) as pretty JSON to the clipboard — the same
+                    // shape as `scrape-epub --json`.
+                    if ui
+                        .button("Copy JSON")
+                        .on_hover_text("Copy all recipes as JSON to the clipboard")
+                        .clicked()
+                    {
+                        match serde_json::to_string_pretty(recipes) {
+                            Ok(json) => ui.ctx().copy_text(json),
+                            Err(e) => tracing::error!("copy JSON failed: {e}"),
+                        }
+                    }
                 });
 
                 egui::Panel::left("cookbook_list")
