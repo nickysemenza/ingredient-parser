@@ -8,6 +8,7 @@ use serde_json::json;
 
 use recipe_scraper::{RecipeSection, RecipeTimes};
 
+use crate::library::BookMeta;
 use crate::{Chunk, EpubError, Options};
 
 /// Recipe metadata the model returns (everything except the component sections).
@@ -190,6 +191,71 @@ impl ClaudeExtractor {
             model,
         })
     }
+
+    /// Issue one Anthropic Messages call with forced tool output. Returns the
+    /// tool's `input` object (`None` if the model returned no tool block), the
+    /// token usage, and the stop reason. Shared by [`Self::extract`] and the
+    /// cookbook classifier.
+    async fn call_tool(
+        &self,
+        system: &str,
+        user: String,
+        tool_name: &str,
+        tool_desc: &str,
+        schema: serde_json::Value,
+        max_tokens: u32,
+    ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), EpubError> {
+        let body = json!({
+            "model": self.model,
+            "max_tokens": max_tokens,
+            // Static prefix → cache_control lets repeated calls within the TTL
+            // reuse it (a no-op below the model's min cacheable size, but free).
+            "system": [{
+                "type": "text",
+                "text": system,
+                "cache_control": { "type": "ephemeral" }
+            }],
+            "tools": [{
+                "name": tool_name,
+                "description": tool_desc,
+                "input_schema": schema
+            }],
+            "tool_choice": { "type": "tool", "name": tool_name },
+            "messages": [{ "role": "user", "content": user }]
+        });
+
+        let mut req = self
+            .client
+            .post(&self.endpoint)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("content-type", "application/json");
+        if let Some(key) = &self.api_key {
+            req = req.header("x-api-key", key);
+        }
+        if let Some(token) = &self.gateway_token {
+            req = req.header("cf-aig-authorization", format!("Bearer {token}"));
+        }
+        let resp = req.json(&body).send().await?;
+
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            return Err(EpubError::Api {
+                status: status.as_u16(),
+                body: text,
+            });
+        }
+
+        let parsed: ApiResponse = serde_json::from_str(&text)?;
+        let usage = parsed.usage;
+        let stop_reason = parsed.stop_reason;
+        // With forced tool_choice the response carries exactly one tool_use block.
+        let input = parsed.content.into_iter().find_map(|block| match block {
+            ContentBlock::ToolUse { input } => Some(input),
+            ContentBlock::Other => None,
+        });
+        Ok((input, usage, stop_reason))
+    }
 }
 
 /// JSON Schema for the forced tool's input: `{ recipes: [ExtractedRecipe, ...] }`.
@@ -252,69 +318,30 @@ impl RecipeExtractor for ClaudeExtractor {
             None => chunk.text.clone(),
         };
 
-        let body = json!({
-            "model": self.model,
-            "max_tokens": 16000,
-            // Static prefix → cache_control lets repeated calls within the TTL
-            // reuse it (a no-op below the model's min cacheable size, but free).
-            "system": [{
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": { "type": "ephemeral" }
-            }],
-            "tools": [{
-                "name": TOOL_NAME,
-                "description": "Return every recipe found in the cookbook section.",
-                "input_schema": recipes_tool_schema()
-            }],
-            "tool_choice": { "type": "tool", "name": TOOL_NAME },
-            "messages": [{ "role": "user", "content": user_text }]
-        });
+        let (input, usage, stop_reason) = self
+            .call_tool(
+                SYSTEM_PROMPT,
+                user_text,
+                TOOL_NAME,
+                "Return every recipe found in the cookbook section.",
+                recipes_tool_schema(),
+                16000,
+            )
+            .await?;
 
-        let mut req = self
-            .client
-            .post(&self.endpoint)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json");
-        if let Some(key) = &self.api_key {
-            req = req.header("x-api-key", key);
-        }
-        if let Some(token) = &self.gateway_token {
-            req = req.header("cf-aig-authorization", format!("Bearer {token}"));
-        }
-        let resp = req.json(&body).send().await?;
-
-        let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            return Err(EpubError::Api {
-                status: status.as_u16(),
-                body: text,
-            });
-        }
-
-        let parsed: ApiResponse = serde_json::from_str(&text)?;
-        if parsed.stop_reason.as_deref() == Some("max_tokens") {
+        if stop_reason.as_deref() == Some("max_tokens") {
             tracing::warn!(
                 "chunk {} hit max_tokens; some recipes may be truncated",
                 chunk.doc_path
             );
         }
 
-        let usage = parsed.usage;
-        // With forced tool_choice the response carries exactly one tool_use block.
-        for block in parsed.content {
-            if let ContentBlock::ToolUse { input } = block {
-                let payload: RecipesPayload = serde_json::from_value(input)?;
-                return Ok(ChunkOutcome {
-                    recipes: payload.recipes,
-                    usage,
-                    cached: false,
-                });
-            }
-        }
+        let recipes = match input {
+            Some(v) => serde_json::from_value::<RecipesPayload>(v)?.recipes,
+            None => Vec::new(),
+        };
         Ok(ChunkOutcome {
-            recipes: Vec::new(),
+            recipes,
             usage,
             cached: false,
         })
@@ -439,35 +466,36 @@ impl OpenAiExtractor {
             model,
         })
     }
-}
 
-impl RecipeExtractor for OpenAiExtractor {
-    fn model(&self) -> &str {
-        &self.model
-    }
-
-    async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
-        let user_text = match &chunk.title_hint {
-            Some(t) => format!("Section title: {t}\n\n{}", chunk.text),
-            None => chunk.text.clone(),
-        };
-
+    /// Issue one OpenAI-compatible chat-completions call with a forced function
+    /// call. Returns the function's decoded arguments object (`None` if the model
+    /// returned no tool call), token usage, and finish reason. Shared by
+    /// [`Self::extract`] and the cookbook classifier.
+    async fn call_tool(
+        &self,
+        system: &str,
+        user: String,
+        tool_name: &str,
+        tool_desc: &str,
+        schema: serde_json::Value,
+        max_tokens: u32,
+    ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), EpubError> {
         let body = json!({
             "model": self.model,
-            "max_tokens": 16000,
+            "max_tokens": max_tokens,
             "messages": [
-                { "role": "system", "content": SYSTEM_PROMPT },
-                { "role": "user", "content": user_text }
+                { "role": "system", "content": system },
+                { "role": "user", "content": user }
             ],
             "tools": [{
                 "type": "function",
                 "function": {
-                    "name": TOOL_NAME,
-                    "description": "Return every recipe found in the cookbook section.",
-                    "parameters": recipes_tool_schema()
+                    "name": tool_name,
+                    "description": tool_desc,
+                    "parameters": schema
                 }
             }],
-            "tool_choice": { "type": "function", "function": { "name": TOOL_NAME } }
+            "tool_choice": { "type": "function", "function": { "name": tool_name } }
         });
 
         let mut req = self
@@ -494,21 +522,50 @@ impl RecipeExtractor for OpenAiExtractor {
         let parsed: OpenAiResponse = serde_json::from_str(&text)?;
         let usage = parsed.usage.into();
         let choice = parsed.choices.into_iter().next();
-        if let Some(reason) = choice.as_ref().and_then(|c| c.finish_reason.as_deref()) {
-            if reason == "length" {
-                tracing::warn!(
-                    "chunk {} hit token limit; some recipes may be truncated",
-                    chunk.doc_path
-                );
-            }
-        }
+        let finish_reason = choice.as_ref().and_then(|c| c.finish_reason.clone());
         let args = choice
             .and_then(|c| c.message.tool_calls)
             .and_then(|mut calls| calls.drain(..).next())
             .map(|call| call.function.arguments);
+        let input = match args {
+            Some(a) => Some(serde_json::from_str::<serde_json::Value>(&a)?),
+            None => None,
+        };
+        Ok((input, usage, finish_reason))
+    }
+}
 
-        let recipes = match args {
-            Some(args) => serde_json::from_str::<RecipesPayload>(&args)?.recipes,
+impl RecipeExtractor for OpenAiExtractor {
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
+        let user_text = match &chunk.title_hint {
+            Some(t) => format!("Section title: {t}\n\n{}", chunk.text),
+            None => chunk.text.clone(),
+        };
+
+        let (input, usage, finish_reason) = self
+            .call_tool(
+                SYSTEM_PROMPT,
+                user_text,
+                TOOL_NAME,
+                "Return every recipe found in the cookbook section.",
+                recipes_tool_schema(),
+                16000,
+            )
+            .await?;
+
+        if finish_reason.as_deref() == Some("length") {
+            tracing::warn!(
+                "chunk {} hit token limit; some recipes may be truncated",
+                chunk.doc_path
+            );
+        }
+
+        let recipes = match input {
+            Some(v) => serde_json::from_value::<RecipesPayload>(v)?.recipes,
             None => Vec::new(),
         };
         Ok(ChunkOutcome {
@@ -591,6 +648,102 @@ impl Backend {
             Ok(Backend::Claude(ClaudeExtractor::from_env(opts)?))
         }
     }
+
+    /// Ask the model which of `books` are cookbooks (one batched call). Returns a
+    /// bool per input book in the same order. See [`crate::classify_cookbooks_ai`].
+    pub async fn classify_cookbooks(&self, books: &[BookMeta]) -> Result<Vec<bool>, EpubError> {
+        let user = classify_user_prompt(books);
+        let schema = classify_tool_schema();
+        let (input, _usage, _reason) = match self {
+            Backend::Claude(e) => {
+                e.call_tool(
+                    CLASSIFY_SYSTEM_PROMPT,
+                    user,
+                    CLASSIFY_TOOL_NAME,
+                    "Return the 1-based indices of the books that are cookbooks.",
+                    schema,
+                    2000,
+                )
+                .await?
+            }
+            Backend::OpenAi(e) => {
+                e.call_tool(
+                    CLASSIFY_SYSTEM_PROMPT,
+                    user,
+                    CLASSIFY_TOOL_NAME,
+                    "Return the 1-based indices of the books that are cookbooks.",
+                    schema,
+                    2000,
+                )
+                .await?
+            }
+        };
+        let payload: ClassifyPayload = match input {
+            Some(v) => serde_json::from_value(v)?,
+            None => ClassifyPayload::default(),
+        };
+        Ok(indices_to_bools(&payload.cookbook_indices, books.len()))
+    }
+}
+
+const CLASSIFY_TOOL_NAME: &str = "label_cookbooks";
+const CLASSIFY_SYSTEM_PROMPT: &str = "\
+You are given a numbered list of books (title, plus any genre tags). Return the \
+1-based indices of the books that are COOKBOOKS — books primarily of recipes or \
+food/drink preparation. Exclude novels, memoirs (even food memoirs without \
+recipes), diet/nutrition-science books without recipes, and reference works. \
+When a book has no tags, judge from the title alone; if genuinely unsure, leave \
+it out.";
+
+/// JSON Schema for the classifier tool: `{ cookbook_indices: [int, ...] }`.
+fn classify_tool_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "cookbook_indices": {
+                "type": "array",
+                "items": { "type": "integer" }
+            }
+        },
+        "required": ["cookbook_indices"]
+    })
+}
+
+/// Render the numbered `title [tags: …]` list the classifier labels.
+fn classify_user_prompt(books: &[BookMeta]) -> String {
+    let mut s = String::from("Books:\n");
+    for (i, b) in books.iter().enumerate() {
+        if b.subjects.is_empty() {
+            s.push_str(&format!("{}. {}\n", i + 1, b.title));
+        } else {
+            s.push_str(&format!(
+                "{}. {} [tags: {}]\n",
+                i + 1,
+                b.title,
+                b.subjects.join(", ")
+            ));
+        }
+    }
+    s
+}
+
+/// The classifier tool's `input` object.
+#[derive(Deserialize, Default)]
+struct ClassifyPayload {
+    #[serde(default)]
+    cookbook_indices: Vec<usize>,
+}
+
+/// Map the model's 1-based cookbook indices to a `len`-long bool vector
+/// (out-of-range indices are ignored).
+fn indices_to_bools(indices: &[usize], len: usize) -> Vec<bool> {
+    let mut out = vec![false; len];
+    for &idx in indices {
+        if (1..=len).contains(&idx) {
+            out[idx - 1] = true;
+        }
+    }
+    out
 }
 
 impl RecipeExtractor for Backend {
@@ -760,5 +913,61 @@ mod tests {
         assert!(is_openai_compatible_model("o3-mini"));
         assert!(!is_openai_compatible_model("claude-haiku-4-5"));
         assert!(!is_openai_compatible_model("claude-sonnet-4-6"));
+    }
+
+    fn book(title: &str, subjects: &[&str]) -> BookMeta {
+        BookMeta {
+            path: std::path::PathBuf::from("/x.epub"),
+            title: title.to_string(),
+            authors: vec![],
+            subjects: subjects.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn classify_prompt_numbers_books_and_tags() {
+        let prompt = classify_user_prompt(&[
+            book("The Joy of Cooking", &["Cooking", "Reference"]),
+            book("Untagged Book", &[]),
+        ]);
+        assert!(prompt.contains("1. The Joy of Cooking [tags: Cooking, Reference]"));
+        // No tags → bare title, no empty "[tags: ]".
+        assert!(prompt.contains("2. Untagged Book\n"));
+        assert!(!prompt.contains("[tags: ]"));
+    }
+
+    #[test]
+    fn classify_indices_map_to_bools() {
+        // 1-based indices; out-of-range ignored.
+        assert_eq!(indices_to_bools(&[1, 3, 9], 3), vec![true, false, true]);
+        assert_eq!(indices_to_bools(&[], 2), vec![false, false]);
+    }
+
+    #[test]
+    fn parses_classifier_tool_response() {
+        // The classifier reuses the same forced-tool wire shape as extraction.
+        let raw = json!({
+            "stop_reason": "tool_use",
+            "content": [{
+                "type": "tool_use",
+                "name": CLASSIFY_TOOL_NAME,
+                "input": { "cookbook_indices": [2, 4] }
+            }]
+        })
+        .to_string();
+        let parsed: ApiResponse = serde_json::from_str(&raw).unwrap();
+        let input = parsed
+            .content
+            .into_iter()
+            .find_map(|b| match b {
+                ContentBlock::ToolUse { input } => Some(input),
+                ContentBlock::Other => None,
+            })
+            .unwrap();
+        let payload: ClassifyPayload = serde_json::from_value(input).unwrap();
+        assert_eq!(
+            indices_to_bools(&payload.cookbook_indices, 4),
+            vec![false, true, false, true]
+        );
     }
 }

@@ -34,6 +34,8 @@ dotenvy.workspace = true
 # Recipe-reference digraph in the Cookbook tab (native only).
 egui_graphs = "0.30"
 petgraph = "0.8"
+# Native file/folder pickers for the Cookbook tab (pick an EPUB, pick a library).
+rfd = "0.15"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"

@@ -14,11 +14,31 @@ use hub_shape::HubLabelNodeShape;
 use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use petgraph::Directed;
 use poll_promise::Promise;
-use recipe_epub::{CookbookRecipe, ExtractionStats, Options};
+use recipe_epub::{BookMeta, CookbookGuess, CookbookRecipe, ExtractionStats, Options};
+use std::path::PathBuf;
 
 use super::recipe::make_rich;
 
 type LoadResult = Result<(Vec<CookbookRecipe>, ExtractionStats), String>;
+
+/// A book discovered while scanning a library directory: its metadata, the
+/// tag-based guess, and the final cookbook verdict (which the AI fallback may
+/// override for [`CookbookGuess::Unknown`] books).
+struct ScannedBook {
+    meta: BookMeta,
+    guess: CookbookGuess,
+    is_cookbook: bool,
+}
+
+type ScanResult = Result<Vec<ScannedBook>, String>;
+
+/// What the library browser wants the caller to do after a frame (kept separate
+/// from rendering so the per-row click handlers don't need `&mut self`).
+enum LibraryAction {
+    None,
+    Rescan,
+    Load(String),
+}
 
 /// Node circle radius in canvas units. egui_graphs sizes the node label font to
 /// the radius, so this also controls label legibility (default 5 is too small).
@@ -62,7 +82,6 @@ type RefGraphView<'a> = GraphView<
 >;
 
 /// State for the Cookbook (EPUB) tab.
-#[derive(Default)]
 pub struct CookbookTab {
     path: String,
     no_cache: bool,
@@ -77,16 +96,67 @@ pub struct CookbookTab {
     /// Whether the layout has been pre-warmed (run headless) for the current
     /// graph, so it opens settled rather than visibly animating into place.
     graph_prewarmed: bool,
+    /// The library directory last scanned (for `Re-scan`).
+    library_dir: Option<PathBuf>,
+    /// `None` until a library scan is started.
+    scan: Option<Promise<ScanResult>>,
+    /// Show only books judged to be cookbooks in the library list.
+    cookbooks_only: bool,
+    /// Run the AI fallback over untagged books during a scan.
+    use_ai_fallback: bool,
+    /// Free-text filter over the library list (title + authors).
+    filter_text: String,
+}
+
+impl Default for CookbookTab {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            no_cache: false,
+            promise: None,
+            selected: 0,
+            show_graph: false,
+            graph: None,
+            graph_prewarmed: false,
+            library_dir: None,
+            scan: None,
+            // Default the library list to cookbooks only — the whole point of
+            // pointing at a Calibre root is to skip the novels.
+            cookbooks_only: true,
+            use_ai_fallback: false,
+            filter_text: String::new(),
+        }
+    }
 }
 
 impl CookbookTab {
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+
+        // Source controls: pick a single EPUB, pick a whole library, or type a path.
         ui.horizontal(|ui| {
-            ui.label("EPUB:");
+            if ui.button("📂 Pick EPUB…").clicked() {
+                if let Some(p) = rfd::FileDialog::new()
+                    .add_filter("EPUB", &["epub"])
+                    .pick_file()
+                {
+                    self.path = p.to_string_lossy().into_owned();
+                    self.start_load(ctx.clone());
+                }
+            }
+            if ui
+                .button("🗂 Pick library…")
+                .on_hover_text("Pick a Calibre root (or any folder); finds every .epub inside")
+                .clicked()
+            {
+                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                    self.start_scan(dir, ctx.clone());
+                }
+            }
             ui.add(
                 egui::TextEdit::singleline(&mut self.path)
                     .hint_text("/path/to/cookbook.epub")
-                    .desired_width(440.0),
+                    .desired_width(340.0),
             );
             ui.checkbox(&mut self.no_cache, "No cache");
             let can_load = !self.path.trim().is_empty();
@@ -94,7 +164,7 @@ impl CookbookTab {
                 .add_enabled(can_load, egui::Button::new("Load"))
                 .clicked()
             {
-                self.start_load(ui.ctx().clone());
+                self.start_load(ctx.clone());
             }
         });
         ui.label(
@@ -108,8 +178,50 @@ impl CookbookTab {
         );
         ui.separator();
 
+        // Library browser: shown once a directory has been scanned. Clicking a
+        // book feeds the existing extract→browse flow below.
+        let mut action = LibraryAction::None;
+        let mut rendered_library = false;
+        if let Some(scan) = &self.scan {
+            rendered_library = true;
+            // Disjoint field borrows: `scan` (shared) vs the filter/toggle
+            // fields (mutable) — distinct `self` fields, so all coexist.
+            let cookbooks_only = &mut self.cookbooks_only;
+            let use_ai = &mut self.use_ai_fallback;
+            let filter = &mut self.filter_text;
+            match scan.ready() {
+                None => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Scanning library…");
+                    });
+                }
+                Some(Err(err)) => {
+                    ui.colored_label(ui.visuals().error_fg_color, err);
+                }
+                Some(Ok(books)) => {
+                    action = show_library(ui, books, cookbooks_only, use_ai, filter);
+                }
+            }
+        }
+        if rendered_library {
+            match action {
+                LibraryAction::None => {}
+                LibraryAction::Rescan => {
+                    if let Some(dir) = self.library_dir.clone() {
+                        self.start_scan(dir, ctx.clone());
+                    }
+                }
+                LibraryAction::Load(path) => {
+                    self.path = path;
+                    self.start_load(ctx.clone());
+                }
+            }
+            ui.separator();
+        }
+
         let Some(promise) = &self.promise else {
-            ui.label("Enter the path to a .epub file and click Load.");
+            ui.label("Pick or load an EPUB to view its recipes.");
             return;
         };
 
@@ -255,6 +367,155 @@ impl CookbookTab {
             result
         }));
     }
+
+    /// Scan a directory for epubs and classify each as cookbook-or-not. Runs off
+    /// the UI thread (like [`Self::start_load`]); reading each book's OPF is cheap
+    /// (lazy, no content decompression). When `use_ai_fallback` is on, the
+    /// untagged ([`CookbookGuess::Unknown`]) books are settled by one batched LLM
+    /// call.
+    fn start_scan(&mut self, dir: PathBuf, ctx: egui::Context) {
+        self.library_dir = Some(dir.clone());
+        let use_ai = self.use_ai_fallback;
+        self.scan = Some(Promise::spawn_thread("scan_library", move || {
+            let result = (|| -> ScanResult {
+                let mut books: Vec<ScannedBook> = recipe_epub::find_epubs(&dir)
+                    .iter()
+                    .filter_map(|p| recipe_epub::book_metadata(p).ok())
+                    .map(|meta| {
+                        let guess = recipe_epub::classify_by_tags(&meta);
+                        ScannedBook {
+                            is_cookbook: guess == CookbookGuess::Yes,
+                            guess,
+                            meta,
+                        }
+                    })
+                    .collect();
+
+                // AI fallback: classify only the untagged books the heuristic
+                // couldn't settle, in one batched call.
+                if use_ai {
+                    let unknown: Vec<usize> = books
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, b)| b.guess == CookbookGuess::Unknown)
+                        .map(|(i, _)| i)
+                        .collect();
+                    if !unknown.is_empty() {
+                        let metas: Vec<BookMeta> =
+                            unknown.iter().map(|&i| books[i].meta.clone()).collect();
+                        let rt = tokio::runtime::Builder::new_multi_thread()
+                            .enable_all()
+                            .build()
+                            .map_err(|e| format!("tokio runtime: {e}"))?;
+                        let verdicts = rt
+                            .block_on(recipe_epub::classify_cookbooks_ai(
+                                &metas,
+                                &Options::default(),
+                            ))
+                            .map_err(|e| e.to_string())?;
+                        for (&i, is_cookbook) in unknown.iter().zip(verdicts) {
+                            books[i].is_cookbook = is_cookbook;
+                        }
+                    }
+                }
+
+                // Cookbooks first, then alphabetical by title.
+                books.sort_by(|a, b| {
+                    (!a.is_cookbook, a.meta.title.to_lowercase())
+                        .cmp(&(!b.is_cookbook, b.meta.title.to_lowercase()))
+                });
+                Ok(books)
+            })();
+            ctx.request_repaint();
+            result
+        }));
+    }
+}
+
+/// Render the scanned-library browser: a summary line, the cookbooks-only / AI
+/// toggles + re-scan, a search box, and the (filtered) book list. Returns the
+/// action the caller should take with `&mut self` (a row click → load, the
+/// button → re-scan).
+fn show_library(
+    ui: &mut egui::Ui,
+    books: &[ScannedBook],
+    cookbooks_only: &mut bool,
+    use_ai: &mut bool,
+    filter: &mut String,
+) -> LibraryAction {
+    let mut action = LibraryAction::None;
+    let cookbook_count = books.iter().filter(|b| b.is_cookbook).count();
+    let unknown_count = books
+        .iter()
+        .filter(|b| b.guess == CookbookGuess::Unknown)
+        .count();
+
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(format!(
+                "{} epubs · {cookbook_count} cookbooks",
+                books.len()
+            ))
+            .strong(),
+        );
+        ui.separator();
+        ui.checkbox(cookbooks_only, "Cookbooks only");
+        ui.checkbox(use_ai, "Use AI for untagged")
+            .on_hover_text(format!(
+                "{unknown_count} book(s) have no tags to judge from. Enable, then Re-scan to \
+             classify them with the model.",
+            ));
+        if ui
+            .button("Re-scan")
+            .on_hover_text("Re-read the same library directory")
+            .clicked()
+        {
+            action = LibraryAction::Rescan;
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label("🔎");
+        ui.add(
+            egui::TextEdit::singleline(filter)
+                .hint_text("filter by title or author")
+                .desired_width(300.0),
+        );
+    });
+
+    let needle = filter.trim().to_lowercase();
+    egui::ScrollArea::vertical()
+        .max_height(220.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            for b in books {
+                if *cookbooks_only && !b.is_cookbook {
+                    continue;
+                }
+                if !needle.is_empty() {
+                    let hay =
+                        format!("{} {}", b.meta.title, b.meta.authors.join(" ")).to_lowercase();
+                    if !hay.contains(&needle) {
+                        continue;
+                    }
+                }
+                let label = if b.meta.authors.is_empty() {
+                    b.meta.title.clone()
+                } else {
+                    format!("{} — {}", b.meta.title, b.meta.authors.join(", "))
+                };
+                let resp = ui.selectable_label(false, label).on_hover_text(
+                    if b.meta.subjects.is_empty() {
+                        "no tags".to_string()
+                    } else {
+                        b.meta.subjects.join(", ")
+                    },
+                );
+                if resp.clicked() {
+                    action = LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
+                }
+            }
+        });
+    action
 }
 
 /// Render the selected recipe's detail view. Returns `Some(idx)` if the user

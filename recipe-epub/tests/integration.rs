@@ -21,6 +21,9 @@ const OPF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="2.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:title>Test Cookbook</dc:title>
+    <dc:creator>Test Author</dc:creator>
+    <dc:subject>Cooking</dc:subject>
+    <dc:subject>Italian</dc:subject>
     <dc:identifier id="bookid">urn:uuid:test-cookbook</dc:identifier>
     <dc:language>en</dc:language>
   </metadata>
@@ -98,6 +101,24 @@ fn er(title: &str, ings: &[&str], steps: &[&str]) -> ExtractedRecipe {
             instructions: steps.iter().map(|s| s.to_string()).collect(),
         }],
     }
+}
+
+#[test]
+fn reads_book_metadata_from_opf() {
+    use recipe_epub::{book_metadata, classify_by_tags, CookbookGuess};
+
+    // book_metadata reads from a path, so stage the in-memory epub on disk.
+    let bytes = build_epub();
+    let path = std::env::temp_dir().join(format!("recipe-epub-meta-{}.epub", std::process::id()));
+    std::fs::write(&path, &bytes).unwrap();
+
+    let meta = book_metadata(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+
+    assert_eq!(meta.title, "Test Cookbook");
+    assert_eq!(meta.authors, vec!["Test Author"]);
+    assert_eq!(meta.subjects, vec!["Cooking", "Italian"]);
+    assert_eq!(classify_by_tags(&meta), CookbookGuess::Yes);
 }
 
 #[tokio::test]

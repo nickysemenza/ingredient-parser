@@ -14,11 +14,16 @@
 mod cache;
 mod epub_text;
 mod extractor;
+mod library;
 
 use std::path::PathBuf;
 
 pub use extractor::{
     ChunkOutcome, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, Usage,
+};
+// Library scanning: list + classify the cookbooks in a directory of epubs.
+pub use library::{
+    book_metadata, classify_by_tags, classify_cookbooks_ai, find_epubs, BookMeta, CookbookGuess,
 };
 // Backend selection + the concrete extractors are internal; callers go through
 // `extract_cookbook` (auto-selects) or `extract_cookbook_with` (supply your own).

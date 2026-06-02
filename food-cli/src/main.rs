@@ -122,29 +122,6 @@ fn emit_parsed_line(ip: &ingredient::IngredientParser, line: &str) {
     println!("{}", serde_json::to_string(&obj).unwrap());
 }
 
-/// Recursively collect `.epub` files under `dir`.
-fn find_epubs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let mut out = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&d) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("epub"))
-            {
-                out.push(p);
-            }
-        }
-    }
-    out
-}
-
 #[tokio::main]
 async fn main() {
     // Load AI gateway creds (AI_GATEWAY_API_KEY, ANTHROPIC_BASE_URL, …) from a
@@ -240,7 +217,7 @@ async fn main() {
             bottom,
             concurrency,
         } => {
-            let mut epubs = find_epubs(std::path::Path::new(dir));
+            let mut epubs = recipe_epub::find_epubs(std::path::Path::new(dir));
             epubs.sort();
             epubs.truncate(*limit);
 
