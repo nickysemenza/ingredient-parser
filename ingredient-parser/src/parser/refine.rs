@@ -444,4 +444,108 @@ mod tests {
     fn test_strip_wrapping_parens_none() {
         assert_eq!(strip_wrapping_parens(None), None);
     }
+
+    // ------------------------------------------------------------------
+    // Per-pass guard tests. These exercise the subtle conditions in each
+    // refine pass directly (previously only covered end-to-end by the
+    // accuracy corpus), so a regression points at the exact pass.
+    // ------------------------------------------------------------------
+
+    fn ing(name: &str, modifier: Option<&str>) -> Ingredient {
+        Ingredient {
+            name: name.to_string(),
+            amounts: vec![],
+            modifier: modifier.map(str::to_string),
+            optional: false,
+        }
+    }
+
+    /// A name that is exactly a known prep phrase swaps with the modifier; a
+    /// descriptive name is left alone (the exact-match guard).
+    #[rstest]
+    #[case::swaps(
+        "finely chopped",
+        Some("raw pistachios"),
+        "raw pistachios",
+        Some("finely chopped")
+    )]
+    #[case::no_swap_descriptive(
+        "raw pistachios",
+        Some("finely chopped"),
+        "raw pistachios",
+        Some("finely chopped")
+    )]
+    #[case::no_swap_no_modifier("chopped", None, "chopped", None)]
+    fn test_fix_leading_prep_phrase(
+        #[case] name: &str,
+        #[case] modifier: Option<&str>,
+        #[case] want_name: &str,
+        #[case] want_modifier: Option<&str>,
+    ) {
+        let parser = IngredientParser::new();
+        let mut i = ing(name, modifier);
+        parser.fix_leading_prep_phrase(&mut i);
+        assert_eq!(i.name, want_name);
+        assert_eq!(i.modifier.as_deref(), want_modifier);
+    }
+
+    /// "minus <measure> <name>" moves the subtractive clause to the modifier and
+    /// restores the real name.
+    #[test]
+    fn test_fix_leading_minus_clause() {
+        let parser = IngredientParser::new();
+        let mut i = ing("minus 1 tablespoon flour", None);
+        parser.fix_leading_minus_clause(&mut i);
+        assert_eq!(i.name, "flour");
+        assert_eq!(i.modifier.as_deref(), Some("minus 1 tablespoon"));
+    }
+
+    /// Adjectives are pulled from the name into the modifier, but only on word
+    /// boundaries (so "well-chopped" is left intact).
+    #[rstest]
+    #[case::extracts("chopped onion", "onion", Some("chopped"))]
+    #[case::boundary_guard("well-chopped onion", "well-chopped onion", None)]
+    fn test_extract_adjectives_from_name(
+        #[case] name: &str,
+        #[case] want_name: &str,
+        #[case] want_modifier: Option<&str>,
+    ) {
+        let parser = IngredientParser::new();
+        let mut i = ing(name, None);
+        parser.extract_adjectives_from_name(&mut i);
+        assert_eq!(i.name, want_name);
+        assert_eq!(i.modifier.as_deref(), want_modifier);
+    }
+
+    /// A leading "<participle> or <adjective> <noun>" prep alternative moves to
+    /// the modifier; a genuine two-ingredient alternative is left alone.
+    #[rstest]
+    #[case::prep_alt("grated or finely chopped lemon zest", "lemon zest", true)]
+    #[case::genuine_alt("basil or chopped parsley", "basil or chopped parsley", false)]
+    fn test_extract_leading_prep_alternative(
+        #[case] name: &str,
+        #[case] want_name: &str,
+        #[case] moved: bool,
+    ) {
+        let parser = IngredientParser::new();
+        let mut i = ing(name, None);
+        parser.extract_leading_prep_alternative(&mut i);
+        assert_eq!(i.name, want_name);
+        assert_eq!(i.modifier.is_some(), moved, "name: {name}");
+    }
+
+    /// "(about N unit)" in the modifier hoists a secondary amount; a distance
+    /// aside ("(about 3-inch)") is a shape descriptor and is left in place.
+    #[rstest]
+    #[case::hoists("chopped (about 2 cups)", 1)]
+    #[case::distance_kept("cut into (about 3-inch) strips", 0)]
+    fn test_extract_secondary_amounts_from_modifier(
+        #[case] modifier: &str,
+        #[case] want_amounts: usize,
+    ) {
+        let parser = IngredientParser::new();
+        let mut i = ing("scallions", Some(modifier));
+        parser.extract_secondary_amounts_from_modifier(&mut i);
+        assert_eq!(i.amounts.len(), want_amounts, "modifier: {modifier}");
+    }
 }
