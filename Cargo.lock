@@ -4200,6 +4200,7 @@ dependencies = [
  "futures",
  "ingredient",
  "recipe-scraper",
+ "recipe-types",
  "reqwest",
  "rstest",
  "scraper",
@@ -4218,6 +4219,7 @@ version = "0.1.0"
 dependencies = [
  "ingredient",
  "pretty_assertions",
+ "recipe-types",
  "rstest",
  "scraper",
  "serde",
@@ -4238,6 +4240,13 @@ dependencies = [
  "task-local-extensions",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "recipe-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

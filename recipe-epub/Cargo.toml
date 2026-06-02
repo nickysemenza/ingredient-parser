@@ -16,6 +16,7 @@ ego-tree = "0.11"  # DOM traversal of scraper's tree (same version scraper uses)
 reqwest = { version = "0.13", features = ["json"] }  # default TLS is rustls in 0.13
 sha2 = "0.10"  # content-hash keys for the on-disk extraction cache
 ingredient.workspace = true
+recipe-types.workspace = true  # plain data shapes (RecipeMeta/CookbookRecipe/…)
 recipe-scraper.workspace = true  # shared RecipeSection/ParsedSection + parse_sections
 serde.workspace = true
 serde_json.workspace = true

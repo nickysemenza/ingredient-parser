@@ -13,6 +13,7 @@ serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 ingredient.workspace = true
+recipe-types.workspace = true
 [dev-dependencies]
 pretty_assertions = "1"
 rstest.workspace = true

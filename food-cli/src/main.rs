@@ -2,6 +2,7 @@
 #![allow(clippy::unwrap_used)]
 
 use clap::{Parser, Subcommand};
+use recipe_epub::CookbookRecipeExt; // .parse() / .low_confidence_lines() on CookbookRecipe
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]

@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "ingredient-wasm",
     "ingredient-parser",
+    "recipe-types",
     "recipe-scraper",
     "recipe-scraper-fetcher",
     "recipe-epub",
@@ -21,6 +22,7 @@ thiserror = "2.0"
 futures = "0.3.32"
 dotenvy = "0.15"
 ingredient = { path = "ingredient-parser" }
+recipe-types = { path = "recipe-types" }
 recipe-scraper = { path = "recipe-scraper" }
 recipe-epub = { path = "recipe-epub" }
 

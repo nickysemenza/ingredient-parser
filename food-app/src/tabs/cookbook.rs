@@ -14,7 +14,9 @@ use hub_shape::HubLabelNodeShape;
 use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use petgraph::Directed;
 use poll_promise::Promise;
-use recipe_epub::{BookMeta, CookbookGuess, CookbookRecipe, ExtractionStats, Options};
+use recipe_epub::{
+    BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionStats, Options,
+};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

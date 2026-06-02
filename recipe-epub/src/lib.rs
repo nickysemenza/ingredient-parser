@@ -117,46 +117,12 @@ pub struct Chunk {
     pub links: Vec<Link>,
 }
 
-/// How confident we are that an ingredient line references another recipe.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RefConfidence {
-    /// Backed by an EPUB internal hyperlink (`<a href="#…">`) — the author's
-    /// literal pointer to the target recipe (Layer 2).
-    Linked,
-    /// The target recipe's title appears in the ingredient line (Layer 1).
-    TitleMatch,
-}
-
-/// A detected reference from one recipe to another in the same cookbook, e.g.
-/// the ingredient line "1 recipe The Only Piecrust (this page)" referencing the
-/// "The Only Piecrust" recipe.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RecipeRef {
-    /// The referenced recipe's title (as that recipe reports it).
-    pub title: String,
-    /// The verbatim ingredient line the reference was found in.
-    pub line: String,
-    /// How the reference was detected.
-    pub confidence: RefConfidence,
-}
-
-/// A fully assembled recipe (raw verbatim strings) with provenance. This is the
-/// crate's output type; call [`CookbookRecipe::parse`] to structure the lines.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CookbookRecipe {
-    pub meta: RecipeMeta,
-    pub sections: Vec<RecipeSection>,
-    /// The book this came from (the caller's `source` label).
-    pub source: String,
-    /// `source#doc_path` for traceability.
-    pub url: String,
-    /// Other recipes in the same book this one references as ingredients.
-    /// Derived after assembly (not extracted by the LLM, not part of the cache
-    /// payload), so it defaults to empty when deserializing older cached JSON.
-    #[serde(default)]
-    pub references: Vec<RecipeRef>,
-}
+// The assembled-recipe data shapes (`CookbookRecipe`, `RecipeRef`,
+// `RefConfidence`) are plain data and live in the deps-light `recipe-types` crate
+// so the cookbook JSON contract can be depended on without this crate's EPUB/LLM
+// stack. Re-exported here so existing `recipe_epub::CookbookRecipe` (etc.) paths
+// are unchanged. The parser-aware operations live in [`CookbookRecipeExt`] below.
+pub use recipe_types::{CookbookRecipe, RecipeRef, RefConfidence};
 
 /// [`CookbookRecipe`] with each ingredient line parsed into a structured
 /// [`Ingredient`] and each instruction into a [`Rich`] (measurement-aware).
@@ -171,10 +137,24 @@ pub struct ParsedCookbookRecipe {
     pub references: Vec<RecipeRef>,
 }
 
-impl CookbookRecipe {
+/// Parser-aware operations on a [`CookbookRecipe`]. These live here rather than on
+/// the type itself (which is now in the deps-light `recipe-types` crate) because
+/// they run the core `ingredient` parser. Bring this trait into scope to call
+/// `recipe.parse()` / `recipe.low_confidence_lines()`.
+pub trait CookbookRecipeExt {
     /// Parse every section's verbatim lines with the shared core parser (the same
     /// [`recipe_scraper::parse_sections`] the web scraper uses).
-    pub fn parse(&self) -> ParsedCookbookRecipe {
+    fn parse(&self) -> ParsedCookbookRecipe;
+
+    /// Ingredient lines that look quantified (contain a digit or unicode
+    /// fraction) but which the nom parser extracts **no** amount from — i.e.
+    /// likely parser gaps worth adding to the accuracy corpus. Vocab-free: the
+    /// only signal is "has a number but no parsed amount".
+    fn low_confidence_lines(&self) -> Vec<String>;
+}
+
+impl CookbookRecipeExt for CookbookRecipe {
+    fn parse(&self) -> ParsedCookbookRecipe {
         ParsedCookbookRecipe {
             meta: self.meta.clone(),
             source: self.source.clone(),
@@ -184,11 +164,7 @@ impl CookbookRecipe {
         }
     }
 
-    /// Ingredient lines that look quantified (contain a digit or unicode
-    /// fraction) but which the nom parser extracts **no** amount from — i.e.
-    /// likely parser gaps worth adding to the accuracy corpus. Vocab-free: the
-    /// only signal is "has a number but no parsed amount".
-    pub fn low_confidence_lines(&self) -> Vec<String> {
+    fn low_confidence_lines(&self) -> Vec<String> {
         let ip = ingredient::IngredientParser::new();
         self.sections
             .iter()

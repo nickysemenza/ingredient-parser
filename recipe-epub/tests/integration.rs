@@ -4,8 +4,8 @@
 use std::io::{Cursor, Write};
 
 use recipe_epub::{
-    extract_cookbook_with, EpubError, ExtractedRecipe, MockExtractor, Options, RecipeMeta,
-    RecipeSection,
+    extract_cookbook_with, CookbookRecipeExt, EpubError, ExtractedRecipe, MockExtractor, Options,
+    RecipeMeta, RecipeSection,
 };
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};

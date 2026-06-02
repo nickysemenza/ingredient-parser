@@ -6,38 +6,15 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use recipe_scraper::{RecipeSection, RecipeTimes};
+use recipe_scraper::RecipeSection;
 
 use crate::library::BookMeta;
 use crate::{Chunk, EpubError, Options};
 
-/// Recipe metadata the model returns (everything except the component sections).
-/// Flattened into [`ExtractedRecipe`] and the public output types so they all
-/// serialize as one flat object.
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
-pub struct RecipeMeta {
-    pub title: String,
-    /// Headnote / intro blurb.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// Yield/servings line, e.g. "Makes 1 loaf".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recipe_yield: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub times: Option<RecipeTimes>,
-    /// Special-equipment lines.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub equipment: Vec<String>,
-    /// Do-ahead/make-ahead notes, tips, "serve with" suggestions.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub notes: Vec<String>,
-    /// Chapter/category within the book.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,
-    /// Page number, if printed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub page: Option<String>,
-}
+// `RecipeMeta` is a plain data shape; it lives in the deps-light `recipe-types`
+// crate and is re-exported here (and from the crate root) so existing
+// `recipe_epub::RecipeMeta` paths are unchanged.
+pub use recipe_types::RecipeMeta;
 
 /// A recipe as segmented + labeled by the extractor (model output). Sections use
 /// the shared [`recipe_scraper::RecipeSection`] type; ingredient/instruction

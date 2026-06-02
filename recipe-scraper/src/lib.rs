@@ -30,59 +30,11 @@ pub enum ScrapeError {
     #[error("could not parse `{0}`")]
     Parse(String),
 }
-/// Structured yield from a recipe (e.g., "12 pancakes")
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
-pub struct RecipeYield {
-    pub value: f64,
-    pub unit: String,
-}
-
-/// Printed times. Any field may be absent. Shared workspace-wide: the web scraper
-/// fills it from JSON-LD ISO-8601 durations, `recipe-epub` from the model's output.
-/// `active` has no JSON-LD source, so it stays `None` for scraped recipes.
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
-pub struct RecipeTimes {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub total: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prep: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cook: Option<String>,
-}
-
-impl RecipeTimes {
-    /// `true` when every field is absent (so callers can collapse to `None`).
-    pub fn is_empty(&self) -> bool {
-        self.active.is_none() && self.total.is_none() && self.prep.is_none() && self.cook.is_none()
-    }
-}
-
-/// One component of a recipe (e.g. "For the sauce"). A recipe is fundamentally
-/// metadata + sections; the common case is a single unnamed section. Ingredient
-/// and instruction lines are raw strings — [`ScrapedRecipe::parse`] structures
-/// them with the core `ingredient` parser.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
-pub struct RecipeSection {
-    /// Component label; `None` for the main/only section.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    pub ingredients: Vec<String>,
-    #[serde(default)]
-    pub instructions: Vec<String>,
-}
-
-impl RecipeSection {
-    /// An unnamed section — the common single-section case.
-    pub fn new(ingredients: Vec<String>, instructions: Vec<String>) -> Self {
-        Self {
-            name: None,
-            ingredients,
-            instructions,
-        }
-    }
-}
+// The plain recipe data shapes (yield, times, section) live in the deps-light
+// `recipe-types` crate so the JSON contract can be depended on without the
+// scraper/parser. Re-exported here so existing `recipe_scraper::RecipeSection`
+// (etc.) paths and the workspace-wide "one shape" guarantee are unchanged.
+pub use recipe_types::{RecipeSection, RecipeTimes, RecipeYield};
 
 /// A section with its ingredient/instruction lines parsed.
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
