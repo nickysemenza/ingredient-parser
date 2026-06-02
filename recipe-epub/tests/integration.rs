@@ -140,7 +140,7 @@ async fn extracts_recipes_skipping_front_matter() {
     ]);
 
     let bytes = build_epub();
-    let recipes = extract_cookbook_with(&bytes, "test.epub", &Options::default(), &mock)
+    let recipes = extract_cookbook_with(&bytes, "test.epub", &Options::default(), &mock, |_| {})
         .await
         .unwrap();
 
@@ -179,7 +179,7 @@ async fn parses_verbatim_strings_with_core_parser() {
         )],
     )]);
     let bytes = build_epub();
-    let recipes = extract_cookbook_with(&bytes, "test.epub", &Options::default(), &mock)
+    let recipes = extract_cookbook_with(&bytes, "test.epub", &Options::default(), &mock, |_| {})
         .await
         .unwrap();
     let parsed = recipes[0].parse();
@@ -197,8 +197,47 @@ async fn bad_zip_is_open_error() {
         "x.epub",
         &Options::default(),
         &mock,
+        |_| {},
     )
     .await
     .unwrap_err();
     assert!(matches!(err, EpubError::Open(_)), "got {err:?}");
+}
+
+#[tokio::test]
+async fn progress_sink_reports_each_chunk() {
+    use std::sync::Mutex;
+
+    let mock = MockExtractor::new(vec![
+        (
+            "Pancakes".to_string(),
+            vec![er("Pancakes", &["1 cup flour"], &["Mix."])],
+        ),
+        (
+            "Omelette".to_string(),
+            vec![er("Omelette", &["3 eggs"], &["Fry."])],
+        ),
+    ]);
+    let bytes = build_epub();
+
+    // Record every snapshot the sink receives (it fires from concurrent tasks).
+    let snaps = Mutex::new(Vec::<recipe_epub::ExtractProgress>::new());
+    recipe_epub::extract_cookbook_with(&bytes, "test.epub", &Options::default(), &mock, |p| {
+        snaps.lock().unwrap().push(p);
+    })
+    .await
+    .unwrap();
+
+    let snaps = snaps.into_inner().unwrap();
+    // One initial (done == 0) snapshot, then one per finished chunk.
+    let total = snaps[0].total;
+    assert!(total > 0, "total should be known up front");
+    assert_eq!(snaps.len(), total + 1, "init snapshot + one per chunk");
+    assert_eq!(snaps[0].done, 0);
+    // The final snapshot reports all chunks done; `done` never exceeds `total`.
+    let last = snaps.last().unwrap();
+    assert_eq!(last.done, total);
+    assert!(snaps
+        .iter()
+        .all(|s| s.done <= s.total && s.cached <= s.done));
 }

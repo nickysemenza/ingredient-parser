@@ -16,6 +16,8 @@ use petgraph::Directed;
 use poll_promise::Promise;
 use recipe_epub::{BookMeta, CookbookGuess, CookbookRecipe, ExtractionStats, Options};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use super::recipe::make_rich;
 
@@ -31,6 +33,16 @@ struct ScannedBook {
 }
 
 type ScanResult = Result<Vec<ScannedBook>, String>;
+
+/// Live extraction progress, shared between the worker thread (which writes it as
+/// each chunk finishes) and the UI thread (which reads it each frame to draw the
+/// progress bar). Lock-free atomics — Relaxed is fine for a display counter.
+#[derive(Default)]
+struct ExtractProgressCell {
+    done: AtomicUsize,
+    total: AtomicUsize,
+    cached: AtomicUsize,
+}
 
 /// What the library browser wants the caller to do after a frame (kept separate
 /// from rendering so the per-row click handlers don't need `&mut self`).
@@ -87,6 +99,9 @@ pub struct CookbookTab {
     no_cache: bool,
     /// `None` until a load is started.
     promise: Option<Promise<LoadResult>>,
+    /// Live chunk-extraction progress for the in-flight `promise`, drawn as a
+    /// determinate bar while it runs. Re-created on each load.
+    extract_progress: Option<Arc<ExtractProgressCell>>,
     selected: usize,
     /// Whether the central panel shows the reference digraph vs the browser.
     show_graph: bool,
@@ -114,6 +129,7 @@ impl Default for CookbookTab {
             path: String::new(),
             no_cache: false,
             promise: None,
+            extract_progress: None,
             selected: 0,
             show_graph: false,
             graph: None,
@@ -225,12 +241,28 @@ impl CookbookTab {
             return;
         };
 
+        // Bound before the match so the pending arm can read it alongside the
+        // shared `&self.promise` borrow (distinct fields → disjoint borrows).
+        let progress = self.extract_progress.as_ref();
         match promise.ready() {
             None => {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label("Extracting recipes…");
-                });
+                // Once the chunk count is known, show a determinate bar that fills
+                // chunk-by-chunk; until then, fall back to the spinner.
+                let total = progress.map_or(0, |p| p.total.load(Ordering::Relaxed));
+                if total > 0 {
+                    let done = progress.map_or(0, |p| p.done.load(Ordering::Relaxed));
+                    let cached = progress.map_or(0, |p| p.cached.load(Ordering::Relaxed));
+                    ui.add(
+                        egui::ProgressBar::new(done as f32 / total as f32).text(format!(
+                            "Extracting… {done}/{total} chunks · {cached} cached"
+                        )),
+                    );
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Extracting recipes…");
+                    });
+                }
             }
             Some(Err(err)) => {
                 ui.colored_label(ui.visuals().error_fg_color, err);
@@ -347,6 +379,11 @@ impl CookbookTab {
         self.selected = 0;
         self.graph = None; // rebuilt for the newly loaded book
         self.graph_prewarmed = false;
+        // Fresh progress cell for this load (so no stale bar from a prior run);
+        // one clone stays on `self` for the UI, the other goes to the worker.
+        let progress = Arc::new(ExtractProgressCell::default());
+        self.extract_progress = Some(progress.clone());
+        let progress_ctx = ctx.clone();
         self.promise = Some(Promise::spawn_thread("scrape_epub", move || {
             let result = (|| -> LoadResult {
                 let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
@@ -358,8 +395,20 @@ impl CookbookTab {
                     use_cache: !no_cache,
                     ..Default::default()
                 };
-                rt.block_on(recipe_epub::extract_cookbook(&bytes, &path, &opts))
-                    .map_err(|e| e.to_string())
+                rt.block_on(recipe_epub::extract_cookbook_with_progress(
+                    &bytes,
+                    &path,
+                    &opts,
+                    |p| {
+                        // Publish the latest counts and wake the UI so the bar
+                        // advances live as each chunk lands.
+                        progress.done.store(p.done, Ordering::Relaxed);
+                        progress.total.store(p.total, Ordering::Relaxed);
+                        progress.cached.store(p.cached, Ordering::Relaxed);
+                        progress_ctx.request_repaint();
+                    },
+                ))
+                .map_err(|e| e.to_string())
             })();
             // Wake the UI thread when extraction finishes (poll-promise doesn't
             // repaint on its own).

@@ -17,6 +17,7 @@ mod extractor;
 mod library;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub use extractor::{
     ChunkOutcome, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, Usage,
@@ -213,6 +214,33 @@ pub async fn extract_cookbook(
     source: &str,
     opts: &Options,
 ) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
+    extract_cookbook_with_progress(bytes, source, opts, |_| {}).await
+}
+
+/// Progress snapshot emitted during [`extract_cookbook_with_progress`]: how many
+/// chunks have finished extracting (`done`) out of `total`, and how many of those
+/// came from the on-disk cache (`cached`). Each snapshot is internally consistent
+/// (the counts come from monotonic atomic increments).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ExtractProgress {
+    /// Chunks finished so far.
+    pub done: usize,
+    /// Total chunks the book was split into (known once chunking completes).
+    pub total: usize,
+    /// Of the finished chunks, how many were served from cache (no API call).
+    pub cached: usize,
+}
+
+/// Like [`extract_cookbook`] but reports progress as each chunk completes. The
+/// sink is called once with `done == 0` when the chunk count is known, then once
+/// per finished chunk. It runs from the concurrent extraction tasks, so it must
+/// be `Send + Sync` (e.g. a closure writing to shared atomics).
+pub async fn extract_cookbook_with_progress(
+    bytes: &[u8],
+    source: &str,
+    opts: &Options,
+    progress: impl Fn(ExtractProgress) + Send + Sync,
+) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
     let extractor = Backend::from_env(opts)?;
     if opts.use_cache {
         let caching = CachingExtractor {
@@ -220,9 +248,9 @@ pub async fn extract_cookbook(
             dir: opts.cache_dir.clone().unwrap_or_else(cache::default_dir),
             model: extractor.model().to_string(),
         };
-        extract_cookbook_with_stats(bytes, source, opts, &caching).await
+        extract_cookbook_with_stats(bytes, source, opts, &caching, &progress).await
     } else {
-        extract_cookbook_with_stats(bytes, source, opts, &extractor).await
+        extract_cookbook_with_stats(bytes, source, opts, &extractor, &progress).await
     }
 }
 
@@ -325,26 +353,38 @@ impl<E: RecipeExtractor> RecipeExtractor for CachingExtractor<'_, E> {
 }
 
 /// Like [`extract_cookbook`] but with a caller-supplied extractor (used by tests
-/// with [`MockExtractor`]).
+/// with [`MockExtractor`]) and a progress sink (pass `|_| {}` to ignore it).
 pub async fn extract_cookbook_with<E: RecipeExtractor>(
     bytes: &[u8],
     source: &str,
     opts: &Options,
     extractor: &E,
+    progress: impl Fn(ExtractProgress) + Send + Sync,
 ) -> Result<Vec<CookbookRecipe>, EpubError> {
-    let (recipes, _stats) = extract_cookbook_with_stats(bytes, source, opts, extractor).await?;
+    let (recipes, _stats) =
+        extract_cookbook_with_stats(bytes, source, opts, extractor, &progress).await?;
     Ok(recipes)
 }
 
-/// Like [`extract_cookbook_with`] but also returns token-usage/cost stats.
+/// Like [`extract_cookbook_with`] but also returns token-usage/cost stats and
+/// reports per-chunk progress through `progress` (see [`extract_cookbook_with_progress`]).
 pub(crate) async fn extract_cookbook_with_stats<E: RecipeExtractor>(
     bytes: &[u8],
     source: &str,
     opts: &Options,
     extractor: &E,
+    progress: &(impl Fn(ExtractProgress) + Send + Sync),
 ) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
     let chunks = epub_text::chunk_epub(bytes)?;
-    tracing::info!("epub {source}: {} chunk(s)", chunks.len());
+    let total = chunks.len();
+    tracing::info!("epub {source}: {total} chunk(s)");
+    // Emit the initial snapshot now that the total is known, so the UI can switch
+    // from an indeterminate spinner to a determinate bar before any chunk lands.
+    progress(ExtractProgress {
+        done: 0,
+        total,
+        cached: 0,
+    });
 
     // Book-wide internal anchor links (author hyperlinks between recipes) —
     // the Layer 2 confirmation signal for cross-recipe references.
@@ -352,9 +392,12 @@ pub(crate) async fn extract_cookbook_with_stats<E: RecipeExtractor>(
 
     // Extract each chunk concurrently (bounded), preserving document order and
     // each recipe's originating doc. A single failing chunk is logged and
-    // skipped rather than failing the whole book.
+    // skipped rather than failing the whole book. `done`/`cached` are shared
+    // atomics so each completing task can emit a consistent, monotonic snapshot.
+    let done = AtomicUsize::new(0);
+    let cached = AtomicUsize::new(0);
     let per_chunk: Vec<(String, ChunkOutcome)> = stream::iter(chunks.iter())
-        .map(|chunk| async move {
+        .map(|chunk| async {
             let outcome = extractor.extract(chunk).await.unwrap_or_else(|e| {
                 tracing::warn!("chunk {} extraction failed: {e}", chunk.doc_path);
                 ChunkOutcome {
@@ -362,6 +405,15 @@ pub(crate) async fn extract_cookbook_with_stats<E: RecipeExtractor>(
                     usage: Usage::default(),
                     cached: false,
                 }
+            });
+            if outcome.cached {
+                cached.fetch_add(1, Ordering::Relaxed);
+            }
+            let done_now = done.fetch_add(1, Ordering::Relaxed) + 1;
+            progress(ExtractProgress {
+                done: done_now,
+                total,
+                cached: cached.load(Ordering::Relaxed),
             });
             (chunk.doc_path.clone(), outcome)
         })
