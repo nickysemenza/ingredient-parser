@@ -14,15 +14,23 @@ use crate::{Ingredient, IngredientParser};
 
 impl IngredientParser {
     pub(super) fn postprocess_ingredient(&self, mut ingredient: Ingredient) -> Ingredient {
-        self.fix_leading_prep_phrase(&mut ingredient);
-        self.fix_leading_minus_clause(&mut ingredient);
-        self.extract_leading_prep_alternative(&mut ingredient);
-        self.extract_adjectives_from_name(&mut ingredient);
-        ingredient.name = collapse_whitespace(&ingredient.name);
-        self.extract_alternative_from_name(&mut ingredient);
-        self.extract_secondary_amounts_from_modifier(&mut ingredient);
-        ingredient.modifier = strip_wrapping_parens(clean_modifier(ingredient.modifier));
+        for (_name, pass) in POST_PASSES {
+            pass(self, &mut ingredient);
+        }
         ingredient
+    }
+
+    /// Collapse runs of whitespace left in the name by earlier passes. A pass in
+    /// its own right so the ordered `POST_PASSES` list stays the single source of
+    /// truth for the sequence.
+    fn collapse_name(&self, ingredient: &mut Ingredient) {
+        ingredient.name = collapse_whitespace(&ingredient.name);
+    }
+
+    /// Final modifier cleanup: unwrap a fully-wrapping paren and trim/None-out an
+    /// empty modifier. Runs last.
+    fn finalize_modifier(&self, ingredient: &mut Ingredient) {
+        ingredient.modifier = strip_wrapping_parens(clean_modifier(ingredient.modifier.take()));
     }
 
     /// Recover from a leading prep phrase that displaced the ingredient name.
@@ -207,6 +215,43 @@ impl IngredientParser {
         ingredient.modifier = clean_modifier(Some(cleaned_modifier));
     }
 }
+
+/// A single post-parse refinement pass: a named mutation of the parsed
+/// ingredient. `&IngredientParser` carries the parse context (units, adjectives,
+/// rich-text mode) each pass needs.
+type Pass = fn(&IngredientParser, &mut Ingredient);
+
+/// The ordered refinement pipeline. The order is load-bearing — e.g. whitespace
+/// is collapsed *between* adjective and alternative extraction, and the modifier
+/// is finalized last. Adding or reordering a step is a one-line edit here.
+const POST_PASSES: &[(&str, Pass)] = &[
+    (
+        "fix_leading_prep_phrase",
+        IngredientParser::fix_leading_prep_phrase,
+    ),
+    (
+        "fix_leading_minus_clause",
+        IngredientParser::fix_leading_minus_clause,
+    ),
+    (
+        "extract_leading_prep_alternative",
+        IngredientParser::extract_leading_prep_alternative,
+    ),
+    (
+        "extract_adjectives_from_name",
+        IngredientParser::extract_adjectives_from_name,
+    ),
+    ("collapse_name", IngredientParser::collapse_name),
+    (
+        "extract_alternative_from_name",
+        IngredientParser::extract_alternative_from_name,
+    ),
+    (
+        "extract_secondary_amounts_from_modifier",
+        IngredientParser::extract_secondary_amounts_from_modifier,
+    ),
+    ("finalize_modifier", IngredientParser::finalize_modifier),
+];
 
 pub(super) fn append_modifier(modifier: &mut Option<String>, addition: &str) {
     if addition.is_empty() {

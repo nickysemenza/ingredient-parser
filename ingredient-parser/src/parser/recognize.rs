@@ -13,6 +13,14 @@ use crate::unit;
 use crate::{Ingredient, IngredientParser};
 
 impl IngredientParser {
+    /// Try each whole-line special-form recognizer in order, returning the first
+    /// that matches (or `None` to fall through to the core parse).
+    pub(super) fn run_recognizers(&self, input: &str) -> Option<Ingredient> {
+        RECOGNIZERS
+            .iter()
+            .find_map(|(_name, recognize)| recognize(self, input))
+    }
+
     /// Try to parse an optional ingredient format: "(amount ingredient, modifier)"
     ///
     /// When an entire ingredient line is wrapped in parentheses, it indicates
@@ -133,6 +141,28 @@ impl IngredientParser {
         Some(parsed)
     }
 }
+
+/// A whole-line special-form recognizer: maps a raw line to a finished
+/// `Ingredient` when the line has its particular shape, else `None`.
+type Recognizer = fn(&IngredientParser, &str) -> Option<Ingredient>;
+
+/// The ordered recognizer list, tried first-match before the core parse. Order
+/// matters: the optional-wrapped check must precede the others (it strips the
+/// outer parens), and x-of-construction is last (most permissive).
+const RECOGNIZERS: &[(&str, Recognizer)] = &[
+    (
+        "optional_wrapped",
+        IngredientParser::try_parse_optional_ingredient,
+    ),
+    (
+        "trailing_amount",
+        IngredientParser::try_parse_trailing_amount_format,
+    ),
+    (
+        "x_of_construction",
+        IngredientParser::try_parse_x_of_construction,
+    ),
+];
 
 /// Detect a *descriptive* parenthetical wedged between name words — a
 /// temperature ("70° to 80°F") or distance ("¼ inch / 6 mm") aside flanked by

@@ -56,32 +56,26 @@ impl IngredientParser {
     }
 
     fn parse_normalized_ingredient_inner(&self, input: &str) -> Ingredient {
-        if let Some(ingredient) = self.try_parse_optional_ingredient(input) {
-            return ingredient;
-        }
-
-        if let Some(ingredient) = self.try_parse_trailing_amount_format(input) {
-            return ingredient;
-        }
-
-        if let Some(ingredient) = self.try_parse_x_of_construction(input) {
-            return ingredient;
-        }
-
-        self.parse_core_ingredient(input)
-            // Reject a "successful" parse that lost the ingredient name into the
-            // modifier (seen on real recipes: a decimal comma in "1,000 grams
-            // ... nectarines", a leading prep word, etc.) — the graceful
-            // fallback is better than a name-less ingredient with garbled text.
-            // A bare quantity like "1/2-1 cup" legitimately has no name, so only
-            // fall back when the empty name coincides with leftover modifier text.
-            .filter(|ingredient| {
-                let name_empty = ingredient.name.trim().is_empty();
-                let has_modifier = ingredient
-                    .modifier
-                    .as_deref()
-                    .is_some_and(|m| !m.trim().is_empty());
-                !(name_empty && has_modifier)
+        // First try the whole-line special-form recognizers (first match wins),
+        // then fall back to the general core parse, then to a name-only ingredient.
+        self.run_recognizers(input)
+            .or_else(|| {
+                self.parse_core_ingredient(input)
+                    // Reject a "successful" parse that lost the ingredient name
+                    // into the modifier (seen on real recipes: a decimal comma in
+                    // "1,000 grams ... nectarines", a leading prep word, etc.) —
+                    // the graceful fallback is better than a name-less ingredient
+                    // with garbled text. A bare quantity like "1/2-1 cup"
+                    // legitimately has no name, so only fall back when the empty
+                    // name coincides with leftover modifier text.
+                    .filter(|ingredient| {
+                        let name_empty = ingredient.name.trim().is_empty();
+                        let has_modifier = ingredient
+                            .modifier
+                            .as_deref()
+                            .is_some_and(|m| !m.trim().is_empty());
+                        !(name_empty && has_modifier)
+                    })
             })
             .unwrap_or_else(|| fallback_ingredient(input))
     }

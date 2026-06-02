@@ -23,6 +23,25 @@ fn is_footnote_marker(c: char) -> bool {
     )
 }
 
+/// Replace non-breaking spaces (common in PDF/EPUB-extracted text) with ASCII
+/// spaces so the grammar's space handling works.
+fn strip_nbsp(input: &str) -> Cow<'_, str> {
+    if input.contains('\u{a0}') {
+        Cow::Owned(input.replace('\u{a0}', " "))
+    } else {
+        Cow::Borrowed(input)
+    }
+}
+
+/// Drop footnote markers (e.g. "rye flour ①" → "rye flour ").
+fn strip_footnote_markers(input: &str) -> Cow<'_, str> {
+    if input.chars().any(is_footnote_marker) {
+        Cow::Owned(input.chars().filter(|c| !is_footnote_marker(*c)).collect())
+    } else {
+        Cow::Borrowed(input)
+    }
+}
+
 /// Strip a cross-reference parenthetical such as "(see this page)", "(this
 /// page)", or "(see page 123)" — a navigation artifact common in EPUB cookbooks
 /// (links rendered as text). It carries no ingredient information, so it is
@@ -87,49 +106,39 @@ fn strip_minus_equivalence(input: &str) -> Cow<'_, str> {
     MINUS_PAREN.replace_all(input, "")
 }
 
-/// Run all pre-parse rewrites on a raw ingredient line.
-pub(super) fn normalize_input(input: &str) -> Cow<'_, str> {
-    let normalized = if input.contains('\u{a0}') {
-        Cow::Owned(input.replace('\u{a0}', " "))
-    } else {
-        Cow::Borrowed(input)
-    };
+/// A single pre-parse rewrite: takes the current text and returns it changed
+/// (`Cow::Owned`) or unchanged (`Cow::Borrowed`).
+type Rewrite = fn(&str) -> Cow<'_, str>;
 
-    // Drop footnote markers (e.g. "rye flour ①" → "rye flour ").
-    let normalized = if normalized.chars().any(is_footnote_marker) {
-        Cow::Owned(
-            normalized
-                .chars()
-                .filter(|c| !is_footnote_marker(*c))
-                .collect(),
-        )
-    } else {
-        normalized
-    };
+/// The ordered pre-parse rewrite pipeline. Each entry runs on the output of the
+/// previous one; a borrow result means "no change" and is threaded through
+/// without allocating. Adding a rewrite is a one-line edit here.
+const REWRITES: &[(&str, Rewrite)] = &[
+    ("strip_nbsp", strip_nbsp),
+    ("strip_footnote_markers", strip_footnote_markers),
+    ("strip_cross_reference", strip_cross_reference),
+    ("normalize_dimension_range", normalize_dimension_range),
+    ("strip_leading_determiner", strip_leading_determiner),
+    ("strip_minus_equivalence", strip_minus_equivalence),
+];
 
-    // Drop cross-reference parentheticals ("(see this page)") when present.
-    let normalized = match strip_cross_reference(normalized.as_ref()) {
-        Cow::Owned(stripped) => Cow::Owned(stripped),
-        Cow::Borrowed(_) => normalized,
-    };
-
-    // Normalize "3½- to 4-pound" range notation to "3½ to 4 pound".
-    let normalized = match normalize_dimension_range(normalized.as_ref()) {
+/// Apply one rewrite to the accumulator, preserving its owned-ness: a borrowed
+/// result means the rewrite changed nothing, so the accumulator is kept as-is
+/// (no allocation on the common path).
+fn apply_rewrite<'a>(acc: Cow<'a, str>, rewrite: Rewrite) -> Cow<'a, str> {
+    match rewrite(acc.as_ref()) {
         Cow::Owned(rewritten) => Cow::Owned(rewritten),
-        Cow::Borrowed(_) => normalized,
-    };
+        Cow::Borrowed(_) => acc,
+    }
+}
 
-    // Drop a leading determiner before a quantity ("the ¼ cup ...").
-    let normalized = match strip_leading_determiner(normalized.as_ref()) {
-        Cow::Owned(stripped) => Cow::Owned(stripped),
-        Cow::Borrowed(_) => normalized,
-    };
-
-    // Drop a "(… minus …)" equivalence parenthetical.
-    let normalized = match strip_minus_equivalence(normalized.as_ref()) {
-        Cow::Owned(stripped) => Cow::Owned(stripped),
-        Cow::Borrowed(_) => normalized,
-    };
+/// Run all pre-parse rewrites on a raw ingredient line, then collapse any
+/// trailing/doubled whitespace a rewrite may have left behind.
+pub(super) fn normalize_input(input: &str) -> Cow<'_, str> {
+    let mut normalized = Cow::Borrowed(input);
+    for (_name, rewrite) in REWRITES {
+        normalized = apply_rewrite(normalized, *rewrite);
+    }
 
     let has_multiple_spaces = normalized
         .as_bytes()
