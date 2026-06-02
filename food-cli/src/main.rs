@@ -30,6 +30,11 @@ enum Commands {
         json: bool,
         #[arg(short, long)]
         parse: bool,
+        /// Dump one JSONL object per ingredient line: {line, name, amounts,
+        /// modifier}. For corpus harvesting / parse review. Implies neither
+        /// --json nor --parse; overrides normal output.
+        #[arg(long)]
+        dump_parsed: bool,
         /// Model id override (default: gemini-2.5-flash; claude-* / gpt-* also work)
         #[arg(long)]
         model: Option<String>,
@@ -141,6 +146,7 @@ async fn main() {
             path,
             json,
             parse,
+            dump_parsed,
             model,
             no_cache,
         } => {
@@ -171,7 +177,25 @@ async fn main() {
                             eprintln!("  {} → {}", r.meta.title, targets.join(", "));
                         }
                     }
-                    if *parse {
+                    if *dump_parsed {
+                        // One JSONL object per ingredient line: the verbatim
+                        // line zipped with its parsed shape. For corpus harvest.
+                        let ip = ingredient::IngredientParser::new();
+                        for r in &recipes {
+                            for sec in &r.sections {
+                                for line in &sec.ingredients {
+                                    let p = ip.from_str(line);
+                                    let obj = serde_json::json!({
+                                        "line": line,
+                                        "name": p.name,
+                                        "amounts": p.amounts,
+                                        "modifier": p.modifier,
+                                    });
+                                    println!("{}", serde_json::to_string(&obj).unwrap());
+                                }
+                            }
+                        }
+                    } else if *parse {
                         let parsed: Vec<_> = recipes.iter().map(|r| r.parse()).collect();
                         if *json {
                             println!("{}", serde_json::to_string_pretty(&parsed).unwrap());
