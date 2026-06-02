@@ -10,6 +10,15 @@ use nom::{
 
 use crate::Res;
 
+/// Every unicode vulgar-fraction glyph the parser recognizes, as a single string.
+///
+/// This is the one source of truth for the glyph set: `v_frac_to_num` (and thus
+/// [`is_vulgar`]) must map exactly these, and the pre/post-parse regexes that need
+/// a fraction character class build it from this const rather than re-listing the
+/// glyphs (which previously drifted — the regexes had omitted `⅐ ⅑ ⅒`). Kept in
+/// lockstep with `v_frac_to_num` by `tests::vulgar_fractions_match_is_vulgar`.
+pub(crate) const VULGAR_FRACTIONS: &str = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞";
+
 fn v_frac_to_num(input: char) -> Option<f64> {
     // two ranges for unicode fractions
     // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
@@ -161,6 +170,24 @@ mod tests {
     fn test_v_frac_to_num_invalid() {
         assert_eq!(v_frac_to_num('x'), None);
         assert_eq!(v_frac_to_num('1'), None);
+    }
+
+    /// `VULGAR_FRACTIONS` and `is_vulgar` must agree exactly, so the regexes built
+    /// from the const recognize precisely the glyphs the parser does. Both
+    /// directions: every const glyph is vulgar, and no vulgar glyph (scanning the
+    /// range that holds them all) is missing from the const.
+    #[test]
+    fn vulgar_fractions_match_is_vulgar() {
+        use super::{is_vulgar, VULGAR_FRACTIONS};
+        assert!(VULGAR_FRACTIONS.chars().all(is_vulgar));
+        for c in '\u{0}'..='\u{2200}' {
+            assert_eq!(
+                is_vulgar(c),
+                VULGAR_FRACTIONS.contains(c),
+                "is_vulgar and VULGAR_FRACTIONS disagree on {c:?} (U+{:04X})",
+                c as u32
+            );
+        }
     }
 
     // ============================================================================

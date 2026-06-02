@@ -5,6 +5,10 @@
 //! and equivalence parentheticals, attached-unit range notation, a leading
 //! determiner), and split off a trailing/inline "(optional)" note. Each rewrite
 //! returns a borrow when it changes nothing, so the common path does not allocate.
+//!
+//! Also houses `lift_inline_descriptive_paren`, a pre-parse rewrite that pulls a
+//! descriptive parenthetical out from between name words (returning the cleaned
+//! line plus the lifted aside) before the core parse runs.
 
 use std::borrow::Cow;
 
@@ -69,10 +73,11 @@ fn normalize_dimension_range(input: &str) -> Cow<'_, str> {
     use regex::Regex;
     use std::sync::LazyLock;
     static DIM_RANGE: LazyLock<Regex> = LazyLock::new(|| {
+        let frac = crate::fraction::VULGAR_FRACTIONS;
         #[allow(clippy::expect_used)]
-        Regex::new(
-            r"([0-9./¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]+)-\s*(to|through)\s+([0-9./¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]+)-([A-Za-z]+)",
-        )
+        Regex::new(&format!(
+            r"([0-9./{frac}]+)-\s*(to|through)\s+([0-9./{frac}]+)-([A-Za-z]+)"
+        ))
         .expect("invalid dimension-range regex")
     });
     DIM_RANGE.replace_all(input, "$1 $2 $3 $4")
@@ -86,8 +91,9 @@ fn strip_leading_determiner(input: &str) -> Cow<'_, str> {
     use regex::Regex;
     use std::sync::LazyLock;
     static LEADING_THE: LazyLock<Regex> = LazyLock::new(|| {
+        let frac = crate::fraction::VULGAR_FRACTIONS;
         #[allow(clippy::expect_used)]
-        Regex::new(r"(?i)^the\s+([0-9¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞])").expect("invalid leading-the regex")
+        Regex::new(&format!(r"(?i)^the\s+([0-9{frac}])")).expect("invalid leading-the regex")
     });
     LEADING_THE.replace(input, "$1")
 }
@@ -201,8 +207,87 @@ pub(super) fn strip_optional_note(input: &str) -> (Cow<'_, str>, bool) {
     }
 }
 
+/// Detect a *descriptive* parenthetical wedged between name words — a
+/// temperature ("70° to 80°F") or distance ("¼ inch / 6 mm") aside flanked by
+/// alphabetic name text on both sides. Returns the line with that parenthetical
+/// removed plus the aside text (to become a modifier), or `None` when no such
+/// parenthetical is present.
+///
+/// Deliberately narrow: requires a letter immediately before the `(` and name
+/// text after the `)`, and only fires for temperature/distance asides. This
+/// keeps mass/volume parentheticals like "(190 grams)" hoisted as amounts, and
+/// leaves the count+size form "4 (½-inch) slices" (digit before the paren) and
+/// trailing parentheticals like "water (100°F) — 472 g" to their own paths.
+pub(super) fn lift_inline_descriptive_paren(input: &str) -> Option<(String, String)> {
+    let open = input.find('(')?;
+    // A letter must immediately precede the "(" (allowing one space): this is the
+    // "name (aside) name" shape, not "<count> (size)" or a leading paren.
+    let before = input[..open].trim_end();
+    if !before.chars().next_back().is_some_and(char::is_alphabetic) {
+        return None;
+    }
+    // Matching close paren (no nesting expected in these asides).
+    let close_rel = input[open..].find(')')?;
+    let close = open + close_rel;
+    let inner = input[open + 1..close].trim();
+    let after = input[close + 1..].trim_start();
+
+    // Name text must follow the parenthetical (else it's a trailing paren).
+    if !after.chars().next().is_some_and(char::is_alphabetic) {
+        return None;
+    }
+
+    // Only lift descriptive asides: a temperature (°) or a distance unit token.
+    let looks_descriptive = inner.contains('°')
+        || inner
+            .split(|c: char| !c.is_alphabetic())
+            .any(|w| !w.is_empty() && crate::parser::is_distance_unit(w));
+    if !looks_descriptive {
+        return None;
+    }
+
+    let cleaned = format!("{before} {after}");
+    Some((cleaned, inner.to_string()))
+}
+
 /// Collapse runs of whitespace to single spaces and trim. Shared with the
 /// post-parse name cleanup in the refine phase.
 pub(super) fn collapse_whitespace(input: &str) -> String {
     input.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    // Descriptive aside flanked by name words → lifted out.
+    #[case::temp(
+        "room-temperature (70° to 80°F) water",
+        Some(("room-temperature water", "70° to 80°F"))
+    )]
+    #[case::distance(
+        "sliced (¼ inch / 6 mm) green onions",
+        Some(("sliced green onions", "¼ inch / 6 mm"))
+    )]
+    // Mass/volume parenthetical → left for the amount path.
+    #[case::mass("flour (190 grams) sifted", None)]
+    // Count + size ("4 (½-inch) slices"): digit before paren, not a name word.
+    #[case::count_size("4 (½-inch) slices pork", None)]
+    // Trailing paren (no name text after) → left for other paths.
+    #[case::trailing("warm water (100°F)", None)]
+    // Leading paren (optional-ingredient shape) → untouched.
+    #[case::leading("(70°F) water", None)]
+    fn test_lift_inline_descriptive_paren(
+        #[case] input: &str,
+        #[case] expected: Option<(&str, &str)>,
+    ) {
+        let got = lift_inline_descriptive_paren(input);
+        assert_eq!(
+            got,
+            expected.map(|(c, a)| (c.to_string(), a.to_string())),
+            "input: {input}"
+        );
+    }
 }

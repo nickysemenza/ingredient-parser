@@ -9,9 +9,8 @@ use nom::{
 };
 
 use super::ir::{ModifierPart, ParsedIngredient};
-use super::normalize::{normalize_input, strip_optional_note};
-use super::recognize::lift_inline_descriptive_paren;
-use super::refine::{append_modifier, clean_modifier};
+use super::normalize::{lift_inline_descriptive_paren, normalize_input, strip_optional_note};
+use super::refine::clean_modifier;
 use crate::parser::{parse_ingredient_text, parse_unit_text, MeasurementParser, Res};
 use crate::trace;
 use crate::traced_parser;
@@ -115,13 +114,14 @@ impl IngredientParser {
         // "(190 grams)" stay hoisted as amounts and "4 (½-inch) slices" (count +
         // size) is untouched.
         if let Some((cleaned, aside)) = lift_inline_descriptive_paren(input) {
-            let mut ingredient = self
-                .parse_ingredient(&cleaned)
-                .ok()
-                .map(|(_, ingredient)| self.postprocess_ingredient(ingredient))?;
-            append_modifier(&mut ingredient.modifier, &aside);
-            ingredient.modifier = clean_modifier(ingredient.modifier);
-            return Some(ingredient);
+            let (_, mut parsed) = self.parse_ingredient(&cleaned).ok()?;
+            // Refine first, then append the lifted aside as the trailing modifier
+            // part — so it lands *after* any prep adjective the refine passes
+            // extract (e.g. "sliced, ¼ inch / 6 mm"), and is joined/finalized
+            // through the IR's single lowering path.
+            self.refine(&mut parsed);
+            parsed.push_modifier(ModifierPart::Raw(aside));
+            return Some(parsed.into());
         }
 
         self.parse_ingredient(input)

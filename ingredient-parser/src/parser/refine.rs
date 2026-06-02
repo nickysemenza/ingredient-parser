@@ -18,6 +18,15 @@ impl IngredientParser {
     /// public [`Ingredient`] (which joins the typed modifier parts back into a
     /// string and finalizes it).
     pub(super) fn postprocess_ingredient(&self, mut parsed: ParsedIngredient) -> Ingredient {
+        self.refine(&mut parsed);
+        parsed.into()
+    }
+
+    /// Run the ordered refinement passes in place, without lowering. Split out so
+    /// a caller that needs to append more modifier text *after* refinement (the
+    /// inline-descriptive-paren path) can do so through the IR before lowering,
+    /// rather than hand-joining the public modifier string.
+    pub(super) fn refine(&self, parsed: &mut ParsedIngredient) {
         // When tracing, emit a node for each pass that actually changed the
         // ingredient (a before→after view) so the egui tree shows what each pass
         // did. The clone is gated behind the tracing flag, so the hot path stays
@@ -25,8 +34,8 @@ impl IngredientParser {
         if crate::trace::is_tracing_enabled() {
             for (name, pass) in POST_PASSES {
                 let before = parsed.clone();
-                pass(self, &mut parsed);
-                if parsed != before {
+                pass(self, parsed);
+                if *parsed != before {
                     crate::trace::trace_enter(name, &before.name);
                     crate::trace::trace_exit_success(
                         0,
@@ -40,10 +49,9 @@ impl IngredientParser {
             }
         } else {
             for (_name, pass) in POST_PASSES {
-                pass(self, &mut parsed);
+                pass(self, parsed);
             }
         }
-        parsed.into()
     }
 
     /// Collapse runs of whitespace left in the name by earlier passes. A pass in
@@ -273,21 +281,6 @@ const POST_PASSES: &[(&str, Pass)] = &[
     ),
 ];
 
-pub(super) fn append_modifier(modifier: &mut Option<String>, addition: &str) {
-    if addition.is_empty() {
-        return;
-    }
-
-    match modifier {
-        Some(modifier) if !modifier.is_empty() => {
-            modifier.push_str(", ");
-            modifier.push_str(addition);
-        }
-        Some(modifier) => modifier.push_str(addition),
-        None => *modifier = Some(addition.to_string()),
-    }
-}
-
 /// Strip a single pair of parentheses that wraps the *entire* modifier, e.g.
 /// "(softened)" -> "softened". Modifiers with internal parentheses or only
 /// partial wrapping are left untouched.
@@ -324,8 +317,9 @@ fn extract_alternative(name: &str) -> (String, Option<String>) {
     use std::sync::LazyLock;
 
     static ALTERNATIVE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+        let frac = crate::fraction::VULGAR_FRACTIONS;
         #[allow(clippy::expect_used)]
-        Regex::new(r"(?i)\s+or\s+(\d+|[½¼¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]|a\s+|an\s+)")
+        Regex::new(&format!(r"(?i)\s+or\s+(\d+|[{frac}]|a\s+|an\s+)"))
             .expect("invalid alternative pattern regex")
     });
 
@@ -385,7 +379,7 @@ fn extract_secondary_amounts(
     // Leave it in the modifier rather than hoisting a spurious inch amount.
     let is_distance = |m: &Measure| match m.unit() {
         unit::Unit::Inch => true,
-        unit::Unit::Other(s) => super::measurement::guards::is_distance_unit(s),
+        unit::Unit::Other(s) => crate::parser::is_distance_unit(s),
         _ => false,
     };
     if measures.iter().any(is_distance) {
