@@ -160,3 +160,57 @@ impl<'a> MeasurementParser<'a> {
         )
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::super::test_support::units;
+    use super::super::MeasurementParser;
+    use rstest::{fixture, rstest};
+    use std::collections::HashSet;
+
+    #[fixture]
+    fn units_fx() -> HashSet<String> {
+        units()
+    }
+
+    /// A cross-unit range "2 tsp to 2 tbsp" yields two separate amounts (it can't
+    /// fold into one ranged Measure); a same-unit range falls through.
+    #[rstest]
+    fn test_cross_unit_range(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measures) = parser
+            .parse_cross_unit_range("2 teaspoons to 2 tablespoons")
+            .unwrap();
+        assert_eq!(measures.len(), 2);
+        assert_eq!(measures[0].unit_as_string(), "tsp");
+        assert_eq!(measures[1].unit_as_string(), "tbsp");
+        // Same unit on both sides → not a cross-unit range.
+        assert!(parser.parse_cross_unit_range("2 cups to 3 cups").is_err());
+    }
+
+    /// Unit mismatch in dash-style ranges returns None (e.g. "1g-2tbsp"). Word-style
+    /// ranges like "1 cup to 2 tbsp" don't detect mismatch because the space before
+    /// the second unit prevents it from being parsed.
+    #[rstest]
+    #[case::dash_mismatch("1g-2tbsp")]
+    fn test_range_unit_mismatch(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_range_with_units(input);
+        assert!(result.is_ok(), "Failed to parse: {input}");
+        let (remaining, opt_measure) = result.unwrap();
+        assert!(
+            opt_measure.is_none(),
+            "Expected None for unit mismatch on '{input}', got {opt_measure:?}, remaining: '{remaining}'",
+        );
+    }
+
+    #[rstest]
+    fn test_em_dash_range(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_range_end("–3");
+        assert!(result.is_ok());
+        let (_, upper) = result.unwrap();
+        assert_eq!(upper, 3.0);
+    }
+}

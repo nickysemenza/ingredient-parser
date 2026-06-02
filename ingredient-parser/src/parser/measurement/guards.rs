@@ -141,4 +141,57 @@ mod tests {
     fn test_find_matching_paren(#[case] input: &str, #[case] expected: Option<usize>) {
         assert_eq!(find_matching_paren(input), expected, "input: {input}");
     }
+
+    #[rstest]
+    #[case::period(".")]
+    #[case::of(" of")]
+    #[case::something("something")]
+    fn test_optional_period_or_of(#[case] input: &str) {
+        let result = optional_period_or_of(input);
+        assert!(result.is_ok());
+    }
+
+    #[rstest]
+    #[case::inch("-inch", true, "basic inch")]
+    #[case::inches("-inches", true, "plural inches")]
+    #[case::cm("-cm", true, "basic cm")]
+    #[case::centimeter("-centimeter", true, "full centimeter")]
+    #[case::centimeters("-centimeters", true, "plural centimeters")]
+    #[case::mm("-mm", true, "basic mm")]
+    #[case::foot("-foot", true, "basic foot")]
+    #[case::feet("-feet", false, "irregular plural feet (not detected)")] // feet is irregular, not handled
+    #[case::meter("-meter", true, "basic meter")]
+    #[case::meters("-meters", true, "plural meters")]
+    #[case::inch_piece("-inch piece", true, "inch with trailing text")]
+    #[case::not_dimension("-ish", false, "not a dimension")]
+    #[case::empty("-", false, "just hyphen")]
+    #[case::no_hyphen("inch", false, "no leading hyphen")]
+    #[case::yard("-yard", true, "basic yard")]
+    #[case::yards("-yards", true, "plural yards")]
+    fn test_dimension_suffix_detection(
+        #[case] input: &str,
+        #[case] expected: bool,
+        #[case] _desc: &str,
+    ) {
+        assert_eq!(
+            starts_with_dimension_suffix(input),
+            expected,
+            "Failed for input: {input}"
+        );
+    }
+
+    #[rstest]
+    #[case::inch("inch", true)]
+    #[case::inches("inches", true)]
+    #[case::cm("cm", true)]
+    #[case::mm("mm", true)]
+    #[case::foot("foot", true)]
+    #[case::ft("ft", true)]
+    #[case::meter("meter", true)]
+    #[case::meters("meters", true)]
+    #[case::cup("cup", false)]
+    #[case::tsp("tsp", false)]
+    fn test_is_distance_unit(#[case] input: &str, #[case] expected: bool) {
+        assert_eq!(is_distance_unit(input), expected, "Failed for: {input}");
+    }
 }

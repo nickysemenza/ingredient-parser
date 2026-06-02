@@ -185,3 +185,54 @@ impl<'a> MeasurementParser<'a> {
         )
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::super::test_support::units;
+    use super::super::MeasurementParser;
+    use rstest::{fixture, rstest};
+    use std::collections::HashSet;
+
+    #[fixture]
+    fn units_fx() -> HashSet<String> {
+        units()
+    }
+
+    #[rstest]
+    #[case::up_to("up to 5", 5.0)]
+    #[case::at_most("at most 10", 10.0)]
+    fn test_upper_bound_only(
+        units_fx: HashSet<String>,
+        #[case] input: &str,
+        #[case] expected: f64,
+    ) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_upper_bound_only(input);
+        assert!(result.is_ok());
+        let (_, (lower, upper)) = result.unwrap();
+        assert_eq!(lower, 0.0);
+        assert_eq!(upper, Some(expected));
+    }
+
+    #[rstest]
+    #[case::decimal("2.5", 2.5)]
+    #[case::fraction("1/2", 0.5)]
+    #[case::unicode_fraction("½", 0.5)]
+    fn test_rich_text_mode(units_fx: HashSet<String>, #[case] input: &str, #[case] expected: f64) {
+        let parser = MeasurementParser::new(&units_fx, true);
+        let result = parser.parse_number(input);
+        assert!(result.is_ok());
+        let (_, val) = result.unwrap();
+        assert!((val - expected).abs() < 0.001);
+    }
+
+    #[rstest]
+    fn test_multiplier(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_multiplier("2 x ");
+        assert!(result.is_ok());
+        let (_, mult) = result.unwrap();
+        assert_eq!(mult, 2.0);
+    }
+}

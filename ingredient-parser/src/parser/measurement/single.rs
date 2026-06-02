@@ -327,3 +327,84 @@ pub(crate) fn leading_qualifier(input: &str) -> Res<&str, ()> {
     let (input, _) = space1(input)?;
     Ok((input, ()))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::super::test_support::units;
+    use super::super::MeasurementParser;
+    use rstest::{fixture, rstest};
+    use std::collections::HashSet;
+
+    #[fixture]
+    fn units_fx() -> HashSet<String> {
+        units()
+    }
+
+    #[rstest]
+    fn test_measurement_with_about(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_single_measurement("about 2 cups");
+        assert!(result.is_ok());
+    }
+
+    /// Leading approximation qualifiers (any case, optional article) are skipped
+    /// so the amount after them still parses.
+    #[rstest]
+    #[case::lower_about("about 2 cups")]
+    #[case::cap_about("About 2 cups")]
+    #[case::generous("Generous 1 cup")]
+    #[case::scant("Scant 1 cup")]
+    #[case::heaping("Heaping 1 tablespoon")]
+    #[case::article("A generous 1 cup")]
+    fn test_leading_qualifiers(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        // The qualifier is discarded; the numeric value survives.
+        assert!(measure.value() >= 1.0, "input: {input}");
+    }
+
+    #[rstest]
+    fn test_unit_only(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_unit_only(" cup ");
+        assert!(result.is_ok());
+        let (_, measure) = result.unwrap();
+        assert_eq!(measure.value(), 1.0);
+    }
+
+    #[rstest]
+    fn test_unit_only_rejected_in_rich_text_mode(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, true);
+        assert!(parser.parse_unit_only(" cup ").is_err());
+    }
+
+    #[rstest]
+    fn test_no_unit_defaults_to_whole(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_single_measurement("2 ");
+        assert!(result.is_ok());
+        let (_, measure) = result.unwrap();
+        let measure_str = format!("{measure}");
+        assert!(measure_str.contains("whole") || measure.value() == 2.0);
+    }
+
+    #[rstest]
+    #[case::inch_piece("1-inch piece ginger")]
+    #[case::cm_piece("2-cm knob ginger")]
+    fn test_dimension_suffix_rejected(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, true);
+        assert!(parser.parse_single_measurement(input).is_err());
+    }
+
+    #[rstest]
+    fn test_unit_after_parenthesized_description(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_single_measurement("4 (13-millimeter/½-inch) slices CHASHU");
+        assert!(result.is_ok());
+        let (remaining, measure) = result.unwrap();
+        assert_eq!(remaining, " CHASHU");
+        assert_eq!(measure.value(), 4.0);
+        assert_eq!(measure.unit_as_string(), "slice");
+    }
+}
