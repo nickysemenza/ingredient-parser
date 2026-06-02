@@ -145,6 +145,7 @@ const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     "diced",
     "freshly ground",
     "freshly grated",
+    "finely grated",
     "finely chopped",
     "coarsely chopped",
     "thinly sliced",
@@ -299,7 +300,7 @@ impl IngredientParser {
         let units: HashSet<String> = [
             "recipe", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch",
             "package", "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin",
-            "rib", "ribs", "sprig", "sprigs", "pint", "pints",
+            "rib", "ribs", "sprig", "sprigs", "pint", "pints", "piece", "pieces",
         ]
         .iter()
         .map(|&s| s.into())

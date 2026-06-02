@@ -41,13 +41,15 @@ impl IngredientParser {
     }
 
     fn parse_normalized_ingredient(&self, input: &str) -> Ingredient {
-        // A trailing "(optional)" note marks the whole ingredient optional, e.g.
-        // "Grated zest of 1 lemon (optional)". Strip it before parsing and set
-        // the flag, so it doesn't pollute the name/modifier. (A *whole-line*
-        // parenthesized ingredient is handled separately below.)
-        let (input, trailing_optional) = split_trailing_optional(input);
-        let mut ingredient = self.parse_normalized_ingredient_inner(input);
-        if trailing_optional {
+        // An "(optional)" note marks the whole ingredient optional, e.g.
+        // "Grated zest of 1 lemon (optional)" or, mid-line, "almonds (optional),
+        // coarsely chopped". Strip it before parsing and set the flag, so it
+        // neither pollutes the name/modifier nor blocks a trailing weight from
+        // being hoisted. (A *whole-line* parenthesized ingredient is handled
+        // separately below.)
+        let (cleaned, is_optional) = strip_optional_note(input);
+        let mut ingredient = self.parse_normalized_ingredient_inner(&cleaned);
+        if is_optional {
             ingredient.optional = true;
         }
         ingredient
@@ -681,23 +683,49 @@ fn normalize_input(input: &str) -> Cow<'_, str> {
     }
 }
 
-/// Split a trailing "(optional)" note off the end of a line, returning the
-/// cleaned line plus whether the note was present. Case-insensitive; also
-/// accepts a comma form (", optional"). Only a *trailing* note counts — a
-/// whole-line parenthesized ingredient is the optional-ingredient path.
-fn split_trailing_optional(input: &str) -> (&str, bool) {
-    let trimmed = input.trim_end();
-    let lower = trimmed.to_lowercase();
-    for suffix in ["(optional)", ", optional", " optional"] {
-        if lower.ends_with(suffix) {
-            // Don't strip a whole-line "(optional)" with nothing before it.
-            let head = trimmed[..trimmed.len() - suffix.len()].trim_end();
-            if !head.is_empty() {
-                return (head, true);
-            }
-        }
+/// Strip an "(optional)" note from a line, returning the cleaned line plus
+/// whether the note was present. Handles a parenthesized note anywhere (trailing
+/// "X (optional)" or mid-line "X (optional), chopped") and a trailing word form
+/// (", optional"). A mid-line note is removed so it neither lands in the modifier
+/// nor blocks a trailing weight parenthetical from being hoisted. Returns a
+/// borrow when nothing changed, to avoid allocating on the common path. A
+/// whole-line "(optional)" (nothing else) is left for the optional-ingredient
+/// path and not treated as a note.
+fn strip_optional_note(input: &str) -> (Cow<'_, str>, bool) {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static PAREN: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"(?i)\s*\(optional\)").expect("invalid optional-note regex")
+    });
+    static TRAIL_WORD: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"(?i),?\s+optional\s*$").expect("invalid optional-word regex")
+    });
+
+    let trimmed = input.trim();
+    // Whole-line "(optional)" → leave for try_parse_optional_ingredient.
+    if trimmed.eq_ignore_ascii_case("(optional)") {
+        return (Cow::Borrowed(input), false);
     }
-    (input, false)
+
+    let mut found = false;
+    let mut text = if PAREN.is_match(input) {
+        found = true;
+        PAREN.replace_all(input, "").into_owned()
+    } else {
+        input.to_string()
+    };
+    if TRAIL_WORD.is_match(&text) {
+        found = true;
+        text = TRAIL_WORD.replace(&text, "").into_owned();
+    }
+
+    if found {
+        (Cow::Owned(text), true)
+    } else {
+        (Cow::Borrowed(input), false)
+    }
 }
 
 fn fallback_ingredient(input: &str) -> Ingredient {
