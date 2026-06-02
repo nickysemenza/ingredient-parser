@@ -28,6 +28,29 @@ pub(super) fn optional_article(input: &str) -> Res<&str, Option<&str>> {
     .parse(input)
 }
 
+/// Given a string whose first `(` opens a (possibly nested) group, return the
+/// byte index of the matching `)`. Returns `None` if there is no `(` or the
+/// parentheses are unbalanced. Used to skip over a parenthesized aside while
+/// respecting nesting (e.g. the size in "1 (1½-inch) piece" or a unit after a
+/// description).
+pub(super) fn find_matching_paren(input: &str) -> Option<usize> {
+    let open = input.find('(')?;
+    let mut depth = 0usize;
+    for (index, character) in input[open..].char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(open + index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Check if a bare number looks like a step number in instructions.
 ///
 /// Returns true if the remaining input starts with whitespace followed by
@@ -102,4 +125,20 @@ pub(crate) fn is_distance_unit(s: &str) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::simple("(abc) rest", Some(4))]
+    #[case::nested("(a (b) c) rest", Some(8))]
+    #[case::leading_text("x (a) b", Some(4))]
+    #[case::no_open("no parens", None)]
+    #[case::unbalanced("(a (b)", None)]
+    fn test_find_matching_paren(#[case] input: &str, #[case] expected: Option<usize>) {
+        assert_eq!(find_matching_paren(input), expected, "input: {input}");
+    }
 }

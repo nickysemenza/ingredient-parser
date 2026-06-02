@@ -14,6 +14,7 @@ use crate::parser::Res;
 use crate::traced_parser;
 use crate::unit::Measure;
 
+use super::guards::find_matching_paren;
 use super::{MeasurementParser, DEFAULT_UNIT};
 
 use crate::parser::vocab::CONTAINER_NOUNS;
@@ -91,22 +92,7 @@ impl<'a> MeasurementParser<'a> {
         // parenthesized form "(…)" or the bare hyphenated adjective "10-ounce".
         let (inner, after) = if rest.starts_with('(') {
             // Find the matching close paren (handles nesting).
-            let mut depth = 0usize;
-            let mut close = None;
-            for (i, c) in rest.char_indices() {
-                match c {
-                    '(' => depth += 1,
-                    ')' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            close = Some(i);
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            let close = close.ok_or_else(reject)?;
+            let close = find_matching_paren(rest).ok_or_else(reject)?;
             (&rest[1..close], rest[close + 1..].trim_start())
         } else {
             // Bare hyphenated size adjective: "10-ounce", "1½-inch". Take the

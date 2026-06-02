@@ -16,8 +16,8 @@ use crate::traced_parser;
 use crate::unit::{self, Measure};
 
 use super::guards::{
-    is_distance_unit, looks_like_step_number, optional_article, optional_dash_separator,
-    optional_period_or_of, starts_with_dimension_suffix,
+    find_matching_paren, is_distance_unit, looks_like_step_number, optional_article,
+    optional_dash_separator, optional_period_or_of, starts_with_dimension_suffix,
 };
 use super::{MeasurementParser, DEFAULT_UNIT};
 
@@ -145,23 +145,7 @@ impl<'a> MeasurementParser<'a> {
             return None;
         }
 
-        let mut depth = 0;
-        let mut close_pos = None;
-        for (index, character) in input.char_indices() {
-            match character {
-                '(' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close_pos = Some(index);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let close_pos = close_pos?;
+        let close_pos = find_matching_paren(input)?;
         let after_paren = input[close_pos + 1..].trim_start();
         let Ok((remaining, unit)) = self.unit(after_paren) else {
             return None;
