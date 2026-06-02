@@ -133,68 +133,6 @@ use unit::Measure;
 #[macro_use]
 extern crate serde;
 
-// =============================================================================
-// Default Adjective/Modifier Constants
-// =============================================================================
-
-/// Default preparation adjectives that get extracted to the modifier field.
-/// These describe how an ingredient is prepared before use.
-const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
-    "chopped",
-    "minced",
-    "diced",
-    "freshly ground",
-    "freshly grated",
-    "finely grated",
-    "finely chopped",
-    "coarsely chopped",
-    "thinly sliced",
-    "sliced",
-    "plain",
-    "to taste",
-    // State/prep words that describe how an ingredient is brought to the recipe
-    // (e.g. "melted butter", "softened butter"). Like other prep words they
-    // belong in the modifier, not the name, whether they lead or trail.
-    "melted",
-    "softened",
-    // Measurement/preparation qualifiers that often appear *before* the name
-    // (e.g. "1 cup packed brown sugar", "2 cups sifted flour"). They describe how
-    // the ingredient is measured/prepared, not which product it is, so they belong
-    // in the modifier. Multi-word forms (e.g. "firmly packed") win over their
-    // single-word substring ("packed") via the longest-match-first ordering in
-    // extract_adjectives_from_name.
-    "firmly packed",
-    "loosely packed",
-    "lightly packed",
-    "packed",
-    "sifted",
-    // Temperature/state qualifier that describes how the ingredient should be,
-    // not which product it is (e.g. "room-temperature butter"). Both spellings
-    // reduce to the same modifier; the parser already pulls the *trailing* form
-    // ("egg, room temperature") into the modifier, so this also covers the
-    // *leading* form ("room-temperature water" → water, "room temperature").
-    "room temperature",
-    "room-temperature",
-];
-
-/// Default purpose phrases that get extracted to the modifier field.
-/// These describe what the ingredient is used for (e.g., "for garnish").
-const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
-    "for dusting",
-    "for garnish",
-    "for garnishing",
-    "for serving",
-    "for decoration",
-    "for topping",
-    "for dipping",
-    "for drizzling",
-    "for sprinkling",
-    "for rolling",
-    "for coating",
-    "for frying",
-    "for greasing",
-];
-
 pub mod error;
 pub(crate) mod fraction;
 pub mod ingredient;
@@ -263,6 +201,31 @@ pub fn from_str(input: &str) -> Ingredient {
 /// let ingredient = parser.from_str("2 handfuls of nuts");
 /// assert_eq!(ingredient.name, "nuts");
 /// ```
+/// How confident the parser is in a result, derived from how it was reached.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Confidence {
+    /// A structured parse with at least one amount, no leftover digit.
+    High,
+    /// Parsed, but a digit in the input produced no amount (a likely missed
+    /// quantity).
+    Medium,
+    /// Fell back to a name-only ingredient (no structured parse succeeded).
+    Low,
+}
+
+/// Non-failing diagnostics about a parse. See
+/// [`parse_with_diagnostics`](IngredientParser::parse_with_diagnostics).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Diagnostics {
+    /// Overall confidence in the parse.
+    pub confidence: Confidence,
+    /// The parse fell back to a name-only ingredient (no recognizer/core parse).
+    pub fell_back: bool,
+    /// The input contained a digit but no amount was parsed — the corpus-harvest
+    /// "likely miss" heuristic, computed natively by the parser.
+    pub unparsed_digit: bool,
+}
+
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct IngredientParser {
     /// Set of recognized measurement units
@@ -294,22 +257,16 @@ impl IngredientParser {
     /// ```
     pub fn new() -> Self {
         // Non-standard units that aren't really convertible for the most part.
-        // Note: "whole" is NOT included here because it's a built-in Unit::Whole.
-        // Including it here would cause unit_extra() to incorrectly parse "whole wheat flour"
-        // as having unit "whole" instead of treating "whole wheat" as part of the name.
-        let units: HashSet<String> = [
-            "recipe", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch",
-            "package", "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin",
-            "rib", "ribs", "sprig", "sprigs", "pint", "pints", "piece", "pieces",
-        ]
-        .iter()
-        .map(|&s| s.into())
-        .collect();
+        // (See vocab::NON_STANDARD_UNITS for why "whole" is excluded.)
+        let units: HashSet<String> = parser::vocab::NON_STANDARD_UNITS
+            .iter()
+            .map(|&s| s.into())
+            .collect();
 
         // Combine preparation adjectives and purpose phrases
-        let adjectives: HashSet<String> = DEFAULT_PREPARATION_ADJECTIVES
+        let adjectives: HashSet<String> = parser::vocab::DEFAULT_PREPARATION_ADJECTIVES
             .iter()
-            .chain(DEFAULT_PURPOSE_PHRASES.iter())
+            .chain(parser::vocab::DEFAULT_PURPOSE_PHRASES.iter())
             .map(|&s| s.into())
             .collect();
 
@@ -356,6 +313,117 @@ impl IngredientParser {
     /// This method never panics and provides fallback behavior for unparseable input
     pub fn from_str(&self, input: &str) -> Ingredient {
         self.parse_ingredient_line(input)
+    }
+
+    /// Parse an ingredient string and return non-failing parse diagnostics
+    /// alongside the result.
+    ///
+    /// `from_str` is intentionally infallible, which hides whether a line was
+    /// parsed cleanly or quietly fell back to a name-only ingredient. This method
+    /// surfaces that signal — useful for quality monitoring and for the
+    /// corpus-harvest loop, which looks for lines the parser likely mishandled
+    /// (e.g. a digit present but no amount parsed).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ingredient::{IngredientParser, Confidence};
+    ///
+    /// let parser = IngredientParser::new();
+    ///
+    /// let (ing, diag) = parser.parse_with_diagnostics("2 cups flour");
+    /// assert_eq!(ing.name, "flour");
+    /// assert_eq!(diag.confidence, Confidence::High);
+    ///
+    /// // A digit with no parseable amount is a likely miss → Low confidence.
+    /// let (_, diag) = parser.parse_with_diagnostics("1+1 vitamins");
+    /// assert!(diag.unparsed_digit);
+    /// assert_eq!(diag.confidence, Confidence::Low);
+    /// ```
+    pub fn parse_with_diagnostics(&self, input: &str) -> (Ingredient, Diagnostics) {
+        let (ingredient, fell_back) = self.parse_ingredient_line_with_provenance(input);
+        let had_digit = input.chars().any(|c| c.is_ascii_digit());
+        let unparsed_digit = had_digit && ingredient.amounts.is_empty();
+        let confidence = if !ingredient.amounts.is_empty() {
+            // A structured parse with at least one amount.
+            Confidence::High
+        } else if unparsed_digit {
+            // A digit produced no amount — a likely missed quantity.
+            Confidence::Low
+        } else {
+            // A plausible name-only ingredient (no digit, e.g. "salt to taste").
+            Confidence::Medium
+        };
+        (
+            ingredient,
+            Diagnostics {
+                confidence,
+                fell_back,
+                unparsed_digit,
+            },
+        )
+    }
+
+    /// Parse a line that may name **multiple** ingredients into a `Vec`.
+    ///
+    /// A single ingredient line is the common case (returns a one-element `Vec`).
+    /// Compound lines are split only on **structurally unambiguous** signals, so
+    /// dish names like "macaroni and cheese" or "cream and sugar" are never
+    /// mangled:
+    /// - an explicit semicolon list ("kosher salt; black pepper; cumin"), or
+    /// - an " and "-joined list **where at least two segments carry an amount**
+    ///   ("1 cup flour and 2 eggs" → two ingredients; "salt and pepper" stays one,
+    ///   since distinguishing two seasonings from one dish needs food knowledge
+    ///   the parser doesn't have).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ingredient::IngredientParser;
+    /// let parser = IngredientParser::new();
+    ///
+    /// // Amount-bearing conjunction → split.
+    /// let parts = parser.parse_multi("1 cup flour and 2 eggs");
+    /// assert_eq!(parts.len(), 2);
+    /// assert_eq!(parts[0].name, "flour");
+    /// assert_eq!(parts[1].name, "eggs");
+    ///
+    /// // Dish name with no amounts → left as one ingredient.
+    /// let parts = parser.parse_multi("macaroni and cheese");
+    /// assert_eq!(parts.len(), 1);
+    /// ```
+    pub fn parse_multi(&self, input: &str) -> Vec<Ingredient> {
+        let trimmed = input.trim();
+
+        // Explicit semicolon list — an unambiguous separator.
+        if trimmed.contains(';') {
+            let parts: Vec<Ingredient> = trimmed
+                .split(';')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| self.from_str(s))
+                .collect();
+            if parts.len() >= 2 {
+                return parts;
+            }
+        }
+
+        // " and "-joined list, accepted only when at least two segments parse
+        // with an amount. This splits "1 cup flour and 2 eggs" but leaves
+        // "macaroni and cheese" / "salt and pepper" (no amounts) as one item.
+        let segments: Vec<&str> = trimmed
+            .split(" and ")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if segments.len() >= 2 {
+            let parsed: Vec<Ingredient> = segments.iter().map(|s| self.from_str(s)).collect();
+            if parsed.iter().filter(|i| !i.amounts.is_empty()).count() >= 2 {
+                return parsed;
+            }
+        }
+
+        vec![self.from_str(trimmed)]
     }
 
     /// Parse an ingredient string with debug tracing enabled

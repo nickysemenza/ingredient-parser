@@ -201,7 +201,7 @@ fn test_amount_parsing_multi(
 #[rstest]
 fn test_amount_range_display(parser: IngredientParser) {
     let amounts = parser.parse_amount("2 ¼ - 2.5 cups").unwrap();
-    assert_eq!(format!("{}", amounts[0]), "2.25 - 2.5 cups");
+    assert_eq!(format!("{}", amounts[0]), "2¼ - 2½ cups");
 }
 
 // ============================================================================
@@ -214,7 +214,7 @@ fn test_amount_range_display(parser: IngredientParser) {
 #[case::text_a("a tsp flour", "1 tsp flour")]
 #[case::complex(
     "1 cup (125.5 grams) AP flour, sifted",
-    "1 cup / 125.5 g AP flour, sifted"
+    "1 cup / 125½ g AP flour, sifted"
 )]
 fn test_display_formatting(#[case] input: &str, #[case] expected: &str) {
     assert_eq!(from_str(input).to_string(), expected, "Failed: {input}");
@@ -529,4 +529,62 @@ fn test_trailing_temp_only_not_used(parser: IngredientParser, #[case] input: &st
         !has_non_temp_amount || result.amounts.is_empty(),
         "Temperature-only trailing should not be used as amount: {input} -> {result:?}"
     );
+}
+
+// ============================================================================
+// Parse Diagnostics
+// ============================================================================
+
+/// `parse_with_diagnostics` surfaces parse confidence and the corpus-harvest
+/// "digit but no amount" signal without changing the infallible result.
+#[rstest]
+// Clean structured parse with an amount → High, no signals.
+#[case::clean("2 cups flour", ingredient::Confidence::High, false, false)]
+// Plausible name-only ingredient (no digit) → Medium, did not fall back.
+#[case::name_only("Chocolate Chip Cookies", ingredient::Confidence::Medium, false, false)]
+// A digit that produced no amount → likely missed quantity → Low.
+#[case::unparsed_digit("1+1 multivitamins", ingredient::Confidence::Low, true, true)]
+fn test_parse_diagnostics(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] confidence: ingredient::Confidence,
+    #[case] fell_back: bool,
+    #[case] unparsed_digit: bool,
+) {
+    let (ingredient, diag) = parser.parse_with_diagnostics(input);
+    // The ingredient matches plain from_str (diagnostics never change the result).
+    assert_eq!(ingredient, parser.from_str(input), "input: {input}");
+    assert_eq!(diag.confidence, confidence, "confidence for: {input}");
+    assert_eq!(diag.fell_back, fell_back, "fell_back for: {input}");
+    assert_eq!(
+        diag.unparsed_digit, unparsed_digit,
+        "unparsed_digit for: {input}"
+    );
+}
+
+// ============================================================================
+// Multi-ingredient parsing
+// ============================================================================
+
+/// `parse_multi` splits only on unambiguous signals (semicolons, or " and "
+/// with multiple amount-bearing segments) and never mangles dish names.
+#[rstest]
+// Amount-bearing conjunction → split into separate ingredients.
+#[case::and_amounts("1 cup flour and 2 eggs", vec!["flour", "eggs"])]
+#[case::and_three("2 cups water and 1 tsp salt and 1 tbsp oil", vec!["water", "salt", "oil"])]
+// Semicolon list → split even without amounts.
+#[case::semicolons("kosher salt; black pepper; cumin", vec!["kosher salt", "black pepper", "cumin"])]
+// Dish/seasoning names with no amounts → stay as ONE ingredient.
+#[case::dish_name("macaroni and cheese", vec!["macaroni and cheese"])]
+#[case::seasoning("salt and pepper", vec!["salt and pepper"])]
+// Plain single ingredient → one element.
+#[case::single("2 cups flour, sifted", vec!["flour"])]
+fn test_parse_multi(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected_names: Vec<&str>,
+) {
+    let parts = parser.parse_multi(input);
+    let names: Vec<String> = parts.iter().map(|i| i.name.clone()).collect();
+    assert_eq!(names, expected_names, "input: {input}");
 }

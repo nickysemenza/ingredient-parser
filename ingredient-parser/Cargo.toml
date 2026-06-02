@@ -22,6 +22,8 @@ tracing.workspace = true
 petgraph = "0.8.0"
 nom-language = "0.1.0"
 regex = "1.10"
+num-rational = { version = "0.4", default-features = false }
+num-traits = "0.2"
 thiserror.workspace = true
 criterion = { version = "0.8", features = ["html_reports"], optional = true }
 

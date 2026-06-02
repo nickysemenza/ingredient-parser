@@ -1,88 +1,93 @@
 ---
 source: ingredient-parser/tests/snapshots.rs
+assertion_line: 50
 expression: traced.trace.format_tree(false)
 ---
-└─ parse_ingredient "2 cups flour, sifted" ✓ → flour
-   ├─ measurement_list "2 cups flour, sifted" ✓ → 2 cups
-   │  ├─ parse_plus_expression "2 cups flour, sifted" ✗
-   │  │  └─ parse_single_measurement "2 cups flour, sifted" ✓ → 2 cups
-   │  │     ├─ parse_multiplier "2 cups flour, sifted" ✗
-   │  │     │  └─ parse_number "2 cups flour, sifted" ✓ → 2
-   │  │     │     └─ fraction_number "2 cups flour, sifted" ✗
-   │  │     ├─ parse_value "2 cups flour, sifted" ✓ → 2
-   │  │     │  ├─ parse_upper_bound_only "2 cups flour, sifted" ✗
-   │  │     │  └─ parse_value_with_optional_range "2 cups flour, sifted" ✓ → 2
-   │  │     │     ├─ parse_number "2 cups flour, sifted" ✓ → 2
-   │  │     │     │  └─ fraction_number "2 cups flour, sifted" ✗
-   │  │     │     └─ parse_range_end " cups flour, sifted" ✗
-   │  │     └─ unit "cups flour, sifted" ✓ → cups
-   │  ├─ parse_cross_unit_range "2 cups flour, sifted" ✗
-   │  │  ├─ parse_number "2 cups flour, sifted" ✓ → 2
-   │  │  │  └─ fraction_number "2 cups flour, sifted" ✗
-   │  │  └─ unit "cups flour, sifted" ✓ → cups
-   │  ├─ parse_range_with_units "2 cups flour, sifted" ✗
-   │  │  ├─ parse_value "2 cups flour, sifted" ✓ → 2
-   │  │  │  ├─ parse_upper_bound_only "2 cups flour, sifted" ✗
-   │  │  │  └─ parse_value_with_optional_range "2 cups flour, sifted" ✓ → 2
-   │  │  │     ├─ parse_number "2 cups flour, sifted" ✓ → 2
-   │  │  │     │  └─ fraction_number "2 cups flour, sifted" ✗
-   │  │  │     └─ parse_range_end " cups flour, sifted" ✗
-   │  │  ├─ unit "cups flour, sifted" ✓ → cups
-   │  │  └─ parse_range_end " flour, sifted" ✗
-   │  ├─ parse_value "2 cups flour, sifted" ✓ → 2
-   │  │  ├─ parse_upper_bound_only "2 cups flour, sifted" ✗
-   │  │  └─ parse_value_with_optional_range "2 cups flour, sifted" ✓ → 2
-   │  │     ├─ parse_number "2 cups flour, sifted" ✓ → 2
-   │  │     │  └─ fraction_number "2 cups flour, sifted" ✗
-   │  │     └─ parse_range_end " cups flour, sifted" ✗
-   │  ├─ parenthesized_amounts "2 cups flour, sifted" ✗
-   │  ├─ parse_single_measurement "2 cups flour, sifted" ✓ → 2 cups
-   │  │  ├─ parse_multiplier "2 cups flour, sifted" ✗
-   │  │  │  └─ parse_number "2 cups flour, sifted" ✓ → 2
-   │  │  │     └─ fraction_number "2 cups flour, sifted" ✗
-   │  │  ├─ parse_value "2 cups flour, sifted" ✓ → 2
-   │  │  │  ├─ parse_upper_bound_only "2 cups flour, sifted" ✗
-   │  │  │  └─ parse_value_with_optional_range "2 cups flour, sifted" ✓ → 2
-   │  │  │     ├─ parse_number "2 cups flour, sifted" ✓ → 2
-   │  │  │     │  └─ fraction_number "2 cups flour, sifted" ✗
-   │  │  │     └─ parse_range_end " cups flour, sifted" ✗
-   │  │  └─ unit "cups flour, sifted" ✓ → cups
-   │  ├─ parse_plus_expression "flour, sifted" ✗
-   │  │  └─ parse_single_measurement "flour, sifted" ✗
-   │  │     ├─ parse_multiplier "flour, sifted" ✗
-   │  │     │  └─ parse_number "flour, sifted" ✗
-   │  │     │     └─ fraction_number "flour, sifted" ✗
-   │  │     └─ parse_value "flour, sifted" ✗
-   │  │        ├─ parse_upper_bound_only "flour, sifted" ✗
-   │  │        └─ parse_value_with_optional_range "flour, sifted" ✗
-   │  │           └─ parse_number "flour, sifted" ✗
-   │  │              └─ fraction_number "flour, sifted" ✗
-   │  ├─ parse_cross_unit_range "flour, sifted" ✗
-   │  │  └─ parse_number "flour, sifted" ✗
-   │  │     └─ fraction_number "flour, sifted" ✗
-   │  ├─ parse_range_with_units "flour, sifted" ✗
-   │  │  └─ parse_value "flour, sifted" ✗
-   │  │     ├─ parse_upper_bound_only "flour, sifted" ✗
-   │  │     └─ parse_value_with_optional_range "flour, sifted" ✗
-   │  │        └─ parse_number "flour, sifted" ✗
-   │  │           └─ fraction_number "flour, sifted" ✗
-   │  ├─ parse_value "flour, sifted" ✗
-   │  │  ├─ parse_upper_bound_only "flour, sifted" ✗
-   │  │  └─ parse_value_with_optional_range "flour, sifted" ✗
-   │  │     └─ parse_number "flour, sifted" ✗
-   │  │        └─ fraction_number "flour, sifted" ✗
-   │  ├─ parenthesized_amounts "flour, sifted" ✗
-   │  ├─ parse_single_measurement "flour, sifted" ✗
-   │  │  ├─ parse_multiplier "flour, sifted" ✗
-   │  │  │  └─ parse_number "flour, sifted" ✗
-   │  │  │     └─ fraction_number "flour, sifted" ✗
-   │  │  └─ parse_value "flour, sifted" ✗
-   │  │     ├─ parse_upper_bound_only "flour, sifted" ✗
-   │  │     └─ parse_value_with_optional_range "flour, sifted" ✗
-   │  │        └─ parse_number "flour, sifted" ✗
-   │  │           └─ fraction_number "flour, sifted" ✗
-   │  └─ parse_unit_only "flour, sifted" ✗
-   │     └─ unit_extra "flour, sifted" ✗
-   ├─ bracketed_amounts "flour, sifted" ✗
-   ├─ adjective "flour, sifted" ✗
-   └─ parenthesized_amounts ", sifted" ✗
+└─ parse_line "2 cups flour, sifted" ✓ → flour
+   ├─ optional_wrapped "2 cups flour, sifted" ✗
+   ├─ trailing_amount "2 cups flour, sifted" ✗
+   ├─ x_of_construction "2 cups flour, sifted" ✗
+   └─ parse_ingredient "2 cups flour, sifted" ✓ → flour
+      ├─ measurement_list "2 cups flour, sifted" ✓ → 2 cups
+      │  ├─ parse_plus_expression "2 cups flour, sifted" ✗
+      │  │  └─ parse_single_measurement "2 cups flour, sifted" ✓ → 2 cups
+      │  │     ├─ parse_multiplier "2 cups flour, sifted" ✗
+      │  │     │  └─ parse_number "2 cups flour, sifted" ✓ → 2
+      │  │     │     └─ fraction_number "2 cups flour, sifted" ✗
+      │  │     ├─ parse_value "2 cups flour, sifted" ✓ → 2
+      │  │     │  ├─ parse_upper_bound_only "2 cups flour, sifted" ✗
+      │  │     │  └─ parse_value_with_optional_range "2 cups flour, sifted" ✓ → 2
+      │  │     │     ├─ parse_number "2 cups flour, sifted" ✓ → 2
+      │  │     │     │  └─ fraction_number "2 cups flour, sifted" ✗
+      │  │     │     └─ parse_range_end " cups flour, sifted" ✗
+      │  │     └─ unit "cups flour, sifted" ✓ → cups
+      │  ├─ parse_cross_unit_range "2 cups flour, sifted" ✗
+      │  │  ├─ parse_number "2 cups flour, sifted" ✓ → 2
+      │  │  │  └─ fraction_number "2 cups flour, sifted" ✗
+      │  │  └─ unit "cups flour, sifted" ✓ → cups
+      │  ├─ parse_range_with_units "2 cups flour, sifted" ✗
+      │  │  ├─ parse_value "2 cups flour, sifted" ✓ → 2
+      │  │  │  ├─ parse_upper_bound_only "2 cups flour, sifted" ✗
+      │  │  │  └─ parse_value_with_optional_range "2 cups flour, sifted" ✓ → 2
+      │  │  │     ├─ parse_number "2 cups flour, sifted" ✓ → 2
+      │  │  │     │  └─ fraction_number "2 cups flour, sifted" ✗
+      │  │  │     └─ parse_range_end " cups flour, sifted" ✗
+      │  │  ├─ unit "cups flour, sifted" ✓ → cups
+      │  │  └─ parse_range_end " flour, sifted" ✗
+      │  ├─ parse_value "2 cups flour, sifted" ✓ → 2
+      │  │  ├─ parse_upper_bound_only "2 cups flour, sifted" ✗
+      │  │  └─ parse_value_with_optional_range "2 cups flour, sifted" ✓ → 2
+      │  │     ├─ parse_number "2 cups flour, sifted" ✓ → 2
+      │  │     │  └─ fraction_number "2 cups flour, sifted" ✗
+      │  │     └─ parse_range_end " cups flour, sifted" ✗
+      │  ├─ parenthesized_amounts "2 cups flour, sifted" ✗
+      │  ├─ parse_single_measurement "2 cups flour, sifted" ✓ → 2 cups
+      │  │  ├─ parse_multiplier "2 cups flour, sifted" ✗
+      │  │  │  └─ parse_number "2 cups flour, sifted" ✓ → 2
+      │  │  │     └─ fraction_number "2 cups flour, sifted" ✗
+      │  │  ├─ parse_value "2 cups flour, sifted" ✓ → 2
+      │  │  │  ├─ parse_upper_bound_only "2 cups flour, sifted" ✗
+      │  │  │  └─ parse_value_with_optional_range "2 cups flour, sifted" ✓ → 2
+      │  │  │     ├─ parse_number "2 cups flour, sifted" ✓ → 2
+      │  │  │     │  └─ fraction_number "2 cups flour, sifted" ✗
+      │  │  │     └─ parse_range_end " cups flour, sifted" ✗
+      │  │  └─ unit "cups flour, sifted" ✓ → cups
+      │  ├─ parse_plus_expression "flour, sifted" ✗
+      │  │  └─ parse_single_measurement "flour, sifted" ✗
+      │  │     ├─ parse_multiplier "flour, sifted" ✗
+      │  │     │  └─ parse_number "flour, sifted" ✗
+      │  │     │     └─ fraction_number "flour, sifted" ✗
+      │  │     └─ parse_value "flour, sifted" ✗
+      │  │        ├─ parse_upper_bound_only "flour, sifted" ✗
+      │  │        └─ parse_value_with_optional_range "flour, sifted" ✗
+      │  │           └─ parse_number "flour, sifted" ✗
+      │  │              └─ fraction_number "flour, sifted" ✗
+      │  ├─ parse_cross_unit_range "flour, sifted" ✗
+      │  │  └─ parse_number "flour, sifted" ✗
+      │  │     └─ fraction_number "flour, sifted" ✗
+      │  ├─ parse_range_with_units "flour, sifted" ✗
+      │  │  └─ parse_value "flour, sifted" ✗
+      │  │     ├─ parse_upper_bound_only "flour, sifted" ✗
+      │  │     └─ parse_value_with_optional_range "flour, sifted" ✗
+      │  │        └─ parse_number "flour, sifted" ✗
+      │  │           └─ fraction_number "flour, sifted" ✗
+      │  ├─ parse_value "flour, sifted" ✗
+      │  │  ├─ parse_upper_bound_only "flour, sifted" ✗
+      │  │  └─ parse_value_with_optional_range "flour, sifted" ✗
+      │  │     └─ parse_number "flour, sifted" ✗
+      │  │        └─ fraction_number "flour, sifted" ✗
+      │  ├─ parenthesized_amounts "flour, sifted" ✗
+      │  ├─ parse_single_measurement "flour, sifted" ✗
+      │  │  ├─ parse_multiplier "flour, sifted" ✗
+      │  │  │  └─ parse_number "flour, sifted" ✗
+      │  │  │     └─ fraction_number "flour, sifted" ✗
+      │  │  └─ parse_value "flour, sifted" ✗
+      │  │     ├─ parse_upper_bound_only "flour, sifted" ✗
+      │  │     └─ parse_value_with_optional_range "flour, sifted" ✗
+      │  │        └─ parse_number "flour, sifted" ✗
+      │  │           └─ fraction_number "flour, sifted" ✗
+      │  └─ parse_unit_only "flour, sifted" ✗
+      │     └─ unit_extra "flour, sifted" ✗
+      ├─ bracketed_amounts "flour, sifted" ✗
+      ├─ adjective "flour, sifted" ✗
+      └─ parenthesized_amounts ", sifted" ✗

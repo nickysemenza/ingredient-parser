@@ -16,52 +16,7 @@ use crate::unit::Measure;
 
 use super::{MeasurementParser, DEFAULT_UNIT};
 
-/// Container nouns that can follow a parenthesized size, e.g. the "piece" in
-/// "1 (1-ounce) piece ginger". Kept narrow so the size-hoisting parser doesn't
-/// over-match arbitrary parentheticals.
-const CONTAINER_NOUNS: &[&str] = &[
-    "piece",
-    "pieces",
-    "can",
-    "cans",
-    "knob",
-    "knobs",
-    "package",
-    "packages",
-    "packet",
-    "packets",
-    "bottle",
-    "bottles",
-    "jar",
-    "jars",
-    "block",
-    "blocks",
-    "bunch",
-    "bunches",
-    "head",
-    "heads",
-    "stick",
-    "sticks",
-    "fillet",
-    "fillets",
-    "loaf",
-    "slab",
-    "slabs",
-    "chunk",
-    "chunks",
-    "ball",
-    "balls",
-    "box",
-    "boxes",
-    "disk",
-    "disks",
-    "wedge",
-    "wedges",
-    "tube",
-    "tubes",
-    "envelope",
-    "envelopes",
-];
+use crate::parser::vocab::CONTAINER_NOUNS;
 
 impl<'a> MeasurementParser<'a> {
     /// Parse measurements enclosed in matching delimiters

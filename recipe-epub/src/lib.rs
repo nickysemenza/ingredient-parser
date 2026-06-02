@@ -535,7 +535,7 @@ fn resolve_references(recipes: &mut [CookbookRecipe], links: &[Link]) {
         .map(|(i, r)| (normalize_title(&r.meta.title), r.meta.title.clone(), i))
         .filter(|(norm, _, _)| !norm.is_empty())
         .collect();
-    titles.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    titles.sort_by_key(|t| std::cmp::Reverse(t.0.len()));
 
     // Normalized link texts (e.g. "the only piecrust" from <a>The Only Piecrust</a>)
     // — the set of titles the author hyperlinked anywhere in the book.

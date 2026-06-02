@@ -70,24 +70,7 @@ pub(super) fn starts_with_dimension_suffix(text: &str) -> bool {
     is_distance_unit(&unit_part)
 }
 
-/// Distance unit base forms for dimension detection.
-const DISTANCE_UNIT_BASES: &[&str] = &[
-    "inch",
-    "in",
-    "cm",
-    "centimeter",
-    "centimetre",
-    "mm",
-    "millimeter",
-    "millimetre",
-    "foot",
-    "ft",
-    "meter",
-    "metre",
-    "m",
-    "yard",
-    "yd",
-];
+use crate::parser::vocab::DISTANCE_UNIT_BASES;
 
 /// Check if a string is a distance unit (used for dimension detection).
 /// Handles both singular and plural forms automatically.
