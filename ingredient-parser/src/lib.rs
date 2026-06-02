@@ -364,6 +364,68 @@ impl IngredientParser {
         )
     }
 
+    /// Parse a line that may name **multiple** ingredients into a `Vec`.
+    ///
+    /// A single ingredient line is the common case (returns a one-element `Vec`).
+    /// Compound lines are split only on **structurally unambiguous** signals, so
+    /// dish names like "macaroni and cheese" or "cream and sugar" are never
+    /// mangled:
+    /// - an explicit semicolon list ("kosher salt; black pepper; cumin"), or
+    /// - an " and "-joined list **where at least two segments carry an amount**
+    ///   ("1 cup flour and 2 eggs" → two ingredients; "salt and pepper" stays one,
+    ///   since distinguishing two seasonings from one dish needs food knowledge
+    ///   the parser doesn't have).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ingredient::IngredientParser;
+    /// let parser = IngredientParser::new();
+    ///
+    /// // Amount-bearing conjunction → split.
+    /// let parts = parser.parse_multi("1 cup flour and 2 eggs");
+    /// assert_eq!(parts.len(), 2);
+    /// assert_eq!(parts[0].name, "flour");
+    /// assert_eq!(parts[1].name, "eggs");
+    ///
+    /// // Dish name with no amounts → left as one ingredient.
+    /// let parts = parser.parse_multi("macaroni and cheese");
+    /// assert_eq!(parts.len(), 1);
+    /// ```
+    pub fn parse_multi(&self, input: &str) -> Vec<Ingredient> {
+        let trimmed = input.trim();
+
+        // Explicit semicolon list — an unambiguous separator.
+        if trimmed.contains(';') {
+            let parts: Vec<Ingredient> = trimmed
+                .split(';')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| self.from_str(s))
+                .collect();
+            if parts.len() >= 2 {
+                return parts;
+            }
+        }
+
+        // " and "-joined list, accepted only when at least two segments parse
+        // with an amount. This splits "1 cup flour and 2 eggs" but leaves
+        // "macaroni and cheese" / "salt and pepper" (no amounts) as one item.
+        let segments: Vec<&str> = trimmed
+            .split(" and ")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if segments.len() >= 2 {
+            let parsed: Vec<Ingredient> = segments.iter().map(|s| self.from_str(s)).collect();
+            if parsed.iter().filter(|i| !i.amounts.is_empty()).count() >= 2 {
+                return parsed;
+            }
+        }
+
+        vec![self.from_str(trimmed)]
+    }
+
     /// Parse an ingredient string with debug tracing enabled
     ///
     /// This method returns both the parsed result and a trace of which

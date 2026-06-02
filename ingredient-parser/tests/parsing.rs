@@ -561,3 +561,30 @@ fn test_parse_diagnostics(
         "unparsed_digit for: {input}"
     );
 }
+
+// ============================================================================
+// Multi-ingredient parsing
+// ============================================================================
+
+/// `parse_multi` splits only on unambiguous signals (semicolons, or " and "
+/// with multiple amount-bearing segments) and never mangles dish names.
+#[rstest]
+// Amount-bearing conjunction → split into separate ingredients.
+#[case::and_amounts("1 cup flour and 2 eggs", vec!["flour", "eggs"])]
+#[case::and_three("2 cups water and 1 tsp salt and 1 tbsp oil", vec!["water", "salt", "oil"])]
+// Semicolon list → split even without amounts.
+#[case::semicolons("kosher salt; black pepper; cumin", vec!["kosher salt", "black pepper", "cumin"])]
+// Dish/seasoning names with no amounts → stay as ONE ingredient.
+#[case::dish_name("macaroni and cheese", vec!["macaroni and cheese"])]
+#[case::seasoning("salt and pepper", vec!["salt and pepper"])]
+// Plain single ingredient → one element.
+#[case::single("2 cups flour, sifted", vec!["flour"])]
+fn test_parse_multi(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] expected_names: Vec<&str>,
+) {
+    let parts = parser.parse_multi(input);
+    let names: Vec<String> = parts.iter().map(|i| i.name.clone()).collect();
+    assert_eq!(names, expected_names, "input: {input}");
+}
