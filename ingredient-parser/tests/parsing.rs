@@ -530,3 +530,34 @@ fn test_trailing_temp_only_not_used(parser: IngredientParser, #[case] input: &st
         "Temperature-only trailing should not be used as amount: {input} -> {result:?}"
     );
 }
+
+// ============================================================================
+// Parse Diagnostics
+// ============================================================================
+
+/// `parse_with_diagnostics` surfaces parse confidence and the corpus-harvest
+/// "digit but no amount" signal without changing the infallible result.
+#[rstest]
+// Clean structured parse with an amount → High, no signals.
+#[case::clean("2 cups flour", ingredient::Confidence::High, false, false)]
+// Plausible name-only ingredient (no digit) → Medium, did not fall back.
+#[case::name_only("Chocolate Chip Cookies", ingredient::Confidence::Medium, false, false)]
+// A digit that produced no amount → likely missed quantity → Low.
+#[case::unparsed_digit("1+1 multivitamins", ingredient::Confidence::Low, true, true)]
+fn test_parse_diagnostics(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] confidence: ingredient::Confidence,
+    #[case] fell_back: bool,
+    #[case] unparsed_digit: bool,
+) {
+    let (ingredient, diag) = parser.parse_with_diagnostics(input);
+    // The ingredient matches plain from_str (diagnostics never change the result).
+    assert_eq!(ingredient, parser.from_str(input), "input: {input}");
+    assert_eq!(diag.confidence, confidence, "confidence for: {input}");
+    assert_eq!(diag.fell_back, fell_back, "fell_back for: {input}");
+    assert_eq!(
+        diag.unparsed_digit, unparsed_digit,
+        "unparsed_digit for: {input}"
+    );
+}

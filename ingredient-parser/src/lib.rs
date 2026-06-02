@@ -201,6 +201,31 @@ pub fn from_str(input: &str) -> Ingredient {
 /// let ingredient = parser.from_str("2 handfuls of nuts");
 /// assert_eq!(ingredient.name, "nuts");
 /// ```
+/// How confident the parser is in a result, derived from how it was reached.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Confidence {
+    /// A structured parse with at least one amount, no leftover digit.
+    High,
+    /// Parsed, but a digit in the input produced no amount (a likely missed
+    /// quantity).
+    Medium,
+    /// Fell back to a name-only ingredient (no structured parse succeeded).
+    Low,
+}
+
+/// Non-failing diagnostics about a parse. See
+/// [`parse_with_diagnostics`](IngredientParser::parse_with_diagnostics).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Diagnostics {
+    /// Overall confidence in the parse.
+    pub confidence: Confidence,
+    /// The parse fell back to a name-only ingredient (no recognizer/core parse).
+    pub fell_back: bool,
+    /// The input contained a digit but no amount was parsed — the corpus-harvest
+    /// "likely miss" heuristic, computed natively by the parser.
+    pub unparsed_digit: bool,
+}
+
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct IngredientParser {
     /// Set of recognized measurement units
@@ -288,6 +313,55 @@ impl IngredientParser {
     /// This method never panics and provides fallback behavior for unparseable input
     pub fn from_str(&self, input: &str) -> Ingredient {
         self.parse_ingredient_line(input)
+    }
+
+    /// Parse an ingredient string and return non-failing parse diagnostics
+    /// alongside the result.
+    ///
+    /// `from_str` is intentionally infallible, which hides whether a line was
+    /// parsed cleanly or quietly fell back to a name-only ingredient. This method
+    /// surfaces that signal — useful for quality monitoring and for the
+    /// corpus-harvest loop, which looks for lines the parser likely mishandled
+    /// (e.g. a digit present but no amount parsed).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ingredient::{IngredientParser, Confidence};
+    ///
+    /// let parser = IngredientParser::new();
+    ///
+    /// let (ing, diag) = parser.parse_with_diagnostics("2 cups flour");
+    /// assert_eq!(ing.name, "flour");
+    /// assert_eq!(diag.confidence, Confidence::High);
+    ///
+    /// // A digit with no parseable amount is a likely miss → Low confidence.
+    /// let (_, diag) = parser.parse_with_diagnostics("1+1 vitamins");
+    /// assert!(diag.unparsed_digit);
+    /// assert_eq!(diag.confidence, Confidence::Low);
+    /// ```
+    pub fn parse_with_diagnostics(&self, input: &str) -> (Ingredient, Diagnostics) {
+        let (ingredient, fell_back) = self.parse_ingredient_line_with_provenance(input);
+        let had_digit = input.chars().any(|c| c.is_ascii_digit());
+        let unparsed_digit = had_digit && ingredient.amounts.is_empty();
+        let confidence = if !ingredient.amounts.is_empty() {
+            // A structured parse with at least one amount.
+            Confidence::High
+        } else if unparsed_digit {
+            // A digit produced no amount — a likely missed quantity.
+            Confidence::Low
+        } else {
+            // A plausible name-only ingredient (no digit, e.g. "salt to taste").
+            Confidence::Medium
+        };
+        (
+            ingredient,
+            Diagnostics {
+                confidence,
+                fell_back,
+                unparsed_digit,
+            },
+        )
     }
 
     /// Parse an ingredient string with debug tracing enabled

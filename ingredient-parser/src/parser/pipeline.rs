@@ -23,6 +23,12 @@ impl IngredientParser {
         self.parse_normalized_ingredient(normalized.as_ref())
     }
 
+    /// Parse a line and report whether it fell back to a name-only ingredient.
+    pub(crate) fn parse_ingredient_line_with_provenance(&self, input: &str) -> (Ingredient, bool) {
+        let normalized = normalize_input(input);
+        self.parse_normalized_ingredient_with_provenance(normalized.as_ref())
+    }
+
     pub(crate) fn parse_ingredient_line_with_trace(
         &self,
         input: &str,
@@ -41,6 +47,16 @@ impl IngredientParser {
     }
 
     fn parse_normalized_ingredient(&self, input: &str) -> Ingredient {
+        self.parse_normalized_ingredient_with_provenance(input).0
+    }
+
+    /// Like `parse_normalized_ingredient`, but also reports whether the parse
+    /// fell back to a name-only ingredient (no structured recognizer/core parse
+    /// succeeded). Used to derive parse diagnostics.
+    pub(crate) fn parse_normalized_ingredient_with_provenance(
+        &self,
+        input: &str,
+    ) -> (Ingredient, bool) {
         // An "(optional)" note marks the whole ingredient optional, e.g.
         // "Grated zest of 1 lemon (optional)" or, mid-line, "almonds (optional),
         // coarsely chopped". Strip it before parsing and set the flag, so it
@@ -48,14 +64,16 @@ impl IngredientParser {
         // being hoisted. (A *whole-line* parenthesized ingredient is handled
         // separately below.)
         let (cleaned, is_optional) = strip_optional_note(input);
-        let mut ingredient = self.parse_normalized_ingredient_inner(&cleaned);
+        let (mut ingredient, fell_back) = self.parse_normalized_ingredient_inner(&cleaned);
         if is_optional {
             ingredient.optional = true;
         }
-        ingredient
+        (ingredient, fell_back)
     }
 
-    fn parse_normalized_ingredient_inner(&self, input: &str) -> Ingredient {
+    /// Returns the parsed ingredient and `true` if it came from the name-only
+    /// fallback (no recognizer or core parse succeeded).
+    fn parse_normalized_ingredient_inner(&self, input: &str) -> (Ingredient, bool) {
         // First try the whole-line special-form recognizers (first match wins),
         // then fall back to the general core parse, then to a name-only ingredient.
         self.run_recognizers(input)
@@ -77,7 +95,8 @@ impl IngredientParser {
                         !(name_empty && has_modifier)
                     })
             })
-            .unwrap_or_else(|| fallback_ingredient(input))
+            .map(|ingredient| (ingredient, false))
+            .unwrap_or_else(|| (fallback_ingredient(input), true))
     }
 
     pub(super) fn parse_core_ingredient(&self, input: &str) -> Option<Ingredient> {
