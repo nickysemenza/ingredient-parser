@@ -1,5 +1,5 @@
+use crate::theme;
 use eframe::egui::{self, RichText};
-use eframe::epaint::Color32;
 use egui_ltreeview::TreeView;
 use ingredient::trace::{ParseTrace, TraceNode, TraceOutcome};
 use ingredient::util::truncate_str;
@@ -96,16 +96,10 @@ fn format_node_label_rich(node: &TraceNode) -> RichText {
     );
 
     match &node.outcome {
-        TraceOutcome::Success { .. } => {
-            // Bright green for success path
-            RichText::new(text)
-                .color(Color32::from_rgb(100, 200, 100))
-                .strong()
-        }
-        TraceOutcome::Failure { .. } => {
-            // Muted red for failed branches
-            RichText::new(text).color(Color32::from_rgb(180, 90, 90))
-        }
-        TraceOutcome::Incomplete => RichText::new(text).color(Color32::from_rgb(180, 180, 100)),
+        // Success path
+        TraceOutcome::Success { .. } => RichText::new(text).color(theme::TRACE_OK).strong(),
+        // Failed branches
+        TraceOutcome::Failure { .. } => RichText::new(text).color(theme::TRACE_FAIL),
+        TraceOutcome::Incomplete => RichText::new(text).color(theme::TRACE_INCOMPLETE),
     }
 }

@@ -2,9 +2,9 @@
 #![allow(clippy::unwrap_used)]
 
 mod tabs;
+mod theme;
 
 use eframe::egui::{self, Image, RichText};
-use eframe::epaint::Color32;
 use ingredient::trace::ParseTrace;
 use poll_promise::Promise;
 use rand::RngExt;
@@ -83,7 +83,8 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String) -> bool {
 
 impl MyApp {
     /// Called once before the first frame.
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        theme::apply(&cc.egui_ctx);
         Default::default()
     }
 }
@@ -101,12 +102,28 @@ impl eframe::App for MyApp {
         // Top panel with tab bar (always visible)
         egui::Panel::top("tab_bar").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.current_tab, Tab::Test, "🧪 Test Parser");
+                ui.selectable_value(
+                    &mut self.current_tab,
+                    Tab::Test,
+                    format!("{} Test Parser", theme::icon::TEST),
+                );
                 ui.separator();
-                ui.selectable_value(&mut self.current_tab, Tab::Recipe, "📖 Recipe");
-                ui.selectable_value(&mut self.current_tab, Tab::Debug, "🔍 Debug Trace");
+                ui.selectable_value(
+                    &mut self.current_tab,
+                    Tab::Recipe,
+                    format!("{} Recipe", theme::icon::RECIPE),
+                );
+                ui.selectable_value(
+                    &mut self.current_tab,
+                    Tab::Debug,
+                    format!("{} Debug Trace", theme::icon::DEBUG),
+                );
                 #[cfg(not(target_arch = "wasm32"))]
-                ui.selectable_value(&mut self.current_tab, Tab::Cookbook, "📚 Cookbook");
+                ui.selectable_value(
+                    &mut self.current_tab,
+                    Tab::Cookbook,
+                    format!("{} Cookbook", theme::icon::COOKBOOK),
+                );
             });
         });
 
@@ -176,16 +193,21 @@ impl eframe::App for MyApp {
                                         if let Some(recipe_yield) = &w.recipe.recipe_yield {
                                             ui.label(
                                                 RichText::new(format!(
-                                                    "📊 Yield: {} {}",
-                                                    recipe_yield.value, recipe_yield.unit
+                                                    "{} Yield: {} {}",
+                                                    theme::icon::YIELD,
+                                                    recipe_yield.value,
+                                                    recipe_yield.unit
                                                 ))
-                                                .color(Color32::GOLD),
+                                                .color(theme::AMOUNT),
                                             );
                                         }
                                         if let Some(servings) = &w.recipe.servings {
                                             ui.label(
-                                                RichText::new(format!("🍽️ Servings: {servings}"))
-                                                    .color(Color32::GOLD),
+                                                RichText::new(format!(
+                                                    "{} Servings: {servings}",
+                                                    theme::icon::SERVINGS
+                                                ))
+                                                .color(theme::AMOUNT),
                                             );
                                         }
                                         if let Some(t) = &w.recipe.times {
@@ -196,7 +218,10 @@ impl eframe::App for MyApp {
                                                 ("cook", &t.cook),
                                             ] {
                                                 if let Some(value) = value {
-                                                    ui.label(format!("⏱ {label}: {value}"));
+                                                    ui.label(format!(
+                                                        "{} {label}: {value}",
+                                                        theme::icon::TIME
+                                                    ));
                                                 }
                                             }
                                         }

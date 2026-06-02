@@ -8,8 +8,10 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# catppuccin-egui = { git = "https://github.com/catppuccin/egui", branch = "main" }
+# Theme is hand-applied in src/theme.rs (Catppuccin Mocha palette): the
+# catppuccin-egui crate only supports egui <=0.33, and we're on 0.34.
 egui_extras = { version = "0.34.0", features = ["image", "http"] }
+egui_material_icons = "0.6"
 eframe = "0.34.0"
 ehttp = "0.7.0"
 image = { version = "0.25.1", default-features = false, features = ["jpeg"] }

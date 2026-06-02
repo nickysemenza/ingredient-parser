@@ -2,7 +2,8 @@
 //! recipes. Native-only — `recipe-epub` pulls file/network/tokio deps that
 //! don't build for wasm, so the whole module is gated out of the web build.
 
-use eframe::egui::{self, Color32, RichText};
+use crate::theme;
+use eframe::egui::{self, RichText};
 use egui_graphs::{
     get_layout_state, set_layout_state, FruchtermanReingoldWithCenterGravity,
     FruchtermanReingoldWithCenterGravityState, Graph as EguiGraph, GraphView, LayoutForceDirected,
@@ -273,7 +274,7 @@ fn show_recipe_detail(
 
         ui.horizontal_wrapped(|ui| {
             if let Some(y) = &r.meta.recipe_yield {
-                ui.label(RichText::new(format!("📊 {y}")).color(Color32::GOLD));
+                ui.label(RichText::new(format!("{} {y}", theme::icon::YIELD)).color(theme::AMOUNT));
             }
             if let Some(t) = &r.meta.times {
                 for (label, value) in [
@@ -283,7 +284,7 @@ fn show_recipe_detail(
                     ("cook", &t.cook),
                 ] {
                     if let Some(value) = value {
-                        ui.label(format!("⏱ {label}: {value}"));
+                        ui.label(format!("{} {label}: {value}", theme::icon::TIME));
                     }
                 }
             }
@@ -306,10 +307,10 @@ fn show_recipe_detail(
         if !r.meta.equipment.is_empty() || !r.meta.notes.is_empty() {
             ui.separator();
             for e in &r.meta.equipment {
-                ui.label(format!("🔧 {e}"));
+                ui.label(format!("{} {e}", theme::icon::EQUIPMENT));
             }
             for n in &r.meta.notes {
-                ui.label(RichText::new(format!("📝 {n}")).weak());
+                ui.label(RichText::new(format!("{} {n}", theme::icon::NOTE)).weak());
             }
         }
 
@@ -386,36 +387,44 @@ fn show_sections_with_links(
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 for (raw_line, ing) in raw_sec.ingredients.iter().zip(&sec.ingredients) {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.collapsing(make_rich(ing), |ui| {
-                            ui.label(serde_json::to_string_pretty(ing).unwrap());
-                        });
-                        // If this verbatim line is a cross-recipe reference, add
-                        // a link to the target recipe.
-                        if let Some(idx) = recipe
-                            .references
-                            .iter()
-                            .find(|x| &x.line == raw_line)
-                            .and_then(|x| recipes.iter().position(|o| o.meta.title == x.title))
-                        {
-                            if ui.link(RichText::new("→ open").small()).clicked() {
-                                navigate_to = Some(idx);
+                    theme::card_compact(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.collapsing(make_rich(ing), |ui| {
+                                ui.label(serde_json::to_string_pretty(ing).unwrap());
+                            });
+                            // If this verbatim line is a cross-recipe reference, add
+                            // a link to the target recipe.
+                            if let Some(idx) = recipe
+                                .references
+                                .iter()
+                                .find(|x| &x.line == raw_line)
+                                .and_then(|x| recipes.iter().position(|o| o.meta.title == x.title))
+                            {
+                                if ui
+                                    .link(
+                                        RichText::new(format!("{} open", theme::icon::OPEN))
+                                            .small(),
+                                    )
+                                    .clicked()
+                                {
+                                    navigate_to = Some(idx);
+                                }
                             }
-                        }
+                        });
                     });
                 }
             });
             ui.vertical(|ui| {
                 for instr in &sec.instructions {
                     ui.horizontal_wrapped(|ui| {
-                        ui.group(|ui| {
+                        theme::card(ui, |ui| {
                             ui.spacing_mut().item_spacing.x = 0.0;
                             for chunk in instr {
                                 match chunk {
                                     Chunk::Measure(ms) => {
                                         for m in ms {
                                             ui.label(
-                                                RichText::new(m.to_string()).color(Color32::GOLD),
+                                                RichText::new(m.to_string()).color(theme::AMOUNT),
                                             );
                                         }
                                     }
@@ -423,7 +432,7 @@ fn show_sections_with_links(
                                         ui.label(t);
                                     }
                                     Chunk::Ing(i) => {
-                                        ui.label(RichText::new(i).color(Color32::LIGHT_BLUE));
+                                        ui.label(RichText::new(i).color(theme::NAME));
                                     }
                                 }
                             }
@@ -512,7 +521,7 @@ fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
                 NODE_RADIUS
             };
             if is_hub {
-                node.set_color(egui::Color32::from_rgb(0x4d, 0xa6, 0xff));
+                node.set_color(theme::GRAPH_NODE);
             }
             // Place on a phyllotaxis-style spiral so initial positions are
             // distinct and roughly even — a good seed for force-directed layout.
@@ -575,7 +584,7 @@ fn show_reference_graph(
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(&title).strong());
-                            if ui.button("Open ↗").clicked() {
+                            if ui.button(format!("Open {}", theme::icon::OPEN)).clicked() {
                                 clicked_open = Some(recipe_idx);
                             }
                         });

@@ -1,5 +1,5 @@
+use crate::theme;
 use eframe::egui::{self, RichText, TextFormat, WidgetText};
-use eframe::epaint::Color32;
 use recipe_scraper::{ParsedRecipe, ParsedSection, ScrapedRecipe};
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ pub(crate) fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
         amount_list.as_str(),
         0.0,
         TextFormat {
-            color: Color32::GOLD,
+            color: theme::AMOUNT,
             ..Default::default()
         },
     );
@@ -31,7 +31,7 @@ pub(crate) fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
         name.as_str(),
         0.0,
         TextFormat {
-            color: Color32::LIGHT_BLUE,
+            color: theme::NAME,
             ..Default::default()
         },
     );
@@ -39,7 +39,7 @@ pub(crate) fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
         modifier.as_str(),
         0.0,
         TextFormat {
-            color: Color32::LIGHT_GRAY,
+            color: theme::MODIFIER,
             ..Default::default()
         },
     );
@@ -61,27 +61,29 @@ pub fn show_parsed_sections(ui: &mut egui::Ui, sections: &[ParsedSection]) {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 section.ingredients.iter().for_each(|x| {
-                    ui.collapsing(make_rich(x), |ui| {
-                        ui.label(serde_json::to_string_pretty(&x).unwrap())
+                    theme::card_compact(ui, |ui| {
+                        ui.collapsing(make_rich(x), |ui| {
+                            ui.label(serde_json::to_string_pretty(&x).unwrap())
+                        });
                     });
                 });
             });
             ui.vertical(|ui| {
                 section.instructions.iter().for_each(|x| {
                     ui.horizontal_wrapped(|ui| {
-                        ui.group(|ui| {
+                        theme::card(ui, |ui| {
                             ui.spacing_mut().item_spacing.x = 0.0;
                             x.iter().for_each(|x| match x {
                                 ingredient::rich_text::Chunk::Measure(x) => {
                                     x.iter().for_each(|x| {
-                                        ui.label(RichText::new(x.to_string()).color(Color32::GOLD));
+                                        ui.label(RichText::new(x.to_string()).color(theme::AMOUNT));
                                     })
                                 }
                                 ingredient::rich_text::Chunk::Text(t) => {
                                     ui.label(t);
                                 }
                                 ingredient::rich_text::Chunk::Ing(i) => {
-                                    ui.label(RichText::new(i).color(Color32::LIGHT_BLUE));
+                                    ui.label(RichText::new(i).color(theme::NAME));
                                 }
                             });
                         });
@@ -101,12 +103,12 @@ pub fn show_raw(ui: &mut egui::Ui, recipe: &ScrapedRecipe) {
                     "Yield: {} {}",
                     recipe_yield.value, recipe_yield.unit
                 ))
-                .color(Color32::GOLD),
+                .color(theme::AMOUNT),
             );
             ui.separator();
         }
         if let Some(servings) = &recipe.servings {
-            ui.label(RichText::new(format!("Servings: {servings}")).color(Color32::GOLD));
+            ui.label(RichText::new(format!("Servings: {servings}")).color(theme::AMOUNT));
         }
     });
     ui.separator();
@@ -132,10 +134,10 @@ pub fn show_raw(ui: &mut egui::Ui, recipe: &ScrapedRecipe) {
     if !recipe.equipment.is_empty() || !recipe.notes.is_empty() {
         ui.separator();
         for e in &recipe.equipment {
-            ui.label(format!("🔧 {e}"));
+            ui.label(format!("{} {e}", theme::icon::EQUIPMENT));
         }
         for n in &recipe.notes {
-            ui.label(RichText::new(format!("📝 {n}")).weak());
+            ui.label(RichText::new(format!("{} {n}", theme::icon::NOTE)).weak());
         }
     }
 }
