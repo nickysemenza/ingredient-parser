@@ -1,5 +1,6 @@
 ---
 source: ingredient-parser/tests/snapshots.rs
+assertion_line: 43
 expression: "from_str(\"1¼ cups / 155.5g flour\")"
 ---
 Ingredient {
@@ -7,12 +8,18 @@ Ingredient {
     amounts: [
         Measure {
             unit: Cup,
-            value: 1.25,
+            value: Ratio {
+                numer: 5,
+                denom: 4,
+            },
             upper_value: None,
         },
         Measure {
             unit: Gram,
-            value: 155.5,
+            value: Ratio {
+                numer: 311,
+                denom: 2,
+            },
             upper_value: None,
         },
     ],

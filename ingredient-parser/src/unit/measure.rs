@@ -2,10 +2,26 @@ use crate::unit::singular;
 use crate::unit::{kind::MeasureKind, Unit};
 use crate::util::format_quantity;
 use crate::{IngredientError, IngredientResult};
+use num_rational::Rational64;
+use num_traits::ToPrimitive;
 use serde::{de::Deserializer, ser::Serializer, Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use tracing::debug;
+
+/// Convert an `f64` quantity to an exact rational. Cooking fractions (½, ⅓, …)
+/// and terminating decimals recover to their simple form via continued-fraction
+/// approximation, so equality is exact (e.g. ⅓ == ⅓, not 0.333… ≈ 0.333…).
+/// Non-finite input (filtered out upstream) falls back to zero.
+fn to_rational(value: f64) -> Rational64 {
+    Rational64::approximate_float(value).unwrap_or_else(|| Rational64::from_integer(0))
+}
+
+/// Best-effort `f64` view of a rational (for arithmetic, conversion, and the
+/// `value()` public accessor).
+fn to_f64(value: Rational64) -> f64 {
+    value.to_f64().unwrap_or(0.0)
+}
 
 // Re-export conversion types and functions for backward compatibility
 pub use super::conversion::{make_graph, print_graph, MeasureGraph};
@@ -19,8 +35,19 @@ pub struct Measure {
         deserialize_with = "deserialize_unit"
     )]
     unit: Unit,
-    value: f64,
-    upper_value: Option<f64>,
+    // Stored as an exact rational so equality is exact; (de)serialized as f64 to
+    // keep the JSON/wasm representation a plain number.
+    #[serde(
+        serialize_with = "serialize_rational",
+        deserialize_with = "deserialize_rational"
+    )]
+    value: Rational64,
+    #[serde(
+        default,
+        serialize_with = "serialize_rational_opt",
+        deserialize_with = "deserialize_rational_opt"
+    )]
+    upper_value: Option<Rational64>,
 }
 
 /// Serialize Unit as its canonical string form (e.g., "cup", "g", "$")
@@ -32,6 +59,29 @@ fn serialize_unit<S: Serializer>(unit: &Unit, s: S) -> Result<S::Ok, S::Error> {
 fn deserialize_unit<'de, D: Deserializer<'de>>(d: D) -> Result<Unit, D::Error> {
     let s = String::deserialize(d)?;
     Ok(Unit::from_str(&s).unwrap_or(Unit::Other(singular(&s).into_owned())))
+}
+
+/// Serialize a rational quantity as a plain JSON number (f64).
+fn serialize_rational<S: Serializer>(value: &Rational64, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_f64(to_f64(*value))
+}
+
+/// Deserialize a JSON number into an exact rational.
+fn deserialize_rational<'de, D: Deserializer<'de>>(d: D) -> Result<Rational64, D::Error> {
+    Ok(to_rational(f64::deserialize(d)?))
+}
+
+fn serialize_rational_opt<S: Serializer>(
+    value: &Option<Rational64>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    value.map(to_f64).serialize(s)
+}
+
+fn deserialize_rational_opt<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Rational64>, D::Error> {
+    Ok(Option::<f64>::deserialize(d)?.map(to_rational))
 }
 
 // Multiplication factors for unit conversions
@@ -170,8 +220,8 @@ impl Measure {
     pub(crate) fn new_with_upper(unit: Unit, value: f64, upper_value: Option<f64>) -> Measure {
         Measure {
             unit,
-            value,
-            upper_value,
+            value: to_rational(value),
+            upper_value: upper_value.map(to_rational),
         }
     }
     pub fn unit(&self) -> &Unit {
@@ -179,11 +229,11 @@ impl Measure {
     }
     /// Get the primary value of this measure
     pub fn value(&self) -> f64 {
-        self.value
+        to_f64(self.value)
     }
     /// Get the upper value of this measure (for ranges like "2-3 cups")
     pub fn upper_value(&self) -> Option<f64> {
-        self.upper_value
+        self.upper_value.map(to_f64)
     }
     /// Normalize this measure to its base unit
     ///
@@ -192,19 +242,19 @@ impl Measure {
     pub(crate) fn normalize(&self) -> Measure {
         // Handle custom units - normalize the unit name (singularize)
         if let Unit::Other(x) = &self.unit {
-            return Measure::new_with_upper(
-                Unit::Other(singular(x).into_owned()),
-                self.value,
-                self.upper_value,
-            );
+            return Measure {
+                unit: Unit::Other(singular(x).into_owned()),
+                value: self.value,
+                upper_value: self.upper_value,
+            };
         }
 
         // Look up conversion rule in the table
         if let Some(rule) = find_normalization_rule(&self.unit) {
             return Measure {
                 unit: rule.to_base.clone(),
-                value: self.value * rule.factor,
-                upper_value: self.upper_value.map(|x| x * rule.factor),
+                value: to_rational(self.value() * rule.factor),
+                upper_value: self.upper_value().map(|x| to_rational(x * rule.factor)),
             };
         }
 
@@ -285,8 +335,8 @@ impl Measure {
 
         Measure {
             unit,
-            value,
-            upper_value,
+            value: to_rational(value),
+            upper_value: upper_value.map(to_rational),
         }
     }
     /// Get the kind/category of this measurement (weight, volume, time, etc.)
@@ -339,7 +389,7 @@ impl Measure {
         let (u, f) = match &self.unit {
             Unit::Gram => (Unit::Gram, 1.0),
             Unit::Milliliter => (Unit::Milliliter, 1.0),
-            Unit::Teaspoon => match self.value {
+            Unit::Teaspoon => match self.value() {
                 // only for these measurements to we convert to the best fit, others stay bare due to the nature of the values
                 m if { m < 3.0 } => (Unit::Teaspoon, 1.0),
                 m if { m < 12.0 } => (Unit::Tablespoon, TSP_TO_TBSP),
@@ -348,7 +398,7 @@ impl Measure {
             },
             Unit::Cent => (Unit::Dollar, CENTS_TO_DOLLAR),
             Unit::KCal => (Unit::KCal, 1.0),
-            Unit::Second => match self.value {
+            Unit::Second => match self.value() {
                 // only for these measurements to we convert to the best fit, others stay bare due to the nature of the values
                 m if { m < SEC_TO_MIN } => (Unit::Second, 1.0),
                 m if { m < SEC_TO_HOUR } => (Unit::Minute, SEC_TO_MIN),
@@ -375,8 +425,8 @@ impl Measure {
         };
         Measure {
             unit: u,
-            value: self.value / f,
-            upper_value: self.upper_value.map(|x| x / f),
+            value: to_rational(self.value() / f),
+            upper_value: self.upper_value().map(|x| to_rational(x / f)),
         }
     }
 
@@ -397,7 +447,7 @@ impl Measure {
         let unit_str = self.unit().to_str();
         let base = singular(&unit_str);
         if (*self.unit() == Unit::Cup || *self.unit() == Unit::Minute)
-            && (self.value > 1.0 || self.upper_value.unwrap_or_default() > 1.0)
+            && (self.value() > 1.0 || self.upper_value().unwrap_or(0.0) > 1.0)
         {
             let mut s = base.into_owned();
             s.push('s');
@@ -411,9 +461,10 @@ impl Measure {
 impl fmt::Display for Measure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let measure = self.denormalize();
-        if let Some(u) = measure.upper_value {
+        let value = measure.value();
+        if let Some(u) = measure.upper_value() {
             if u != 0.0 {
-                if measure.value == 0.0 {
+                if value == 0.0 {
                     // "up to X" case - just show the upper bound
                     write!(f, "{} {}", format_quantity(u), self.unit_as_string())
                 } else {
@@ -421,26 +472,16 @@ impl fmt::Display for Measure {
                     write!(
                         f,
                         "{} - {} {}",
-                        format_quantity(measure.value),
+                        format_quantity(value),
                         format_quantity(u),
                         self.unit_as_string()
                     )
                 }
             } else {
-                write!(
-                    f,
-                    "{} {}",
-                    format_quantity(measure.value),
-                    self.unit_as_string()
-                )
+                write!(f, "{} {}", format_quantity(value), self.unit_as_string())
             }
         } else {
-            write!(
-                f,
-                "{} {}",
-                format_quantity(measure.value),
-                self.unit_as_string()
-            )
+            write!(f, "{} {}", format_quantity(value), self.unit_as_string())
         }
     }
 }
