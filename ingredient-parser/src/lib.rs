@@ -146,10 +146,16 @@ const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     "freshly ground",
     "freshly grated",
     "finely chopped",
+    "coarsely chopped",
     "thinly sliced",
     "sliced",
     "plain",
     "to taste",
+    // State/prep words that describe how an ingredient is brought to the recipe
+    // (e.g. "melted butter", "softened butter"). Like other prep words they
+    // belong in the modifier, not the name, whether they lead or trail.
+    "melted",
+    "softened",
     // Measurement/preparation qualifiers that often appear *before* the name
     // (e.g. "1 cup packed brown sugar", "2 cups sifted flour"). They describe how
     // the ingredient is measured/prepared, not which product it is, so they belong
@@ -293,7 +299,7 @@ impl IngredientParser {
         let units: HashSet<String> = [
             "recipe", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch",
             "package", "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin",
-            "rib", "ribs",
+            "rib", "ribs", "sprig", "sprigs", "pint", "pints",
         ]
         .iter()
         .map(|&s| s.into())

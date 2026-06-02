@@ -1,6 +1,12 @@
 //! Range parsing for measurements
 
-use nom::{branch::alt, bytes::complete::tag, character::complete::space0, error::context, Parser};
+use nom::{
+    branch::alt,
+    bytes::complete::tag,
+    character::complete::{space0, space1},
+    error::{context, ParseError},
+    Parser,
+};
 use tracing::info;
 
 use crate::parser::Res;
@@ -10,6 +16,61 @@ use crate::unit::Measure;
 use super::{optional_period_or_of, MeasurementParser, DEFAULT_UNIT};
 
 impl<'a> MeasurementParser<'a> {
+    /// Parse a *cross-unit* range like "2 teaspoons to 2 tablespoons" — a range
+    /// whose two endpoints carry *different* units. Unlike a same-unit range
+    /// ("2 to 3 cups"), this can't collapse into one `Measure { upper_value }`,
+    /// so both endpoints are returned as separate amounts: `[2 tsp, 2 tbsp]`.
+    ///
+    /// Requires an explicit unit on *both* sides and that the two units differ;
+    /// otherwise it fails so the same-unit range parser handles it.
+    pub(super) fn parse_cross_unit_range<'b>(&self, input: &'b str) -> Res<&'b str, Vec<Measure>> {
+        let format = (
+            |a| self.parse_number(a), // lower value
+            space0,
+            |a| self.unit(a), // lower unit (required)
+            space1,
+            alt((tag("to"), tag("through"), tag("–"), tag("-"))), // range keyword
+            space1,
+            |a| self.parse_number(a), // upper value
+            space1,
+            |a| self.unit(a), // upper unit (required)
+            optional_period_or_of,
+        );
+
+        traced_parser!(
+            "parse_cross_unit_range",
+            input,
+            context("cross_unit_range", format)
+                .parse(input)
+                .and_then(|(next_input, res)| {
+                    let (low_val, _, low_unit, _, _, _, high_val, _, high_unit, _) = res;
+                    // Same unit → not a cross-unit range; let the range parser fold
+                    // it into a single Measure with an upper bound instead.
+                    if low_unit.to_lowercase() == high_unit.to_lowercase() {
+                        return Err(nom::Err::Error(
+                            nom_language::error::VerboseError::from_error_kind(
+                                input,
+                                nom::error::ErrorKind::Verify,
+                            ),
+                        ));
+                    }
+                    Ok((
+                        next_input,
+                        vec![
+                            Measure::from_parts(low_unit.to_lowercase().as_ref(), low_val, None),
+                            Measure::from_parts(high_unit.to_lowercase().as_ref(), high_val, None),
+                        ],
+                    ))
+                }),
+            |measures: &Vec<Measure>| measures
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" + "),
+            "no cross-unit range"
+        )
+    }
+
     /// Parse the upper end of a range like "-3", "to 5", "through 10", or "or 2"
     pub(super) fn parse_range_end<'b>(&self, input: &'b str) -> Res<&'b str, f64> {
         // Two possible formats for range syntax:

@@ -14,7 +14,7 @@ use crate::parser::Res;
 use crate::traced_parser;
 use crate::unit::Measure;
 
-use super::MeasurementParser;
+use super::{MeasurementParser, DEFAULT_UNIT};
 
 /// Container nouns that can follow a parenthesized size, e.g. the "piece" in
 /// "1 (1-ounce) piece ginger". Kept narrow so the size-hoisting parser doesn't
@@ -45,6 +45,8 @@ const CONTAINER_NOUNS: &[&str] = &[
     "fillet",
     "fillets",
     "loaf",
+    "slab",
+    "slabs",
     "chunk",
     "chunks",
     "ball",
@@ -181,11 +183,16 @@ impl<'a> MeasurementParser<'a> {
                 // "halibut fillets" → container = trailing "fillets", name "halibut".
                 let last_word = after.rsplit(char::is_whitespace).next().unwrap_or("");
                 let last_lower = last_word.to_lowercase();
-                if !CONTAINER_NOUNS.contains(&last_lower.as_str()) {
-                    return Err(reject());
+                if CONTAINER_NOUNS.contains(&last_lower.as_str()) {
+                    let name = after[..after.len() - last_word.len()].trim_end();
+                    (last_lower, name)
+                } else {
+                    // No container noun: the count is of whole items that each
+                    // carry the parenthetical size, e.g. "1 (3½ to 4 pound)
+                    // chicken" → [1 whole, 3.5–4 lb] / "chicken" and "2 (8-ounce)
+                    // swordfish steaks, …" → [2 whole, 8 oz] / "swordfish steaks".
+                    (DEFAULT_UNIT.to_string(), after)
                 }
-                let name = after[..after.len() - last_word.len()].trim_end();
-                (last_lower, name)
             };
 
         // The size must fully parse as a measurement (hyphen → space).

@@ -41,6 +41,19 @@ impl IngredientParser {
     }
 
     fn parse_normalized_ingredient(&self, input: &str) -> Ingredient {
+        // A trailing "(optional)" note marks the whole ingredient optional, e.g.
+        // "Grated zest of 1 lemon (optional)". Strip it before parsing and set
+        // the flag, so it doesn't pollute the name/modifier. (A *whole-line*
+        // parenthesized ingredient is handled separately below.)
+        let (input, trailing_optional) = split_trailing_optional(input);
+        let mut ingredient = self.parse_normalized_ingredient_inner(input);
+        if trailing_optional {
+            ingredient.optional = true;
+        }
+        ingredient
+    }
+
+    fn parse_normalized_ingredient_inner(&self, input: &str) -> Ingredient {
         if let Some(ingredient) = self.try_parse_optional_ingredient(input) {
             return ingredient;
         }
@@ -97,6 +110,8 @@ impl IngredientParser {
 
     fn postprocess_ingredient(&self, mut ingredient: Ingredient) -> Ingredient {
         self.fix_leading_prep_phrase(&mut ingredient);
+        self.fix_leading_minus_clause(&mut ingredient);
+        self.extract_leading_prep_alternative(&mut ingredient);
         self.extract_adjectives_from_name(&mut ingredient);
         ingredient.name = collapse_whitespace(&ingredient.name);
         self.extract_alternative_from_name(&mut ingredient);
@@ -131,6 +146,38 @@ impl IngredientParser {
         let prep = name.to_string();
         ingredient.name = modifier.to_string();
         ingredient.modifier = Some(prep);
+    }
+
+    /// Recover from a leading subtractive clause that displaced the name, e.g.
+    /// "½ cup minus 1 tablespoon flour" parses with "½ cup" as the amount and
+    /// "minus 1 tablespoon flour" as the name. When the name begins with "minus"
+    /// followed by a parseable measurement, move "minus <measure>" into the
+    /// modifier and restore the real name ("flour"). The primary amount is left
+    /// as stated (the subtraction isn't applied numerically).
+    fn fix_leading_minus_clause(&self, ingredient: &mut Ingredient) {
+        let name = ingredient.name.clone();
+        let Some(rest) = name
+            .strip_prefix("minus ")
+            .or_else(|| name.strip_prefix("Minus "))
+        else {
+            return;
+        };
+        let mp = MeasurementParser::new(&self.units, self.is_rich_text);
+        let Ok((remaining, measures)) = mp.parse_measurement_list(rest) else {
+            return;
+        };
+        if measures.is_empty() || remaining.trim().is_empty() {
+            return;
+        }
+        let consumed = rest[..rest.len() - remaining.len()].trim();
+        let clause = format!("minus {consumed}");
+        ingredient.name = remaining.trim().to_string();
+        match ingredient.modifier.take() {
+            Some(m) if !m.trim().is_empty() => {
+                ingredient.modifier = Some(format!("{clause}, {m}"));
+            }
+            _ => ingredient.modifier = Some(clause),
+        }
     }
 
     /// Try to parse an optional ingredient format: "(amount ingredient, modifier)"
@@ -388,6 +435,51 @@ impl IngredientParser {
         ingredient.name = name;
     }
 
+    /// Recover a leading preparation *alternative* that displaced the name, e.g.
+    /// "grated or finely chopped lemon zest" parses with "grated or finely
+    /// chopped lemon zest" as the name. When the name begins with
+    /// "`<participle> or <known-adjective>`" — a prep word (typically `-ed`),
+    /// "or", then a recognized adjective phrase — that whole prefix is a
+    /// preparation note. Move it to the modifier and keep the trailing head noun
+    /// as the name ("lemon zest", modifier "grated or finely chopped").
+    ///
+    /// Guarded tightly so genuine two-ingredient alternatives ("basil or chopped
+    /// parsley") are left alone: the first word must look like a participle
+    /// (`-ed`) or be a known adjective, the word after "or" must be a known
+    /// adjective phrase, and a head noun must remain.
+    fn extract_leading_prep_alternative(&self, ingredient: &mut Ingredient) {
+        let name = ingredient.name.trim().to_string();
+        let words: Vec<&str> = name.split_whitespace().collect();
+        if words.len() < 4 || words[1].to_lowercase() != "or" {
+            return;
+        }
+        let first = words[0].to_lowercase();
+        let first_is_prep = first.ends_with("ed") || self.adjectives.contains(&first);
+        if !first.chars().all(char::is_alphabetic) || !first_is_prep {
+            return;
+        }
+        // A known adjective phrase (two words then one) immediately after "or".
+        let two = format!(
+            "{} {}",
+            words[2].to_lowercase(),
+            words.get(3).map(|w| w.to_lowercase()).unwrap_or_default()
+        );
+        let adj_len = if words.len() >= 5 && self.adjectives.contains(&two) {
+            2
+        } else if self.adjectives.contains(&words[2].to_lowercase()) {
+            1
+        } else {
+            return;
+        };
+        let name_start = 2 + adj_len;
+        if name_start >= words.len() {
+            return;
+        }
+        let prefix = words[..name_start].join(" ");
+        ingredient.name = words[name_start..].join(" ");
+        append_modifier(&mut ingredient.modifier, &prefix);
+    }
+
     fn extract_alternative_from_name(&self, ingredient: &mut Ingredient) {
         let (name, alternative) = extract_alternative(&ingredient.name);
         ingredient.name = name;
@@ -466,6 +558,70 @@ fn is_footnote_marker(c: char) -> bool {
     )
 }
 
+/// Strip a cross-reference parenthetical such as "(see this page)", "(this
+/// page)", or "(see page 123)" — a navigation artifact common in EPUB cookbooks
+/// (links rendered as text). It carries no ingredient information, so it is
+/// removed during normalization rather than leaking into the name or modifier.
+/// The optional leading whitespace is absorbed so "walnuts (see this page),"
+/// collapses cleanly to "walnuts,".
+fn strip_cross_reference(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static CROSS_REF: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"(?i)\s*\((?:see\s+)?(?:this page|page\s+\d+)\)")
+            .expect("invalid cross-reference regex")
+    });
+    CROSS_REF.replace_all(input, "")
+}
+
+/// Normalize the cookbook "range-with-attached-unit" notation
+/// "3½- to 4-pound" / "4½- to 5½-pound" into the parseable "3½ to 4 pound", so
+/// it folds into a single ranged `Measure`. The hyphens attach the dash to the
+/// first number and the unit to the second number, which otherwise defeats the
+/// range parser. Scoped to the `<num>- to <num>-<word>` shape so ordinary
+/// hyphenated names ("all-purpose") are untouched.
+fn normalize_dimension_range(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static DIM_RANGE: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(
+            r"([0-9./¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]+)-\s*(to|through)\s+([0-9./¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]+)-([A-Za-z]+)",
+        )
+        .expect("invalid dimension-range regex")
+    });
+    DIM_RANGE.replace_all(input, "$1 $2 $3 $4")
+}
+
+/// Strip a leading determiner ("the") sitting in front of a quantity, e.g.
+/// "the ¼ cup of garlic chives" → "¼ cup of garlic chives". Scoped to "the"
+/// immediately followed by a number so ordinary names ("the works seasoning")
+/// are untouched. ("a"/"an" already read as a quantity of 1, so they're left.)
+fn strip_leading_determiner(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static LEADING_THE: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"(?i)^the\s+([0-9¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞])").expect("invalid leading-the regex")
+    });
+    LEADING_THE.replace(input, "$1")
+}
+
+/// Drop an arithmetic-equivalence parenthetical containing "minus", e.g. the
+/// "(2 sticks minus 1 tablespoon)" in "15 tablespoons (2 sticks minus 1
+/// tablespoon) unsalted butter". The primary amount before it already states the
+/// quantity; the aside is an equivalence note the structured parse can't use.
+fn strip_minus_equivalence(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static MINUS_PAREN: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"\s*\([^)]*\bminus\b[^)]*\)").expect("invalid minus-equivalence regex")
+    });
+    MINUS_PAREN.replace_all(input, "")
+}
+
 fn normalize_input(input: &str) -> Cow<'_, str> {
     let normalized = if input.contains('\u{a0}') {
         Cow::Owned(input.replace('\u{a0}', " "))
@@ -485,6 +641,30 @@ fn normalize_input(input: &str) -> Cow<'_, str> {
         normalized
     };
 
+    // Drop cross-reference parentheticals ("(see this page)") when present.
+    let normalized = match strip_cross_reference(normalized.as_ref()) {
+        Cow::Owned(stripped) => Cow::Owned(stripped),
+        Cow::Borrowed(_) => normalized,
+    };
+
+    // Normalize "3½- to 4-pound" range notation to "3½ to 4 pound".
+    let normalized = match normalize_dimension_range(normalized.as_ref()) {
+        Cow::Owned(rewritten) => Cow::Owned(rewritten),
+        Cow::Borrowed(_) => normalized,
+    };
+
+    // Drop a leading determiner before a quantity ("the ¼ cup ...").
+    let normalized = match strip_leading_determiner(normalized.as_ref()) {
+        Cow::Owned(stripped) => Cow::Owned(stripped),
+        Cow::Borrowed(_) => normalized,
+    };
+
+    // Drop a "(… minus …)" equivalence parenthetical.
+    let normalized = match strip_minus_equivalence(normalized.as_ref()) {
+        Cow::Owned(stripped) => Cow::Owned(stripped),
+        Cow::Borrowed(_) => normalized,
+    };
+
     let has_multiple_spaces = normalized
         .as_bytes()
         .windows(2)
@@ -499,6 +679,25 @@ fn normalize_input(input: &str) -> Cow<'_, str> {
     } else {
         normalized
     }
+}
+
+/// Split a trailing "(optional)" note off the end of a line, returning the
+/// cleaned line plus whether the note was present. Case-insensitive; also
+/// accepts a comma form (", optional"). Only a *trailing* note counts — a
+/// whole-line parenthesized ingredient is the optional-ingredient path.
+fn split_trailing_optional(input: &str) -> (&str, bool) {
+    let trimmed = input.trim_end();
+    let lower = trimmed.to_lowercase();
+    for suffix in ["(optional)", ", optional", " optional"] {
+        if lower.ends_with(suffix) {
+            // Don't strip a whole-line "(optional)" with nothing before it.
+            let head = trimmed[..trimmed.len() - suffix.len()].trim_end();
+            if !head.is_empty() {
+                return (head, true);
+            }
+        }
+    }
+    (input, false)
 }
 
 fn fallback_ingredient(input: &str) -> Ingredient {
@@ -596,7 +795,8 @@ fn extract_alternative(name: &str) -> (String, Option<String>) {
 
     static ALTERNATIVE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         #[allow(clippy::expect_used)]
-        Regex::new(r"(?i)\s+or\s+(\d+|a\s+|an\s+)").expect("invalid alternative pattern regex")
+        Regex::new(r"(?i)\s+or\s+(\d+|[½¼¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]|a\s+|an\s+)")
+            .expect("invalid alternative pattern regex")
     });
 
     let Some(matched) = ALTERNATIVE_PATTERN.find(name) else {
@@ -649,6 +849,18 @@ fn extract_secondary_amounts(
     let Ok((remaining, measures)) = mp.parse_measurement_list(amount_text) else {
         return (vec![], modifier.to_string());
     };
+
+    // A *dimension* aside like "(about 3-inch)" inside a prep phrase ("cut into
+    // long (about 3-inch) strips") describes shape, not a secondary quantity.
+    // Leave it in the modifier rather than hoisting a spurious inch amount.
+    let is_distance = |m: &Measure| match m.unit() {
+        unit::Unit::Inch => true,
+        unit::Unit::Other(s) => super::measurement::guards::is_distance_unit(s),
+        _ => false,
+    };
+    if measures.iter().any(is_distance) {
+        return (vec![], modifier.to_string());
+    }
 
     let remaining_trimmed = remaining.trim();
     let is_simple_remaining = remaining_trimmed.is_empty()

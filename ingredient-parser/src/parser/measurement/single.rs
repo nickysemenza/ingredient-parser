@@ -35,6 +35,7 @@ impl<'a> MeasurementParser<'a> {
             space0,
             optional_dash_separator,
             optional_article,
+            opt(amount_qualifier_between),
             opt(|a| self.unit(a)),
             optional_period_or_of,
         );
@@ -52,6 +53,7 @@ impl<'a> MeasurementParser<'a> {
                         _,
                         _dash,
                         _article,
+                        _mid_qualifier,
                         unit,
                         period_consumed,
                     ) = res;
@@ -105,7 +107,32 @@ impl<'a> MeasurementParser<'a> {
             return Ok((after_dim, unit));
         }
 
+        // A hyphenated unit attached to the number, e.g. the "3-pound" in
+        // "1 whole 3-pound fish". The hyphen otherwise blocks the unit parser,
+        // leaving a spurious "whole" amount and a "-pound …" name.
+        if let Some((after_hyphen_unit, unit)) = self.parse_hyphenated_unit(next_input) {
+            return Ok((after_hyphen_unit, unit));
+        }
+
         Ok((next_input, DEFAULT_UNIT.to_string()))
+    }
+
+    /// Consume a unit hyphenated to the preceding number, e.g. the "-pound" in
+    /// "3-pound fish" → unit "pound", leaving " fish". Distance units are handled
+    /// earlier by [`parse_dimension_unit`]; this covers weight/volume units
+    /// ("3-pound", "5-ounce") that a hyphen would otherwise hide from the unit
+    /// parser. Requires the token after the hyphen to be a recognized unit so a
+    /// hyphenated *name* ("five-spice") is left alone.
+    fn parse_hyphenated_unit<'b>(&self, input: &'b str) -> Option<(&'b str, String)> {
+        let after_hyphen = input.strip_prefix('-')?;
+        let end = after_hyphen
+            .find(|c: char| !c.is_alphabetic())
+            .unwrap_or(after_hyphen.len());
+        let unit = &after_hyphen[..end];
+        if unit.is_empty() || !unit::is_valid(self.units, unit) {
+            return None;
+        }
+        Some((&after_hyphen[end..], unit.to_lowercase()))
     }
 
     /// Try to find a unit after skipping a parenthesized description.
@@ -255,6 +282,28 @@ fn parse_dimension_unit(input: &str) -> Option<(&str, String)> {
         return None;
     }
     Some((&after_hyphen[end..], unit.to_lowercase()))
+}
+
+/// Consume an amount-shape qualifier ("generous", "scant", "heaping", …) that
+/// sits *between* the number and the unit, as in "2 generous tablespoons". The
+/// qualifier describes how full the measure is; like the leading form it is
+/// discarded (the numeric amount is what's structured). Restricted to shape
+/// qualifiers — "about"/"approximately" never appear in this position.
+///
+/// Wrapped in `opt(...)` by the caller, so a non-qualifier word (the real unit)
+/// backtracks and is left for the unit parser.
+fn amount_qualifier_between(input: &str) -> Res<&str, ()> {
+    let (input, _) = alt((
+        tag_no_case("generous"),
+        tag_no_case("scant"),
+        tag_no_case("heaping"),
+        tag_no_case("heaped"),
+        tag_no_case("rounded"),
+        tag_no_case("brimming"),
+    ))
+    .parse(input)?;
+    let (input, _) = space1(input)?;
+    Ok((input, ()))
 }
 
 /// Consume a leading approximation qualifier ("about", "generous", "scant",

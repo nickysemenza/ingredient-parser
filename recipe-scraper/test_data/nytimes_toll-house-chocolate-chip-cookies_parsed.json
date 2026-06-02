@@ -120,7 +120,8 @@
               "upper_value": null
             }
           ],
-          "modifier": "(optional)chopped"
+          "modifier": "chopped",
+          "optional": true
         }
       ],
       "instructions": [

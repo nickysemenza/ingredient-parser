@@ -69,6 +69,11 @@ impl<'a> MeasurementParser<'a> {
         let amount_parsers = alt((
             // "1 cup plus 2 tbsp" -> sums compatible measures (else keeps both)
             |input| self.parse_plus_expression(input),
+            // Cross-unit range "2 tsp to 2 tbsp" -> [2 tsp, 2 tbsp] (two amounts,
+            // since differing units can't fold into one range Measure). Must come
+            // before the same-unit range parser, which would otherwise swallow the
+            // first unit and drop the second.
+            |input| self.parse_cross_unit_range(input),
             // Range with units on both sides: "2-3 cups" or "1 to 2 tbsp"
             |input| {
                 self.parse_range_with_units(input)
@@ -346,6 +351,38 @@ mod tests {
         assert_eq!(measures.len(), expected_len, "input: {input}");
         assert_eq!(measures[0].unit_as_string(), first_unit);
         assert_eq!(measures[1].unit_as_string(), "oz");
+    }
+
+    /// Count + parenthetical/hyphenated size with NO container noun: the count
+    /// becomes a "whole" amount and the size a second amount, e.g.
+    /// "1 (3 ounce) chicken" -> [1 whole, 3 oz] and "One 6-ounce carrot" ->
+    /// [1 whole, 6 oz]. (With a container the first unit is the container; see
+    /// the test above.)
+    #[rstest]
+    #[case::paren("1 (3 ounce) chicken")]
+    #[case::hyphen("One 6-ounce carrot")]
+    fn test_count_with_size_no_container(units: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units, false);
+        let (_, measures) = parser.parse_count_with_parenthetical_size(input).unwrap();
+        assert_eq!(measures.len(), 2, "input: {input}");
+        assert_eq!(measures[0].unit_as_string(), "whole");
+        assert_eq!(measures[1].unit_as_string(), "oz");
+    }
+
+    /// A cross-unit range "2 tsp to 2 tbsp" yields two separate amounts (it can't
+    /// fold into one ranged Measure); a same-unit range falls through so the
+    /// range parser keeps it as a single Measure with an upper bound.
+    #[rstest]
+    fn test_cross_unit_range(units: HashSet<String>) {
+        let parser = MeasurementParser::new(&units, false);
+        let (_, measures) = parser
+            .parse_cross_unit_range("2 teaspoons to 2 tablespoons")
+            .unwrap();
+        assert_eq!(measures.len(), 2);
+        assert_eq!(measures[0].unit_as_string(), "tsp");
+        assert_eq!(measures[1].unit_as_string(), "tbsp");
+        // Same unit on both sides → not a cross-unit range.
+        assert!(parser.parse_cross_unit_range("2 cups to 3 cups").is_err());
     }
 
     /// A parenthetical that is NOT a size (no parseable measurement inside) is
