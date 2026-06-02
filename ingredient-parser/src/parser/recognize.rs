@@ -16,9 +16,24 @@ impl IngredientParser {
     /// Try each whole-line special-form recognizer in order, returning the first
     /// that matches (or `None` to fall through to the core parse).
     pub(super) fn run_recognizers(&self, input: &str) -> Option<Ingredient> {
-        RECOGNIZERS
-            .iter()
-            .find_map(|(_name, recognize)| recognize(self, input))
+        RECOGNIZERS.iter().find_map(|(name, recognize)| {
+            if !crate::trace::is_tracing_enabled() {
+                return recognize(self, input);
+            }
+            // Trace each recognizer attempt so the egui tree shows which matched
+            // (and which were skipped).
+            crate::trace::trace_enter(name, input);
+            match recognize(self, input) {
+                Some(ingredient) => {
+                    crate::trace::trace_exit_success(0, &ingredient.name);
+                    Some(ingredient)
+                }
+                None => {
+                    crate::trace::trace_exit_failure("no match");
+                    None
+                }
+            }
+        })
     }
 
     /// Try to parse an optional ingredient format: "(amount ingredient, modifier)"

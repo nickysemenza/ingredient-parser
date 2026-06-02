@@ -63,11 +63,16 @@ impl IngredientParser {
         // neither pollutes the name/modifier nor blocks a trailing weight from
         // being hoisted. (A *whole-line* parenthesized ingredient is handled
         // separately below.)
+        // Wrap the whole parse in one root span so the phase spans
+        // (recognizers, the grammar, refine passes) nest under it and the trace
+        // tree has a single root. No-op when tracing is disabled.
+        trace::trace_enter("parse_line", input);
         let (cleaned, is_optional) = strip_optional_note(input);
         let (mut ingredient, fell_back) = self.parse_normalized_ingredient_inner(&cleaned);
         if is_optional {
             ingredient.optional = true;
         }
+        trace::trace_exit_success(0, &ingredient.name);
         (ingredient, fell_back)
     }
 

@@ -14,8 +14,30 @@ use crate::{Ingredient, IngredientParser};
 
 impl IngredientParser {
     pub(super) fn postprocess_ingredient(&self, mut ingredient: Ingredient) -> Ingredient {
-        for (_name, pass) in POST_PASSES {
-            pass(self, &mut ingredient);
+        // When tracing, emit a node for each pass that actually changed the
+        // ingredient (a before→after view) so the egui tree shows what each pass
+        // did. The clone is gated behind the tracing flag, so the hot path stays
+        // allocation-free.
+        if crate::trace::is_tracing_enabled() {
+            for (name, pass) in POST_PASSES {
+                let before = ingredient.clone();
+                pass(self, &mut ingredient);
+                if ingredient != before {
+                    crate::trace::trace_enter(name, &before.name);
+                    crate::trace::trace_exit_success(
+                        0,
+                        &format!(
+                            "{} | {}",
+                            ingredient.name,
+                            ingredient.modifier.as_deref().unwrap_or("-")
+                        ),
+                    );
+                }
+            }
+        } else {
+            for (_name, pass) in POST_PASSES {
+                pass(self, &mut ingredient);
+            }
         }
         ingredient
     }
