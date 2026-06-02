@@ -7,52 +7,50 @@
 
 use std::cmp::Reverse;
 
+use super::ir::{ModifierPart, ParsedIngredient};
 use super::normalize::collapse_whitespace;
 use crate::parser::MeasurementParser;
 use crate::unit::{self, Measure};
 use crate::{Ingredient, IngredientParser};
 
 impl IngredientParser {
-    pub(super) fn postprocess_ingredient(&self, mut ingredient: Ingredient) -> Ingredient {
+    /// Run the ordered refinement passes on the parsed IR, then lower it to the
+    /// public [`Ingredient`] (which joins the typed modifier parts back into a
+    /// string and finalizes it).
+    pub(super) fn postprocess_ingredient(&self, mut parsed: ParsedIngredient) -> Ingredient {
         // When tracing, emit a node for each pass that actually changed the
         // ingredient (a before→after view) so the egui tree shows what each pass
         // did. The clone is gated behind the tracing flag, so the hot path stays
         // allocation-free.
         if crate::trace::is_tracing_enabled() {
             for (name, pass) in POST_PASSES {
-                let before = ingredient.clone();
-                pass(self, &mut ingredient);
-                if ingredient != before {
+                let before = parsed.clone();
+                pass(self, &mut parsed);
+                if parsed != before {
                     crate::trace::trace_enter(name, &before.name);
                     crate::trace::trace_exit_success(
                         0,
                         &format!(
                             "{} | {}",
-                            ingredient.name,
-                            ingredient.modifier.as_deref().unwrap_or("-")
+                            parsed.name,
+                            parsed.modifier_string().as_deref().unwrap_or("-")
                         ),
                     );
                 }
             }
         } else {
             for (_name, pass) in POST_PASSES {
-                pass(self, &mut ingredient);
+                pass(self, &mut parsed);
             }
         }
-        ingredient
+        parsed.into()
     }
 
     /// Collapse runs of whitespace left in the name by earlier passes. A pass in
     /// its own right so the ordered `POST_PASSES` list stays the single source of
     /// truth for the sequence.
-    fn collapse_name(&self, ingredient: &mut Ingredient) {
-        ingredient.name = collapse_whitespace(&ingredient.name);
-    }
-
-    /// Final modifier cleanup: unwrap a fully-wrapping paren and trim/None-out an
-    /// empty modifier. Runs last.
-    fn finalize_modifier(&self, ingredient: &mut Ingredient) {
-        ingredient.modifier = strip_wrapping_parens(clean_modifier(ingredient.modifier.take()));
+    fn collapse_name(&self, parsed: &mut ParsedIngredient) {
+        parsed.name = collapse_whitespace(&parsed.name);
     }
 
     /// Recover from a leading prep phrase that displaced the ingredient name.
@@ -65,22 +63,17 @@ impl IngredientParser {
     /// name is restored. The exact-match guard keeps descriptive names (e.g.
     /// "raw pistachios, finely chopped", where the name isn't a prep phrase) from
     /// ever being touched.
-    fn fix_leading_prep_phrase(&self, ingredient: &mut Ingredient) {
-        let name = ingredient.name.trim();
+    fn fix_leading_prep_phrase(&self, parsed: &mut ParsedIngredient) {
+        let name = parsed.name.trim();
         if name.is_empty() || !self.adjectives.contains(&name.to_lowercase()) {
             return;
         }
-        let Some(modifier) = ingredient
-            .modifier
-            .as_deref()
-            .map(str::trim)
-            .filter(|m| !m.is_empty())
-        else {
+        let Some(modifier) = parsed.modifier_string() else {
             return;
         };
         let prep = name.to_string();
-        ingredient.name = modifier.to_string();
-        ingredient.modifier = Some(prep);
+        parsed.name = modifier;
+        parsed.modifier = vec![ModifierPart::Prep(prep)];
     }
 
     /// Recover from a leading subtractive clause that displaced the name, e.g.
@@ -89,8 +82,8 @@ impl IngredientParser {
     /// followed by a parseable measurement, move "minus <measure>" into the
     /// modifier and restore the real name ("flour"). The primary amount is left
     /// as stated (the subtraction isn't applied numerically).
-    fn fix_leading_minus_clause(&self, ingredient: &mut Ingredient) {
-        let name = ingredient.name.clone();
+    fn fix_leading_minus_clause(&self, parsed: &mut ParsedIngredient) {
+        let name = parsed.name.clone();
         let Some(rest) = name
             .strip_prefix("minus ")
             .or_else(|| name.strip_prefix("Minus "))
@@ -106,17 +99,13 @@ impl IngredientParser {
         }
         let consumed = rest[..rest.len() - remaining.len()].trim();
         let clause = format!("minus {consumed}");
-        ingredient.name = remaining.trim().to_string();
-        match ingredient.modifier.take() {
-            Some(m) if !m.trim().is_empty() => {
-                ingredient.modifier = Some(format!("{clause}, {m}"));
-            }
-            _ => ingredient.modifier = Some(clause),
-        }
+        parsed.name = remaining.trim().to_string();
+        // Prepend the subtractive clause so it leads the modifier ("minus …, …").
+        parsed.modifier.insert(0, ModifierPart::Raw(clause));
     }
 
-    fn extract_adjectives_from_name(&self, ingredient: &mut Ingredient) {
-        let mut name = ingredient.name.clone();
+    fn extract_adjectives_from_name(&self, parsed: &mut ParsedIngredient) {
+        let mut name = parsed.name.clone();
         let mut name_lower = name.to_lowercase();
         let mut found_adjectives: Vec<&String> = self
             .adjectives
@@ -151,7 +140,7 @@ impl IngredientParser {
                 continue;
             }
 
-            append_modifier(&mut ingredient.modifier, adjective);
+            parsed.push_modifier(ModifierPart::Prep(adjective.clone()));
 
             let before = name[..pos].trim();
             let after = name[end..].trim();
@@ -170,7 +159,7 @@ impl IngredientParser {
             name_lower = name.to_lowercase();
         }
 
-        ingredient.name = name;
+        parsed.name = name;
     }
 
     /// Recover a leading preparation *alternative* that displaced the name, e.g.
@@ -185,8 +174,8 @@ impl IngredientParser {
     /// parsley") are left alone: the first word must look like a participle
     /// (`-ed`) or be a known adjective, the word after "or" must be a known
     /// adjective phrase, and a head noun must remain.
-    fn extract_leading_prep_alternative(&self, ingredient: &mut Ingredient) {
-        let name = ingredient.name.trim().to_string();
+    fn extract_leading_prep_alternative(&self, parsed: &mut ParsedIngredient) {
+        let name = parsed.name.trim().to_string();
         let words: Vec<&str> = name.split_whitespace().collect();
         if words.len() < 4 || words[1].to_lowercase() != "or" {
             return;
@@ -214,38 +203,48 @@ impl IngredientParser {
             return;
         }
         let prefix = words[..name_start].join(" ");
-        ingredient.name = words[name_start..].join(" ");
-        append_modifier(&mut ingredient.modifier, &prefix);
+        parsed.name = words[name_start..].join(" ");
+        parsed.push_modifier(ModifierPart::Prep(prefix));
     }
 
-    fn extract_alternative_from_name(&self, ingredient: &mut Ingredient) {
-        let (name, alternative) = extract_alternative(&ingredient.name);
-        ingredient.name = name;
+    fn extract_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
+        let (name, alternative) = extract_alternative(&parsed.name);
+        parsed.name = name;
         if let Some(alternative) = alternative {
-            append_modifier(&mut ingredient.modifier, &alternative);
+            parsed.push_modifier(ModifierPart::Alternative(alternative));
         }
     }
 
-    fn extract_secondary_amounts_from_modifier(&self, ingredient: &mut Ingredient) {
-        let Some(modifier) = ingredient.modifier.as_ref() else {
+    fn extract_secondary_amounts_from_modifier(&self, parsed: &mut ParsedIngredient) {
+        let Some(modifier) = parsed.modifier_string() else {
             return;
         };
 
         let (secondary_amounts, cleaned_modifier) =
-            extract_secondary_amounts(modifier, &self.units);
-        ingredient.amounts.extend(secondary_amounts);
-        ingredient.modifier = clean_modifier(Some(cleaned_modifier));
+            extract_secondary_amounts(&modifier, &self.units);
+        // Only rewrite the modifier when an amount was actually hoisted; otherwise
+        // leave the typed parts untouched (the cleaned string equals the original).
+        if secondary_amounts.is_empty() {
+            return;
+        }
+        parsed.amounts.extend(secondary_amounts);
+        parsed.modifier = if cleaned_modifier.trim().is_empty() {
+            Vec::new()
+        } else {
+            vec![ModifierPart::Raw(cleaned_modifier)]
+        };
     }
 }
 
 /// A single post-parse refinement pass: a named mutation of the parsed
 /// ingredient. `&IngredientParser` carries the parse context (units, adjectives,
 /// rich-text mode) each pass needs.
-type Pass = fn(&IngredientParser, &mut Ingredient);
+type Pass = fn(&IngredientParser, &mut ParsedIngredient);
 
 /// The ordered refinement pipeline. The order is load-bearing — e.g. whitespace
-/// is collapsed *between* adjective and alternative extraction, and the modifier
-/// is finalized last. Adding or reordering a step is a one-line edit here.
+/// is collapsed *between* adjective and alternative extraction. The modifier is
+/// finalized when the IR is lowered to `Ingredient`. Adding or reordering a step
+/// is a one-line edit here.
 const POST_PASSES: &[(&str, Pass)] = &[
     (
         "fix_leading_prep_phrase",
@@ -272,7 +271,6 @@ const POST_PASSES: &[(&str, Pass)] = &[
         "extract_secondary_amounts_from_modifier",
         IngredientParser::extract_secondary_amounts_from_modifier,
     ),
-    ("finalize_modifier", IngredientParser::finalize_modifier),
 ];
 
 pub(super) fn append_modifier(modifier: &mut Option<String>, addition: &str) {
@@ -293,7 +291,7 @@ pub(super) fn append_modifier(modifier: &mut Option<String>, addition: &str) {
 /// Strip a single pair of parentheses that wraps the *entire* modifier, e.g.
 /// "(softened)" -> "softened". Modifiers with internal parentheses or only
 /// partial wrapping are left untouched.
-fn strip_wrapping_parens(modifier: Option<String>) -> Option<String> {
+pub(super) fn strip_wrapping_parens(modifier: Option<String>) -> Option<String> {
     let modifier = modifier?;
     let trimmed = modifier.trim();
     if let Some(inner) = trimmed.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
@@ -451,11 +449,13 @@ mod tests {
     // accuracy corpus), so a regression points at the exact pass.
     // ------------------------------------------------------------------
 
-    fn ing(name: &str, modifier: Option<&str>) -> Ingredient {
-        Ingredient {
+    fn ing(name: &str, modifier: Option<&str>) -> ParsedIngredient {
+        ParsedIngredient {
             name: name.to_string(),
             amounts: vec![],
-            modifier: modifier.map(str::to_string),
+            modifier: modifier
+                .map(|m| vec![ModifierPart::Raw(m.to_string())])
+                .unwrap_or_default(),
             optional: false,
         }
     }
@@ -486,7 +486,7 @@ mod tests {
         let mut i = ing(name, modifier);
         parser.fix_leading_prep_phrase(&mut i);
         assert_eq!(i.name, want_name);
-        assert_eq!(i.modifier.as_deref(), want_modifier);
+        assert_eq!(i.modifier_string().as_deref(), want_modifier);
     }
 
     /// "minus <measure> <name>" moves the subtractive clause to the modifier and
@@ -497,7 +497,7 @@ mod tests {
         let mut i = ing("minus 1 tablespoon flour", None);
         parser.fix_leading_minus_clause(&mut i);
         assert_eq!(i.name, "flour");
-        assert_eq!(i.modifier.as_deref(), Some("minus 1 tablespoon"));
+        assert_eq!(i.modifier_string().as_deref(), Some("minus 1 tablespoon"));
     }
 
     /// Adjectives are pulled from the name into the modifier, but only on word
@@ -514,7 +514,7 @@ mod tests {
         let mut i = ing(name, None);
         parser.extract_adjectives_from_name(&mut i);
         assert_eq!(i.name, want_name);
-        assert_eq!(i.modifier.as_deref(), want_modifier);
+        assert_eq!(i.modifier_string().as_deref(), want_modifier);
     }
 
     /// A leading "<participle> or <adjective> <noun>" prep alternative moves to
@@ -531,7 +531,7 @@ mod tests {
         let mut i = ing(name, None);
         parser.extract_leading_prep_alternative(&mut i);
         assert_eq!(i.name, want_name);
-        assert_eq!(i.modifier.is_some(), moved, "name: {name}");
+        assert_eq!(i.modifier_string().is_some(), moved, "name: {name}");
     }
 
     /// "(about N unit)" in the modifier hoists a secondary amount; a distance
@@ -547,5 +547,27 @@ mod tests {
         let mut i = ing("scallions", Some(modifier));
         parser.extract_secondary_amounts_from_modifier(&mut i);
         assert_eq!(i.amounts.len(), want_amounts, "modifier: {modifier}");
+    }
+
+    /// The IR exposes a typed view of the modifier: extracted adjectives land in
+    /// `prep`, alternatives in `alternatives` — not a single opaque string.
+    #[test]
+    fn test_typed_modifier_view() {
+        let parser = IngredientParser::new();
+
+        let mut i = ing("chopped onion", None);
+        parser.extract_adjectives_from_name(&mut i);
+        assert_eq!(i.prep(), vec!["chopped"]);
+        assert!(i.alternatives().is_empty());
+
+        let mut i = ing("garlic or 1 teaspoon garlic powder", None);
+        parser.extract_alternative_from_name(&mut i);
+        assert_eq!(i.alternatives(), vec!["or 1 teaspoon garlic powder"]);
+        assert!(i.prep().is_empty());
+        // And it still flattens to the same modifier string.
+        assert_eq!(
+            Ingredient::from(i).modifier.as_deref(),
+            Some("or 1 teaspoon garlic powder")
+        );
     }
 }

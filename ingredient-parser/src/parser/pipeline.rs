@@ -8,6 +8,7 @@ use nom::{
     Parser,
 };
 
+use super::ir::{ModifierPart, ParsedIngredient};
 use super::normalize::{normalize_input, strip_optional_note};
 use super::recognize::lift_inline_descriptive_paren;
 use super::refine::{append_modifier, clean_modifier};
@@ -134,7 +135,7 @@ impl IngredientParser {
     /// extraction, alternative extraction, and secondary amount extraction happens
     /// in the higher-level ingredient pipeline.
     #[tracing::instrument(name = "parse_ingredient")]
-    pub(crate) fn parse_ingredient<'a>(&self, input: &'a str) -> Res<&'a str, Ingredient> {
+    pub(crate) fn parse_ingredient<'a>(&self, input: &'a str) -> Res<&'a str, ParsedIngredient> {
         let mp = MeasurementParser::new(&self.units, self.is_rich_text);
 
         let ingredient_format = (
@@ -169,20 +170,22 @@ impl IngredientParser {
                 )| {
                     (
                         next_input,
-                        Ingredient {
+                        ParsedIngredient {
                             name: raw_name(name_chunks),
                             amounts: merge_amounts(
                                 primary_amounts,
                                 bracketed_amounts,
                                 paren_amounts,
                             ),
-                            modifier: raw_modifier(adjective, modifier_text),
+                            modifier: raw_modifier(adjective, modifier_text)
+                                .map(|m| vec![ModifierPart::Raw(m)])
+                                .unwrap_or_default(),
                             optional: false,
                         },
                     )
                 },
             ),
-            |i: &Ingredient| i.name.clone(),
+            |i: &ParsedIngredient| i.name.clone(),
             "parse failed"
         )
     }

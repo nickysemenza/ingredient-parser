@@ -3,6 +3,7 @@
 //! This module contains the core parsing logic organized into focused sub-modules.
 
 pub(crate) mod helpers;
+pub(crate) mod ir;
 pub(crate) mod measurement;
 pub(crate) mod normalize;
 pub(crate) mod pipeline;
