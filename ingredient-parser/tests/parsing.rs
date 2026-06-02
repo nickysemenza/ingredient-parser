@@ -201,7 +201,7 @@ fn test_amount_parsing_multi(
 #[rstest]
 fn test_amount_range_display(parser: IngredientParser) {
     let amounts = parser.parse_amount("2 ¼ - 2.5 cups").unwrap();
-    assert_eq!(format!("{}", amounts[0]), "2.25 - 2.5 cups");
+    assert_eq!(format!("{}", amounts[0]), "2¼ - 2½ cups");
 }
 
 // ============================================================================
@@ -214,7 +214,7 @@ fn test_amount_range_display(parser: IngredientParser) {
 #[case::text_a("a tsp flour", "1 tsp flour")]
 #[case::complex(
     "1 cup (125.5 grams) AP flour, sifted",
-    "1 cup / 125.5 g AP flour, sifted"
+    "1 cup / 125½ g AP flour, sifted"
 )]
 fn test_display_formatting(#[case] input: &str, #[case] expected: &str) {
     assert_eq!(from_str(input).to_string(), expected, "Failed: {input}");

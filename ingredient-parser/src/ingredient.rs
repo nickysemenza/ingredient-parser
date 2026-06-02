@@ -204,9 +204,6 @@ mod tests {
             modifier: Some("chopped".to_string()),
             optional: true,
         };
-        assert_eq!(
-            ingredient.to_string(),
-            "0.5 cup walnuts, chopped (optional)"
-        );
+        assert_eq!(ingredient.to_string(), "½ cup walnuts, chopped (optional)");
     }
 }

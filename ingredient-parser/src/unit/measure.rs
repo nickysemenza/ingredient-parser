@@ -1,6 +1,6 @@
 use crate::unit::singular;
 use crate::unit::{kind::MeasureKind, Unit};
-use crate::util::num_without_zeroes;
+use crate::util::format_quantity;
 use crate::{IngredientError, IngredientResult};
 use serde::{de::Deserializer, ser::Serializer, Deserialize, Serialize};
 use std::fmt;
@@ -415,14 +415,14 @@ impl fmt::Display for Measure {
             if u != 0.0 {
                 if measure.value == 0.0 {
                     // "up to X" case - just show the upper bound
-                    write!(f, "{} {}", num_without_zeroes(u), self.unit_as_string())
+                    write!(f, "{} {}", format_quantity(u), self.unit_as_string())
                 } else {
                     // Normal range "X - Y"
                     write!(
                         f,
                         "{} - {} {}",
-                        num_without_zeroes(measure.value),
-                        num_without_zeroes(u),
+                        format_quantity(measure.value),
+                        format_quantity(u),
                         self.unit_as_string()
                     )
                 }
@@ -430,7 +430,7 @@ impl fmt::Display for Measure {
                 write!(
                     f,
                     "{} {}",
-                    num_without_zeroes(measure.value),
+                    format_quantity(measure.value),
                     self.unit_as_string()
                 )
             }
@@ -438,7 +438,7 @@ impl fmt::Display for Measure {
             write!(
                 f,
                 "{} {}",
-                num_without_zeroes(measure.value),
+                format_quantity(measure.value),
                 self.unit_as_string()
             )
         }
