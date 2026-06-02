@@ -147,6 +147,9 @@ fn find_epubs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
 
 #[tokio::main]
 async fn main() {
+    // Load AI gateway creds (AI_GATEWAY_API_KEY, ANTHROPIC_BASE_URL, …) from a
+    // repo-root .env. Missing file is fine; real exported vars take precedence.
+    let _ = dotenvy::dotenv();
     let cli = Cli::parse();
 
     match &cli.command {

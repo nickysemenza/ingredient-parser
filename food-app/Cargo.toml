@@ -27,6 +27,8 @@ tracing-subscriber = "0.3"
 # Cookbook (EPUB) tab — native only.
 recipe-epub.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+# Load AI gateway creds from a repo-root .env on startup (native only).
+dotenvy.workspace = true
 # Recipe-reference digraph in the Cookbook tab (native only).
 egui_graphs = "0.30"
 petgraph = "0.8"
