@@ -69,6 +69,16 @@ enum Commands {
         #[arg(long)]
         jaeger_output: Option<String>,
     },
+    /// Parse a file of ingredient lines (one per line) and emit one JSONL object
+    /// per line: {line, name, amounts, modifier} — the same shape as
+    /// `scrape-epub --dump-parsed`. For corpus harvesting: re-parse a prior dump
+    /// through the current parser (free), or a website's lines via
+    /// `scrape <url> --json | jq -r '.sections[].ingredients[]'`.
+    ParseLines {
+        /// Path to a file with one ingredient line per line (blank lines skipped)
+        #[clap(value_parser)]
+        file: String,
+    },
     /// Parse a measurement/amount string (without ingredient name)
     ParseAmount {
         /// The amount to parse (e.g., "2 cups", "1/2 tsp")
@@ -96,6 +106,20 @@ enum Commands {
         #[arg(short = 'e', long)]
         extra_units: Option<String>,
     },
+}
+
+/// Emit one JSONL object for an ingredient line zipped with its parse:
+/// `{line, name, amounts, modifier}`. Shared by `scrape-epub --dump-parsed` and
+/// `parse-lines` — the corpus-harvest review surface.
+fn emit_parsed_line(ip: &ingredient::IngredientParser, line: &str) {
+    let p = ip.from_str(line);
+    let obj = serde_json::json!({
+        "line": line,
+        "name": p.name,
+        "amounts": p.amounts,
+        "modifier": p.modifier,
+    });
+    println!("{}", serde_json::to_string(&obj).unwrap());
 }
 
 /// Recursively collect `.epub` files under `dir`.
@@ -184,14 +208,7 @@ async fn main() {
                         for r in &recipes {
                             for sec in &r.sections {
                                 for line in &sec.ingredients {
-                                    let p = ip.from_str(line);
-                                    let obj = serde_json::json!({
-                                        "line": line,
-                                        "name": p.name,
-                                        "amounts": p.amounts,
-                                        "modifier": p.modifier,
-                                    });
-                                    println!("{}", serde_json::to_string(&obj).unwrap());
+                                    emit_parsed_line(&ip, line);
                                 }
                             }
                         }
@@ -342,6 +359,23 @@ async fn main() {
                 let res = ingredient::from_str(name);
                 println!("{}", serde_json::to_string_pretty(&res).unwrap());
                 println!("{res}")
+            }
+        }
+        Commands::ParseLines { file } => {
+            let contents = match std::fs::read_to_string(file) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("failed to read {file}: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let ip = ingredient::IngredientParser::new();
+            for line in contents.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                emit_parsed_line(&ip, line);
             }
         }
         Commands::ParseAmount { text, json } => {
