@@ -4,6 +4,7 @@
 
 pub(crate) mod helpers;
 pub(crate) mod measurement;
+pub(crate) mod normalize;
 pub(crate) mod pipeline;
 
 pub(crate) use helpers::parse_amount_string;
