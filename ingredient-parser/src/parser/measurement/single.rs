@@ -76,6 +76,20 @@ impl<'a> MeasurementParser<'a> {
         )
     }
 
+    /// In rich-text (prose) mode, reject a bare number whose continuation is not
+    /// actually a quantity. Two cases (no-op outside rich-text mode):
+    /// - a **step number**: "1. Bring a pot…" — a numbered instruction, not "1 of X".
+    ///   (Only when no measurement-ending period was consumed.)
+    /// - a **dimension suffix**: "1-inch piece ginger" — "1-inch" is descriptive in
+    ///   prose, whereas in ingredient-list mode the dimension IS the amount (→ 1").
+    fn rejected_in_rich_text(&self, next_input: &str, period_consumed: Option<&str>) -> bool {
+        if !self.is_rich_text {
+            return false;
+        }
+        (period_consumed.is_none() && looks_like_step_number(next_input))
+            || starts_with_dimension_suffix(next_input)
+    }
+
     fn resolve_single_measurement_unit<'b>(
         &self,
         input: &'b str,
@@ -91,15 +105,7 @@ impl<'a> MeasurementParser<'a> {
             return Ok((after_paren, unit));
         }
 
-        if self.is_rich_text && period_consumed.is_none() && looks_like_step_number(next_input) {
-            return Err(reject_measurement(input));
-        }
-
-        // In rich text (prose), a hyphenated dimension like "1-inch" in
-        // "1-inch piece ginger" is descriptive, not a quantity, so reject it. In
-        // ingredient-list mode the dimension IS the amount (e.g. "2-inch piece
-        // ginger" → 2"), parsed below by parse_dimension_unit.
-        if self.is_rich_text && starts_with_dimension_suffix(next_input) {
+        if self.rejected_in_rich_text(next_input, period_consumed) {
             return Err(reject_measurement(input));
         }
 

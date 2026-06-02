@@ -2,6 +2,24 @@
 //!
 //! This module contains all the parsers for extracting measurements from ingredient
 //! strings, including single measurements, ranges, and combined expressions.
+//!
+//! ## Rich-text mode (`is_rich_text`)
+//!
+//! The same parsers serve two modes, selected by the `is_rich_text` flag on
+//! [`MeasurementParser`]: **ingredient-list** mode (the default — "2 cups flour")
+//! and **rich-text/prose** mode (measurements embedded in instructions — "cook for
+//! 30 minutes"). The modes share ~90% of the logic; prose mode only adds a few
+//! *rejections* so noise isn't mistaken for a quantity. Every fork point:
+//!
+//! - `number::parse_number` — prose mode excludes spelled-out text numbers
+//!   ("one", "a") so words like "a pinch" or "one more" aren't read as counts.
+//! - `single::rejected_in_rich_text` — prose mode rejects step numbers
+//!   ("1. Bring…") and dimension suffixes ("1-inch piece"). See that method.
+//! - `single::parse_unit_only` — disabled entirely in prose (a bare unit like
+//!   "cup" in prose is a noun, not "1 cup"); only fires in ingredient-list mode.
+//!
+//! (Secondary-amount extraction in `refine` deliberately parses its parenthetical
+//! in ingredient-list mode regardless — "(about 2 cups)" is always a quantity.)
 
 mod composite;
 pub(crate) mod guards;
