@@ -133,68 +133,6 @@ use unit::Measure;
 #[macro_use]
 extern crate serde;
 
-// =============================================================================
-// Default Adjective/Modifier Constants
-// =============================================================================
-
-/// Default preparation adjectives that get extracted to the modifier field.
-/// These describe how an ingredient is prepared before use.
-const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
-    "chopped",
-    "minced",
-    "diced",
-    "freshly ground",
-    "freshly grated",
-    "finely grated",
-    "finely chopped",
-    "coarsely chopped",
-    "thinly sliced",
-    "sliced",
-    "plain",
-    "to taste",
-    // State/prep words that describe how an ingredient is brought to the recipe
-    // (e.g. "melted butter", "softened butter"). Like other prep words they
-    // belong in the modifier, not the name, whether they lead or trail.
-    "melted",
-    "softened",
-    // Measurement/preparation qualifiers that often appear *before* the name
-    // (e.g. "1 cup packed brown sugar", "2 cups sifted flour"). They describe how
-    // the ingredient is measured/prepared, not which product it is, so they belong
-    // in the modifier. Multi-word forms (e.g. "firmly packed") win over their
-    // single-word substring ("packed") via the longest-match-first ordering in
-    // extract_adjectives_from_name.
-    "firmly packed",
-    "loosely packed",
-    "lightly packed",
-    "packed",
-    "sifted",
-    // Temperature/state qualifier that describes how the ingredient should be,
-    // not which product it is (e.g. "room-temperature butter"). Both spellings
-    // reduce to the same modifier; the parser already pulls the *trailing* form
-    // ("egg, room temperature") into the modifier, so this also covers the
-    // *leading* form ("room-temperature water" → water, "room temperature").
-    "room temperature",
-    "room-temperature",
-];
-
-/// Default purpose phrases that get extracted to the modifier field.
-/// These describe what the ingredient is used for (e.g., "for garnish").
-const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
-    "for dusting",
-    "for garnish",
-    "for garnishing",
-    "for serving",
-    "for decoration",
-    "for topping",
-    "for dipping",
-    "for drizzling",
-    "for sprinkling",
-    "for rolling",
-    "for coating",
-    "for frying",
-    "for greasing",
-];
-
 pub mod error;
 pub(crate) mod fraction;
 pub mod ingredient;
@@ -294,22 +232,16 @@ impl IngredientParser {
     /// ```
     pub fn new() -> Self {
         // Non-standard units that aren't really convertible for the most part.
-        // Note: "whole" is NOT included here because it's a built-in Unit::Whole.
-        // Including it here would cause unit_extra() to incorrectly parse "whole wheat flour"
-        // as having unit "whole" instead of treating "whole wheat" as part of the name.
-        let units: HashSet<String> = [
-            "recipe", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch",
-            "package", "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin",
-            "rib", "ribs", "sprig", "sprigs", "pint", "pints", "piece", "pieces",
-        ]
-        .iter()
-        .map(|&s| s.into())
-        .collect();
+        // (See vocab::NON_STANDARD_UNITS for why "whole" is excluded.)
+        let units: HashSet<String> = parser::vocab::NON_STANDARD_UNITS
+            .iter()
+            .map(|&s| s.into())
+            .collect();
 
         // Combine preparation adjectives and purpose phrases
-        let adjectives: HashSet<String> = DEFAULT_PREPARATION_ADJECTIVES
+        let adjectives: HashSet<String> = parser::vocab::DEFAULT_PREPARATION_ADJECTIVES
             .iter()
-            .chain(DEFAULT_PURPOSE_PHRASES.iter())
+            .chain(parser::vocab::DEFAULT_PURPOSE_PHRASES.iter())
             .map(|&s| s.into())
             .collect();
 
