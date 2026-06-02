@@ -16,8 +16,8 @@ use crate::traced_parser;
 use crate::unit::{self, Measure};
 
 use super::guards::{
-    is_distance_unit, looks_like_step_number, optional_article, optional_dash_separator,
-    optional_period_or_of, starts_with_dimension_suffix,
+    find_matching_paren, is_distance_unit, looks_like_step_number, optional_article,
+    optional_dash_separator, optional_period_or_of, starts_with_dimension_suffix,
 };
 use super::{MeasurementParser, DEFAULT_UNIT};
 
@@ -76,6 +76,20 @@ impl<'a> MeasurementParser<'a> {
         )
     }
 
+    /// In rich-text (prose) mode, reject a bare number whose continuation is not
+    /// actually a quantity. Two cases (no-op outside rich-text mode):
+    /// - a **step number**: "1. Bring a pot…" — a numbered instruction, not "1 of X".
+    ///   (Only when no measurement-ending period was consumed.)
+    /// - a **dimension suffix**: "1-inch piece ginger" — "1-inch" is descriptive in
+    ///   prose, whereas in ingredient-list mode the dimension IS the amount (→ 1").
+    fn rejected_in_rich_text(&self, next_input: &str, period_consumed: Option<&str>) -> bool {
+        if !self.is_rich_text {
+            return false;
+        }
+        (period_consumed.is_none() && looks_like_step_number(next_input))
+            || starts_with_dimension_suffix(next_input)
+    }
+
     fn resolve_single_measurement_unit<'b>(
         &self,
         input: &'b str,
@@ -91,15 +105,7 @@ impl<'a> MeasurementParser<'a> {
             return Ok((after_paren, unit));
         }
 
-        if self.is_rich_text && period_consumed.is_none() && looks_like_step_number(next_input) {
-            return Err(reject_measurement(input));
-        }
-
-        // In rich text (prose), a hyphenated dimension like "1-inch" in
-        // "1-inch piece ginger" is descriptive, not a quantity, so reject it. In
-        // ingredient-list mode the dimension IS the amount (e.g. "2-inch piece
-        // ginger" → 2"), parsed below by parse_dimension_unit.
-        if self.is_rich_text && starts_with_dimension_suffix(next_input) {
+        if self.rejected_in_rich_text(next_input, period_consumed) {
             return Err(reject_measurement(input));
         }
 
@@ -145,23 +151,7 @@ impl<'a> MeasurementParser<'a> {
             return None;
         }
 
-        let mut depth = 0;
-        let mut close_pos = None;
-        for (index, character) in input.char_indices() {
-            match character {
-                '(' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close_pos = Some(index);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let close_pos = close_pos?;
+        let close_pos = find_matching_paren(input)?;
         let after_paren = input[close_pos + 1..].trim_start();
         let Ok((remaining, unit)) = self.unit(after_paren) else {
             return None;
@@ -336,4 +326,85 @@ pub(crate) fn leading_qualifier(input: &str) -> Res<&str, ()> {
     .parse(input)?;
     let (input, _) = space1(input)?;
     Ok((input, ()))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::super::test_support::units;
+    use super::super::MeasurementParser;
+    use rstest::{fixture, rstest};
+    use std::collections::HashSet;
+
+    #[fixture]
+    fn units_fx() -> HashSet<String> {
+        units()
+    }
+
+    #[rstest]
+    fn test_measurement_with_about(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_single_measurement("about 2 cups");
+        assert!(result.is_ok());
+    }
+
+    /// Leading approximation qualifiers (any case, optional article) are skipped
+    /// so the amount after them still parses.
+    #[rstest]
+    #[case::lower_about("about 2 cups")]
+    #[case::cap_about("About 2 cups")]
+    #[case::generous("Generous 1 cup")]
+    #[case::scant("Scant 1 cup")]
+    #[case::heaping("Heaping 1 tablespoon")]
+    #[case::article("A generous 1 cup")]
+    fn test_leading_qualifiers(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        // The qualifier is discarded; the numeric value survives.
+        assert!(measure.value() >= 1.0, "input: {input}");
+    }
+
+    #[rstest]
+    fn test_unit_only(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_unit_only(" cup ");
+        assert!(result.is_ok());
+        let (_, measure) = result.unwrap();
+        assert_eq!(measure.value(), 1.0);
+    }
+
+    #[rstest]
+    fn test_unit_only_rejected_in_rich_text_mode(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, true);
+        assert!(parser.parse_unit_only(" cup ").is_err());
+    }
+
+    #[rstest]
+    fn test_no_unit_defaults_to_whole(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_single_measurement("2 ");
+        assert!(result.is_ok());
+        let (_, measure) = result.unwrap();
+        let measure_str = format!("{measure}");
+        assert!(measure_str.contains("whole") || measure.value() == 2.0);
+    }
+
+    #[rstest]
+    #[case::inch_piece("1-inch piece ginger")]
+    #[case::cm_piece("2-cm knob ginger")]
+    fn test_dimension_suffix_rejected(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, true);
+        assert!(parser.parse_single_measurement(input).is_err());
+    }
+
+    #[rstest]
+    fn test_unit_after_parenthesized_description(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_single_measurement("4 (13-millimeter/½-inch) slices CHASHU");
+        assert!(result.is_ok());
+        let (remaining, measure) = result.unwrap();
+        assert_eq!(remaining, " CHASHU");
+        assert_eq!(measure.value(), 4.0);
+        assert_eq!(measure.unit_as_string(), "slice");
+    }
 }

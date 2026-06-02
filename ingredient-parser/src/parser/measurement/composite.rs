@@ -14,6 +14,7 @@ use crate::parser::Res;
 use crate::traced_parser;
 use crate::unit::Measure;
 
+use super::guards::find_matching_paren;
 use super::{MeasurementParser, DEFAULT_UNIT};
 
 use crate::parser::vocab::CONTAINER_NOUNS;
@@ -91,22 +92,7 @@ impl<'a> MeasurementParser<'a> {
         // parenthesized form "(…)" or the bare hyphenated adjective "10-ounce".
         let (inner, after) = if rest.starts_with('(') {
             // Find the matching close paren (handles nesting).
-            let mut depth = 0usize;
-            let mut close = None;
-            for (i, c) in rest.char_indices() {
-                match c {
-                    '(' => depth += 1,
-                    ')' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            close = Some(i);
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            let close = close.ok_or_else(reject)?;
+            let close = find_matching_paren(rest).ok_or_else(reject)?;
             (&rest[1..close], rest[close + 1..].trim_start())
         } else {
             // Bare hyphenated size adjective: "10-ounce", "1½-inch". Take the
@@ -202,5 +188,95 @@ impl<'a> MeasurementParser<'a> {
                 .join(" + "),
             "no plus expression"
         )
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::super::test_support::units;
+    use super::super::MeasurementParser;
+    use rstest::{fixture, rstest};
+    use std::collections::HashSet;
+
+    #[fixture]
+    fn units_fx() -> HashSet<String> {
+        units()
+    }
+
+    #[rstest]
+    #[case::single("(2 cups)", 1)]
+    #[case::multiple("(1 cup / 240 ml)", 2)]
+    fn test_parenthesized_amounts(
+        units_fx: HashSet<String>,
+        #[case] input: &str,
+        #[case] expected_count: usize,
+    ) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let result = parser.parse_parenthesized_amounts(input);
+        assert!(result.is_ok());
+        let (_, measures) = result.unwrap();
+        assert_eq!(measures.len(), expected_count);
+    }
+
+    #[rstest]
+    // Compatible kinds (volume + volume) are summed into a single measure.
+    #[case::word("1 cup plus 2 tbsp", 1)]
+    #[case::symbol("½ cup + 2 tbsp", 1)]
+    // Incompatible kinds (volume + weight) keep both rather than dropping one.
+    #[case::incompatible("1 cup plus 100 grams", 2)]
+    fn test_plus_expression(
+        units_fx: HashSet<String>,
+        #[case] input: &str,
+        #[case] expected_len: usize,
+    ) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measures) = parser.parse_plus_expression(input).unwrap();
+        assert_eq!(measures.len(), expected_len, "input: {input}");
+    }
+
+    /// A parenthetical size — hyphenated ("1-ounce") or space form ("14.5 oz") —
+    /// is hoisted into a second measure while the count keeps the container unit:
+    /// "1 (1-ounce) piece" -> [1 piece, 1 oz]; "2 (14.5 oz) cans" -> [2 can, 14.5 oz].
+    #[rstest]
+    #[case::piece("1 (1-ounce) piece ginger", 2, "piece")]
+    #[case::can("1 (28-ounce) can tomatoes", 2, "can")]
+    #[case::space_form("2 (14.5 oz) cans tomatoes", 2, "can")]
+    fn test_count_with_parenthetical_size(
+        units_fx: HashSet<String>,
+        #[case] input: &str,
+        #[case] expected_len: usize,
+        #[case] first_unit: &str,
+    ) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measures) = parser.parse_count_with_parenthetical_size(input).unwrap();
+        assert_eq!(measures.len(), expected_len, "input: {input}");
+        assert_eq!(measures[0].unit_as_string(), first_unit);
+        assert_eq!(measures[1].unit_as_string(), "oz");
+    }
+
+    /// Count + parenthetical/hyphenated size with NO container noun: the count
+    /// becomes a "whole" amount and the size a second amount, e.g.
+    /// "1 (3 ounce) chicken" -> [1 whole, 3 oz] and "One 6-ounce carrot" ->
+    /// [1 whole, 6 oz]. (With a container the first unit is the container.)
+    #[rstest]
+    #[case::paren("1 (3 ounce) chicken")]
+    #[case::hyphen("One 6-ounce carrot")]
+    fn test_count_with_size_no_container(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measures) = parser.parse_count_with_parenthetical_size(input).unwrap();
+        assert_eq!(measures.len(), 2, "input: {input}");
+        assert_eq!(measures[0].unit_as_string(), "whole");
+        assert_eq!(measures[1].unit_as_string(), "oz");
+    }
+
+    /// A parenthetical that is NOT a size (no parseable measurement inside) is
+    /// rejected even when a container noun follows.
+    #[rstest]
+    fn test_parenthetical_size_rejects_non_size(units_fx: HashSet<String>) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        assert!(parser
+            .parse_count_with_parenthetical_size("1 (not defrosted) can tomatoes")
+            .is_err());
     }
 }
