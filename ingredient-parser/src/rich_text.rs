@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use crate::{parser::MeasurementParser, unit::Measure, IngredientParser, Res};
+use crate::{
+    parser::measurement::single::leading_qualifier, parser::MeasurementParser, unit::Measure,
+    IngredientParser, Res,
+};
 use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0, Parser};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,15 +55,52 @@ fn extract_ingredients(r: Rich, ingredient_names: &[String]) -> Rich {
         .collect()
 }
 
-fn amounts_chunk<'a>(units: &HashSet<String>, input: &'a str) -> Res<&'a str, Chunk> {
+fn amounts_chunk<'a>(units: &HashSet<String>, input: &'a str) -> Res<&'a str, Vec<Chunk>> {
     // Always use rich text mode (true) for instruction parsing
     let mp = MeasurementParser::new(units, true);
-    context("amounts_chunk", |a| mp.parse_measurement_list(a))
-        .parse(input)
-        .map(|(next_input, res)| (next_input, Chunk::Measure(res)))
+    let (next_input, measures) =
+        context("amounts_chunk", |a| mp.parse_measurement_list(a)).parse(input)?;
+
+    // The measurement parser swallows a leading approximation qualifier
+    // ("about ", "roughly ", …) and a trailing sentence boundary (". " / "." /
+    // " of") around the measure. Those are noise for ingredient amounts but
+    // real prose in instructions, so re-emit them as Text instead of deleting
+    // them — otherwise the measure glues onto the next sentence (e.g.
+    // "...foamy, about 3 minutes. Continue" → "...foamy, 3 minutesContinue").
+    let consumed = &input[..input.len() - next_input.len()];
+    let leading_len = match leading_qualifier(input) {
+        Ok((rest, ())) => input.len() - rest.len(),
+        Err(_) => 0,
+    };
+
+    let mut chunks = Vec::with_capacity(3);
+    if leading_len > 0 {
+        chunks.push(Chunk::Text(input[..leading_len].to_string()));
+    }
+    chunks.push(Chunk::Measure(measures));
+    let trailing = trailing_boundary(consumed);
+    if !trailing.is_empty() {
+        chunks.push(Chunk::Text(trailing.to_string()));
+    }
+    Ok((next_input, chunks))
 }
-fn text_chunk(input: &str) -> Res<&str, Chunk> {
-    parse_rich_char(input).map(|(next_input, res)| (next_input, Chunk::Text(res)))
+
+/// The sentence boundary the measure parser's `optional_period_or_of` swallows
+/// after a measure, so rich text can re-emit it as prose.
+fn trailing_boundary(consumed: &str) -> &'static str {
+    if consumed.ends_with(". ") {
+        ". "
+    } else if consumed.ends_with(" of") {
+        " of"
+    } else if consumed.ends_with('.') {
+        "."
+    } else {
+        ""
+    }
+}
+
+fn text_chunk(input: &str) -> Res<&str, Vec<Chunk>> {
+    parse_rich_char(input).map(|(next_input, res)| (next_input, vec![Chunk::Text(res)]))
 }
 /// Parse a single text character for rich text (recipe instructions).
 ///
@@ -131,10 +171,13 @@ impl RichParser {
         )
         .parse(input)
         {
-            Ok((_, res)) => Ok(extract_ingredients(
-                condense_text(res),
-                &self.ingredient_names,
-            )),
+            Ok((_, res)) => {
+                let flat: Rich = res.into_iter().flatten().collect();
+                Ok(extract_ingredients(
+                    condense_text(flat),
+                    &self.ingredient_names,
+                ))
+            }
             Err(e) => Err(format!("unable to parse '{input}': {e}")),
         }
     }
@@ -214,6 +257,75 @@ mod tests {
             .filter(|c| matches!(c, Chunk::Measure(_)))
             .collect();
         assert_eq!(measures.len(), 2);
+    }
+
+    /// Regression: the measure parser swallows a leading qualifier ("about ")
+    /// and a trailing sentence boundary (". "); in instruction prose those must
+    /// be preserved, or the measure glues onto the next sentence
+    /// ("...foamy, about 3 minutes. Continue" → "...3 minutesContinue").
+    #[rstest]
+    fn test_rich_parser_preserves_qualifier_and_boundary(parser: RichParser) {
+        let result = parser
+            .parse("melt butter until foamy, about 3 minutes. Continue cooking")
+            .unwrap();
+        // The measure is still extracted (highlighted).
+        assert!(
+            result.iter().any(|c| matches!(c, Chunk::Measure(_))),
+            "no measure extracted: {result:?}"
+        );
+        // "about " is kept as prose rather than deleted (condensed into the
+        // preceding text run).
+        assert!(
+            result
+                .iter()
+                .any(|c| matches!(c, Chunk::Text(t) if t.ends_with("about "))),
+            "leading qualifier dropped: {result:?}"
+        );
+        // The ". " sentence boundary survives, so "Continue" isn't glued on.
+        assert!(
+            result
+                .iter()
+                .any(|c| matches!(c, Chunk::Text(t) if t.starts_with(". Continue"))),
+            "sentence boundary dropped: {result:?}"
+        );
+    }
+
+    /// The reconstructed plain text (measures rendered via `Display`) must
+    /// contain the original sentence boundary — no two words concatenated.
+    #[rstest]
+    #[case(
+        "melt butter until foamy, about 3 minutes. Continue cooking",
+        "3 minutes. Continue"
+    )]
+    #[case(
+        "stir on low until creamy, about 2 minutes. Add the egg",
+        "2 minutes. Add"
+    )]
+    #[case(
+        "bake until set, 10 minutes. Transfer to a wire rack",
+        "10 minutes. Transfer"
+    )]
+    fn test_rich_parser_no_run_on(
+        parser: RichParser,
+        #[case] input: &str,
+        #[case] must_contain: &str,
+    ) {
+        let result = parser.parse(input).unwrap();
+        let reconstructed: String = result
+            .iter()
+            .map(|c| match c {
+                Chunk::Text(t) | Chunk::Ing(t) => t.clone(),
+                Chunk::Measure(ms) => ms
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            })
+            .collect();
+        assert!(
+            reconstructed.contains(must_contain),
+            "run-on at boundary: expected {must_contain:?} in {reconstructed:?}"
+        );
     }
 
     #[rstest]

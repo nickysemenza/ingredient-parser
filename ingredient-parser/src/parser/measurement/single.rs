@@ -312,7 +312,11 @@ fn amount_qualifier_between(input: &str) -> Res<&str, ()> {
 ///
 /// Wrapped in `opt(...)` by the caller, so a partial match (e.g. consuming "a "
 /// then failing) backtracks and consumes nothing.
-fn leading_qualifier(input: &str) -> Res<&str, ()> {
+/// Consume a leading approximation/size qualifier ("about", "roughly",
+/// "generous", …) with an optional indefinite article, e.g. the "about " in
+/// "about 3 minutes". Exposed for `rich_text`, which re-emits the consumed span
+/// as prose instead of discarding it.
+pub(crate) fn leading_qualifier(input: &str) -> Res<&str, ()> {
     let (input, _) = opt(alt((tag_no_case("a "), tag_no_case("an ")))).parse(input)?;
     let (input, _) = alt((
         // Multi-word phrases first so the trailing word isn't mistaken for the unit.

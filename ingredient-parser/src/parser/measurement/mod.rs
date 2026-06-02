@@ -7,7 +7,7 @@ mod composite;
 pub(crate) mod guards;
 mod number;
 mod range;
-mod single;
+pub(crate) mod single;
 
 use std::collections::HashSet;
 
