@@ -112,6 +112,91 @@ fn strip_minus_equivalence(input: &str) -> Cow<'_, str> {
     MINUS_PAREN.replace_all(input, "")
 }
 
+/// Drop a trailing "total" qualifier from inside a measurement parenthetical,
+/// e.g. "(2 pounds total)" -> "(2 pounds)" in "Four … steaks (2 pounds total)".
+/// "total" marks the parenthetical as the combined weight of all the items; the
+/// word itself defeats `parse_parenthesized_amounts` (which needs the inner text
+/// to fully parse as a measurement), so stripping it lets the weight hoist as a
+/// secondary amount. Scoped to a parenthetical whose content starts with a number
+/// so ordinary "(total recipe)"-style asides are untouched.
+fn strip_total_in_measure_paren(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static TOTAL_PAREN: LazyLock<Regex> = LazyLock::new(|| {
+        let frac = crate::fraction::VULGAR_FRACTIONS;
+        #[allow(clippy::expect_used)]
+        Regex::new(&format!(r"(?i)\(([0-9{frac}][^)]*?)\s+(?:in\s+)?total\)"))
+            .expect("invalid total-paren regex")
+    });
+    TOTAL_PAREN.replace_all(input, "($1)")
+}
+
+/// Lift a leading dimension *descriptor* — a "<n>-inch-thick"-style token, bare or
+/// parenthesized, wedged between a leading count and the ingredient name — out to
+/// a trailing modifier. The descriptor describes the item's shape, not a quantity,
+/// so leaving it inline either stalls the name grammar (parenthesized form) or
+/// glues the descriptor onto the name. Moving it to the end lets the count and
+/// name parse cleanly and routes the descriptor into the modifier. E.g.
+/// "1 (1½-inch-thick) bone-in pork chop (about 1¼ pounds)" becomes
+/// "1 bone-in pork chop (about 1¼ pounds), 1½-inch-thick", and
+/// "Four ½-inch-thick boneless pork shoulder steaks (2 pounds)" becomes
+/// "Four boneless pork shoulder steaks (2 pounds), ½-inch-thick".
+///
+/// Scoped tightly: the first token must be a count and the second must end in a
+/// shape suffix (-thick/-long/-wide/-deep/-tall). A size like "10-ounce" (which is
+/// hoisted as an *amount* by the count+size parser) ends in a unit, not a shape
+/// word, so it is never moved.
+fn lift_leading_dimension(input: &str) -> Cow<'_, str> {
+    let mut tokens = input.split_whitespace();
+    let (Some(first), Some(second)) = (tokens.next(), tokens.next()) else {
+        return Cow::Borrowed(input);
+    };
+    if !is_count_token(first) {
+        return Cow::Borrowed(input);
+    }
+    let descriptor = second.trim_start_matches('(').trim_end_matches(')');
+    if !is_dimension_descriptor(descriptor) {
+        return Cow::Borrowed(input);
+    }
+    let rest: Vec<&str> = tokens.collect();
+    if rest.is_empty() {
+        return Cow::Borrowed(input);
+    }
+    Cow::Owned(format!("{first} {}, {descriptor}", rest.join(" ")))
+}
+
+/// A leading count: digits/decimal/fraction ("1", "1½", "2.5") or a spelled-out
+/// small number ("one" … "twelve", "a"/"an").
+fn is_count_token(tok: &str) -> bool {
+    const SPELLED: &[&str] = &[
+        "a", "an", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        "eleven", "twelve",
+    ];
+    let lower = tok.to_lowercase();
+    SPELLED.contains(&lower.as_str())
+        || (!tok.is_empty()
+            && tok.chars().all(|c| {
+                c.is_ascii_digit() || c == '.' || c == '/' || crate::fraction::is_vulgar(c)
+            }))
+}
+
+/// A dimension/shape descriptor token: starts with a number and ends in a shape
+/// suffix, e.g. "1½-inch-thick", "2-inch-long". The shape suffix distinguishes it
+/// from a hoistable size like "10-ounce".
+fn is_dimension_descriptor(tok: &str) -> bool {
+    const SHAPE_SUFFIXES: &[&str] = &["thick", "long", "wide", "deep", "tall"];
+    if !tok.contains('-') {
+        return false;
+    }
+    let first = tok.chars().next();
+    let starts_number = first.is_some_and(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c));
+    let ends_shape = tok
+        .rsplit('-')
+        .next()
+        .is_some_and(|suffix| SHAPE_SUFFIXES.contains(&suffix.to_lowercase().as_str()));
+    starts_number && ends_shape
+}
+
 /// A single pre-parse rewrite: takes the current text and returns it changed
 /// (`Cow::Owned`) or unchanged (`Cow::Borrowed`).
 type Rewrite = fn(&str) -> Cow<'_, str>;
@@ -126,6 +211,8 @@ const REWRITES: &[(&str, Rewrite)] = &[
     ("normalize_dimension_range", normalize_dimension_range),
     ("strip_leading_determiner", strip_leading_determiner),
     ("strip_minus_equivalence", strip_minus_equivalence),
+    ("strip_total_in_measure_paren", strip_total_in_measure_paren),
+    ("lift_leading_dimension", lift_leading_dimension),
 ];
 
 /// Apply one rewrite to the accumulator, preserving its owned-ness: a borrowed
@@ -287,6 +374,49 @@ mod tests {
         assert_eq!(
             got,
             expected.map(|(c, a)| (c.to_string(), a.to_string())),
+            "input: {input}"
+        );
+    }
+
+    #[rstest]
+    // Parenthesized leading descriptor → moved to a trailing modifier.
+    #[case::paren_form(
+        "1 (1½-inch-thick) bone-in pork chop (about 1¼ pounds)",
+        "1 bone-in pork chop (about 1¼ pounds), 1½-inch-thick"
+    )]
+    // Bare leading descriptor after a spelled count → moved to the end.
+    #[case::bare_form(
+        "Four ½-inch-thick boneless pork shoulder steaks (2 pounds)",
+        "Four boneless pork shoulder steaks (2 pounds), ½-inch-thick"
+    )]
+    // A size ("10-ounce") ends in a unit, not a shape word → left for the
+    // count+size amount parser, never moved.
+    #[case::size_untouched("1 (10-ounce) can tomatoes", "1 (10-ounce) can tomatoes")]
+    // No leading count → untouched (avoids stealing a mid-line "¼-inch-thick").
+    #[case::no_count(
+        "onion, cut into ¼-inch-thick slices",
+        "onion, cut into ¼-inch-thick slices"
+    )]
+    // A plain dimension ("8-inch") without a shape suffix → untouched.
+    #[case::plain_dimension("1 8-inch cake pan", "1 8-inch cake pan")]
+    fn test_lift_leading_dimension(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(
+            lift_leading_dimension(input).as_ref(),
+            expected,
+            "input: {input}"
+        );
+    }
+
+    #[rstest]
+    // "total" inside a measure parenthetical is dropped so the weight can hoist.
+    #[case::pounds("steaks (2 pounds total)", "steaks (2 pounds)")]
+    #[case::in_total("steaks (2 pounds in total)", "steaks (2 pounds)")]
+    // A non-measure parenthetical (no leading number) is left alone.
+    #[case::not_measure("(total recipe)", "(total recipe)")]
+    fn test_strip_total_in_measure_paren(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(
+            strip_total_in_measure_paren(input).as_ref(),
+            expected,
             "input: {input}"
         );
     }

@@ -282,7 +282,7 @@
 {"input": "½ cup crème fraîche or sour cream (4.2 oz / 120g)", "name": "crème fraîche or sour cream", "amounts": [{"unit": "cup", "value": 0.5}, {"unit": "oz", "value": 4.2}, {"unit": "g", "value": 120.0}]}
 {"input": "1¼ cups grated Monterey Jack (or other mild melting cheese)", "name": "grated Monterey Jack", "amounts": [{"unit": "cup", "value": 1.25}], "modifier": "or other mild melting cheese"}
 {"input": "10 ounces (283g) fresh cranberries (about 2½ cups), plus 20 or so for garnish ①", "name": "fresh cranberries", "amounts": [{"unit": "oz", "value": 10.0}, {"unit": "g", "value": 283.0}, {"unit": "cup", "value": 2.5}], "modifier": "plus 20 or so for garnish"}
-{"input": "1 tablespoon plus 1 cup neutral oil, such as vegetable or grapeseed (8.4 oz / 238g) ①", "name": "neutral oil", "amounts": [{"unit": "tsp", "value": 51.0}], "modifier": "such as vegetable or grapeseed (8.4 oz / 238g)"}
+{"input": "1 tablespoon plus 1 cup neutral oil, such as vegetable or grapeseed (8.4 oz / 238g) ①", "name": "neutral oil", "amounts": [{"unit": "tsp", "value": 51.0}, {"unit": "oz", "value": 8.4}, {"unit": "g", "value": 238.0}], "modifier": "such as vegetable or grapeseed"}
 {"input": "1 recipe Flaky All-Butter Pie Dough (this page) or ½ recipe Rough Puff Pastry (this page)", "name": "Flaky All-Butter Pie Dough", "amounts": [{"unit": "recipe", "value": 1.0}], "modifier": "or ½ recipe Rough Puff Pastry"}
 {"input": "3 or 4 dried Thai chiles, broken in half", "name": "dried Thai chiles", "amounts": [{"unit": "whole", "value": 3.0, "upper_value": 4.0}], "modifier": "broken in half"}
 {"input": "1 (14-gram) piece peeled ginger, thinly sliced against the grain", "name": "peeled ginger", "amounts": [{"unit": "piece", "value": 1.0}, {"unit": "g", "value": 14.0}], "modifier": "thinly sliced against the grain"}
@@ -343,9 +343,9 @@
 {"input": "1 ripe medium Fuyu persimmon (optional), cut into about 8 very thin rounds", "name": "ripe medium Fuyu persimmon", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "cut into about 8 very thin rounds", "optional": true}
 {"input": "½ medium white onion, cut into ¼-inch-thick slices", "name": "medium white onion", "amounts": [{"unit": "whole", "value": 0.5}], "modifier": "cut into ¼-inch-thick slices"}
 {"input": "2 teaspoons finely grated lemon or orange zest", "name": "lemon or orange zest", "amounts": [{"unit": "tsp", "value": 2.0}], "modifier": "finely grated"}
-// xfail: residual gaps (next backlog)
-{"input": "1 (1½-inch-thick) bone-in pork chop (about 1¼ pounds)", "name": "bone-in pork chop", "amounts": [{"unit": "whole", "value": 1.0}, {"unit": "lb", "value": 1.25}], "modifier": "1½-inch-thick", "xfail": "count + (dimension-thick) + (weight) parenthetical"}
-{"input": "Four ½-inch-thick boneless pork shoulder steaks (2 pounds total)", "name": "boneless pork shoulder steaks", "amounts": [{"unit": "whole", "value": 4.0}, {"unit": "lb", "value": 2.0}], "modifier": "½-inch-thick", "xfail": "leading dimension-thick stuck in name; total weight not hoisted"}
-{"input": "1 recipe (2 disks) The Only Piecrust", "name": "The Only Piecrust", "amounts": [{"unit": "recipe", "value": 1.0}, {"unit": "disk", "value": 2.0}], "xfail": "count recipe + (N disks) equivalence parenthetical"}
-{"input": "½ cup unsalted roasted almonds (optional), coarsely chopped (2.1 oz / 60g)", "name": "unsalted roasted almonds", "amounts": [{"unit": "cup", "value": 0.5}, {"unit": "oz", "value": 2.1}, {"unit": "g", "value": 60.0}], "modifier": "coarsely chopped", "optional": true, "xfail": "trailing weight parenthetical in modifier not hoisted"}
+// dimension-thick descriptors, equivalence parentheticals, trailing weight asides
+{"input": "1 (1½-inch-thick) bone-in pork chop (about 1¼ pounds)", "name": "bone-in pork chop", "amounts": [{"unit": "whole", "value": 1.0}, {"unit": "lb", "value": 1.25}], "modifier": "1½-inch-thick"}
+{"input": "Four ½-inch-thick boneless pork shoulder steaks (2 pounds total)", "name": "boneless pork shoulder steaks", "amounts": [{"unit": "whole", "value": 4.0}, {"unit": "lb", "value": 2.0}], "modifier": "½-inch-thick"}
+{"input": "1 recipe (2 disks) The Only Piecrust", "name": "The Only Piecrust", "amounts": [{"unit": "recipe", "value": 1.0}, {"unit": "disk", "value": 2.0}]}
+{"input": "½ cup unsalted roasted almonds (optional), coarsely chopped (2.1 oz / 60g)", "name": "unsalted roasted almonds", "amounts": [{"unit": "cup", "value": 0.5}, {"unit": "oz", "value": 2.1}, {"unit": "g", "value": 60.0}], "modifier": "coarsely chopped", "optional": true}
 {"input": "¾ ounce Pierre Ferrand 1840 Cognac", "name": "Pierre Ferrand 1840 Cognac", "amounts": [{"unit": "oz", "value": 0.75}]}

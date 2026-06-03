@@ -339,7 +339,8 @@ fn extract_alternative(name: &str) -> (String, Option<String>) {
     )
 }
 
-/// Extract secondary amounts from modifier patterns like "(from about 15 sprigs)".
+/// Extract secondary amounts from modifier patterns like "(from about 15 sprigs)"
+/// or a bare trailing measure parenthetical like "coarsely chopped (2.1 oz / 60g)".
 ///
 /// Returns `(extracted_amounts, cleaned_modifier)` where:
 /// - `extracted_amounts`: `Vec<Measure>` parsed from the pattern
@@ -351,13 +352,28 @@ fn extract_secondary_amounts(
     use regex::Regex;
     use std::sync::LazyLock;
 
+    // An explicit approximation aside, anywhere in the modifier: "(about 2 cups)".
     static SECONDARY_AMOUNT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         #[allow(clippy::expect_used)]
         Regex::new(r"\((?:from\s+)?(?:about|approximately|roughly|around)\s+([^)]+)\)")
             .expect("invalid secondary amount regex")
     });
+    // A bare trailing measure parenthetical: "coarsely chopped (2.1 oz / 60g)" —
+    // a weight/volume equivalence stated for the prepped ingredient. Anchored to
+    // the end and validated below (the inner text must fully parse as a
+    // non-distance measurement), so non-measure asides like "(softened)" or
+    // "(70% cacao)" fall through untouched.
+    static TRAILING_MEASURE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"\(([^)]+)\)\s*$").expect("invalid trailing-measure regex")
+    });
 
-    let Some(caps) = SECONDARY_AMOUNT_PATTERN.captures(modifier) else {
+    // The approximation aside wins (it strips the "about" off the amount text);
+    // otherwise fall back to a bare trailing measure parenthetical.
+    let Some(caps) = SECONDARY_AMOUNT_PATTERN
+        .captures(modifier)
+        .or_else(|| TRAILING_MEASURE_PATTERN.captures(modifier))
+    else {
         return (vec![], modifier.to_string());
     };
 
@@ -533,6 +549,10 @@ mod tests {
     #[rstest]
     #[case::hoists("chopped (about 2 cups)", 1)]
     #[case::distance_kept("cut into (about 3-inch) strips", 0)]
+    // A bare trailing weight parenthetical hoists both measures (oz + g).
+    #[case::trailing_weight("coarsely chopped (2.1 oz / 60g)", 2)]
+    // A non-measure trailing parenthetical is left in place.
+    #[case::non_measure("chopped (softened)", 0)]
     fn test_extract_secondary_amounts_from_modifier(
         #[case] modifier: &str,
         #[case] want_amounts: usize,
