@@ -80,8 +80,7 @@ pub trait RecipeExtractor {
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 // Default model (OpenAI-compatible backend, via the Gemini OpenAI-compat
-// endpoint). Picked over gpt-4o-mini — which began dropping ~40% of a book's
-// recipes — and over Haiku for being ~2.5× cheaper at full recipe coverage.
+// endpoint). Picked over Haiku for being ~2.5× cheaper at full recipe coverage.
 // Notes are best-effort on this model (occasionally drops a recipe's notes);
 // use `--model claude-haiku-4-5` when complete notes matter.
 const DEFAULT_MODEL: &str = "gemini-2.5-flash";

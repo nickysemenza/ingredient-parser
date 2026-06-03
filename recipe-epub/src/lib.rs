@@ -289,8 +289,6 @@ fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
         ("gemini-2.5-flash", (0.30, 2.50)),
         ("gemini-2.0-flash-lite", (0.075, 0.30)),
         ("gemini-2.0-flash", (0.10, 0.40)),
-        ("gpt-4o-mini", (0.15, 0.60)),
-        ("gpt-4o", (2.50, 10.0)),
     ];
     table
         .iter()
