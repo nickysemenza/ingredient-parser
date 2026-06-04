@@ -48,8 +48,11 @@ const CHUNK_SLACK: usize = 6000;
 /// model call's output (no truncation on dense chapters) while merging small
 /// consecutive docs so a recipe split across files stays in one chunk.
 pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
-    let mut doc = EpubDoc::from_reader(Cursor::new(bytes.to_vec()))
-        .map_err(|e| EpubError::Open(e.to_string()))?;
+    // Borrow the bytes (`Cursor<&[u8]>` is Read+Seek) rather than copying them.
+    // Image-heavy cookbooks can be hundreds of MB — an extra `.to_vec()` would
+    // double that in (wasm) memory for nothing.
+    let mut doc =
+        EpubDoc::from_reader(Cursor::new(bytes)).map_err(|e| EpubError::Open(e.to_string()))?;
 
     let mut tagged: Vec<(String, CleanLine)> = Vec::new();
     loop {

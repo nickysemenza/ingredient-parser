@@ -11,28 +11,39 @@
 //! Entry point: [`extract_cookbook`] (selects a backend from `Options.model`) or
 //! [`extract_cookbook_with`] (any [`RecipeExtractor`], e.g. a mock in tests).
 
+// `backend`, `cache`, and `library` are native-only — each gates itself with an
+// inner `#![cfg(feature = "native")]`, so their `mod` lines stay unconditional
+// here. `epub_text` + `extractor` are the pure contract, compiled everywhere.
+mod backend;
 mod cache;
 mod epub_text;
 mod extractor;
 mod library;
 
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
+// Pure extraction API — compiles to wasm32: EPUB unzip + text chunking
+// (`chunk_epub`), per-chunk request building (`build_chunk_request`), LLM
+// response parsing (`parse_recipes_payload`), and assembly (`assemble_recipes`).
+pub use epub_text::chunk_epub;
 pub use extractor::{
-    ChunkOutcome, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, Usage,
+    build_chunk_request, parse_recipes_payload, recipes_tool_schema, ChunkOutcome, ChunkRequest,
+    ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, Usage,
 };
-// Library scanning: list + classify the cookbooks in a directory of epubs.
+// Library scanning: list + classify the cookbooks in a directory of epubs
+// (native: needs std::fs + the LLM classifier).
+#[cfg(feature = "native")]
 pub use library::{
     book_metadata, classify_by_tags, classify_cookbooks_ai, find_epubs, BookMeta, CookbookGuess,
 };
-// Backend selection + the concrete extractors are internal; callers go through
-// `extract_cookbook` (auto-selects) or `extract_cookbook_with` (supply your own).
-use extractor::Backend;
+// The native extraction orchestration (backends + cache + async) lives in
+// `backend`; re-export the public entry points so `recipe_epub::extract_cookbook`
+// (etc.) paths stay stable.
+#[cfg(feature = "native")]
+pub use backend::{
+    extract_cookbook, extract_cookbook_with, extract_cookbook_with_progress, Options,
+};
 // Section + time types are shared with the web scraper — one shape workspace-wide.
 pub use recipe_scraper::{ParsedSection, RecipeSection, RecipeTimes};
 
-use futures::stream::{self, StreamExt};
 use recipe_scraper::parse_sections;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -53,6 +64,7 @@ pub enum EpubError {
     #[error("no base URL: set ANTHROPIC_BASE_URL to your AI gateway (…/anthropic), or OPENAI_BASE_URL/GEMINI_BASE_URL")]
     MissingBaseUrl,
     /// The HTTP request to the model API failed (connection, timeout, …).
+    #[cfg(feature = "native")]
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
     /// The model API returned a non-success status or an unexpected shape.
@@ -64,30 +76,6 @@ pub enum EpubError {
     /// The on-disk cache could not be read or written.
     #[error("cache error: {0}")]
     Cache(String),
-}
-
-/// Tunables for [`extract_cookbook`].
-#[derive(Debug, Clone)]
-pub struct Options {
-    /// Model id override (default: `gemini-2.5-flash`, via the OpenAI-compatible backend).
-    pub model: Option<String>,
-    /// Whether to use the on-disk extraction cache.
-    pub use_cache: bool,
-    /// Cache directory (default: `$XDG_CACHE_HOME/recipe-epub` or `$TMPDIR/recipe-epub`).
-    pub cache_dir: Option<PathBuf>,
-    /// Max concurrent extractor calls.
-    pub concurrency: usize,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            model: None,
-            use_cache: true,
-            cache_dir: None,
-            concurrency: 8,
-        }
-    }
 }
 
 /// An EPUB internal hyperlink found inside an ingredient/text line — the visible
@@ -181,18 +169,6 @@ fn has_quantity_char(s: &str) -> bool {
         .any(|c| c.is_ascii_digit() || "½⅓¼¾⅔⅜⅝⅞⅛⅙⅚".contains(c))
 }
 
-/// Extract every recipe from an EPUB cookbook using the default backend.
-///
-/// `bytes` is the full `.epub` (a zip). `source` labels each recipe (book path
-/// or title). Auth comes from the environment (see [`ClaudeExtractor::from_env`]).
-pub async fn extract_cookbook(
-    bytes: &[u8],
-    source: &str,
-    opts: &Options,
-) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
-    extract_cookbook_with_progress(bytes, source, opts, |_| {}).await
-}
-
 /// Progress snapshot emitted during [`extract_cookbook_with_progress`]: how many
 /// chunks have finished extracting (`done`) out of `total`, and how many of those
 /// came from the on-disk cache (`cached`). Each snapshot is internally consistent
@@ -205,29 +181,6 @@ pub struct ExtractProgress {
     pub total: usize,
     /// Of the finished chunks, how many were served from cache (no API call).
     pub cached: usize,
-}
-
-/// Like [`extract_cookbook`] but reports progress as each chunk completes. The
-/// sink is called once with `done == 0` when the chunk count is known, then once
-/// per finished chunk. It runs from the concurrent extraction tasks, so it must
-/// be `Send + Sync` (e.g. a closure writing to shared atomics).
-pub async fn extract_cookbook_with_progress(
-    bytes: &[u8],
-    source: &str,
-    opts: &Options,
-    progress: impl Fn(ExtractProgress) + Send + Sync,
-) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
-    let extractor = Backend::from_env(opts)?;
-    if opts.use_cache {
-        let caching = CachingExtractor {
-            inner: &extractor,
-            dir: opts.cache_dir.clone().unwrap_or_else(cache::default_dir),
-            model: extractor.model().to_string(),
-        };
-        extract_cookbook_with_stats(bytes, source, opts, &caching, &progress).await
-    } else {
-        extract_cookbook_with_stats(bytes, source, opts, &extractor, &progress).await
-    }
 }
 
 /// Token usage + cost summary for one `extract_cookbook` run.
@@ -296,129 +249,22 @@ fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
         .map(|(_, rate)| *rate)
 }
 
-/// Wraps any extractor with the on-disk cache (see [`cache`]).
-struct CachingExtractor<'a, E> {
-    inner: &'a E,
-    dir: PathBuf,
-    model: String,
-}
-
-impl<E: RecipeExtractor> RecipeExtractor for CachingExtractor<'_, E> {
-    fn model(&self) -> &str {
-        self.inner.model()
-    }
-
-    async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
-        let key = cache::key(&self.model, &chunk.text);
-        if let Some(hit) = cache::read(&self.dir, &key) {
-            // Cache hit: no API call, so no usage/cost is incurred.
-            return Ok(ChunkOutcome {
-                recipes: hit,
-                usage: Usage::default(),
-                cached: true,
-            });
-        }
-        let outcome = self.inner.extract(chunk).await?;
-        if let Err(e) = cache::write(&self.dir, &key, &outcome.recipes) {
-            tracing::warn!("cache write failed: {e}");
-        }
-        Ok(outcome)
-    }
-}
-
-/// Like [`extract_cookbook`] but with a caller-supplied extractor (used by tests
-/// with [`MockExtractor`]) and a progress sink (pass `|_| {}` to ignore it).
-pub async fn extract_cookbook_with<E: RecipeExtractor>(
-    bytes: &[u8],
+/// Assemble per-chunk extractor output into final recipes and resolve
+/// cross-recipe references — the pure post-LLM stage, no I/O.
+///
+/// `per_chunk` is `(doc_path, recipes)` in spine reading order (one entry per
+/// chunk); `links` is the book-wide set of internal anchor links (the Layer-2
+/// reference-confirmation signal, gathered from every chunk). This is the wasm
+/// boundary's counterpart to [`chunk_epub`]: the browser runs the LLM per chunk,
+/// then hands the parsed outputs here to build the `CookbookRecipe[]`.
+pub fn assemble_recipes(
+    per_chunk: Vec<(String, Vec<ExtractedRecipe>)>,
+    links: Vec<Link>,
     source: &str,
-    opts: &Options,
-    extractor: &E,
-    progress: impl Fn(ExtractProgress) + Send + Sync,
-) -> Result<Vec<CookbookRecipe>, EpubError> {
-    let (recipes, _stats) =
-        extract_cookbook_with_stats(bytes, source, opts, extractor, &progress).await?;
-    Ok(recipes)
-}
-
-/// Like [`extract_cookbook_with`] but also returns token-usage/cost stats and
-/// reports per-chunk progress through `progress` (see [`extract_cookbook_with_progress`]).
-pub(crate) async fn extract_cookbook_with_stats<E: RecipeExtractor>(
-    bytes: &[u8],
-    source: &str,
-    opts: &Options,
-    extractor: &E,
-    progress: &(impl Fn(ExtractProgress) + Send + Sync),
-) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
-    let chunks = epub_text::chunk_epub(bytes)?;
-    let total = chunks.len();
-    tracing::info!("epub {source}: {total} chunk(s)");
-    // Emit the initial snapshot now that the total is known, so the UI can switch
-    // from an indeterminate spinner to a determinate bar before any chunk lands.
-    progress(ExtractProgress {
-        done: 0,
-        total,
-        cached: 0,
-    });
-
-    // Book-wide internal anchor links (author hyperlinks between recipes) —
-    // the Layer 2 confirmation signal for cross-recipe references.
-    let links: Vec<Link> = chunks.iter().flat_map(|c| c.links.clone()).collect();
-
-    // Extract each chunk concurrently (bounded), preserving document order and
-    // each recipe's originating doc. A single failing chunk is logged and
-    // skipped rather than failing the whole book. `done`/`cached` are shared
-    // atomics so each completing task can emit a consistent, monotonic snapshot.
-    let done = AtomicUsize::new(0);
-    let cached = AtomicUsize::new(0);
-    let per_chunk: Vec<(String, ChunkOutcome)> = stream::iter(chunks.iter())
-        .map(|chunk| async {
-            let outcome = extractor.extract(chunk).await.unwrap_or_else(|e| {
-                tracing::warn!("chunk {} extraction failed: {e}", chunk.doc_path);
-                ChunkOutcome {
-                    recipes: Vec::new(),
-                    usage: Usage::default(),
-                    cached: false,
-                }
-            });
-            if outcome.cached {
-                cached.fetch_add(1, Ordering::Relaxed);
-            }
-            let done_now = done.fetch_add(1, Ordering::Relaxed) + 1;
-            progress(ExtractProgress {
-                done: done_now,
-                total,
-                cached: cached.load(Ordering::Relaxed),
-            });
-            (chunk.doc_path.clone(), outcome)
-        })
-        .buffered(opts.concurrency.max(1))
-        .collect::<Vec<_>>()
-        .await;
-
-    let mut stats = ExtractionStats {
-        model: extractor.model().to_string(),
-        chunks_total: per_chunk.len(),
-        ..Default::default()
-    };
-    let recipes_by_doc: Vec<(String, Vec<ExtractedRecipe>)> = per_chunk
-        .into_iter()
-        .map(|(doc, outcome)| {
-            if outcome.cached {
-                stats.chunks_cached += 1;
-            }
-            stats.usage.add(&outcome.usage);
-            (doc, outcome.recipes)
-        })
-        .collect();
-
-    let mut recipes = assemble(recipes_by_doc, source);
+) -> Vec<CookbookRecipe> {
+    let mut recipes = assemble(per_chunk, source);
     resolve_references(&mut recipes, &links);
-    tracing::info!(
-        "epub {source}: {} recipe(s); {}",
-        recipes.len(),
-        stats.summary()
-    );
-    Ok((recipes, stats))
+    recipes
 }
 
 /// Attach each recipe's `source`/`url` and drop entries with no ingredients.
@@ -429,7 +275,11 @@ pub(crate) async fn extract_cookbook_with_stats<E: RecipeExtractor>(
 /// into the first (sections, instructions, and notes are unioned) rather than
 /// dropped. This recovers the recipe's tail (extra steps, "Do Ahead" notes)
 /// instead of discarding it. For the common single-chunk recipe it's a no-op.
-fn assemble(per_chunk: Vec<(String, Vec<ExtractedRecipe>)>, source: &str) -> Vec<CookbookRecipe> {
+/// `pub(crate)` so the native orchestration in [`crate::backend`] can call it.
+pub(crate) fn assemble(
+    per_chunk: Vec<(String, Vec<ExtractedRecipe>)>,
+    source: &str,
+) -> Vec<CookbookRecipe> {
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut out: Vec<CookbookRecipe> = Vec::new();
     for (doc_path, recipes) in per_chunk {
@@ -557,7 +407,7 @@ fn contains_whole_tokens(haystack: &str, needle: &str) -> bool {
 /// `RefConfidence::Linked` when an EPUB internal anchor (`links`) has link text
 /// matching the referenced title — the author's literal pointer (Layer 2). Pure
 /// post-processing over the assembled recipes (no API calls).
-fn resolve_references(recipes: &mut [CookbookRecipe], links: &[Link]) {
+pub(crate) fn resolve_references(recipes: &mut [CookbookRecipe], links: &[Link]) {
     // (normalized_title, real_title, idx), longest normalized title first so the
     // most specific match wins.
     let mut titles: Vec<(String, String, usize)> = recipes

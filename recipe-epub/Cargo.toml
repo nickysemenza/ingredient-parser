@@ -9,12 +9,21 @@ publish = false
 # (title / ingredient lines / instruction steps); the core `ingredient` parser
 # (via recipe-scraper's ScrapedRecipe::parse) still parses each ingredient line.
 
+# The `native` feature carries everything that can't compile to
+# wasm32-unknown-unknown: the reqwest-based LLM backends, the std::fs extraction
+# cache, and the async/tokio orchestration. `cookbook-wasm` depends on this crate
+# with `default-features = false`, leaving only the pure pipeline — EPUB unzip +
+# text chunking (`chunk_epub`), request building (`build_chunk_request`), LLM
+# response parsing, and assembly (`assemble_recipes`). food-cli keeps `native`.
+[features]
+default = ["native"]
+native = ["dep:reqwest", "dep:tokio", "dep:futures"]
+
 [dependencies]
 epub = "2.1.5"
 scraper = "0.27.0"
 ego-tree = "0.11"  # DOM traversal of scraper's tree (same version scraper uses)
-reqwest = { version = "0.13", features = ["json"] }  # default TLS is rustls in 0.13
-sha2 = "0.10"  # content-hash keys for the on-disk extraction cache
+sha2 = "0.10"  # content-hash keys for the cache (native) + chunk ids (wasm)
 ingredient.workspace = true
 recipe-types.workspace = true  # plain data shapes (RecipeMeta/CookbookRecipe/…)
 recipe-scraper.workspace = true  # shared RecipeSection/ParsedSection + parse_sections
@@ -22,8 +31,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-tokio.workspace = true
-futures.workspace = true
+# Native-only: HTTP client + async runtime for the live LLM extractors. Excluded
+# from the wasm build, which proxies the LLM call through JS instead.
+reqwest = { version = "0.13", features = ["json"], optional = true }  # default TLS is rustls in 0.13
+tokio = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest.workspace = true

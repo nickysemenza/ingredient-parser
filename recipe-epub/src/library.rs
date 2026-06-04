@@ -2,13 +2,14 @@
 //! metadata (title / authors / subject tags) cheaply, and guess whether a book
 //! is a cookbook from its tags. The ambiguous (untagged) books can optionally be
 //! settled by the AI fallback [`classify_cookbooks_ai`].
+#![cfg(feature = "native")]
 
 use std::path::{Path, PathBuf};
 
 use epub::doc::EpubDoc;
 use serde::{Deserialize, Serialize};
 
-use crate::extractor::Backend;
+use crate::backend::Backend;
 use crate::{EpubError, Options};
 
 /// Recursively collect `.epub` files under `dir` (depth-first; unreadable

@@ -1,6 +1,7 @@
 //! On-disk cache of raw extractor results, keyed by a content hash of
 //! (prompt version, model, chunk text). Makes re-running over a large library
 //! incremental and free after the first pass.
+#![cfg(feature = "native")]
 
 use std::path::{Path, PathBuf};
 
