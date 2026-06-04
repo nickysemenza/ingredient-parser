@@ -17,7 +17,7 @@ publish = false
 # response parsing, and assembly (`assemble_recipes`). food-cli keeps `native`.
 [features]
 default = ["native"]
-native = ["dep:reqwest", "dep:tokio", "dep:futures"]
+native = ["dep:reqwest", "dep:tokio", "dep:futures", "dep:walkdir"]
 
 [dependencies]
 epub = "2.1.5"
@@ -36,6 +36,7 @@ tracing.workspace = true
 reqwest = { version = "0.13", features = ["json"], optional = true }  # default TLS is rustls in 0.13
 tokio = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+walkdir = { version = "2", optional = true }  # recursive epub discovery (native fs only)
 
 [dev-dependencies]
 rstest.workspace = true

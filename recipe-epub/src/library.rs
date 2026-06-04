@@ -12,29 +12,19 @@ use serde::{Deserialize, Serialize};
 use crate::backend::Backend;
 use crate::{EpubError, Options};
 
-/// Recursively collect `.epub` files under `dir` (depth-first; unreadable
-/// directories are silently skipped). Shared by the CLI's `scan-cookbooks` and
-/// the app's library browser.
+/// Recursively collect `.epub` files under `dir` (unreadable directories are
+/// silently skipped). Shared by the CLI's `scan-cookbooks` and the app's library
+/// browser.
 pub fn find_epubs(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&d) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p
-                .extension()
+    walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_map(Result::ok)
+        .map(walkdir::DirEntry::into_path)
+        .filter(|p| {
+            p.extension()
                 .is_some_and(|e| e.eq_ignore_ascii_case("epub"))
-            {
-                out.push(p);
-            }
-        }
-    }
-    out
+        })
+        .collect()
 }
 
 /// Book-level metadata read from an EPUB's OPF — enough to list a library and

@@ -185,13 +185,6 @@ fn extract_corpus_rows(corpus: &str) -> Vec<CorpusEntry> {
     out
 }
 
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
 /// Render a JSON number trimmed (no trailing `.0`): `2` not `2.0`, `14.5`, `0.5`.
 fn fmt_num(v: &serde_json::Value) -> String {
     match v {
@@ -245,8 +238,11 @@ tr.err, tr.err:nth-child(even) { background: #fdecea; }
 .opt { text-align: center; color: #2e7d32; }";
 
 /// Render the corpus as a self-contained static HTML doc: one `<h2>` + `<table>`
-/// per section. No JS. Returns `(html, row_count)`.
+/// per section. No JS. Returns `(html, row_count)`. `maud` auto-escapes every
+/// interpolated value, so no manual escaping is needed.
 fn render_corpus_html(corpus: &str) -> (String, usize) {
+    use maud::{html, PreEscaped, DOCTYPE};
+
     let entries = extract_corpus_rows(corpus);
     let total = entries.len();
     let xfail = entries
@@ -255,68 +251,66 @@ fn render_corpus_html(corpus: &str) -> (String, usize) {
         .count();
     let committed = total - xfail;
 
-    let mut h = String::new();
-    h.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
-    h.push_str("<title>Ingredient parser corpus</title>\n<style>\n");
-    h.push_str(CORPUS_STYLE);
-    h.push_str("\n</style>\n</head>\n<body>\n<h1>Ingredient parser corpus</h1>\n");
-    h.push_str(&format!(
-        "<p class=\"summary\">{total} rows · {committed} committed · {xfail} xfail</p>\n"
-    ));
-
-    let mut current: Option<&str> = None;
+    // Group consecutive entries by section (preserving corpus order) so each
+    // section renders as one `<h2>` + `<table>`.
+    let mut sections: Vec<(&str, Vec<&CorpusEntry>)> = Vec::new();
     for e in &entries {
-        if current != Some(e.section.as_str()) {
-            if current.is_some() {
-                h.push_str("</tbody>\n</table>\n");
-            }
-            current = Some(e.section.as_str());
-            h.push_str(&format!("<h2>{}</h2>\n", html_escape(&e.section)));
-            h.push_str("<table>\n<thead><tr><th>input</th><th>name</th><th>amounts</th><th>modifier</th><th>optional</th><th>xfail</th></tr></thead>\n<tbody>\n");
+        match sections.last_mut() {
+            Some((name, rows)) if *name == e.section.as_str() => rows.push(e),
+            _ => sections.push((e.section.as_str(), vec![e])),
         }
-
-        let g = |k: &str| e.row.get(k).and_then(|v| v.as_str()).unwrap_or("");
-        let input = g("input");
-        let name = g("name");
-        let amounts = e.row.get("amounts").map(fmt_amounts).unwrap_or_default();
-        let modifier = g("modifier");
-        let optional = if e.row.get("optional").and_then(|v| v.as_bool()) == Some(true) {
-            "✓"
-        } else {
-            ""
-        };
-        let note = match &e.error {
-            Some(err) => format!("malformed: {err}"),
-            None => e
-                .row
-                .get("xfail")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-        };
-
-        let class = if e.error.is_some() {
-            " class=\"err\""
-        } else if !note.is_empty() {
-            " class=\"xfail\""
-        } else {
-            ""
-        };
-        h.push_str(&format!(
-            "<tr{class}><td><code>{}</code></td><td>{}</td><td>{}</td><td>{}</td><td class=\"opt\">{}</td><td>{}</td></tr>\n",
-            html_escape(input),
-            html_escape(name),
-            html_escape(&amounts),
-            html_escape(modifier),
-            optional,
-            html_escape(&note),
-        ));
     }
-    if current.is_some() {
-        h.push_str("</tbody>\n</table>\n");
-    }
-    h.push_str("</body>\n</html>\n");
-    (h, total)
+
+    let markup = html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                title { "Ingredient parser corpus" }
+                style { (PreEscaped(CORPUS_STYLE)) }
+            }
+            body {
+                h1 { "Ingredient parser corpus" }
+                p.summary { (total) " rows · " (committed) " committed · " (xfail) " xfail" }
+                @for (name, rows) in &sections {
+                    h2 { (name) }
+                    table {
+                        thead { tr {
+                            th { "input" } th { "name" } th { "amounts" }
+                            th { "modifier" } th { "optional" } th { "xfail" }
+                        } }
+                        tbody {
+                            @for e in rows {
+                                @let g = |k: &str| e.row.get(k).and_then(|v| v.as_str()).unwrap_or("");
+                                @let amounts = e.row.get("amounts").map(fmt_amounts).unwrap_or_default();
+                                @let optional = e.row.get("optional").and_then(|v| v.as_bool()) == Some(true);
+                                @let note = match &e.error {
+                                    Some(err) => format!("malformed: {err}"),
+                                    None => g("xfail").to_string(),
+                                };
+                                @let row_class = if e.error.is_some() {
+                                    Some("err")
+                                } else if !note.is_empty() {
+                                    Some("xfail")
+                                } else {
+                                    None
+                                };
+                                tr class=[row_class] {
+                                    td { code { (g("input")) } }
+                                    td { (g("name")) }
+                                    td { (amounts) }
+                                    td { (g("modifier")) }
+                                    td.opt { @if optional { "✓" } }
+                                    td { (note) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    (markup.into_string(), total)
 }
 
 #[tokio::main]
