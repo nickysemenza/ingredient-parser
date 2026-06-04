@@ -355,6 +355,16 @@ async fn main() {
                 Ok((recipes, stats)) => {
                     // Cost/cache summary goes to stderr so --json stdout stays clean.
                     eprintln!("[{}] {}", stats.model, stats.summary());
+                    // A valid EPUB that yields nothing is almost always an
+                    // extraction bug (e.g. a content-decode failure), not an empty
+                    // book — make it loud instead of exiting 0 with no output.
+                    if stats.chunks_total == 0 || recipes.is_empty() {
+                        eprintln!(
+                            "warning: extracted {} recipe(s) from {} chunk(s) — the book may have failed to decode (check the epub)",
+                            recipes.len(),
+                            stats.chunks_total
+                        );
+                    }
                     // Cross-recipe references (recipe A uses recipe B) to stderr too.
                     let with_refs: Vec<_> = recipes
                         .iter()

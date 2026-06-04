@@ -54,15 +54,25 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
     let mut doc =
         EpubDoc::from_reader(Cursor::new(bytes)).map_err(|e| EpubError::Open(e.to_string()))?;
 
+    let spine_len = doc.get_num_chapters();
     let mut tagged: Vec<(String, CleanLine)> = Vec::new();
     loop {
-        if let Some((content, mime)) = doc.get_current_str() {
+        // Read each spine doc as BYTES and decode lossily. The epub crate's
+        // `get_current_str` runs a *strict* `String::from_utf8` and swallows the
+        // failure into `None` — so a single stray byte or a leading UTF-8 BOM
+        // (both common in Kobo EPUBs) silently drops the whole document, and a
+        // book where every chapter has one yields zero text. Lossy decoding
+        // recovers the text; clean UTF-8 is byte-for-byte unaffected.
+        if let Some((raw, mime)) = doc.get_current() {
             if mime.contains("html") {
                 let doc_path = doc
                     .get_current_path()
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                for line in clean_xhtml_to_lines(&content) {
+                let decoded = String::from_utf8_lossy(&raw);
+                // Strip a leading BOM so the html parser sees a clean root.
+                let content = decoded.strip_prefix('\u{feff}').unwrap_or(decoded.as_ref());
+                for line in clean_xhtml_to_lines(content) {
                     tagged.push((doc_path.clone(), line));
                 }
             }
@@ -71,6 +81,17 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
             break;
         }
     }
+
+    // A non-empty spine that produced no text means every content read came back
+    // empty (bad encoding or unresolved paths). Surface it rather than silently
+    // returning an empty book — this is exactly how a whole cookbook once
+    // vanished behind a misleading "0 chunks" success.
+    if spine_len > 0 && tagged.is_empty() {
+        tracing::warn!(
+            "epub: {spine_len}-item spine but 0 readable text lines — every content read returned nothing (encoding or path issue)"
+        );
+    }
+
     Ok(window_chunks(tagged))
 }
 
@@ -214,6 +235,53 @@ pub(crate) fn clean_xhtml_to_text(xhtml: &str) -> String {
         .join("\n")
 }
 
+/// Convert self-closing `<script .../>` / `<style .../>` tags into explicit
+/// empty pairs (`<script ...></script>`).
+///
+/// `scraper` parses with html5ever (an *HTML* parser), where `<script>` and
+/// `<style>` are raw-text elements: a self-closing form — valid in XHTML and
+/// common in Kobo EPUBs (`<script ... src="kobo.js"/>` in `<head>`) — is parsed
+/// as an *unclosed* `<script>`, so html5ever swallows the entire rest of the
+/// document as script text. The body then never leaves `<script>`, so the DOM
+/// walk extracts zero text (this silently dropped a whole 22-chapter cookbook).
+/// Returns a borrow when there's nothing to fix, so the common path doesn't allocate.
+fn close_self_closing_rawtext(xhtml: &str) -> std::borrow::Cow<'_, str> {
+    let lower = xhtml.to_ascii_lowercase();
+    if !lower.contains("<script") && !lower.contains("<style") {
+        return std::borrow::Cow::Borrowed(xhtml);
+    }
+    let mut out = String::with_capacity(xhtml.len() + 32);
+    let mut i = 0;
+    while i < xhtml.len() {
+        let tag = if lower[i..].starts_with("<script") {
+            Some("script")
+        } else if lower[i..].starts_with("<style") {
+            Some("style")
+        } else {
+            None
+        };
+        if let Some(tag) = tag {
+            if let Some(rel_end) = xhtml[i..].find('>') {
+                let end = i + rel_end; // index of '>'
+                let open = &xhtml[i..end]; // tag without the closing '>'
+                if open.trim_end().ends_with('/') {
+                    out.push_str(open.trim_end().trim_end_matches('/').trim_end());
+                    out.push('>');
+                    out.push_str("</");
+                    out.push_str(tag);
+                    out.push('>');
+                    i = end + 1;
+                    continue;
+                }
+            }
+        }
+        let ch = xhtml[i..].chars().next().unwrap_or('\u{fffd}');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 /// Strip XHTML to text, one line per block-level element, by walking the DOM and
 /// inserting a newline at every block boundary. Captures `<div>`/`<span>`-based
 /// layouts that a tag allowlist would miss, and drops `<script>`/`<style>`/`<head>`.
@@ -222,7 +290,8 @@ fn clean_xhtml_to_lines(xhtml: &str) -> Vec<CleanLine> {
     // NUL marks block boundaries — distinct from source newlines/indentation,
     // which appear inside text nodes and must NOT split a logical line.
     const SEP: char = '\u{0}';
-    let dom = Html::parse_document(xhtml);
+    let xhtml = close_self_closing_rawtext(xhtml);
+    let dom = Html::parse_document(&xhtml);
     let mut buf = String::new();
     let mut skip_depth = 0usize;
     // Internal anchors, recorded as (byte offset in `buf` where the link text
@@ -359,8 +428,31 @@ mod tests {
         "<html><head><title>T</title><style>p{color:red}</style></head><body><p>real text</p></body></html>",
         "real text"
     )]
+    // A self-closing <script/> in <head> (valid XHTML, common in Kobo EPUBs) must
+    // NOT make html5ever swallow the whole body as raw script text. This is the
+    // exact bug that silently dropped a 22-chapter cookbook to 0 lines.
+    #[case::self_closing_script_head(
+        "<html><head><script type=\"text/javascript\" src=\"kobo.js\"/></head><body><p>1 cup flour</p><p>2 eggs</p></body></html>",
+        "1 cup flour\n2 eggs"
+    )]
+    // Self-closing <style/> likewise must not swallow following content.
+    #[case::self_closing_style(
+        "<html><head><style/></head><body><p>real text</p></body></html>",
+        "real text"
+    )]
     fn cleans_xhtml(#[case] html: &str, #[case] expected: &str) {
         assert_eq!(clean_xhtml_to_text(html), expected);
+    }
+
+    #[rstest]
+    // Self-closing raw-text tags become explicit empty pairs; paired tags and
+    // text without such tags are returned unchanged (a borrow).
+    #[case::script("<script src=\"k.js\"/>", "<script src=\"k.js\"></script>")]
+    #[case::style("<style/>", "<style></style>")]
+    #[case::paired_untouched("<script>var x=1;</script>", "<script>var x=1;</script>")]
+    #[case::no_rawtext("<p>plain</p>", "<p>plain</p>")]
+    fn closes_self_closing_rawtext(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(close_self_closing_rawtext(input).as_ref(), expected);
     }
 
     #[test]
