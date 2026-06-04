@@ -46,6 +46,22 @@ fn strip_footnote_markers(input: &str) -> Cow<'_, str> {
     }
 }
 
+/// Strip a leading list-bullet glyph — an en/em-dash, bullet, middot, or
+/// asterisk followed by whitespace — that some cookbooks (e.g. hotpot ingredient
+/// lists in *The Food of Sichuan*) prefix to each ingredient line. Left in place
+/// it lands at the head of the name ("– shiitake mushrooms"). The trailing
+/// whitespace requirement keeps a hyphenated/negative leading token untouched.
+fn strip_leading_bullet(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static LEADING_BULLET: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"^\s*[-\u{2013}\u{2014}\u{2022}\u{00B7}\u{2219}*]\s+")
+            .expect("invalid leading-bullet regex")
+    });
+    LEADING_BULLET.replace(input, "")
+}
+
 /// Strip a cross-reference parenthetical such as "(see this page)", "(this
 /// page)", or "(see page 123)" — a navigation artifact common in EPUB cookbooks
 /// (links rendered as text). It carries no ingredient information, so it is
@@ -165,6 +181,63 @@ fn lift_leading_dimension(input: &str) -> Cow<'_, str> {
     Cow::Owned(format!("{first} {}, {descriptor}", rest.join(" ")))
 }
 
+/// Lift a leading bare *dimension* sizing a container noun that is followed by a
+/// weight parenthetical — "1-inch piece (20g) ginger", "¾-inch piece (15g)
+/// ginger", "1–1½-inch piece (20–30g) ginger" — out to a trailing descriptor,
+/// inserting an explicit count of 1. The dimension sizes the piece, it is not a
+/// count (the "¾" in "¾-inch piece" is ¾ of an *inch*, not ¾ of a piece), and the
+/// weight parenthetical after the container otherwise stalls the whole parse
+/// (yielding name-only). Rewriting to "1 piece (20g) ginger, unpeeled, 1-inch"
+/// routes the weight through the working count+container+size path
+/// ([1 piece, 20 g]) and carries the dimension into the modifier.
+///
+/// Scoped tightly: the first token must be a bare `<number>-<distance-unit>`
+/// dimension (no shape suffix — "-thick"/"-long" go to [`lift_leading_dimension`];
+/// a size like "10-ounce" ends in a unit, not a distance word), the second a known
+/// container noun, and the third a parenthetical starting with a number (the
+/// weight). Without that weight paren the bare form "2-inch piece ginger" already
+/// parses ([2", 1 piece]) and is left untouched.
+fn lift_leading_piece_dimension(input: &str) -> Cow<'_, str> {
+    let mut tokens = input.split_whitespace();
+    let (Some(first), Some(second), Some(third)) = (tokens.next(), tokens.next(), tokens.next())
+    else {
+        return Cow::Borrowed(input);
+    };
+    if !is_bare_dimension(first) {
+        return Cow::Borrowed(input);
+    }
+    if !crate::parser::vocab::CONTAINER_NOUNS.contains(&second.to_lowercase().as_str()) {
+        return Cow::Borrowed(input);
+    }
+    // The third token must be a measurement parenthetical "(20g)" — the case that
+    // breaks the parse. (The no-weight bare form is handled by the grammar.)
+    let mut weight = third.chars();
+    if weight.next() != Some('(')
+        || !weight
+            .next()
+            .is_some_and(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
+    {
+        return Cow::Borrowed(input);
+    }
+    let rest: Vec<&str> = std::iter::once(third).chain(tokens).collect();
+    Cow::Owned(format!("1 {second} {}, {first}", rest.join(" ")))
+}
+
+/// A bare dimension token: a number (digit/vulgar fraction, optionally a range)
+/// joined by a hyphen to a distance-unit suffix — "1-inch", "¾-inch",
+/// "1–1½-inch", "2-cm". A weight size like "10-ounce" ends in a unit, not a
+/// distance word, so it returns false.
+fn is_bare_dimension(tok: &str) -> bool {
+    let starts_number = tok
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c));
+    let Some((_, suffix)) = tok.rsplit_once('-') else {
+        return false;
+    };
+    starts_number && crate::parser::is_distance_unit(suffix)
+}
+
 /// A leading count: digits/decimal/fraction ("1", "1½", "2.5") or a spelled-out
 /// small number ("one" … "twelve", "a"/"an").
 fn is_count_token(tok: &str) -> bool {
@@ -206,6 +279,7 @@ type Rewrite = fn(&str) -> Cow<'_, str>;
 /// without allocating. Adding a rewrite is a one-line edit here.
 const REWRITES: &[(&str, Rewrite)] = &[
     ("strip_nbsp", strip_nbsp),
+    ("strip_leading_bullet", strip_leading_bullet),
     ("strip_footnote_markers", strip_footnote_markers),
     ("strip_cross_reference", strip_cross_reference),
     ("normalize_dimension_range", normalize_dimension_range),
@@ -213,6 +287,7 @@ const REWRITES: &[(&str, Rewrite)] = &[
     ("strip_minus_equivalence", strip_minus_equivalence),
     ("strip_total_in_measure_paren", strip_total_in_measure_paren),
     ("lift_leading_dimension", lift_leading_dimension),
+    ("lift_leading_piece_dimension", lift_leading_piece_dimension),
 ];
 
 /// Apply one rewrite to the accumulator, preserving its owned-ness: a borrowed
@@ -402,6 +477,52 @@ mod tests {
     fn test_lift_leading_dimension(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(
             lift_leading_dimension(input).as_ref(),
+            expected,
+            "input: {input}"
+        );
+    }
+
+    #[rstest]
+    // Bare dimension + container + weight paren → count 1 inserted, dimension
+    // carried to the end so the count+container+weight path can parse.
+    #[case::inch_piece(
+        "1-inch piece (20g) ginger, unpeeled",
+        "1 piece (20g) ginger, unpeeled, 1-inch"
+    )]
+    #[case::vulgar("¾-inch piece (15g) ginger", "1 piece (15g) ginger, ¾-inch")]
+    #[case::range(
+        "1–1½-inch piece (20–30g) ginger, unpeeled",
+        "1 piece (20–30g) ginger, unpeeled, 1–1½-inch"
+    )]
+    #[case::cm_knob("2-cm knob (10g) ginger", "1 knob (10g) ginger, 2-cm")]
+    // No weight paren → bare form parses fine on its own; left untouched.
+    #[case::no_weight("2-inch piece ginger", "2-inch piece ginger")]
+    // A weight size ("10-ounce") ends in a unit, not a distance word → untouched.
+    #[case::weight_size("10-ounce can tomatoes", "10-ounce can tomatoes")]
+    // Second token not a container noun → untouched ("pan" is not a container).
+    #[case::not_container(
+        "9-inch springform (about 23cm) pan",
+        "9-inch springform (about 23cm) pan"
+    )]
+    fn test_lift_leading_piece_dimension(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(
+            lift_leading_piece_dimension(input).as_ref(),
+            expected,
+            "input: {input}"
+        );
+    }
+
+    #[rstest]
+    // Leading list bullets (en/em-dash, bullet, asterisk) are stripped.
+    #[case::en_dash("– shiitake mushrooms, whole", "shiitake mushrooms, whole")]
+    #[case::em_dash("— bean sprouts", "bean sprouts")]
+    #[case::bullet("• daikon, sliced", "daikon, sliced")]
+    #[case::ascii_hyphen("- firm tofu", "firm tofu")]
+    // A hyphenated leading token (no trailing space after the dash) is untouched.
+    #[case::hyphenated_name("all-purpose flour", "all-purpose flour")]
+    fn test_strip_leading_bullet(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(
+            strip_leading_bullet(input).as_ref(),
             expected,
             "input: {input}"
         );

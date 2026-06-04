@@ -223,10 +223,18 @@ fn raw_name(name_chunks: Option<Vec<&str>>) -> String {
 }
 
 fn raw_modifier(adjective: Option<(String, &str)>, modifier_text: &str) -> Option<String> {
-    let mut modifier = modifier_text.to_owned();
-    if let Some((adjective, _)) = adjective {
-        modifier.push_str(&adjective);
-    }
+    // The grammar captures a *leading* prep adjective ("minced lamb …") separately
+    // from the trailing post-name text ("(not too lean)"). The adjective leads the
+    // modifier; join it to any trailing text with a separator so the two never glue
+    // into "(not too lean)minced". A parenthetical aside reads naturally with a
+    // space ("minced (not too lean)"); other text is comma-joined ("minced, fresh").
+    let text = modifier_text.trim();
+    let modifier = match adjective.map(|(adjective, _)| adjective) {
+        Some(adjective) if text.is_empty() => adjective,
+        Some(adjective) if text.starts_with('(') => format!("{adjective} {text}"),
+        Some(adjective) => format!("{adjective}, {text}"),
+        None => text.to_owned(),
+    };
     clean_modifier(Some(modifier))
 }
 

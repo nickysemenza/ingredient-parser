@@ -64,7 +64,7 @@ pub(crate) const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
 pub(crate) const NON_STANDARD_UNITS: &[&str] = &[
     "recipe", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch", "package",
     "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin", "rib", "ribs",
-    "sprig", "sprigs", "pint", "pints", "piece", "pieces", "disk", "disks",
+    "sprig", "sprigs", "pint", "pints", "piece", "pieces", "disk", "disks", "stalk", "stalks",
 ];
 
 /// Container nouns that can follow a parenthesized size, e.g. the "piece" in

@@ -353,3 +353,22 @@
 {"input": "2 cups flour or cornmeal", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}], "modifier": "or cornmeal"}
 {"input": "1 teaspoon sweet or hot paprika", "name": "sweet paprika", "amounts": [{"unit": "tsp", "value": 1.0}], "modifier": "or hot paprika"}
 {"input": "1 cup butter or margarine", "name": "butter", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "or margarine"}
+// --- harvested (Sichuan/Persiana/Six Seasons/Honey&Co, 2026-06-03): fl oz unit, leading bullet, stalk, modifier-seam, piece-dimension ---
+{"input": "500ml (18fl oz) Greek yogurt", "name": "Greek yogurt", "amounts": [{"unit": "ml", "value": 500.0}, {"unit": "fl oz", "value": 18.0}]}
+{"input": "75ml (2½fl oz) olive oil", "name": "olive oil", "amounts": [{"unit": "ml", "value": 75.0}, {"unit": "fl oz", "value": 2.5}]}
+{"input": "2 fluid ounces cream", "name": "cream", "amounts": [{"unit": "fl oz", "value": 2.0}]}
+{"input": "1 stalk celery, diced", "name": "celery", "amounts": [{"unit": "stalk", "value": 1.0}], "modifier": "diced"}
+{"input": "– shiitake mushrooms, whole", "name": "shiitake mushrooms", "modifier": "whole"}
+{"input": "– chicken breasts, very thinly sliced", "name": "chicken breasts", "modifier": "very thinly sliced"}
+{"input": "– dried wood ear mushrooms, soaked in hot water for at least 30 minutes", "name": "dried wood ear mushrooms", "modifier": "soaked in hot water for at least 30 minutes"}
+{"input": "500g (1lb 2oz) minced lamb (not too lean)", "name": "lamb", "amounts": [{"unit": "g", "value": 500.0}, {"unit": "lb", "value": 1.0}, {"unit": "oz", "value": 2.0}], "modifier": "minced (not too lean)"}
+{"input": "1 tbsp melted lard (or cooking oil)", "name": "lard", "amounts": [{"unit": "tbsp", "value": 1.0}], "modifier": "melted (or cooking oil)"}
+{"input": "½ cup plain whole-milk yogurt (not Greek)", "name": "whole-milk yogurt", "amounts": [{"unit": "cup", "value": 0.5}], "modifier": "plain (not Greek)"}
+{"input": "1-inch piece (20g) ginger, unpeeled", "name": "ginger", "amounts": [{"unit": "piece", "value": 1.0}, {"unit": "g", "value": 20.0}], "modifier": "unpeeled, 1-inch"}
+{"input": "1–1½-inch piece (20–30g) ginger, unpeeled", "name": "ginger", "amounts": [{"unit": "piece", "value": 1.0}, {"unit": "g", "value": 20.0, "upper_value": 30.0}], "modifier": "unpeeled, 1–1½-inch"}
+// already-correct metric/imperial dual guards (regression anchors)
+{"input": "400g (14oz) feta cheese", "name": "feta cheese", "amounts": [{"unit": "g", "value": 400.0}, {"unit": "oz", "value": 14.0}]}
+{"input": "500g (1lb 2oz) basmati rice", "name": "basmati rice", "amounts": [{"unit": "g", "value": 500.0}, {"unit": "lb", "value": 1.0}, {"unit": "oz", "value": 2.0}]}
+{"input": "1 x 20g packet of chives, snipped or thinly sliced", "name": "chives", "amounts": [{"unit": "g", "value": 20.0}, {"unit": "packet", "value": 1.0}], "modifier": "snipped or thinly sliced"}
+{"input": "700ml (1¼ pints) vegetable oil", "name": "vegetable oil", "amounts": [{"unit": "ml", "value": 700.0}, {"unit": "pint", "value": 1.25}]}
+{"input": "200ml (1/3 pint) extra virgin olive oil", "name": "extra virgin olive oil", "amounts": [{"unit": "ml", "value": 200.0}, {"unit": "pint", "value": 0.3333333333333333}]}

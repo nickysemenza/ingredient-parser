@@ -228,6 +228,13 @@ impl<'a> MeasurementParser<'a> {
 
     /// Parse and validate a unit string.
     pub(super) fn unit<'b>(&self, input: &'b str) -> Res<&'b str, String> {
+        // Fluid ounce is the only built-in *multi-word* unit; the generic
+        // `parse_unit_text` (a single run of letters) stops at the space in
+        // "fl oz", so "18 fl oz water" would lose its unit and fall back to a bare
+        // count. Match its spellings explicitly and normalize to canonical "fl oz".
+        if let Ok((rest, _)) = fluid_ounce_text(input) {
+            return Ok((rest, "fl oz".to_string()));
+        }
         self.parse_unit_with(
             input,
             |s| unit::is_valid(self.units, s),
@@ -248,6 +255,20 @@ impl<'a> MeasurementParser<'a> {
             "not an addon unit",
         )
     }
+}
+
+/// Recognize the spellings of the fluid-ounce unit ("fl oz", "fl. oz.", "fluid
+/// ounce(s)", "fluid oz"). Longest forms first so a prefix isn't matched short.
+/// Returns the consumed span; the caller normalizes it to canonical "fl oz".
+fn fluid_ounce_text(input: &str) -> Res<&str, &str> {
+    alt((
+        tag_no_case("fluid ounces"),
+        tag_no_case("fluid ounce"),
+        tag_no_case("fluid oz"),
+        tag_no_case("fl. oz."),
+        tag_no_case("fl oz"),
+    ))
+    .parse(input)
 }
 
 fn reject_measurement(input: &str) -> nom::Err<VerboseError<&str>> {
@@ -395,6 +416,20 @@ mod tests {
     fn test_dimension_suffix_rejected(units_fx: HashSet<String>, #[case] input: &str) {
         let parser = MeasurementParser::new(&units_fx, true);
         assert!(parser.parse_single_measurement(input).is_err());
+    }
+
+    /// The multi-word fluid-ounce unit is recognized across the space the generic
+    /// unit-text parser would stop at, in its common spellings, and normalized to
+    /// canonical "fl oz".
+    #[rstest]
+    #[case::abbrev("18 fl oz water")]
+    #[case::attached("18fl oz water")]
+    #[case::periods("18 fl. oz. water")]
+    #[case::spelled("2 fluid ounces cream")]
+    fn test_fluid_ounce_unit(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        assert_eq!(measure.unit_as_string(), "fl oz", "input: {input}");
     }
 
     #[rstest]
