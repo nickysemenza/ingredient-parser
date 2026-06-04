@@ -22,13 +22,19 @@ pub(crate) fn default_dir() -> PathBuf {
 }
 
 /// Stable hex cache key for a chunk under a given model + prompt version.
-pub(crate) fn key(model: &str, chunk_text: &str) -> String {
+///
+/// `title_hint` is included because it varies the prompt (continuation chunks
+/// re-emit a spilled recipe), so chunks with identical text but different hints
+/// must not share a cache entry.
+pub(crate) fn key(model: &str, chunk_text: &str, title_hint: &str) -> String {
     let mut h = Sha256::new();
     h.update(PROMPT_VERSION.as_bytes());
     h.update([0]);
     h.update(model.as_bytes());
     h.update([0]);
     h.update(chunk_text.as_bytes());
+    h.update([0]);
+    h.update(title_hint.as_bytes());
     format!("{:x}", h.finalize())
 }
 
@@ -54,9 +60,10 @@ mod tests {
 
     #[test]
     fn key_is_stable_and_sensitive() {
-        assert_eq!(key("haiku", "abc"), key("haiku", "abc"));
-        assert_ne!(key("haiku", "abc"), key("haiku", "abd"));
-        assert_ne!(key("haiku", "abc"), key("sonnet", "abc"));
+        assert_eq!(key("haiku", "abc", ""), key("haiku", "abc", ""));
+        assert_ne!(key("haiku", "abc", ""), key("haiku", "abd", ""));
+        assert_ne!(key("haiku", "abc", ""), key("sonnet", "abc", ""));
+        assert_ne!(key("haiku", "abc", ""), key("haiku", "abc", "Hint"));
     }
 
     #[test]
@@ -74,7 +81,7 @@ mod tests {
                 instructions: vec![],
             }],
         }];
-        let k = key("m", "chunk text");
+        let k = key("m", "chunk text", "");
         assert!(read(&dir, &k).is_none());
         write(&dir, &k, &recipes).unwrap();
         assert_eq!(read(&dir, &k).unwrap(), recipes);

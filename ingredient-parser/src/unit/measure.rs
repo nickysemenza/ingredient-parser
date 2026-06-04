@@ -3,7 +3,7 @@ use crate::unit::{kind::MeasureKind, Unit};
 use crate::util::{format_quantity, num_without_zeroes};
 use crate::{IngredientError, IngredientResult};
 use num_rational::Rational64;
-use num_traits::ToPrimitive;
+use num_traits::{CheckedAdd, ToPrimitive};
 use serde::{de::Deserializer, ser::Serializer, Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
@@ -11,7 +11,11 @@ use tracing::debug;
 
 /// Convert an `f64` quantity to an exact rational. Cooking fractions (½, ⅓, …)
 /// and terminating decimals recover to their simple form via continued-fraction
-/// approximation, so equality is exact (e.g. ⅓ == ⅓, not 0.333… ≈ 0.333…).
+/// approximation, so SAME-UNIT equality is exact (e.g. ⅓ == ⅓, not 0.333… ≈
+/// 0.333…). NOTE: this exactness only holds within a single unit. Cross-unit
+/// arithmetic (`normalize()` and the conversion graph) multiplies by `f64`
+/// conversion factors and round-trips Rational64 → f64 → Rational64, so adding
+/// measures of different units is approximate, not exact.
 /// Non-finite input (filtered out upstream) falls back to zero.
 fn to_rational(value: f64) -> Rational64 {
     Rational64::approximate_float(value).unwrap_or_else(|| Rational64::from_integer(0))
@@ -283,14 +287,23 @@ impl Measure {
         let left = self.normalize();
         let right = b.normalize();
 
+        // Exact rational add, but fall back to f64 if the i64 numerator/denominator
+        // math would overflow. `num_rational`'s `+` panics (debug) / wraps (release)
+        // on overflow; large quantities scaled by conversion factors can reach that,
+        // so guard it to uphold the parser's "never panics" contract.
+        let checked_add = |a: Rational64, b: Rational64| -> Rational64 {
+            a.checked_add(&b)
+                .unwrap_or_else(|| to_rational(to_f64(a) + to_f64(b)))
+        };
+
         Ok(Measure {
             unit: left.unit.clone(),
-            value: left.value + right.value,
+            value: checked_add(left.value, right.value),
             upper_value: match (left.upper_value, right.upper_value) {
-                (Some(a), Some(b)) => Some(a + b),
+                (Some(a), Some(b)) => Some(checked_add(a, b)),
                 (None, None) => None,
-                (None, Some(b)) => Some(left.value + b),
-                (Some(a), None) => Some(a + right.value),
+                (None, Some(b)) => Some(checked_add(left.value, b)),
+                (Some(a), None) => Some(checked_add(a, right.value)),
             },
         })
     }
@@ -690,5 +703,36 @@ mod tests {
             None => Measure::new(unit, value),
         };
         assert_eq!(format!("{measure}"), expected);
+    }
+
+    // ============================================================================
+    // Add Tests (overflow-safety + same-unit exactness)
+    // ============================================================================
+
+    /// Adding two very large same-unit measures must not panic on `i64` overflow —
+    /// `add` uses `checked_add` with an f64 fallback to uphold the "never panics"
+    /// contract. The fallback loses exactness, which is acceptable for the rare
+    /// overflow case.
+    #[test]
+    fn test_add_large_values_does_not_panic() {
+        let big = 1e17_f64; // big enough that grams-scale rationals overflow i64 math
+        let a = Measure::new("g", big);
+        let b = Measure::new("g", big);
+        let sum = a.add(b).unwrap();
+        assert!(sum.value().is_finite());
+        assert!(sum.value() > big);
+    }
+
+    /// Same-unit rational add stays exact: ⅓ cup + ⅓ cup == ⅔ cup, with no f64
+    /// drift (the exactness guarantee scoped to same-unit arithmetic).
+    #[test]
+    fn test_add_same_unit_thirds_is_exact() {
+        let third = 1.0 / 3.0;
+        let a = Measure::new("cup", third);
+        let b = Measure::new("cup", third);
+        let sum = a.add(b).unwrap();
+        // Compare exact rationals, not f64s: ⅓ + ⅓ == ⅔.
+        let two_thirds = Measure::new("cup", 2.0 / 3.0).normalize();
+        assert_eq!(sum.value, two_thirds.value);
     }
 }

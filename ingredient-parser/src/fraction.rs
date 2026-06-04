@@ -17,7 +17,7 @@ use crate::Res;
 /// a fraction character class build it from this const rather than re-listing the
 /// glyphs (which previously drifted — the regexes had omitted `⅐ ⅑ ⅒`). Kept in
 /// lockstep with `v_frac_to_num` by `tests::vulgar_fractions_match_is_vulgar`.
-pub(crate) const VULGAR_FRACTIONS: &str = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞";
+pub const VULGAR_FRACTIONS: &str = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞";
 
 fn v_frac_to_num(input: char) -> Option<f64> {
     // two ranges for unicode fractions
@@ -48,7 +48,7 @@ fn v_frac_to_num(input: char) -> Option<f64> {
 }
 
 /// Whether `c` is a unicode vulgar-fraction glyph (½, ⅓, ¼, …).
-pub(crate) fn is_vulgar(c: char) -> bool {
+pub fn is_vulgar(c: char) -> bool {
     v_frac_to_num(c).is_some()
 }
 

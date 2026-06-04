@@ -61,7 +61,7 @@ impl IngredientParser {
     /// comes at the end after an em-dash, en-dash, or double hyphen.
     pub(super) fn try_parse_trailing_amount_format(&self, input: &str) -> Option<Ingredient> {
         let separators = [" — ", " – ", " -- "];
-        let mp = MeasurementParser::new(&self.units, self.is_rich_text);
+        let mp = MeasurementParser::new(&self.units, false);
 
         for sep in separators {
             let Some(pos) = input.rfind(sep) else {

@@ -96,35 +96,27 @@ pub(super) fn starts_with_dimension_suffix(text: &str) -> bool {
 use crate::parser::vocab::DISTANCE_UNIT_BASES;
 
 /// Check if a string is a distance unit (used for dimension detection).
-/// Handles both singular and plural forms automatically.
+/// Handles both singular and plural forms automatically. The bases are all
+/// lowercase ASCII, so `eq_ignore_ascii_case` matches without allocating.
 pub(crate) fn is_distance_unit(s: &str) -> bool {
-    let lower = s.to_lowercase();
+    let hit = |candidate: &str| {
+        DISTANCE_UNIT_BASES
+            .iter()
+            .any(|base| candidate.eq_ignore_ascii_case(base))
+    };
+    let bytes = s.as_bytes();
+    let ends_with_ci = |suffix: &[u8]| {
+        bytes
+            .len()
+            .checked_sub(suffix.len())
+            .is_some_and(|i| bytes[i..].eq_ignore_ascii_case(suffix))
+    };
 
-    for base in DISTANCE_UNIT_BASES {
-        if lower == *base {
-            return true;
-        }
-    }
-
-    if lower.ends_with('s') {
-        let without_s = &lower[..lower.len() - 1];
-        for base in DISTANCE_UNIT_BASES {
-            if without_s == *base {
-                return true;
-            }
-        }
-
-        if lower.ends_with("es") && lower.len() > 2 {
-            let without_es = &lower[..lower.len() - 2];
-            for base in DISTANCE_UNIT_BASES {
-                if without_es == *base {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
+    // Exact match, then the singular recovered by stripping a 1- or 2-char plural.
+    // Suffix bytes are ASCII letters, so the byte offsets are valid char boundaries.
+    hit(s)
+        || (ends_with_ci(b"s") && hit(&s[..s.len() - 1]))
+        || (ends_with_ci(b"es") && hit(&s[..s.len() - 2]))
 }
 
 #[cfg(test)]
@@ -191,6 +183,12 @@ mod tests {
     #[case::meters("meters", true)]
     #[case::cup("cup", false)]
     #[case::tsp("tsp", false)]
+    // Case-insensitive + plural-strip edge cases (the alloc-free rewrite's paths).
+    #[case::uppercase("INCH", true)] // eq_ignore_ascii_case path
+    #[case::mixed_case_plural("Inches", true)] // case-insensitive "es" strip
+    #[case::irregular_feet("feet", false)] // irregular plural, not handled
+    #[case::empty("", false)]
+    #[case::lone_s("s", false)] // strips to "", which is not a base
     fn test_is_distance_unit(#[case] input: &str, #[case] expected: bool) {
         assert_eq!(is_distance_unit(input), expected, "Failed for: {input}");
     }

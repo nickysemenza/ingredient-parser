@@ -16,10 +16,16 @@ pub fn is_valid(units: &HashSet<String>, s: &str) -> bool {
 /// Check if a string matches an addon unit (from the custom units set)
 ///
 /// This does NOT check built-in units - use `is_valid` for that.
-pub fn is_addon_unit(units: &HashSet<String>, s: &str) -> bool {
+pub(crate) fn is_addon_unit(units: &HashSet<String>, s: &str) -> bool {
     units.contains(&s.to_lowercase())
 }
 
+// NOTE: deliberately NOT `#[non_exhaustive]` (considered for todo 009). The
+// integration tests (`tests/units.rs`, `tests/parsing.rs`) — which compile as
+// separate crates — construct `Unit` variants by value extensively (e.g.
+// `Unit::Gram`, `Unit::Other(...)`), and `#[non_exhaustive]` forbids external
+// variant construction (E0639). Hardening this would require routing all those
+// constructions through an in-crate constructor; deferred as out of scope.
 #[derive(Clone, PartialEq, PartialOrd, Debug, Eq, Hash, Serialize, Deserialize)]
 pub enum Unit {
     Gram,
@@ -72,6 +78,10 @@ impl Unit {
             canonical => canonical,
         }
     }
+    // TODO(perf, deferred from todo 013 item 6): built-in variants could return a
+    // `&'static str` (e.g. `as_static_str()`), allocating only for `Other(s)`. This
+    // is on the Display/output path, not the parse hot path — deferred to avoid any
+    // risk to Display behavior until it shows up in a profile.
     pub fn to_str(&self) -> String {
         match self {
             Unit::Gram => "g".to_string(),
@@ -196,5 +206,22 @@ pub(crate) fn singular(s: &str) -> Cow<'_, str> {
             Some(stripped) => Cow::Owned(stripped.to_string()),
             None => Cow::Owned(lowered),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_addon_unit() {
+        let custom_units: HashSet<String> =
+            HashSet::from(["packet".to_string(), "slice".to_string()]);
+
+        assert!(is_addon_unit(&custom_units, "packet"));
+        assert!(is_addon_unit(&custom_units, "slice"));
+        assert!(is_addon_unit(&custom_units, "PACKET")); // Case insensitive
+        assert!(!is_addon_unit(&custom_units, "cup"));
+        assert!(!is_addon_unit(&custom_units, "unknown"));
     }
 }

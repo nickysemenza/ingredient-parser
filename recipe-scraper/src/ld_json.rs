@@ -101,10 +101,9 @@ pub fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
     let parser = IngredientParser::new().with_units(&["serving", "servings"]);
 
     // Common unicode vulgar fractions also count as the start of the quantity.
-    const VULGAR_FRACTIONS: &str = "½⅓¼¾⅔⅜⅝⅞⅛⅙⅚";
     let quantity_start = input
         .char_indices()
-        .find(|(_, c)| c.is_ascii_digit() || VULGAR_FRACTIONS.contains(*c))
+        .find(|(_, c)| c.is_ascii_digit() || ingredient::fraction::is_vulgar(*c))
         .map(|(i, _)| i);
     // Prose like "Serves 4" / "Makes 4 servings" implies servings.
     let implies_servings = input.to_lowercase().contains("serv");

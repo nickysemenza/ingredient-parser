@@ -17,8 +17,12 @@ mod collector;
 mod format;
 mod jaeger;
 
-pub use collector::{disable_tracing, enable_tracing, is_tracing_enabled};
-pub use collector::{trace_enter, trace_exit_failure, trace_exit_success};
+pub use collector::is_tracing_enabled;
+// Thread-local span-stack mutators: in-crate only (the `traced_parser!` macro and
+// the pipeline/recognize/refine phases). Not part of the public API — the public
+// entry point is `IngredientParser::parse_with_trace` → `ParseTrace`.
+pub(crate) use collector::{disable_tracing, enable_tracing};
+pub(crate) use collector::{trace_enter, trace_exit_failure, trace_exit_success};
 
 use std::fmt;
 use std::time::Instant;

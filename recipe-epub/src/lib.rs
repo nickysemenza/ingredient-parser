@@ -157,16 +157,12 @@ impl CookbookRecipeExt for CookbookRecipe {
         self.sections
             .iter()
             .flat_map(|s| &s.ingredients)
-            .filter(|line| has_quantity_char(line) && ip.from_str(line).amounts.is_empty())
+            // Use the parser's native "has a digit but no parsed amount" signal
+            // (the single source of truth) rather than re-deriving it here.
+            .filter(|line| ip.parse_with_diagnostics(line).1.unparsed_digit)
             .cloned()
             .collect()
     }
-}
-
-/// Whether a string contains an ASCII digit or a common unicode vulgar fraction.
-fn has_quantity_char(s: &str) -> bool {
-    s.chars()
-        .any(|c| c.is_ascii_digit() || "½⅓¼¾⅔⅜⅝⅞⅛⅙⅚".contains(c))
 }
 
 /// Progress snapshot emitted during [`extract_cookbook_with_progress`]: how many
@@ -382,19 +378,21 @@ fn contains_whole_tokens(haystack: &str, needle: &str) -> bool {
     if needle.is_empty() || needle.len() > haystack.len() {
         return false;
     }
-    let h = haystack.as_bytes();
-    let n = needle.as_bytes();
-    let mut i = 0;
-    while i + n.len() <= h.len() {
-        if &h[i..i + n.len()] == n {
-            let before_ok = i == 0 || h[i - 1] == b' ';
-            let after = i + n.len();
-            let after_ok = after == h.len() || h[after] == b' ';
-            if before_ok && after_ok {
-                return true;
-            }
+    let bytes = haystack.as_bytes();
+    let mut start = 0;
+    // `str::find` only returns char-boundary offsets, so no match is skipped even
+    // when the haystack contains multi-byte UTF-8 (accented Latin, CJK, …). The
+    // `b' '` boundary checks stay valid because `normalize_title` guarantees
+    // ASCII-space separators.
+    while let Some(pos) = haystack[start..].find(needle) {
+        let abs = start + pos;
+        let before_ok = abs == 0 || bytes[abs - 1] == b' ';
+        let after = abs + needle.len();
+        let after_ok = after == haystack.len() || bytes[after] == b' ';
+        if before_ok && after_ok {
+            return true;
         }
-        i += 1;
+        start = abs + 1;
     }
     false
 }
@@ -627,6 +625,20 @@ mod tests {
         assert!(!contains_whole_tokens("piecrustless pie", "piecrust"));
         assert!(contains_whole_tokens("only piecrust", "only piecrust"));
         assert!(!contains_whole_tokens("only", "only piecrust"));
+    }
+
+    #[test]
+    fn contains_whole_tokens_handles_multibyte_titles() {
+        // Accented Latin: the needle's leading char precedes a multi-byte char in
+        // the haystack, so a naive `i += 1` byte-walk could step over the match.
+        assert!(contains_whole_tokens("crème brûlée tart", "crème brûlée"));
+        // Still respects whole-token boundaries with multi-byte chars present.
+        assert!(!contains_whole_tokens("crème brûléed tart", "crème brûlée"));
+        // CJK title found as a whole token.
+        assert!(contains_whole_tokens(
+            "1 recipe 麻婆豆腐 this page",
+            "麻婆豆腐"
+        ));
     }
 
     /// Build an assembled recipe directly (post-`assemble` shape) for ref tests.

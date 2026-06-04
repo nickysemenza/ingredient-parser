@@ -195,7 +195,11 @@ impl<E: RecipeExtractor> RecipeExtractor for CachingExtractor<'_, E> {
     }
 
     async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
-        let key = cache::key(&self.model, &chunk.text);
+        let key = cache::key(
+            &self.model,
+            &chunk.text,
+            chunk.title_hint.as_deref().unwrap_or(""),
+        );
         if let Some(hit) = cache::read(&self.dir, &key) {
             // Cache hit: no API call, so no usage/cost is incurred.
             return Ok(ChunkOutcome {
@@ -220,6 +224,87 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MODEL: &str = "gemini-2.5-flash";
 const CLAUDE_DEFAULT_MODEL: &str = "claude-haiku-4-5";
 
+// ===========================================================================
+// Shared HTTP + env scaffolding (used by both provider backends)
+// ===========================================================================
+
+/// Read an env var, returning `Some` only for a present, non-empty value.
+fn nonempty_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|s| !s.is_empty())
+}
+
+/// The Cloudflare-AI-Gateway bearer token shared by both backends'
+/// `from_env` (`CF_AIG_TOKEN`, falling back to `AI_GATEWAY_API_KEY`).
+fn resolve_gateway_token() -> Option<String> {
+    nonempty_env("CF_AIG_TOKEN").or_else(|| nonempty_env("AI_GATEWAY_API_KEY"))
+}
+
+/// The HTTP client both backends build identically (180s timeout).
+fn build_client() -> Result<reqwest::Client, EpubError> {
+    Ok(reqwest::Client::builder()
+        .timeout(Duration::from_secs(180))
+        .build()?)
+}
+
+/// POST `body` as JSON to `endpoint`, applying provider-specific `headers`
+/// (auth, API version, …) plus the optional Cloudflare gateway authorization,
+/// and return the response body text. Maps a non-2xx status to [`EpubError::Api`].
+/// Owns the build-request / send / status-check mechanics shared by both backends.
+async fn post_json(
+    client: &reqwest::Client,
+    endpoint: &str,
+    headers: &[(&str, String)],
+    gateway_token: Option<&str>,
+    body: &serde_json::Value,
+) -> Result<String, EpubError> {
+    let mut req = client
+        .post(endpoint)
+        .header("content-type", "application/json");
+    for (name, value) in headers {
+        req = req.header(*name, value);
+    }
+    if let Some(token) = gateway_token {
+        req = req.header("cf-aig-authorization", format!("Bearer {token}"));
+    }
+    let resp = req.json(body).send().await?;
+
+    let status = resp.status();
+    let text = resp.text().await?;
+    if !status.is_success() {
+        return Err(EpubError::Api {
+            status: status.as_u16(),
+            body: text,
+        });
+    }
+    Ok(text)
+}
+
+/// Warn (once) when a finish/stop reason indicates the model's output was
+/// truncated at the token limit, so the recipe tail may be missing.
+fn warn_if_truncated(reason: Option<&str>, truncated_reasons: &[&str], doc_path: &str) {
+    if reason.is_some_and(|r| truncated_reasons.contains(&r)) {
+        tracing::warn!("chunk {doc_path} hit token limit; some recipes may be truncated");
+    }
+}
+
+/// One forced-tool LLM call, abstracted over the provider wire format so callers
+/// (`extract`, `classify_cookbooks`) don't switch on the backend variant.
+#[allow(async_fn_in_trait)]
+trait CallTool {
+    /// Issue one forced-tool call. Returns the tool's decoded `input` object
+    /// (`None` if the model returned no tool block), token usage, and the
+    /// stop/finish reason.
+    async fn call_tool(
+        &self,
+        system: &str,
+        user: String,
+        tool_name: &str,
+        tool_desc: &str,
+        schema: serde_json::Value,
+        max_tokens: u32,
+    ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), EpubError>;
+}
+
 /// Calls the Claude Messages API (directly, or via a proxy such as Cloudflare AI
 /// Gateway) with forced structured (tool) output.
 pub(crate) struct ClaudeExtractor {
@@ -243,23 +328,18 @@ impl ClaudeExtractor {
     ///
     /// At least one of the API key or gateway token must be present.
     pub fn from_env(opts: &Options) -> Result<Self, EpubError> {
-        let nonempty = |v: Result<String, _>| v.ok().filter(|s| !s.is_empty());
-        let api_key = nonempty(std::env::var("ANTHROPIC_API_KEY"));
-        let gateway_token = nonempty(std::env::var("CF_AIG_TOKEN"))
-            .or_else(|| nonempty(std::env::var("AI_GATEWAY_API_KEY")));
+        let api_key = nonempty_env("ANTHROPIC_API_KEY");
+        let gateway_token = resolve_gateway_token();
         if api_key.is_none() && gateway_token.is_none() {
             return Err(EpubError::MissingApiKey);
         }
-        let base =
-            nonempty(std::env::var("ANTHROPIC_BASE_URL")).ok_or(EpubError::MissingBaseUrl)?;
+        let base = nonempty_env("ANTHROPIC_BASE_URL").ok_or(EpubError::MissingBaseUrl)?;
         let endpoint = format!("{}/v1/messages", base.trim_end_matches('/'));
         let model = opts
             .model
             .clone()
             .unwrap_or_else(|| CLAUDE_DEFAULT_MODEL.to_string());
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
+        let client = build_client()?;
         Ok(Self {
             client,
             endpoint,
@@ -268,11 +348,12 @@ impl ClaudeExtractor {
             model,
         })
     }
+}
 
+impl CallTool for ClaudeExtractor {
     /// Issue one Anthropic Messages call with forced tool output. Returns the
     /// tool's `input` object (`None` if the model returned no tool block), the
-    /// token usage, and the stop reason. Shared by [`Self::extract`] and the
-    /// cookbook classifier.
+    /// token usage, and the stop reason.
     async fn call_tool(
         &self,
         system: &str,
@@ -301,27 +382,18 @@ impl ClaudeExtractor {
             "messages": [{ "role": "user", "content": user }]
         });
 
-        let mut req = self
-            .client
-            .post(&self.endpoint)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json");
+        let mut headers = vec![("anthropic-version", ANTHROPIC_VERSION.to_string())];
         if let Some(key) = &self.api_key {
-            req = req.header("x-api-key", key);
+            headers.push(("x-api-key", key.clone()));
         }
-        if let Some(token) = &self.gateway_token {
-            req = req.header("cf-aig-authorization", format!("Bearer {token}"));
-        }
-        let resp = req.json(&body).send().await?;
-
-        let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            return Err(EpubError::Api {
-                status: status.as_u16(),
-                body: text,
-            });
-        }
+        let text = post_json(
+            &self.client,
+            &self.endpoint,
+            &headers,
+            self.gateway_token.as_deref(),
+            &body,
+        )
+        .await?;
 
         let parsed: ApiResponse = serde_json::from_str(&text)?;
         let usage = parsed.usage;
@@ -353,12 +425,7 @@ impl RecipeExtractor for ClaudeExtractor {
             )
             .await?;
 
-        if stop_reason.as_deref() == Some("max_tokens") {
-            tracing::warn!(
-                "chunk {} hit max_tokens; some recipes may be truncated",
-                chunk.doc_path
-            );
-        }
+        warn_if_truncated(stop_reason.as_deref(), &["max_tokens"], &chunk.doc_path);
 
         let recipes = match input {
             Some(v) => parse_recipes_payload(v)?,
@@ -432,29 +499,26 @@ impl OpenAiExtractor {
     /// (optional with a BYOK gateway), plus `CF_AIG_TOKEN` / `AI_GATEWAY_API_KEY`
     /// → `cf-aig-authorization`. At least one auth source must be present.
     pub fn from_env(opts: &Options) -> Result<Self, EpubError> {
-        let nonempty = |v: Result<String, _>| v.ok().filter(|s| !s.is_empty());
         let model = opts
             .model
             .clone()
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
         let is_gemini = model.to_lowercase().starts_with("gemini");
 
-        let gateway_token = nonempty(std::env::var("CF_AIG_TOKEN"))
-            .or_else(|| nonempty(std::env::var("AI_GATEWAY_API_KEY")));
+        let gateway_token = resolve_gateway_token();
         let api_key = if is_gemini {
-            nonempty(std::env::var("GEMINI_API_KEY"))
-                .or_else(|| nonempty(std::env::var("GOOGLE_API_KEY")))
+            nonempty_env("GEMINI_API_KEY").or_else(|| nonempty_env("GOOGLE_API_KEY"))
         } else {
-            nonempty(std::env::var("OPENAI_API_KEY"))
+            nonempty_env("OPENAI_API_KEY")
         };
         if api_key.is_none() && gateway_token.is_none() {
             return Err(EpubError::MissingApiKey);
         }
 
         let explicit = if is_gemini {
-            nonempty(std::env::var("GEMINI_BASE_URL"))
+            nonempty_env("GEMINI_BASE_URL")
         } else {
-            nonempty(std::env::var("OPENAI_BASE_URL"))
+            nonempty_env("OPENAI_BASE_URL")
         };
         let suffix = if is_gemini {
             "google-ai-studio/v1beta/openai"
@@ -464,7 +528,7 @@ impl OpenAiExtractor {
         let base = explicit
             .or_else(|| {
                 // Derive a sibling provider route from a CF gateway base.
-                nonempty(std::env::var("ANTHROPIC_BASE_URL")).and_then(|b| {
+                nonempty_env("ANTHROPIC_BASE_URL").and_then(|b| {
                     b.trim_end_matches('/')
                         .strip_suffix("/anthropic")
                         .map(|prefix| format!("{prefix}/{suffix}"))
@@ -473,9 +537,7 @@ impl OpenAiExtractor {
             .ok_or(EpubError::MissingBaseUrl)?;
         let endpoint = format!("{}/chat/completions", base.trim_end_matches('/'));
 
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
+        let client = build_client()?;
         Ok(Self {
             client,
             endpoint,
@@ -484,11 +546,12 @@ impl OpenAiExtractor {
             model,
         })
     }
+}
 
+impl CallTool for OpenAiExtractor {
     /// Issue one OpenAI-compatible chat-completions call with a forced function
     /// call. Returns the function's decoded arguments object (`None` if the model
-    /// returned no tool call), token usage, and finish reason. Shared by
-    /// [`Self::extract`] and the cookbook classifier.
+    /// returned no tool call), token usage, and finish reason.
     async fn call_tool(
         &self,
         system: &str,
@@ -516,26 +579,20 @@ impl OpenAiExtractor {
             "tool_choice": { "type": "function", "function": { "name": tool_name } }
         });
 
-        let mut req = self
-            .client
-            .post(&self.endpoint)
-            .header("content-type", "application/json");
-        if let Some(key) = &self.api_key {
-            req = req.header("authorization", format!("Bearer {key}"));
-        }
-        if let Some(token) = &self.gateway_token {
-            req = req.header("cf-aig-authorization", format!("Bearer {token}"));
-        }
-        let resp = req.json(&body).send().await?;
-
-        let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            return Err(EpubError::Api {
-                status: status.as_u16(),
-                body: text,
-            });
-        }
+        let headers: Vec<(&str, String)> = self
+            .api_key
+            .as_ref()
+            .map(|key| ("authorization", format!("Bearer {key}")))
+            .into_iter()
+            .collect();
+        let text = post_json(
+            &self.client,
+            &self.endpoint,
+            &headers,
+            self.gateway_token.as_deref(),
+            &body,
+        )
+        .await?;
 
         let parsed: OpenAiResponse = serde_json::from_str(&text)?;
         let usage = parsed.usage.into();
@@ -571,12 +628,7 @@ impl RecipeExtractor for OpenAiExtractor {
             )
             .await?;
 
-        if finish_reason.as_deref() == Some("length") {
-            tracing::warn!(
-                "chunk {} hit token limit; some recipes may be truncated",
-                chunk.doc_path
-            );
-        }
+        warn_if_truncated(finish_reason.as_deref(), &["length"], &chunk.doc_path);
 
         let recipes = match input {
             Some(v) => parse_recipes_payload(v)?,
@@ -668,35 +720,44 @@ impl Backend {
     pub async fn classify_cookbooks(&self, books: &[BookMeta]) -> Result<Vec<bool>, EpubError> {
         let user = classify_user_prompt(books);
         let schema = classify_tool_schema();
-        let (input, _usage, _reason) = match self {
-            Backend::Claude(e) => {
-                e.call_tool(
-                    CLASSIFY_SYSTEM_PROMPT,
-                    user,
-                    CLASSIFY_TOOL_NAME,
-                    "Return the 1-based indices of the books that are cookbooks.",
-                    schema,
-                    2000,
-                )
-                .await?
-            }
-            Backend::OpenAi(e) => {
-                e.call_tool(
-                    CLASSIFY_SYSTEM_PROMPT,
-                    user,
-                    CLASSIFY_TOOL_NAME,
-                    "Return the 1-based indices of the books that are cookbooks.",
-                    schema,
-                    2000,
-                )
-                .await?
-            }
-        };
+        let (input, _usage, _reason) = self
+            .call_tool(
+                CLASSIFY_SYSTEM_PROMPT,
+                user,
+                CLASSIFY_TOOL_NAME,
+                "Return the 1-based indices of the books that are cookbooks.",
+                schema,
+                2000,
+            )
+            .await?;
         let payload: ClassifyPayload = match input {
             Some(v) => serde_json::from_value(v)?,
             None => ClassifyPayload::default(),
         };
         Ok(indices_to_bools(&payload.cookbook_indices, books.len()))
+    }
+}
+
+impl CallTool for Backend {
+    async fn call_tool(
+        &self,
+        system: &str,
+        user: String,
+        tool_name: &str,
+        tool_desc: &str,
+        schema: serde_json::Value,
+        max_tokens: u32,
+    ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), EpubError> {
+        match self {
+            Backend::Claude(e) => {
+                e.call_tool(system, user, tool_name, tool_desc, schema, max_tokens)
+                    .await
+            }
+            Backend::OpenAi(e) => {
+                e.call_tool(system, user, tool_name, tool_desc, schema, max_tokens)
+                    .await
+            }
+        }
     }
 }
 

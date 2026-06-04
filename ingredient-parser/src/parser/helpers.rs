@@ -59,17 +59,13 @@ pub(crate) fn parse_amount_string(input: &str) -> Result<Measure, String> {
         return Err(format!("Missing unit in: '{input}'"));
     }
 
-    // Parse the unit text (letters only)
-    let (leftover, unit_str) =
+    // Parse the unit text (letters only). Any trailing leftover is ignored —
+    // a bare amount string still succeeds with the recognized unit.
+    let (_leftover, unit_str) =
         parse_unit_text(unit).map_err(|_| format!("Invalid unit in: '{input}'"))?;
 
     if unit_str.is_empty() {
         return Err(format!("Missing unit in: '{input}'"));
-    }
-
-    // Warn if there's unexpected leftover text (but still succeed)
-    if !leftover.trim().is_empty() {
-        // Could log warning here, but for now just ignore
     }
 
     Ok(Measure::new(unit_str, value))

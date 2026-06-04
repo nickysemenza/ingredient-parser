@@ -2,6 +2,11 @@ use std::{fmt, str::FromStr};
 
 use super::Unit;
 
+// NOTE: deliberately NOT `#[non_exhaustive]`, unlike `Unit` (todo 009). The
+// `ingredient-wasm` crate constructs `MeasureKind::Nutrient(_)` externally
+// (ingredient-wasm/src/lib.rs:112,132); `#[non_exhaustive]` forbids external
+// variant construction (E0639), so adding it would break the wasm build. Revisit
+// if/when that construction moves behind a constructor fn in this crate.
 #[derive(Clone, PartialEq, PartialOrd, Debug, Serialize, Deserialize)]
 pub enum MeasureKind {
     Weight,

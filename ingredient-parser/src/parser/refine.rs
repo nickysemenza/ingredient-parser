@@ -98,7 +98,7 @@ impl IngredientParser {
         else {
             return;
         };
-        let mp = MeasurementParser::new(&self.units, self.is_rich_text);
+        let mp = MeasurementParser::new(&self.units, false);
         let Ok((remaining, measures)) = mp.parse_measurement_list(rest) else {
             return;
         };
@@ -150,21 +150,28 @@ impl IngredientParser {
 
             parsed.push_modifier(ModifierPart::Prep(adjective.clone()));
 
-            let before = name[..pos].trim();
-            let after = name[end..].trim();
-            let mut new_name = String::with_capacity(name.len());
-            if !before.is_empty() {
-                new_name.push_str(before);
-                if !after.is_empty() {
-                    new_name.push(' ');
+            // Rebuild both `name` and its lowercase view from the same before/after
+            // slices, so `name_lower` is kept in sync without re-lowercasing the
+            // whole string each iteration. `pos`/`end` are char boundaries in both
+            // strings (verified for `name`; for `name_lower` they came from `find`).
+            let join = |s: &str, pos: usize, end: usize| -> String {
+                let before = s[..pos].trim();
+                let after = s[end..].trim();
+                let mut out = String::with_capacity(s.len());
+                if !before.is_empty() {
+                    out.push_str(before);
+                    if !after.is_empty() {
+                        out.push(' ');
+                    }
                 }
-            }
-            if !after.is_empty() {
-                new_name.push_str(after);
-            }
+                if !after.is_empty() {
+                    out.push_str(after);
+                }
+                out.trim().to_string()
+            };
 
-            name = new_name.trim().to_string();
-            name_lower = name.to_lowercase();
+            name = join(&name, pos, end);
+            name_lower = join(&name_lower, pos, end);
         }
 
         parsed.name = name;
@@ -603,6 +610,8 @@ mod tests {
     #[rstest]
     #[case::extracts("chopped onion", "onion", Some("chopped"))]
     #[case::boundary_guard("well-chopped onion", "well-chopped onion", None)]
+    // Two adjectives in one name exercise the loop's name/name_lower rebuild.
+    #[case::two_adjectives("chopped sifted flour", "flour", Some("chopped, sifted"))]
     fn test_extract_adjectives_from_name(
         #[case] name: &str,
         #[case] want_name: &str,

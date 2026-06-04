@@ -2,10 +2,7 @@
 
 #![allow(clippy::unwrap_used)]
 
-use ingredient::trace::{
-    disable_tracing, enable_tracing, is_tracing_enabled, trace_enter, trace_exit_failure,
-    trace_exit_success, ParseTrace, TraceNode, TraceOutcome,
-};
+use ingredient::trace::{ParseTrace, TraceNode, TraceOutcome};
 use ingredient::IngredientParser;
 use rstest::{fixture, rstest};
 
@@ -96,66 +93,9 @@ fn test_trace_node_timing(#[case] complete: bool) {
     }
 }
 
-// ============================================================================
-// Thread-Local Tracing Tests
-// ============================================================================
-
-#[test]
-fn test_thread_local_tracing() {
-    enable_tracing();
-    trace_enter("test", "input");
-    trace_exit_success(5, "done");
-    let trace = disable_tracing("input");
-    assert_eq!(trace.root.name, "test");
-}
-
-#[test]
-fn test_trace_exit_failure() {
-    enable_tracing();
-    trace_enter("failing_parser", "bad input");
-    trace_exit_failure("expected digit");
-
-    let trace = disable_tracing("bad input");
-    assert_eq!(trace.root.name, "failing_parser");
-    assert!(matches!(trace.root.outcome, TraceOutcome::Failure { .. }));
-    if let TraceOutcome::Failure { error } = &trace.root.outcome {
-        assert_eq!(error, "expected digit");
-    }
-}
-
-#[test]
-fn test_is_tracing_enabled() {
-    assert!(!is_tracing_enabled());
-    enable_tracing();
-    assert!(is_tracing_enabled());
-    disable_tracing("test");
-    assert!(!is_tracing_enabled());
-}
-
-#[rstest]
-#[case::depth_2(vec!["outer", "inner"])]
-#[case::depth_3(vec!["level1", "level2", "level3"])]
-fn test_nested_tracing(#[case] names: Vec<&str>) {
-    enable_tracing();
-    for name in &names {
-        trace_enter(name, "input");
-    }
-    for _ in &names {
-        trace_exit_success(1, "result");
-    }
-
-    let trace = disable_tracing("input");
-
-    // Each level must nest exactly the next one along the spine.
-    let mut node = &trace.root;
-    for (i, name) in names.iter().enumerate() {
-        assert_eq!(node.name, *name);
-        if i + 1 < names.len() {
-            assert_eq!(node.children.len(), 1);
-            node = &node.children[0];
-        }
-    }
-}
+// NOTE: the thread-local tracing hooks (enable_tracing/trace_enter/…) are
+// crate-internal (`pub(crate)`); their unit tests live alongside them in
+// `src/trace/collector.rs`. The public entry point is `parse_with_trace`.
 
 // ============================================================================
 // ParseTrace Tests

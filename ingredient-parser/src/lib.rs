@@ -143,6 +143,7 @@
 //! ```
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 pub use crate::error::{IngredientError, IngredientResult};
 pub use crate::ingredient::Ingredient;
@@ -154,7 +155,7 @@ use unit::Measure;
 extern crate serde;
 
 pub mod error;
-pub(crate) mod fraction;
+pub mod fraction;
 pub mod ingredient;
 pub(crate) mod parser;
 pub mod rich_text;
@@ -200,8 +201,14 @@ pub(crate) use parser::Res;
 ///
 /// Use [`IngredientParser`] directly for more control over parsing behavior.
 pub fn from_str(input: &str) -> Ingredient {
-    IngredientParser::new().from_str(input)
+    DEFAULT_PARSER.from_str(input)
 }
+
+/// Shared default parser used by the free [`from_str`]. Building an
+/// [`IngredientParser`] allocates two `HashSet<String>` of default vocab, so we
+/// construct it once and borrow it for every call. `IngredientParser` is
+/// `Send + Sync` and immutable in `from_str`, so a process-lifetime static is safe.
+static DEFAULT_PARSER: LazyLock<IngredientParser> = LazyLock::new(IngredientParser::new);
 
 /// Customizable ingredient parser with configurable units and adjectives
 ///
@@ -252,8 +259,6 @@ pub struct IngredientParser {
     units: HashSet<String>,
     /// Set of recognized adjectives that get moved to modifier field
     adjectives: HashSet<String>,
-    /// Whether to parse rich text characters (Unicode fractions, etc.)
-    is_rich_text: bool,
 }
 impl IngredientParser {
     /// Create a new ingredient parser with default units and adjectives
@@ -290,11 +295,7 @@ impl IngredientParser {
             .map(|&s| s.into())
             .collect();
 
-        IngredientParser {
-            units,
-            adjectives,
-            is_rich_text: false,
-        }
+        IngredientParser { units, adjectives }
     }
 
     /// Add custom units to the parser (chainable)
@@ -384,68 +385,6 @@ impl IngredientParser {
         )
     }
 
-    /// Parse a line that may name **multiple** ingredients into a `Vec`.
-    ///
-    /// A single ingredient line is the common case (returns a one-element `Vec`).
-    /// Compound lines are split only on **structurally unambiguous** signals, so
-    /// dish names like "macaroni and cheese" or "cream and sugar" are never
-    /// mangled:
-    /// - an explicit semicolon list ("kosher salt; black pepper; cumin"), or
-    /// - an " and "-joined list **where at least two segments carry an amount**
-    ///   ("1 cup flour and 2 eggs" → two ingredients; "salt and pepper" stays one,
-    ///   since distinguishing two seasonings from one dish needs food knowledge
-    ///   the parser doesn't have).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ingredient::IngredientParser;
-    /// let parser = IngredientParser::new();
-    ///
-    /// // Amount-bearing conjunction → split.
-    /// let parts = parser.parse_multi("1 cup flour and 2 eggs");
-    /// assert_eq!(parts.len(), 2);
-    /// assert_eq!(parts[0].name, "flour");
-    /// assert_eq!(parts[1].name, "eggs");
-    ///
-    /// // Dish name with no amounts → left as one ingredient.
-    /// let parts = parser.parse_multi("macaroni and cheese");
-    /// assert_eq!(parts.len(), 1);
-    /// ```
-    pub fn parse_multi(&self, input: &str) -> Vec<Ingredient> {
-        let trimmed = input.trim();
-
-        // Explicit semicolon list — an unambiguous separator.
-        if trimmed.contains(';') {
-            let parts: Vec<Ingredient> = trimmed
-                .split(';')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| self.from_str(s))
-                .collect();
-            if parts.len() >= 2 {
-                return parts;
-            }
-        }
-
-        // " and "-joined list, accepted only when at least two segments parse
-        // with an amount. This splits "1 cup flour and 2 eggs" but leaves
-        // "macaroni and cheese" / "salt and pepper" (no amounts) as one item.
-        let segments: Vec<&str> = trimmed
-            .split(" and ")
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect();
-        if segments.len() >= 2 {
-            let parsed: Vec<Ingredient> = segments.iter().map(|s| self.from_str(s)).collect();
-            if parsed.iter().filter(|i| !i.amounts.is_empty()).count() >= 2 {
-                return parsed;
-            }
-        }
-
-        vec![self.from_str(trimmed)]
-    }
-
     /// Parse an ingredient string with debug tracing enabled
     ///
     /// This method returns both the parsed result and a trace of which
@@ -504,7 +443,7 @@ impl IngredientParser {
     /// Returns a Result with a Vec of Measures, or an error if parsing fails
     #[tracing::instrument(name = "parse_amount")]
     pub fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
-        let mp = MeasurementParser::new(&self.units, self.is_rich_text);
+        let mp = MeasurementParser::new(&self.units, false);
         match mp.parse_measurement_list(input) {
             Ok((_, measurements)) => Ok(measurements),
             Err(e) => Err(IngredientError::AmountParseError {

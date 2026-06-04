@@ -93,6 +93,12 @@ pub struct RecipeMeta {
 }
 
 /// How confident we are that an ingredient line references another recipe.
+//
+// NOTE: deliberately NOT `#[non_exhaustive]`. `recipe-epub` constructs
+// `RefConfidence::Linked`/`TitleMatch` externally (recipe-epub/src/lib.rs:458,460,675);
+// `#[non_exhaustive]` forbids external variant construction (E0639), which would
+// break that crate. A small closed enum that downstreams build by value, so the
+// non-exhaustive hardening doesn't apply here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RefConfidence {

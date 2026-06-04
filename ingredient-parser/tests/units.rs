@@ -5,9 +5,7 @@
 use std::collections::HashSet;
 use std::str::FromStr;
 
-use ingredient::unit::{
-    is_addon_unit, is_valid, make_graph, print_graph, Measure, MeasureKind, Unit,
-};
+use ingredient::unit::{is_valid, make_graph, print_graph, Measure, MeasureKind, Unit};
 use ingredient::util::num_without_zeroes;
 use rstest::rstest;
 
@@ -446,17 +444,6 @@ fn test_unit_display() {
     assert_eq!(format!("{}", Unit::Gram), "g");
     assert_eq!(format!("{}", Unit::Cup), "cup");
     assert_eq!(format!("{}", Unit::Other("custom".to_string())), "custom");
-}
-
-#[test]
-fn test_is_addon_unit() {
-    let custom_units: HashSet<String> = HashSet::from(["packet".to_string(), "slice".to_string()]);
-
-    assert!(is_addon_unit(&custom_units, "packet"));
-    assert!(is_addon_unit(&custom_units, "slice"));
-    assert!(is_addon_unit(&custom_units, "PACKET")); // Case insensitive
-    assert!(!is_addon_unit(&custom_units, "cup"));
-    assert!(!is_addon_unit(&custom_units, "unknown"));
 }
 
 #[rstest]

@@ -45,11 +45,19 @@ pub struct ParsedSection {
     pub instructions: Vec<Rich>,
 }
 
-/// A scraped recipe: sections plus the metadata we can source from a page. The
-/// metadata fields mirror `recipe-epub::RecipeMeta`'s names/types so the web and
-/// EPUB flows converge on one shape (with `recipe_yield`/`servings`/`image` being
-/// the web-only structured extras). `Default` lets the non-LD-JSON scrapers omit
-/// the metadata fields via struct-update syntax.
+/// A scraped recipe: sections plus the metadata we can source from a page.
+///
+/// The `description`, `times`, `category`, `notes`, and `equipment` fields mirror
+/// `recipe_types::RecipeMeta`'s names/types so the web and EPUB flows converge on
+/// one shape. They are kept inline rather than `#[serde(flatten)] meta: RecipeMeta`
+/// on purpose: the web shape diverges from `RecipeMeta` on two fields a flatten
+/// can't reconcile — the page uses `name` (not `RecipeMeta`'s required `title`),
+/// and `recipe_yield` is the structured `Option<RecipeYield>` here vs `RecipeMeta`'s
+/// `Option<String>`. Flattening would emit a redundant `title` key and collide on
+/// `recipe_yield`, changing the public JSON contract. The `drift_guard` test below
+/// fails loudly if any of the five mirrored fields ever diverge from `RecipeMeta`.
+/// `recipe_yield`/`servings`/`image` are the web-only structured extras. `Default`
+/// lets the non-LD-JSON scrapers omit the metadata fields via struct-update syntax.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct ScrapedRecipe {
     /// Recipe components; most recipes have a single unnamed section.
@@ -108,7 +116,7 @@ pub fn parse_sections(sections: &[RecipeSection]) -> Vec<ParsedSection> {
             instructions: s
                 .instructions
                 .iter()
-                .filter_map(|i| rtp.clone().parse(i).ok())
+                .filter_map(|i| rtp.parse(i).ok())
                 .collect(),
         })
         .collect()
@@ -182,4 +190,60 @@ pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
 }
 fn clean_string(i: String) -> String {
     i.replace("&nbsp;", " ").replace('\n', " ")
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use recipe_types::RecipeMeta;
+
+    /// Drift guard for the five `RecipeMeta`-mirrored fields on [`ScrapedRecipe`]
+    /// (`description`, `times`, `category`, `notes`, `equipment`). These are kept
+    /// inline rather than `#[serde(flatten)] meta: RecipeMeta` because the web
+    /// shape diverges on `name`/`recipe_yield` (see the `ScrapedRecipe` doc). This
+    /// test round-trips a `RecipeMeta` JSON carrying those five fields through
+    /// `ScrapedRecipe` deserialization: if `RecipeMeta` ever renames or retypes one
+    /// of them, the field stops deserializing into `ScrapedRecipe` and this fails.
+    #[test]
+    fn scraped_recipe_mirrors_recipe_meta_fields() {
+        let meta = RecipeMeta {
+            title: "ignored".to_string(),
+            description: Some("a blurb".to_string()),
+            recipe_yield: Some("Makes 1 loaf".to_string()),
+            times: Some(RecipeTimes {
+                prep: Some("10 min".to_string()),
+                cook: Some("20 min".to_string()),
+                ..Default::default()
+            }),
+            equipment: vec!["stand mixer".to_string()],
+            notes: vec!["make ahead".to_string()],
+            category: Some("Dessert".to_string()),
+            page: None,
+        };
+
+        // The five shared fields must deserialize from a RecipeMeta JSON object
+        // into a ScrapedRecipe by the SAME keys/types. `title` and `recipe_yield`
+        // intentionally DON'T map (the divergence that blocks a flatten): `title`
+        // has no ScrapedRecipe counterpart (`name` differs), and `recipe_yield` is
+        // a structured type here vs RecipeMeta's `String` — keeping it in the JSON
+        // would even fail to deserialize. We strip those two before round-tripping
+        // so this test asserts exactly the contract that the five fields share.
+        let mut meta_json = serde_json::to_value(&meta).unwrap();
+        let obj = meta_json.as_object_mut().unwrap();
+        obj.remove("title");
+        obj.remove("recipe_yield");
+        // ScrapedRecipe requires the structural fields RecipeMeta lacks.
+        obj.insert("sections".to_string(), serde_json::json!([]));
+        obj.insert("name".to_string(), serde_json::json!(""));
+        obj.insert("url".to_string(), serde_json::json!(""));
+
+        let scraped: ScrapedRecipe = serde_json::from_value(meta_json).unwrap();
+
+        assert_eq!(scraped.description, meta.description);
+        assert_eq!(scraped.times, meta.times);
+        assert_eq!(scraped.category, meta.category);
+        assert_eq!(scraped.notes, meta.notes);
+        assert_eq!(scraped.equipment, meta.equipment);
+    }
 }

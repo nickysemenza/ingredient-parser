@@ -130,15 +130,7 @@ impl<'a> MeasurementParser<'a> {
     /// parser. Requires the token after the hyphen to be a recognized unit so a
     /// hyphenated *name* ("five-spice") is left alone.
     fn parse_hyphenated_unit<'b>(&self, input: &'b str) -> Option<(&'b str, String)> {
-        let after_hyphen = input.strip_prefix('-')?;
-        let end = after_hyphen
-            .find(|c: char| !c.is_alphabetic())
-            .unwrap_or(after_hyphen.len());
-        let unit = &after_hyphen[..end];
-        if unit.is_empty() || !unit::is_valid(self.units, unit) {
-            return None;
-        }
-        Some((&after_hyphen[end..], unit.to_lowercase()))
+        parse_hyphen_unit_where(input, |unit| unit::is_valid(self.units, unit))
     }
 
     /// Try to find a unit after skipping a parenthesized description.
@@ -284,12 +276,21 @@ fn reject_measurement(input: &str) -> nom::Err<VerboseError<&str>> {
 /// mirroring the space form "2 inch piece ginger". Returns `None` when the input
 /// doesn't start with a hyphen + distance unit.
 fn parse_dimension_unit(input: &str) -> Option<(&str, String)> {
+    parse_hyphen_unit_where(input, is_distance_unit)
+}
+
+/// Shared core of [`parse_dimension_unit`] and
+/// [`MeasurementParser::parse_hyphenated_unit`]: consume a leading
+/// `-<alphabetic-unit>` and return the lowercased unit plus the rest, accepting
+/// the unit only when `is_unit` validates it (distance vs. any valid unit). The
+/// validity predicate is the sole difference between the two callers.
+fn parse_hyphen_unit_where(input: &str, is_unit: impl Fn(&str) -> bool) -> Option<(&str, String)> {
     let after_hyphen = input.strip_prefix('-')?;
     let end = after_hyphen
         .find(|c: char| !c.is_alphabetic())
         .unwrap_or(after_hyphen.len());
     let unit = &after_hyphen[..end];
-    if unit.is_empty() || !is_distance_unit(unit) {
+    if unit.is_empty() || !is_unit(unit) {
         return None;
     }
     Some((&after_hyphen[end..], unit.to_lowercase()))

@@ -142,9 +142,13 @@ fn looks_like_title(line: &str) -> bool {
     if t.is_empty() || t.len() > 60 {
         return false;
     }
+    // Leader/bullet chars that introduce an ingredient or list line (not titles).
+    const LEADERS: &str = "•·*-–—";
     match t.chars().next() {
         // ingredient lines start with a quantity; bullets aren't titles
-        Some(c) if c.is_ascii_digit() || "½⅓¼¾⅔⅜⅝⅞⅛•·*-–—".contains(c) => {
+        Some(c)
+            if c.is_ascii_digit() || ingredient::fraction::is_vulgar(c) || LEADERS.contains(c) =>
+        {
             false
         }
         Some(_) => !t.ends_with('.'), // a trailing period suggests prose

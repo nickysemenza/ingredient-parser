@@ -136,7 +136,7 @@ impl IngredientParser {
     /// in the higher-level ingredient pipeline.
     #[tracing::instrument(name = "parse_ingredient")]
     pub(crate) fn parse_ingredient<'a>(&self, input: &'a str) -> Res<&'a str, ParsedIngredient> {
-        let mp = MeasurementParser::new(&self.units, self.is_rich_text);
+        let mp = MeasurementParser::new(&self.units, false);
 
         let ingredient_format = (
             opt(|a| mp.parse_measurement_list(a)),
@@ -243,15 +243,11 @@ fn merge_amounts(
     bracketed_amounts: Option<Vec<Measure>>,
     paren_amounts: Option<Vec<Measure>>,
 ) -> Vec<Measure> {
-    let mut amounts = Vec::new();
-    if let Some(primary_amounts) = primary_amounts {
-        amounts.extend(primary_amounts);
-    }
-    if let Some(bracketed_amounts) = bracketed_amounts {
-        amounts.extend(bracketed_amounts);
-    }
-    if let Some(paren_amounts) = paren_amounts {
-        amounts.extend(paren_amounts);
-    }
-    amounts
+    // Concatenate the three optional groups in order: outer `flatten` drops the
+    // `None`s, inner `flatten` unwraps each `Vec`'s elements.
+    [primary_amounts, bracketed_amounts, paren_amounts]
+        .into_iter()
+        .flatten()
+        .flatten()
+        .collect()
 }

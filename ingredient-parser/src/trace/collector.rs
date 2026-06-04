@@ -94,14 +94,14 @@ thread_local! {
 // Public API for interacting with thread-local collector
 
 /// Enable tracing for the current thread
-pub fn enable_tracing() {
+pub(crate) fn enable_tracing() {
     TRACE_COLLECTOR.with(|tc| {
         *tc.borrow_mut() = Some(TraceCollector::new());
     });
 }
 
 /// Disable tracing and retrieve the collected trace
-pub fn disable_tracing(input: &str) -> ParseTrace {
+pub(crate) fn disable_tracing(input: &str) -> ParseTrace {
     TRACE_COLLECTOR.with(|tc| {
         tc.borrow_mut()
             .take()
@@ -111,7 +111,7 @@ pub fn disable_tracing(input: &str) -> ParseTrace {
 }
 
 /// Enter a parser context (if tracing is enabled)
-pub fn trace_enter(name: &str, input: &str) {
+pub(crate) fn trace_enter(name: &str, input: &str) {
     TRACE_COLLECTOR.with(|tc| {
         if let Some(ref mut collector) = *tc.borrow_mut() {
             collector.enter(name, input);
@@ -120,7 +120,7 @@ pub fn trace_enter(name: &str, input: &str) {
 }
 
 /// Exit parser context with success (if tracing is enabled)
-pub fn trace_exit_success(consumed: usize, output_preview: &str) {
+pub(crate) fn trace_exit_success(consumed: usize, output_preview: &str) {
     TRACE_COLLECTOR.with(|tc| {
         if let Some(ref mut collector) = *tc.borrow_mut() {
             collector.exit_success(consumed, output_preview);
@@ -129,7 +129,7 @@ pub fn trace_exit_success(consumed: usize, output_preview: &str) {
 }
 
 /// Exit parser context with failure (if tracing is enabled)
-pub fn trace_exit_failure(error: &str) {
+pub(crate) fn trace_exit_failure(error: &str) {
     TRACE_COLLECTOR.with(|tc| {
         if let Some(ref mut collector) = *tc.borrow_mut() {
             collector.exit_failure(error);
@@ -207,5 +207,69 @@ mod tests {
 
         // Should create a default root node
         assert_eq!(trace.root.name, "parse_ingredient");
+    }
+
+    // ------------------------------------------------------------------------
+    // Thread-local hook tests (the `pub(crate)` enable/enter/exit/disable API).
+    // These live here because the hooks are crate-internal; the public entry
+    // point is `IngredientParser::parse_with_trace`.
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_thread_local_tracing() {
+        enable_tracing();
+        trace_enter("test", "input");
+        trace_exit_success(5, "done");
+        let trace = disable_tracing("input");
+        assert_eq!(trace.root.name, "test");
+    }
+
+    #[test]
+    fn test_trace_exit_failure() {
+        use crate::trace::TraceOutcome;
+        enable_tracing();
+        trace_enter("failing_parser", "bad input");
+        trace_exit_failure("expected digit");
+
+        let trace = disable_tracing("bad input");
+        assert_eq!(trace.root.name, "failing_parser");
+        assert!(matches!(trace.root.outcome, TraceOutcome::Failure { .. }));
+        if let TraceOutcome::Failure { error } = &trace.root.outcome {
+            assert_eq!(error, "expected digit");
+        }
+    }
+
+    #[test]
+    fn test_is_tracing_enabled() {
+        assert!(!is_tracing_enabled());
+        enable_tracing();
+        assert!(is_tracing_enabled());
+        disable_tracing("test");
+        assert!(!is_tracing_enabled());
+    }
+
+    #[test]
+    fn test_nested_tracing() {
+        for names in [vec!["outer", "inner"], vec!["level1", "level2", "level3"]] {
+            enable_tracing();
+            for name in &names {
+                trace_enter(name, "input");
+            }
+            for _ in &names {
+                trace_exit_success(1, "result");
+            }
+
+            let trace = disable_tracing("input");
+
+            // Each level must nest exactly the next one along the spine.
+            let mut node = &trace.root;
+            for (i, name) in names.iter().enumerate() {
+                assert_eq!(node.name, *name);
+                if i + 1 < names.len() {
+                    assert_eq!(node.children.len(), 1);
+                    node = &node.children[0];
+                }
+            }
+        }
     }
 }
