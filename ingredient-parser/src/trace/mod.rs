@@ -143,6 +143,19 @@ impl ParseTrace {
         format::format_tree(&self.root, colored)
     }
 
+    /// Format the trace as a compact, stage-level report (normalize → recognize
+    /// → grammar → refine → result), collapsing the grammar's combinator subtree.
+    ///
+    /// Where [`format_tree`](Self::format_tree) shows *how* the grammar parsed,
+    /// this shows *which pipeline stage* shaped the result — the view for
+    /// deciding where a corpus fix belongs.
+    ///
+    /// # Arguments
+    /// * `colored` - Whether to use ANSI color codes
+    pub fn format_stages(&self, colored: bool) -> String {
+        format::format_stages(&self.root, colored)
+    }
+
     /// Export trace to Jaeger-compatible JSON format
     pub fn to_jaeger_json(&self) -> String {
         jaeger::to_jaeger_json(self)

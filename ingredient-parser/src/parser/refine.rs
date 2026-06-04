@@ -518,6 +518,7 @@ fn extract_secondary_amounts(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use rstest::rstest;
@@ -717,5 +718,31 @@ mod tests {
             Ingredient::from(i).modifier.as_deref(),
             Some("or 1 teaspoon garlic powder")
         );
+    }
+
+    /// The ordered `POST_PASSES` pipeline must be idempotent: running it a second
+    /// time on its own output must change nothing. This is the invariant the
+    /// load-bearing pass order depends on — a pass that isn't a fixpoint (e.g. it
+    /// re-extracts an adjective it already moved, or re-splits an alternative)
+    /// would silently corrupt results when a later edit reorders the list. This
+    /// test fails the moment that happens, naming the offending line.
+    #[rstest]
+    #[case::leading_adjective("1 onion, finely chopped")]
+    #[case::name_adjective("1 cup packed brown sugar, sifted")]
+    #[case::word_alternative("red or white onion")]
+    #[case::quantity_alternative("1 clove garlic or 1 teaspoon garlic powder")]
+    #[case::secondary_amount("1 stick butter (8 tablespoons)")]
+    #[case::leading_prep_phrase("grated zest of 1 lemon")]
+    #[case::plain_name("kosher salt")]
+    fn refine_pipeline_is_idempotent(#[case] line: &str) {
+        let parser = IngredientParser::new();
+        let (_, parsed) = parser.parse_ingredient(line).unwrap();
+
+        let mut once = parsed.clone();
+        parser.refine(&mut once);
+        let mut twice = once.clone();
+        parser.refine(&mut twice);
+
+        assert_eq!(once, twice, "refine is not idempotent for {line:?}");
     }
 }

@@ -33,12 +33,17 @@ impl IngredientParser {
         &self,
         input: &str,
     ) -> trace::ParseWithTrace<Ingredient> {
-        let normalized = normalize_input(input);
-        let input = normalized.as_ref();
-
         trace::enable_tracing();
-        let result = self.parse_normalized_ingredient(input);
-        let trace = trace::disable_tracing(input);
+        // Open the root span with the *raw* input so the normalize rewrites nest
+        // under it as the first stage (the non-trace paths normalize before the
+        // span, where tracing is off and it's a no-op). The rest of the pipeline
+        // (recognizers, grammar, refine passes) then attaches as later children.
+        trace::trace_enter("parse_line", input);
+        let normalized = normalize_input(input);
+        let normalized = normalized.as_ref();
+        let (result, _fell_back) = self.parse_pipeline_after_normalize(normalized);
+        trace::trace_exit_success(0, &result.name);
+        let trace = trace::disable_tracing(normalized);
 
         trace::ParseWithTrace {
             result: Ok(result),
@@ -57,22 +62,32 @@ impl IngredientParser {
         &self,
         input: &str,
     ) -> (Ingredient, bool) {
+        // Wrap the whole parse in one root span so the phase spans
+        // (recognizers, the grammar, refine passes) nest under it and the trace
+        // tree has a single root. No-op when tracing is disabled. The traced
+        // entry point (`parse_ingredient_line_with_trace`) opens this span itself
+        // — around normalize — and calls `parse_pipeline_after_normalize`
+        // directly, so the span is never entered twice.
+        trace::trace_enter("parse_line", input);
+        let result = self.parse_pipeline_after_normalize(input);
+        trace::trace_exit_success(0, &result.0.name);
+        result
+    }
+
+    /// The post-normalize pipeline body: strip a whole-ingredient "(optional)"
+    /// note, run the recognizers/grammar/refine, and set the optional flag.
+    fn parse_pipeline_after_normalize(&self, input: &str) -> (Ingredient, bool) {
         // An "(optional)" note marks the whole ingredient optional, e.g.
         // "Grated zest of 1 lemon (optional)" or, mid-line, "almonds (optional),
         // coarsely chopped". Strip it before parsing and set the flag, so it
         // neither pollutes the name/modifier nor blocks a trailing weight from
         // being hoisted. (A *whole-line* parenthesized ingredient is handled
         // separately below.)
-        // Wrap the whole parse in one root span so the phase spans
-        // (recognizers, the grammar, refine passes) nest under it and the trace
-        // tree has a single root. No-op when tracing is disabled.
-        trace::trace_enter("parse_line", input);
         let (cleaned, is_optional) = strip_optional_note(input);
         let (mut ingredient, fell_back) = self.parse_normalized_ingredient_inner(&cleaned);
         if is_optional {
             ingredient.optional = true;
         }
-        trace::trace_exit_success(0, &ingredient.name);
         (ingredient, fell_back)
     }
 

@@ -66,6 +66,10 @@ enum Commands {
         /// Enable debug trace output showing which parsers were used
         #[arg(short, long)]
         debug: bool,
+        /// Show a compact stage-level report (normalize → recognize → grammar →
+        /// refine → result) — the view for deciding where a corpus fix belongs
+        #[arg(short, long)]
+        explain: bool,
         /// Export trace to Jaeger JSON format and write to file
         #[arg(long)]
         jaeger_output: Option<String>,
@@ -503,12 +507,14 @@ async fn main() {
         Commands::ParseIngredient {
             name,
             debug,
+            explain,
             jaeger_output,
         } => {
-            if *debug || jaeger_output.is_some() {
+            if *debug || *explain || jaeger_output.is_some() {
                 // Use parse_with_trace for debug output or Jaeger export
                 let parser = ingredient::IngredientParser::new();
                 let result = parser.parse_with_trace(name);
+                let use_color = std::io::IsTerminal::is_terminal(&std::io::stdout());
 
                 // Export to Jaeger JSON if requested
                 if let Some(output_path) = jaeger_output {
@@ -520,9 +526,13 @@ async fn main() {
                     eprintln!("Wrote Jaeger trace to: {output_path}");
                 }
 
-                // Print the trace tree if debug is enabled
+                // Compact stage report — the routing view.
+                if *explain {
+                    println!("{}", result.trace.format_stages(use_color));
+                }
+
+                // Print the full trace tree if debug is enabled
                 if *debug {
-                    let use_color = std::io::IsTerminal::is_terminal(&std::io::stdout());
                     println!("{}", result.trace.format_tree(use_color));
                 }
 

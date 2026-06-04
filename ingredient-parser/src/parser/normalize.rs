@@ -284,26 +284,35 @@ type Rewrite = fn(&str) -> Cow<'_, str>;
 
 /// The ordered pre-parse rewrite pipeline. Each entry runs on the output of the
 /// previous one; a borrow result means "no change" and is threaded through
-/// without allocating. Adding a rewrite is a one-line edit here.
-const REWRITES: &[Rewrite] = &[
-    strip_nbsp,
-    strip_leading_bullet,
-    strip_footnote_markers,
-    strip_cross_reference,
-    normalize_dimension_range,
-    strip_leading_determiner,
-    strip_minus_equivalence,
-    strip_total_in_measure_paren,
-    lift_leading_dimension,
-    lift_leading_piece_dimension,
+/// without allocating. The leading string is the rewrite's name, used in the
+/// parse trace (mirrors `refine::POST_PASSES`). Adding a rewrite is a one-line
+/// edit here.
+const REWRITES: &[(&str, Rewrite)] = &[
+    ("strip_nbsp", strip_nbsp),
+    ("strip_leading_bullet", strip_leading_bullet),
+    ("strip_footnote_markers", strip_footnote_markers),
+    ("strip_cross_reference", strip_cross_reference),
+    ("normalize_dimension_range", normalize_dimension_range),
+    ("strip_leading_determiner", strip_leading_determiner),
+    ("strip_minus_equivalence", strip_minus_equivalence),
+    ("strip_total_in_measure_paren", strip_total_in_measure_paren),
+    ("lift_leading_dimension", lift_leading_dimension),
+    ("lift_leading_piece_dimension", lift_leading_piece_dimension),
 ];
 
 /// Apply one rewrite to the accumulator, preserving its owned-ness: a borrowed
 /// result means the rewrite changed nothing, so the accumulator is kept as-is
-/// (no allocation on the common path).
-fn apply_rewrite<'a>(acc: Cow<'a, str>, rewrite: Rewrite) -> Cow<'a, str> {
+/// (no allocation on the common path). When tracing, a rewrite that *did* change
+/// the line emits a before→after node so `--explain` shows which rewrite fired.
+fn apply_rewrite<'a>(acc: Cow<'a, str>, name: &str, rewrite: Rewrite) -> Cow<'a, str> {
     match rewrite(acc.as_ref()) {
-        Cow::Owned(rewritten) => Cow::Owned(rewritten),
+        Cow::Owned(rewritten) => {
+            if crate::trace::is_tracing_enabled() {
+                crate::trace::trace_enter(name, acc.as_ref());
+                crate::trace::trace_exit_success(0, &rewritten);
+            }
+            Cow::Owned(rewritten)
+        }
         Cow::Borrowed(_) => acc,
     }
 }
@@ -312,8 +321,8 @@ fn apply_rewrite<'a>(acc: Cow<'a, str>, rewrite: Rewrite) -> Cow<'a, str> {
 /// trailing/doubled whitespace a rewrite may have left behind.
 pub(super) fn normalize_input(input: &str) -> Cow<'_, str> {
     let mut normalized = Cow::Borrowed(input);
-    for rewrite in REWRITES {
-        normalized = apply_rewrite(normalized, *rewrite);
+    for (name, rewrite) in REWRITES {
+        normalized = apply_rewrite(normalized, name, *rewrite);
     }
 
     let has_multiple_spaces = normalized

@@ -51,6 +51,10 @@ Require 0 REGRESSION. Confirm a single line with: `food-cli parse-ingredient "<l
    - parser already correct → COMMITTED row (copy its exact output, incl. full-precision f64).
    - parser wrong but desired parse is clear → `xfail` row (label = desired, add a terse reason).
    - garbage → drop.
+   When you go to FIX an xfail (vs just record it), run `food-cli parse-ingredient
+   --explain "<line>"` to see which pipeline stage (normalize/recognize/grammar/refine)
+   mishandled it — that's where the fix goes. The routing decision tree is in the
+   `ingredient-parser/src/parser/mod.rs` module doc ("Where does a parser fix go?").
 
 5. CURATE: dedup against existing corpus rows (don't re-add). Group xfail by bug class,
    keep ≤3 representatives per class. Resolve any label conflict toward existing committed
