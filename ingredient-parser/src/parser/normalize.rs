@@ -63,18 +63,26 @@ fn strip_leading_bullet(input: &str) -> Cow<'_, str> {
 }
 
 /// Strip a cross-reference parenthetical such as "(see this page)", "(this
-/// page)", or "(see page 123)" — a navigation artifact common in EPUB cookbooks
-/// (links rendered as text). It carries no ingredient information, so it is
-/// removed during normalization rather than leaking into the name or modifier.
-/// The optional leading whitespace is absorbed so "walnuts (see this page),"
-/// collapses cleanly to "walnuts,".
+/// page)", "(see page 123)", or a chain of them — "(this page to this page)",
+/// "(this page, this page, or this page)" — a navigation artifact common in EPUB
+/// cookbooks (links rendered as text). It carries no ingredient information, so
+/// it is removed during normalization rather than leaking into the name or
+/// modifier. The optional leading whitespace is absorbed so "walnuts (see this
+/// page)," collapses cleanly to "walnuts,".
+///
+/// Scoped to a parenthetical whose content is ENTIRELY page references and the
+/// connectors joining them (to / or / and / commas), so a paren that mixes a
+/// page ref with real content ("(from Lamb Meat Soup, this page)") is left for
+/// the modifier — only pure navigation cruft is dropped.
 fn strip_cross_reference(input: &str) -> Cow<'_, str> {
     use regex::Regex;
     use std::sync::LazyLock;
     static CROSS_REF: LazyLock<Regex> = LazyLock::new(|| {
         #[allow(clippy::expect_used)]
-        Regex::new(r"(?i)\s*\((?:see\s+)?(?:this page|page\s+\d+)\)")
-            .expect("invalid cross-reference regex")
+        Regex::new(
+            r"(?i)\s*\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*\s*\)",
+        )
+        .expect("invalid cross-reference regex")
     });
     CROSS_REF.replace_all(input, "")
 }
@@ -537,6 +545,35 @@ mod tests {
     fn test_strip_total_in_measure_paren(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(
             strip_total_in_measure_paren(input).as_ref(),
+            expected,
+            "input: {input}"
+        );
+    }
+
+    #[rstest]
+    // Single page reference (the original cases).
+    #[case::this_page("walnuts (this page)", "walnuts")]
+    #[case::see_this_page("walnuts (see this page),", "walnuts,")]
+    #[case::page_n("flour (page 123)", "flour")]
+    // Chains of page refs joined by connectors (Xi'an Famous Foods).
+    #[case::to_chain("8 dumplings (this page to this page)", "8 dumplings")]
+    #[case::or_list(
+        "1 recipe filling (this page, this page, or this page)",
+        "1 recipe filling"
+    )]
+    // A paren that MIXES a page ref with real content is left alone.
+    #[case::mixed(
+        "8 cups broth (from Lamb Soup, this page)",
+        "8 cups broth (from Lamb Soup, this page)"
+    )]
+    // A page ref with a trailing non-nav word ("optional") is left for other passes.
+    #[case::with_optional(
+        "XFF Chili Oil (this page; optional)",
+        "XFF Chili Oil (this page; optional)"
+    )]
+    fn test_strip_cross_reference(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(
+            strip_cross_reference(input).as_ref(),
             expected,
             "input: {input}"
         );
