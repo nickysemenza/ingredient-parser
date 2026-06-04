@@ -41,7 +41,7 @@ walkdir = { version = "2", optional = true }  # recursive epub discovery (native
 [dev-dependencies]
 rstest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-zip = "3"  # build tiny in-memory EPUB fixtures (matches epub's zip major)
+zip = "8"  # build tiny in-memory EPUB fixtures (matches epub's zip major)
 
 [lints]
 workspace = true
