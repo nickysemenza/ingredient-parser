@@ -71,35 +71,52 @@ impl<'a> MeasurementParser<'a> {
         )
     }
 
-    /// Parse the upper end of a range like "-3", "to 5", "through 10", or "or 2"
+    /// Parse the upper end of a range like "-3", "to 5", "through 10", or "or 2".
+    ///
+    /// Also handles the cookbook "attached-unit" notation "3½- to 4-pound", where a
+    /// hyphen is glued to the *lower* bound (and the unit to the upper bound). Here
+    /// the real separator is the keyword, not the dash, so the leading dash is
+    /// consumed as cruft; the upper unit ("-pound") is resolved downstream by the
+    /// single-measurement unit chain (`parse_hyphenated_unit`).
     pub(super) fn parse_range_end<'b>(&self, input: &'b str) -> Res<&'b str, f64> {
-        // Two possible formats for range syntax:
-
-        // 1. Dash syntax: space + dash + space + number
+        // 1. Dash syntax: space + dash + space + number ("-3", "– 3").
         let dash_range = (
             space0,                    // Optional space
             alt((tag("-"), tag("–"))), // Dash (including em-dash)
             space0,                    // Optional space
             |a| self.parse_number(a),  // Upper bound number
-        );
+        )
+            .map(|(_, _, _, upper)| upper);
 
-        // 2. Word syntax: space + keyword + space + number
+        // 2. Attached-unit notation: a dash glued to the lower bound, then the
+        //    keyword + number ("3½- to 4" → upper 4, leaving "-pound …"). Tried
+        //    before the word form because the leading dash would fail `space1`.
+        let attached_dash_range = (
+            alt((tag("-"), tag("–"))),        // Dash glued to the lower bound
+            space1,                           // Required space
+            alt((tag("to"), tag("through"))), // Range keyword
+            space1,                           // Required space
+            |a| self.parse_number(a),         // Upper bound number
+        )
+            .map(|(_, _, _, _, upper)| upper);
+
+        // 3. Word syntax: space + keyword + space + number ("to 5", "through 10").
         let word_range = (
-            nom::character::complete::space1,            // Required space
+            space1,                                      // Required space
             alt((tag("to"), tag("through"), tag("or"))), // Range keywords
-            nom::character::complete::space1,            // Required space
+            space1,                                      // Required space
             |a| self.parse_number(a),                    // Upper bound number
-        );
+        )
+            .map(|(_, _, _, upper)| upper);
 
         traced_parser!(
             "parse_range_end",
             input,
-            context("range_end", alt((dash_range, word_range)))
-                .parse(input)
-                .map(|(next_input, (_, _, _, upper_value))| {
-                    // Return just the upper value
-                    (next_input, upper_value)
-                }),
+            context(
+                "range_end",
+                alt((dash_range, attached_dash_range, word_range))
+            )
+            .parse(input),
             |v: &f64| format!("{v}"),
             "no range end"
         )
@@ -205,12 +222,26 @@ mod tests {
         );
     }
 
+    /// `parse_range_end` accepts all three forms. The attached-unit case
+    /// ("3½- to 4-pound") leaves the hyphen-glued upper unit ("-pound") for the
+    /// single-measurement unit chain to resolve — it must NOT be consumed here.
     #[rstest]
-    fn test_em_dash_range(units_fx: HashSet<String>) {
+    #[case::em_dash("–3", 3.0, "")]
+    // Plain hyphen range: the dash IS the separator — the attached branch must
+    // not steal it; the unit stays on the input.
+    #[case::hyphen("-3 cups", 3.0, " cups")]
+    #[case::word_to(" to 5 cups", 5.0, " cups")]
+    #[case::word_through(" through 10", 10.0, "")]
+    #[case::attached_dash("- to 4-pound chicken", 4.0, "-pound chicken")]
+    fn test_range_end(
+        units_fx: HashSet<String>,
+        #[case] input: &str,
+        #[case] expected_upper: f64,
+        #[case] expected_remaining: &str,
+    ) {
         let parser = MeasurementParser::new(&units_fx, false);
-        let result = parser.parse_range_end("–3");
-        assert!(result.is_ok());
-        let (_, upper) = result.unwrap();
-        assert_eq!(upper, 3.0);
+        let (remaining, upper) = parser.parse_range_end(input).unwrap();
+        assert_eq!(upper, expected_upper, "upper bound for {input:?}");
+        assert_eq!(remaining, expected_remaining, "remaining for {input:?}");
     }
 }

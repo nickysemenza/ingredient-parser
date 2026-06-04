@@ -87,26 +87,6 @@ fn strip_cross_reference(input: &str) -> Cow<'_, str> {
     CROSS_REF.replace_all(input, "")
 }
 
-/// Normalize the cookbook "range-with-attached-unit" notation
-/// "3½- to 4-pound" / "4½- to 5½-pound" into the parseable "3½ to 4 pound", so
-/// it folds into a single ranged `Measure`. The hyphens attach the dash to the
-/// first number and the unit to the second number, which otherwise defeats the
-/// range parser. Scoped to the `<num>- to <num>-<word>` shape so ordinary
-/// hyphenated names ("all-purpose") are untouched.
-fn normalize_dimension_range(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static DIM_RANGE: LazyLock<Regex> = LazyLock::new(|| {
-        let frac = crate::fraction::VULGAR_FRACTIONS;
-        #[allow(clippy::expect_used)]
-        Regex::new(&format!(
-            r"([0-9./{frac}]+)-\s*(to|through)\s+([0-9./{frac}]+)-([A-Za-z]+)"
-        ))
-        .expect("invalid dimension-range regex")
-    });
-    DIM_RANGE.replace_all(input, "$1 $2 $3 $4")
-}
-
 /// Strip a leading determiner ("the") sitting in front of a quantity, e.g.
 /// "the ¼ cup of garlic chives" → "¼ cup of garlic chives". Scoped to "the"
 /// immediately followed by a number so ordinary names ("the works seasoning")
@@ -292,7 +272,6 @@ const REWRITES: &[(&str, Rewrite)] = &[
     ("strip_leading_bullet", strip_leading_bullet),
     ("strip_footnote_markers", strip_footnote_markers),
     ("strip_cross_reference", strip_cross_reference),
-    ("normalize_dimension_range", normalize_dimension_range),
     ("strip_leading_determiner", strip_leading_determiner),
     ("strip_minus_equivalence", strip_minus_equivalence),
     ("strip_total_in_measure_paren", strip_total_in_measure_paren),
