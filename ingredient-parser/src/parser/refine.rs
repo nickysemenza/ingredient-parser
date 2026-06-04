@@ -223,6 +223,18 @@ impl IngredientParser {
         }
     }
 
+    /// Split a no-quantity "X or Y" alternative left in the name into the
+    /// modifier. The quantity form is already gone (handled by
+    /// [`Self::extract_alternative_from_name`]), so any "or" remaining here is a
+    /// plain ingredient/adjective alternative sharing the primary's amount.
+    fn extract_word_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
+        let (name, alternative) = split_word_alternative(&parsed.name, &self.adjectives);
+        parsed.name = name;
+        if let Some(alternative) = alternative {
+            parsed.push_modifier(ModifierPart::Alternative(alternative));
+        }
+    }
+
     fn extract_secondary_amounts_from_modifier(&self, parsed: &mut ParsedIngredient) {
         let Some(modifier) = parsed.modifier_string() else {
             return;
@@ -274,6 +286,10 @@ const POST_PASSES: &[(&str, Pass)] = &[
     (
         "extract_alternative_from_name",
         IngredientParser::extract_alternative_from_name,
+    ),
+    (
+        "extract_word_alternative_from_name",
+        IngredientParser::extract_word_alternative_from_name,
     ),
     (
         "extract_secondary_amounts_from_modifier",
@@ -337,6 +353,78 @@ fn extract_alternative(name: &str) -> (String, Option<String>) {
         ingredient_part.trim().to_string(),
         Some(alternative.to_string()),
     )
+}
+
+/// Split a no-quantity "X or Y" alternative out of the name into the modifier,
+/// e.g. "red or white onion" -> ("red onion", Some("or white onion")).
+///
+/// Returns `(primary_name, optional_alternative)`. The alternative keeps its
+/// "or " prefix to match the existing quantity-alternative modifier style.
+///
+/// When the word before "or" is a single token and the part after "or" begins
+/// with an adjective modifying a *shared head noun* ("red or **white onion**"),
+/// the head noun is reconstructed onto the primary ("red onion"). Reconstruction
+/// is gated to the cases a grammar can recognize without a food ontology; when
+/// unsure it falls back to `primary = left` and still captures the alternative.
+/// Known limitation: a single-token *noun* on the left with a distinct
+/// multi-word alternative ("salt or chicken broth") over-reconstructs to "salt
+/// broth" — rare, not in the corpus, and the alternative stays correct.
+fn split_word_alternative(
+    name: &str,
+    adjectives: &std::collections::HashSet<String>,
+) -> (String, Option<String>) {
+    use regex::Regex;
+    use std::sync::LazyLock;
+
+    // First word-boundary " or ", case-insensitive. Matching on the original
+    // `name` (not a lowercased copy) keeps the byte offsets valid for slicing.
+    static OR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"(?i)\s+or\s+").expect("invalid or-split regex")
+    });
+
+    let Some(m) = OR_PATTERN.find(name) else {
+        return (name.to_string(), None);
+    };
+    let left = name[..m.start()].trim();
+    let right = name[m.end()..].trim();
+    if left.is_empty() || right.is_empty() {
+        return (name.to_string(), None);
+    }
+
+    // Multiple coordinations ("raw or roasted and salted ...", "a or b or c")
+    // are too ambiguous to split — keep the name whole.
+    let right_lower = right.to_lowercase();
+    if right_lower.contains(" and ") || right_lower.contains(" or ") {
+        return (name.to_string(), None);
+    }
+
+    let left_tokens: Vec<&str> = left.split_whitespace().collect();
+    let right_tokens: Vec<&str> = right.split_whitespace().collect();
+
+    // Stopwords/prepositions signal `right` is a noun + trailing phrase
+    // ("pepper to taste"), not "adjective + shared head" ("white onion").
+    const STOPWORDS: &[&str] = &[
+        "to", "for", "with", "if", "such", "plus", "about", "as", "per", "from", "into", "over",
+        "on", "in", "at", "the", "a", "an", "of",
+    ];
+
+    let reconstruct = left_tokens.len() == 1
+        && right_tokens.len() >= 2
+        && !adjectives.contains(&right_tokens[0].to_lowercase())
+        && !right_tokens
+            .iter()
+            .any(|t| STOPWORDS.contains(&t.to_lowercase().as_str()));
+
+    let primary = if reconstruct {
+        // The single left adjective replaces `right`'s leading adjective, sharing
+        // the trailing head noun: "red" + "white onion" -> "red onion".
+        format!("{} {}", left, right_tokens[1..].join(" "))
+    } else {
+        left.to_string()
+    };
+
+    (primary, Some(format!("or {right}")))
 }
 
 /// Extract secondary amounts from modifier patterns like "(from about 15 sprigs)"
@@ -561,6 +649,43 @@ mod tests {
         let mut i = ing("scallions", Some(modifier));
         parser.extract_secondary_amounts_from_modifier(&mut i);
         assert_eq!(i.amounts.len(), want_amounts, "modifier: {modifier}");
+    }
+
+    /// A no-quantity "X or Y" alternative is split out of the name, with the head
+    /// noun reconstructed onto the primary when the left side is a lone adjective.
+    #[rstest]
+    // Lone adjective before "or": head noun shared onto the primary.
+    #[case::shared_head("red or white onion", "red onion", Some("or white onion"))]
+    #[case::shared_multiword_head(
+        "fresh or frozen pitted sweet cherries",
+        "fresh pitted sweet cherries",
+        Some("or frozen pitted sweet cherries")
+    )]
+    // Distinct nouns (single- or multi-word left): primary = left, no reconstruct.
+    #[case::distinct_noun("flour or cornmeal", "flour", Some("or cornmeal"))]
+    #[case::multiword_left(
+        "Nilla wafers or graham crackers",
+        "Nilla wafers",
+        Some("or graham crackers")
+    )]
+    // Guards: multi-coordination, prep adjective after "or", trailing stopword.
+    #[case::and_guard(
+        "raw or roasted and salted shelled sunflower seeds",
+        "raw or roasted and salted shelled sunflower seeds",
+        None
+    )]
+    #[case::prep_adj_after_or("basil or chopped parsley", "basil", Some("or chopped parsley"))]
+    #[case::stopword_after_or("salt or pepper to taste", "salt", Some("or pepper to taste"))]
+    #[case::no_or("onion", "onion", None)]
+    fn test_split_word_alternative(
+        #[case] name: &str,
+        #[case] want_name: &str,
+        #[case] want_alternative: Option<&str>,
+    ) {
+        let parser = IngredientParser::new();
+        let (got_name, got_alternative) = split_word_alternative(name, &parser.adjectives);
+        assert_eq!(got_name, want_name, "name: {name}");
+        assert_eq!(got_alternative.as_deref(), want_alternative, "name: {name}");
     }
 
     /// The IR exposes a typed view of the modifier: extracted adjectives land in

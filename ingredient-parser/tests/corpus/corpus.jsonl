@@ -100,7 +100,7 @@
 {"input": "4 ounces raw or roasted and salted shelled sunflower seeds (about ¾ cup)", "name": "raw or roasted and salted shelled sunflower seeds", "amounts": [{"unit": "oz", "value": 4.0}, {"unit": "cup", "value": 0.75}]}
 {"input": "12 cups all purpose flour, lightly sifted", "name": "all purpose flour", "amounts": [{"unit": "cup", "value": 12.0}], "modifier": "lightly sifted"}
 {"input": "1¼  cups / 155.5 grams flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.25}, {"unit": "g", "value": 155.5}]}
-{"input": "0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast", "name": "instant or rapid rise yeast", "amounts": [{"unit": "oz", "value": 0.25}, {"unit": "packet", "value": 1.0}, {"unit": "tsp", "value": 2.0}]}
+{"input": "0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast", "name": "instant rise yeast", "amounts": [{"unit": "oz", "value": 0.25}, {"unit": "packet", "value": 1.0}, {"unit": "tsp", "value": 2.0}], "modifier": "or rapid rise yeast"}
 {"input": "6 ounces unsalted butter (1½ sticks; 168.75g)", "name": "unsalted butter", "amounts": [{"unit": "oz", "value": 6.0}, {"unit": "stick", "value": 1.5}, {"unit": "g", "value": 168.75}]}
 {"input": "½ pound 2 sticks; 227 g unsalted butter, room temperature", "name": "unsalted butter", "amounts": [{"unit": "lb", "value": 0.5}, {"unit": "stick", "value": 2.0}, {"unit": "g", "value": 227.0}], "modifier": "room temperature"}
 {"input": "4 (13-millimeter/½-inch) slices PORK BELLY CHASHU, warmed", "name": "PORK BELLY CHASHU", "amounts": [{"unit": "slice", "value": 4.0}], "modifier": "warmed"}
@@ -257,7 +257,7 @@
 {"input": "One 10-ounce disk Pie Dough", "name": "Pie Dough", "amounts": [{"unit": "disk", "value": 1.0}, {"unit": "oz", "value": 10.0}]}
 {"input": "One 8-ounce package cream cheese, room temperature", "name": "cream cheese", "amounts": [{"unit": "package", "value": 1.0}, {"unit": "oz", "value": 8.0}], "modifier": "room temperature"}
 {"input": "1 (8-ounce) ball burrata", "name": "burrata", "amounts": [{"unit": "ball", "value": 1.0}, {"unit": "oz", "value": 8.0}]}
-{"input": "1 (11-ounce) box Nilla wafers or graham crackers", "name": "Nilla wafers or graham crackers", "amounts": [{"unit": "box", "value": 1.0}, {"unit": "oz", "value": 11.0}]}
+{"input": "1 (11-ounce) box Nilla wafers or graham crackers", "name": "Nilla wafers", "amounts": [{"unit": "box", "value": 1.0}, {"unit": "oz", "value": 11.0}], "modifier": "or graham crackers"}
 {"input": "2-inch piece ginger", "name": "ginger", "amounts": [{"unit": "\"", "value": 2.0}, {"unit": "piece", "value": 1.0}]}
 {"input": "3-inch cinnamon stick", "name": "cinnamon stick", "amounts": [{"unit": "\"", "value": 3.0}]}
 {"input": "Finely grated zest from 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "finely grated zest from"}
@@ -279,7 +279,7 @@
 {"input": "2 cups heart of palm", "name": "heart of palm", "amounts": [{"unit": "cup", "value": 2.0}]}
 //
 // --- harvested (parsed-review of 8 EPUB cookbooks, 2026-06-01): committed guards ---
-{"input": "½ cup crème fraîche or sour cream (4.2 oz / 120g)", "name": "crème fraîche or sour cream", "amounts": [{"unit": "cup", "value": 0.5}, {"unit": "oz", "value": 4.2}, {"unit": "g", "value": 120.0}]}
+{"input": "½ cup crème fraîche or sour cream (4.2 oz / 120g)", "name": "crème fraîche", "amounts": [{"unit": "cup", "value": 0.5}, {"unit": "oz", "value": 4.2}, {"unit": "g", "value": 120.0}], "modifier": "or sour cream"}
 {"input": "1¼ cups grated Monterey Jack (or other mild melting cheese)", "name": "grated Monterey Jack", "amounts": [{"unit": "cup", "value": 1.25}], "modifier": "or other mild melting cheese"}
 {"input": "10 ounces (283g) fresh cranberries (about 2½ cups), plus 20 or so for garnish ①", "name": "fresh cranberries", "amounts": [{"unit": "oz", "value": 10.0}, {"unit": "g", "value": 283.0}, {"unit": "cup", "value": 2.5}], "modifier": "plus 20 or so for garnish"}
 {"input": "1 tablespoon plus 1 cup neutral oil, such as vegetable or grapeseed (8.4 oz / 238g) ①", "name": "neutral oil", "amounts": [{"unit": "tsp", "value": 51.0}, {"unit": "oz", "value": 8.4}, {"unit": "g", "value": 238.0}], "modifier": "such as vegetable or grapeseed"}
@@ -287,7 +287,7 @@
 {"input": "3 or 4 dried Thai chiles, broken in half", "name": "dried Thai chiles", "amounts": [{"unit": "whole", "value": 3.0, "upper_value": 4.0}], "modifier": "broken in half"}
 {"input": "1 (14-gram) piece peeled ginger, thinly sliced against the grain", "name": "peeled ginger", "amounts": [{"unit": "piece", "value": 1.0}, {"unit": "g", "value": 14.0}], "modifier": "thinly sliced against the grain"}
 {"input": "Pinch of cayenne pepper, or more to taste", "name": "cayenne pepper", "amounts": [{"unit": "pinch", "value": 1.0}], "modifier": "or more to taste"}
-{"input": "12 ounces (340g) fresh or frozen pitted sweet cherries (about 2½ cups)", "name": "fresh or frozen pitted sweet cherries", "amounts": [{"unit": "oz", "value": 12.0}, {"unit": "g", "value": 340.0}, {"unit": "cup", "value": 2.5}]}
+{"input": "12 ounces (340g) fresh or frozen pitted sweet cherries (about 2½ cups)", "name": "fresh pitted sweet cherries", "amounts": [{"unit": "oz", "value": 12.0}, {"unit": "g", "value": 340.0}, {"unit": "cup", "value": 2.5}], "modifier": "or frozen pitted sweet cherries"}
 {"input": "5 to 10 dried Thai chiles, fried", "name": "dried Thai chiles", "amounts": [{"unit": "whole", "value": 5.0, "upper_value": 10.0}], "modifier": "fried"}
 {"input": "¼ teaspoon plus ⅛ teaspoon ground turmeric", "name": "ground turmeric", "amounts": [{"unit": "tsp", "value": 0.375}]}
 //
@@ -333,7 +333,7 @@
 {"input": "½ cup minus 1 tablespoon flour", "name": "flour", "amounts": [{"unit": "cup", "value": 0.5, "upper_value": null}], "modifier": "minus 1 tablespoon"}
 {"input": "15 tablespoons (2 sticks minus 1 tablespoon) unsalted butter", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 15}]}
 {"input": "2 teaspoons to 2 tablespoons Toasted-chile powder", "name": "Toasted-chile powder", "amounts": [{"unit": "tsp", "value": 2.0}, {"unit": "tbsp", "value": 2.0}]}
-{"input": "1½ teaspoons to 1½ tablespoons packed light or dark brown sugar", "name": "light or dark brown sugar", "amounts": [{"unit": "tsp", "value": 1.5, "upper_value": null}, {"unit": "tbsp", "value": 1.5, "upper_value": null}], "modifier": "packed"}
+{"input": "1½ teaspoons to 1½ tablespoons packed light or dark brown sugar", "name": "light brown sugar", "amounts": [{"unit": "tsp", "value": 1.5, "upper_value": null}, {"unit": "tbsp", "value": 1.5, "upper_value": null}], "modifier": "packed, or dark brown sugar"}
 {"input": "Grated zest of 1 lemon or ½ orange (optional)", "name": "lemon", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "grated zest of, or ½ orange", "optional": true}
 //
 // --- harvested (parsed-review pass 2, 2026-06-02): re-parse of prior extraction + Nomad ---
@@ -342,10 +342,14 @@
 {"input": "⅓ cup strained apricot jam (optional), warmed, for glazing", "name": "strained apricot jam", "amounts": [{"unit": "cup", "value": 0.3333333333333333}], "modifier": "warmed, for glazing", "optional": true}
 {"input": "1 ripe medium Fuyu persimmon (optional), cut into about 8 very thin rounds", "name": "ripe medium Fuyu persimmon", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "cut into about 8 very thin rounds", "optional": true}
 {"input": "½ medium white onion, cut into ¼-inch-thick slices", "name": "medium white onion", "amounts": [{"unit": "whole", "value": 0.5}], "modifier": "cut into ¼-inch-thick slices"}
-{"input": "2 teaspoons finely grated lemon or orange zest", "name": "lemon or orange zest", "amounts": [{"unit": "tsp", "value": 2.0}], "modifier": "finely grated"}
+{"input": "2 teaspoons finely grated lemon or orange zest", "name": "lemon zest", "amounts": [{"unit": "tsp", "value": 2.0}], "modifier": "finely grated, or orange zest"}
 // dimension-thick descriptors, equivalence parentheticals, trailing weight asides
 {"input": "1 (1½-inch-thick) bone-in pork chop (about 1¼ pounds)", "name": "bone-in pork chop", "amounts": [{"unit": "whole", "value": 1.0}, {"unit": "lb", "value": 1.25}], "modifier": "1½-inch-thick"}
 {"input": "Four ½-inch-thick boneless pork shoulder steaks (2 pounds total)", "name": "boneless pork shoulder steaks", "amounts": [{"unit": "whole", "value": 4.0}, {"unit": "lb", "value": 2.0}], "modifier": "½-inch-thick"}
 {"input": "1 recipe (2 disks) The Only Piecrust", "name": "The Only Piecrust", "amounts": [{"unit": "recipe", "value": 1.0}, {"unit": "disk", "value": 2.0}]}
 {"input": "½ cup unsalted roasted almonds (optional), coarsely chopped (2.1 oz / 60g)", "name": "unsalted roasted almonds", "amounts": [{"unit": "cup", "value": 0.5}, {"unit": "oz", "value": 2.1}, {"unit": "g", "value": 60.0}], "modifier": "coarsely chopped", "optional": true}
 {"input": "¾ ounce Pierre Ferrand 1840 Cognac", "name": "Pierre Ferrand 1840 Cognac", "amounts": [{"unit": "oz", "value": 0.75}]}
+{"input": "1 red or white onion", "name": "red onion", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "or white onion"}
+{"input": "2 cups flour or cornmeal", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}], "modifier": "or cornmeal"}
+{"input": "1 teaspoon sweet or hot paprika", "name": "sweet paprika", "amounts": [{"unit": "tsp", "value": 1.0}], "modifier": "or hot paprika"}
+{"input": "1 cup butter or margarine", "name": "butter", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "or margarine"}

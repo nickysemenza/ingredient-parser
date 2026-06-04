@@ -55,6 +55,26 @@
 //! This keeps the ingredient name clean for matching/normalization while preserving
 //! preparation instructions.
 //!
+//! ### "X or Y" alternatives are split into a primary name + an "or ..." modifier
+//!
+//! A name-internal "or" alternative is peeled off the name and stored in the
+//! `modifier` (matching how a quantity alternative like "or 1 tsp garlic powder"
+//! is already handled):
+//!
+//! ```text
+//! "1 red or white onion" → name="red onion", modifier="or white onion"
+//! "2 cups flour or cornmeal" → name="flour", modifier="or cornmeal"
+//! ```
+//!
+//! When the word before "or" is a lone adjective, the shared head noun is
+//! reconstructed onto the primary ("red" + "white onion" → "red onion"). This is
+//! guarded — a known prep adjective after "or" ("basil or chopped parsley"), a
+//! trailing stopword ("salt or pepper to taste"), or a nested "and"/"or"
+//! coordination falls back to `primary = left` (the alternative is still
+//! captured). Distinguishing a lone-adjective left ("red") from a lone-noun left
+//! ("salt") needs a food ontology, so the rare "salt or chicken broth" →
+//! "salt broth" over-reconstruction is accepted.
+//!
 //! ### Multiple units are preserved as separate amounts
 //!
 //! When a recipe provides multiple unit formats, each becomes a separate entry in `amounts`:
