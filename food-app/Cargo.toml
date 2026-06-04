@@ -35,7 +35,7 @@ dotenvy.workspace = true
 egui_graphs = "0.30"
 petgraph = "0.8"
 # Native file/folder pickers for the Cookbook tab (pick an EPUB, pick a library).
-rfd = "0.15"
+rfd = "0.17"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
