@@ -6,8 +6,8 @@ use food_app::MyApp;
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
-    // Load AI gateway creds (AI_GATEWAY_API_KEY, ANTHROPIC_BASE_URL, …) from a
-    // repo-root .env. Missing file is fine; real exported vars take precedence.
+    // Load AI gateway creds (AI_GATEWAY_API_KEY, CLOUDFLARE_AI_GATEWAY_BASE_URL)
+    // from a repo-root .env. Missing file is fine; real exported vars take precedence.
     let _ = dotenvy::dotenv();
     tracing_subscriber::fmt::init();
 

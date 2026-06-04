@@ -187,8 +187,8 @@ impl CookbookTab {
         });
         ui.label(
             RichText::new(
-                "Default model gemini-2.5-flash. Reads AI_GATEWAY_API_KEY (+ ANTHROPIC_BASE_URL \
-                 gateway) or OPENAI_API_KEY / ANTHROPIC_API_KEY from the environment. First \
+                "Default model gemini-2.5-flash via the Cloudflare AI Gateway \
+                 (reads AI_GATEWAY_API_KEY + CLOUDFLARE_AI_GATEWAY_BASE_URL). First \
                  load runs LLM extraction (cached afterwards).",
             )
             .weak()

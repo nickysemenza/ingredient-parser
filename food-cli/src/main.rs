@@ -319,8 +319,8 @@ fn render_corpus_html(corpus: &str) -> (String, usize) {
 
 #[tokio::main]
 async fn main() {
-    // Load AI gateway creds (AI_GATEWAY_API_KEY, ANTHROPIC_BASE_URL, …) from a
-    // repo-root .env. Missing file is fine; real exported vars take precedence.
+    // Load AI gateway creds (AI_GATEWAY_API_KEY, CLOUDFLARE_AI_GATEWAY_BASE_URL)
+    // from a repo-root .env. Missing file is fine; real exported vars take precedence.
     let _ = dotenvy::dotenv();
     let cli = Cli::parse();
 

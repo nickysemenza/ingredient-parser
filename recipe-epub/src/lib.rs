@@ -54,14 +54,15 @@ pub enum EpubError {
     /// The bytes were not a readable EPUB (bad zip, missing OPF, …).
     #[error("could not read epub: {0}")]
     Open(String),
-    /// No auth source: neither `ANTHROPIC_API_KEY` nor a gateway token
-    /// (`CF_AIG_TOKEN` / `AI_GATEWAY_API_KEY`) was set.
-    #[error("no API auth: set ANTHROPIC_API_KEY, or CF_AIG_TOKEN/AI_GATEWAY_API_KEY (+ ANTHROPIC_BASE_URL) for a gateway")]
+    /// No gateway token: neither `AI_GATEWAY_API_KEY` nor `CF_AIG_TOKEN` was set.
+    /// The Cloudflare AI Gateway authenticates the caller with it (BYOK).
+    #[error(
+        "no gateway token: set AI_GATEWAY_API_KEY (or CF_AIG_TOKEN) for the Cloudflare AI Gateway"
+    )]
     MissingApiKey,
-    /// No base URL: neither `ANTHROPIC_BASE_URL` (a Cloudflare AI Gateway
-    /// `…/anthropic` endpoint) nor an explicit `OPENAI_BASE_URL`/`GEMINI_BASE_URL`
-    /// was set. This crate routes through a gateway by design — no public default.
-    #[error("no base URL: set ANTHROPIC_BASE_URL to your AI gateway (…/anthropic), or OPENAI_BASE_URL/GEMINI_BASE_URL")]
+    /// No gateway URL: `CLOUDFLARE_AI_GATEWAY_BASE_URL` was not set. All model
+    /// traffic routes through the gateway by design — there is no direct-provider path.
+    #[error("no gateway URL: set CLOUDFLARE_AI_GATEWAY_BASE_URL to your Cloudflare AI Gateway root (…/v1/<account>/<gateway>)")]
     MissingBaseUrl,
     /// The HTTP request to the model API failed (connection, timeout, …).
     #[cfg(feature = "native")]

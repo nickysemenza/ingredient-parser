@@ -234,9 +234,24 @@ fn nonempty_env(name: &str) -> Option<String> {
 }
 
 /// The Cloudflare-AI-Gateway bearer token shared by both backends'
-/// `from_env` (`CF_AIG_TOKEN`, falling back to `AI_GATEWAY_API_KEY`).
-fn resolve_gateway_token() -> Option<String> {
-    nonempty_env("CF_AIG_TOKEN").or_else(|| nonempty_env("AI_GATEWAY_API_KEY"))
+/// `from_env` (`AI_GATEWAY_API_KEY`, falling back to `CF_AIG_TOKEN`). Required —
+/// the gateway authenticates the caller with it and injects each provider's key
+/// (BYOK).
+fn resolve_gateway_token() -> Result<String, EpubError> {
+    nonempty_env("AI_GATEWAY_API_KEY")
+        .or_else(|| nonempty_env("CF_AIG_TOKEN"))
+        .ok_or(EpubError::MissingApiKey)
+}
+
+/// The Cloudflare AI Gateway root, e.g.
+/// `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>` — NO provider
+/// suffix. Each backend appends its own provider path (`/anthropic/v1/messages`,
+/// `/openai/chat/completions`, `/google-ai-studio/v1beta/openai/chat/completions`).
+/// All model traffic routes through the gateway; there is no direct-provider path.
+fn gateway_base() -> Result<String, EpubError> {
+    nonempty_env("CLOUDFLARE_AI_GATEWAY_BASE_URL")
+        .map(|b| b.trim_end_matches('/').to_string())
+        .ok_or(EpubError::MissingBaseUrl)
 }
 
 /// The HTTP client both backends build identically (180s timeout).
@@ -309,32 +324,22 @@ trait CallTool {
 /// Gateway) with forced structured (tool) output.
 pub(crate) struct ClaudeExtractor {
     client: reqwest::Client,
-    /// Full endpoint incl. `/v1/messages`.
+    /// Full endpoint incl. `/anthropic/v1/messages`.
     endpoint: String,
-    /// `x-api-key` — optional when a gateway injects the provider key (BYOK).
-    api_key: Option<String>,
-    /// `cf-aig-authorization: Bearer …` — set for a Cloudflare AI Gateway.
-    gateway_token: Option<String>,
+    /// `cf-aig-authorization: Bearer …` for the Cloudflare AI Gateway (BYOK).
+    gateway_token: String,
     model: String,
 }
 
 impl ClaudeExtractor {
-    /// Build from the environment:
-    /// - `ANTHROPIC_API_KEY` → `x-api-key` (optional if a gateway injects it).
-    /// - `CF_AIG_TOKEN` / `AI_GATEWAY_API_KEY` → `cf-aig-authorization` (optional).
-    /// - `ANTHROPIC_BASE_URL` → base URL (required); e.g. a Cloudflare AI
-    ///   Gateway `…/{account}/{gateway}/anthropic`.
+    /// Build from the environment. All traffic routes through the Cloudflare AI
+    /// Gateway (BYOK — the gateway injects the provider key):
+    /// - [`gateway_base`] → `…/anthropic/v1/messages`.
+    /// - [`resolve_gateway_token`] → `cf-aig-authorization` (required).
     /// - `opts.model` → model id (default Haiku).
-    ///
-    /// At least one of the API key or gateway token must be present.
     pub fn from_env(opts: &Options) -> Result<Self, EpubError> {
-        let api_key = nonempty_env("ANTHROPIC_API_KEY");
-        let gateway_token = resolve_gateway_token();
-        if api_key.is_none() && gateway_token.is_none() {
-            return Err(EpubError::MissingApiKey);
-        }
-        let base = nonempty_env("ANTHROPIC_BASE_URL").ok_or(EpubError::MissingBaseUrl)?;
-        let endpoint = format!("{}/v1/messages", base.trim_end_matches('/'));
+        let gateway_token = resolve_gateway_token()?;
+        let endpoint = format!("{}/anthropic/v1/messages", gateway_base()?);
         let model = opts
             .model
             .clone()
@@ -343,7 +348,6 @@ impl ClaudeExtractor {
         Ok(Self {
             client,
             endpoint,
-            api_key,
             gateway_token,
             model,
         })
@@ -382,15 +386,12 @@ impl CallTool for ClaudeExtractor {
             "messages": [{ "role": "user", "content": user }]
         });
 
-        let mut headers = vec![("anthropic-version", ANTHROPIC_VERSION.to_string())];
-        if let Some(key) = &self.api_key {
-            headers.push(("x-api-key", key.clone()));
-        }
+        let headers = vec![("anthropic-version", ANTHROPIC_VERSION.to_string())];
         let text = post_json(
             &self.client,
             &self.endpoint,
             &headers,
-            self.gateway_token.as_deref(),
+            Some(&self.gateway_token),
             &body,
         )
         .await?;
@@ -479,25 +480,16 @@ pub(crate) struct OpenAiExtractor {
     client: reqwest::Client,
     /// Full endpoint incl. `/chat/completions`.
     endpoint: String,
-    /// `Authorization: Bearer …` — optional when a gateway injects the key (BYOK).
-    api_key: Option<String>,
-    /// `cf-aig-authorization: Bearer …` — set for a Cloudflare AI Gateway.
-    gateway_token: Option<String>,
+    /// `cf-aig-authorization: Bearer …` for the Cloudflare AI Gateway (BYOK).
+    gateway_token: String,
     model: String,
 }
 
 impl OpenAiExtractor {
-    /// Build from the environment. Base URL resolution, in order:
-    /// 1. `OPENAI_BASE_URL` / `GEMINI_BASE_URL` (provider-specific override);
-    /// 2. derived from a Cloudflare gateway `ANTHROPIC_BASE_URL` ending in
-    ///    `/anthropic` (swapped to `/openai` or `/google-ai-studio/v1beta/openai`).
-    ///
-    /// Errors if neither is set — this crate routes through a gateway by design;
-    /// there is no public-API default.
-    ///
-    /// Auth: `OPENAI_API_KEY` / `GEMINI_API_KEY` → `Authorization: Bearer`
-    /// (optional with a BYOK gateway), plus `CF_AIG_TOKEN` / `AI_GATEWAY_API_KEY`
-    /// → `cf-aig-authorization`. At least one auth source must be present.
+    /// Build from the environment. All traffic routes through the Cloudflare AI
+    /// Gateway (BYOK — the gateway injects the provider key); the provider path is
+    /// appended to [`gateway_base`]: `gemini-*` → `/google-ai-studio/v1beta/openai`,
+    /// otherwise `/openai`. Auth: [`resolve_gateway_token`] (required).
     pub fn from_env(opts: &Options) -> Result<Self, EpubError> {
         let model = opts
             .model
@@ -505,43 +497,18 @@ impl OpenAiExtractor {
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
         let is_gemini = model.to_lowercase().starts_with("gemini");
 
-        let gateway_token = resolve_gateway_token();
-        let api_key = if is_gemini {
-            nonempty_env("GEMINI_API_KEY").or_else(|| nonempty_env("GOOGLE_API_KEY"))
-        } else {
-            nonempty_env("OPENAI_API_KEY")
-        };
-        if api_key.is_none() && gateway_token.is_none() {
-            return Err(EpubError::MissingApiKey);
-        }
-
-        let explicit = if is_gemini {
-            nonempty_env("GEMINI_BASE_URL")
-        } else {
-            nonempty_env("OPENAI_BASE_URL")
-        };
-        let suffix = if is_gemini {
+        let gateway_token = resolve_gateway_token()?;
+        let provider_path = if is_gemini {
             "google-ai-studio/v1beta/openai"
         } else {
             "openai"
         };
-        let base = explicit
-            .or_else(|| {
-                // Derive a sibling provider route from a CF gateway base.
-                nonempty_env("ANTHROPIC_BASE_URL").and_then(|b| {
-                    b.trim_end_matches('/')
-                        .strip_suffix("/anthropic")
-                        .map(|prefix| format!("{prefix}/{suffix}"))
-                })
-            })
-            .ok_or(EpubError::MissingBaseUrl)?;
-        let endpoint = format!("{}/chat/completions", base.trim_end_matches('/'));
+        let endpoint = format!("{}/{provider_path}/chat/completions", gateway_base()?);
 
         let client = build_client()?;
         Ok(Self {
             client,
             endpoint,
-            api_key,
             gateway_token,
             model,
         })
@@ -579,17 +546,13 @@ impl CallTool for OpenAiExtractor {
             "tool_choice": { "type": "function", "function": { "name": tool_name } }
         });
 
-        let headers: Vec<(&str, String)> = self
-            .api_key
-            .as_ref()
-            .map(|key| ("authorization", format!("Bearer {key}")))
-            .into_iter()
-            .collect();
+        // BYOK gateway: only the gateway authorization header; it injects the
+        // provider's `Authorization: Bearer` key server-side.
         let text = post_json(
             &self.client,
             &self.endpoint,
-            &headers,
-            self.gateway_token.as_deref(),
+            &[],
+            Some(&self.gateway_token),
             &body,
         )
         .await?;
