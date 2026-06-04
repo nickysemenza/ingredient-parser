@@ -1,6 +1,6 @@
 use crate::unit::singular;
 use crate::unit::{kind::MeasureKind, Unit};
-use crate::util::format_quantity;
+use crate::util::{format_quantity, num_without_zeroes};
 use crate::{IngredientError, IngredientResult};
 use num_rational::Rational64;
 use num_traits::ToPrimitive;
@@ -462,6 +462,19 @@ impl fmt::Display for Measure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let measure = self.denormalize();
         let value = measure.value();
+        // Money renders symbol-first ("$5", "$2 - $4") instead of with a trailing
+        // unit suffix, matching conventional currency formatting. `denormalize`
+        // already folded `Cent` into `Dollar` (value in dollars), so the symbol is
+        // always "$". Uses `num_without_zeroes` rather than `format_quantity` so
+        // cents render as decimals ("$0.5") instead of vulgar fractions ("$½").
+        if *measure.unit() == Unit::Dollar {
+            let money = |v: f64| format!("${}", num_without_zeroes(v));
+            return match measure.upper_value() {
+                Some(u) if u != 0.0 && value == 0.0 => write!(f, "{}", money(u)),
+                Some(u) if u != 0.0 => write!(f, "{} - {}", money(value), money(u)),
+                _ => write!(f, "{}", money(value)),
+            };
+        }
         // `Unit::Whole` is the parser-internal sentinel for a bare count ("2 eggs"); it
         // renders as just the quantity. Serialization still emits "whole" via `to_str()`.
         let suffix = if *self.unit() == Unit::Whole {
@@ -660,6 +673,12 @@ mod tests {
     #[case::whole_single("whole", 1.0, None, "1")]
     #[case::whole_range("whole", 2.0, Some(4.0), "2 - 4")]
     #[case::zero_upper_bound("cup", 1.0, Some(0.0), "1 cup")]
+    // Money renders symbol-first with a plain decimal (no vulgar fractions, no
+    // trailing "$"), so it reads as conventional currency.
+    #[case::money_dollars("$", 5.0, None, "$5")]
+    #[case::money_cents("$", 0.01, None, "$0.01")]
+    #[case::money_half("$", 0.5, None, "$0.5")]
+    #[case::money_range("$", 2.0, Some(4.0), "$2 - $4")]
     fn test_measure_display(
         #[case] unit: &str,
         #[case] value: f64,
