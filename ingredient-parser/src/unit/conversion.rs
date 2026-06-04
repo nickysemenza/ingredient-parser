@@ -69,6 +69,31 @@ pub fn print_graph(g: MeasureGraph) -> String {
     format!("{}", petgraph::dot::Dot::new(&g))
 }
 
+/// Detect disconnected components (islands) in the unit conversion graph.
+///
+/// Returns the connected components, each a list of unit strings. Single-node
+/// components are dropped since they can't form a meaningful conversion path.
+/// The graph is bidirectional, so strongly-connected components coincide with
+/// connected components.
+///
+/// # Arguments
+/// * `graph` - A conversion graph built from [`make_graph`]
+///
+/// # Returns
+/// A vector of components, each a vector of unit strings
+pub fn find_connected_components(graph: &MeasureGraph) -> Vec<Vec<String>> {
+    petgraph::algo::kosaraju_scc(graph)
+        .into_iter()
+        .map(|component| {
+            component
+                .into_iter()
+                .filter_map(|node_idx| graph.node_weight(node_idx).map(|unit| unit.to_string()))
+                .collect::<Vec<String>>()
+        })
+        .filter(|component| component.len() > 1)
+        .collect()
+}
+
 /// Convert a measure to a target kind using a pre-built conversion graph.
 ///
 /// This uses the A* algorithm to find the shortest path in the conversion graph
