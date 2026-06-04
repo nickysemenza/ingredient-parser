@@ -67,6 +67,18 @@ There are two kinds of rows:
    ```
 5. Float values must be exact `f64` (e.g. `⅔` is `0.6666666666666666`).
 
+### Browsing the corpus
+
+To eyeball the whole corpus as a rendered table, run:
+
+```bash
+cargo run -p food-cli --quiet -- corpus-table
+```
+
+It renders `corpus.jsonl` to a temporary HTML page (grouped by section, with
+ranges and `xfail` rows highlighted) and opens it in your default browser. Pass
+`--out file.html` to write it somewhere, or `--out -` to stream HTML to stdout.
+
 ## When you change the parser
 
 - **Always add tests.** Prefer appending corpus rows (for end-to-end behavior)
