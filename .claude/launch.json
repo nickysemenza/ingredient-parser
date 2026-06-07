@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "demo-site",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "demo-site", "dev", "--port", "5173", "--strictPort"],
+      "port": 5173
+    }
+  ]
+}
