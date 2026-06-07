@@ -74,7 +74,7 @@ pub async fn extract_cookbook_with_progress(
     opts: &Options,
     progress: impl Fn(ExtractProgress) + Send + Sync,
 ) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
-    let extractor = Backend::from_env(opts)?;
+    let extractor = Backend::from_env(opts, source)?;
     if opts.use_cache {
         let caching = CachingExtractor {
             inner: &extractor,
@@ -294,6 +294,100 @@ async fn post_json(
     Ok(text)
 }
 
+/// Per-call context for the Cloudflare AI Gateway `cf-aig-metadata` header, so
+/// each request is filterable in the gateway logs. The whole-run bits (cookbook,
+/// model) come from the extractor itself; these are the bits that vary per call.
+struct CallMeta<'a> {
+    /// Originating spine-doc path for an extract call; `""` for library-wide
+    /// calls (e.g. classification).
+    doc_path: &'a str,
+    /// Which call this is — `"extract"` or `"classify"`.
+    call: &'a str,
+}
+
+/// Build the `cf-aig-metadata` header tagging a gateway request with the
+/// cookbook, model, doc, prompt version, and call type — exactly five entries
+/// (the gateway's max), all string-valued. Lets the user filter the gateway logs
+/// and analytics by any of these dimensions.
+fn aig_metadata_header(cookbook: &str, model: &str, meta: &CallMeta<'_>) -> (&'static str, String) {
+    (
+        "cf-aig-metadata",
+        json!({
+            "cookbook": cookbook,
+            "model": model,
+            "doc_path": meta.doc_path,
+            "prompt_version": cache::PROMPT_VERSION,
+            "call": meta.call,
+        })
+        .to_string(),
+    )
+}
+
+/// The provider-agnostic spec for one forced-tool call. Each backend turns this
+/// into its own wire format (Anthropic Messages vs OpenAI chat-completions).
+struct ToolCall<'a> {
+    system: &'a str,
+    user: String,
+    tool_name: &'a str,
+    tool_desc: &'a str,
+    schema: serde_json::Value,
+    max_tokens: u32,
+}
+
+/// The Cloudflare AI Gateway connection shared by both provider backends: the
+/// HTTP client, the resolved endpoint, the gateway bearer token, the model id,
+/// and the cookbook label for request metadata. Owns the auth + metadata-header
+/// + POST mechanics so each backend only builds its body and parses its response.
+struct GatewayClient {
+    client: reqwest::Client,
+    endpoint: String,
+    gateway_token: String,
+    model: String,
+    /// Cookbook source (book path/title) emitted as gateway metadata; `""` when
+    /// not book-scoped (e.g. the classifier).
+    cookbook_source: String,
+}
+
+impl GatewayClient {
+    /// Build the shared pieces from the environment ([`build_client`],
+    /// [`resolve_gateway_token`]). `endpoint` is the provider-specific URL the
+    /// caller assembled from [`gateway_base`]; `source` labels gateway requests
+    /// via `cf-aig-metadata` (`""` if unknown).
+    fn from_env(endpoint: String, model: String, source: &str) -> Result<Self, EpubError> {
+        Ok(Self {
+            client: build_client()?,
+            endpoint,
+            gateway_token: resolve_gateway_token()?,
+            model,
+            cookbook_source: source.to_string(),
+        })
+    }
+
+    /// POST a provider request `body`, attaching `extra_headers` (provider-specific,
+    /// e.g. `anthropic-version`), the gateway authorization, and the
+    /// `cf-aig-metadata` tag. Returns the response body text.
+    async fn post_tool(
+        &self,
+        body: &serde_json::Value,
+        mut extra_headers: Vec<(&str, String)>,
+        meta: &CallMeta<'_>,
+    ) -> Result<String, EpubError> {
+        extra_headers.push(aig_metadata_header(
+            &self.cookbook_source,
+            &self.model,
+            meta,
+        ));
+        post_json(
+            &self.client,
+            &self.endpoint,
+            &extra_headers,
+            Some(&self.gateway_token),
+            body,
+        )
+        .await
+    }
+}
+
 /// Warn (once) when a finish/stop reason indicates the model's output was
 /// truncated at the token limit, so the recipe tail may be missing.
 fn warn_if_truncated(reason: Option<&str>, truncated_reasons: &[&str], doc_path: &str) {
@@ -306,29 +400,61 @@ fn warn_if_truncated(reason: Option<&str>, truncated_reasons: &[&str], doc_path:
 /// (`extract`, `classify_cookbooks`) don't switch on the backend variant.
 #[allow(async_fn_in_trait)]
 trait CallTool {
-    /// Issue one forced-tool call. Returns the tool's decoded `input` object
-    /// (`None` if the model returned no tool block), token usage, and the
-    /// stop/finish reason.
+    /// Issue one forced-tool `call`, tagged for the gateway logs with `meta`.
+    /// Returns the tool's decoded `input` object (`None` if the model returned no
+    /// tool block), token usage, and the stop/finish reason.
     async fn call_tool(
         &self,
-        system: &str,
-        user: String,
-        tool_name: &str,
-        tool_desc: &str,
-        schema: serde_json::Value,
-        max_tokens: u32,
+        call: ToolCall<'_>,
+        meta: &CallMeta<'_>,
     ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), EpubError>;
+}
+
+/// Run one chunk through any [`CallTool`] backend: build the request, issue the
+/// forced-tool call tagged for the gateway logs, warn on truncation, and decode
+/// the recipes. `truncated_reasons` are the provider's stop/finish tokens that
+/// signal the output was cut at the token limit (Anthropic `max_tokens`, OpenAI
+/// `length`). Shared by both backends' [`RecipeExtractor::extract`].
+async fn extract_chunk<T: CallTool>(
+    backend: &T,
+    chunk: &Chunk,
+    truncated_reasons: &[&str],
+) -> Result<ChunkOutcome, EpubError> {
+    let req = build_chunk_request(chunk);
+    let (input, usage, reason) = backend
+        .call_tool(
+            ToolCall {
+                system: &req.system,
+                user: req.user,
+                tool_name: &req.tool_name,
+                tool_desc: "Return every recipe found in the cookbook section.",
+                schema: req.tool_schema,
+                max_tokens: 16000,
+            },
+            &CallMeta {
+                doc_path: &chunk.doc_path,
+                call: "extract",
+            },
+        )
+        .await?;
+
+    warn_if_truncated(reason.as_deref(), truncated_reasons, &chunk.doc_path);
+
+    let recipes = match input {
+        Some(v) => parse_recipes_payload(v)?,
+        None => Vec::new(),
+    };
+    Ok(ChunkOutcome {
+        recipes,
+        usage,
+        cached: false,
+    })
 }
 
 /// Calls the Claude Messages API (directly, or via a proxy such as Cloudflare AI
 /// Gateway) with forced structured (tool) output.
 pub(crate) struct ClaudeExtractor {
-    client: reqwest::Client,
-    /// Full endpoint incl. `/anthropic/v1/messages`.
-    endpoint: String,
-    /// `cf-aig-authorization: Bearer …` for the Cloudflare AI Gateway (BYOK).
-    gateway_token: String,
-    model: String,
+    conn: GatewayClient,
 }
 
 impl ClaudeExtractor {
@@ -337,19 +463,16 @@ impl ClaudeExtractor {
     /// - [`gateway_base`] → `…/anthropic/v1/messages`.
     /// - [`resolve_gateway_token`] → `cf-aig-authorization` (required).
     /// - `opts.model` → model id (default Haiku).
-    pub fn from_env(opts: &Options) -> Result<Self, EpubError> {
-        let gateway_token = resolve_gateway_token()?;
+    ///
+    /// `source` labels gateway requests via `cf-aig-metadata` (`""` if unknown).
+    pub fn from_env(opts: &Options, source: &str) -> Result<Self, EpubError> {
         let endpoint = format!("{}/anthropic/v1/messages", gateway_base()?);
         let model = opts
             .model
             .clone()
             .unwrap_or_else(|| CLAUDE_DEFAULT_MODEL.to_string());
-        let client = build_client()?;
         Ok(Self {
-            client,
-            endpoint,
-            gateway_token,
-            model,
+            conn: GatewayClient::from_env(endpoint, model, source)?,
         })
     }
 }
@@ -360,41 +483,30 @@ impl CallTool for ClaudeExtractor {
     /// token usage, and the stop reason.
     async fn call_tool(
         &self,
-        system: &str,
-        user: String,
-        tool_name: &str,
-        tool_desc: &str,
-        schema: serde_json::Value,
-        max_tokens: u32,
+        call: ToolCall<'_>,
+        meta: &CallMeta<'_>,
     ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), EpubError> {
         let body = json!({
-            "model": self.model,
-            "max_tokens": max_tokens,
+            "model": self.conn.model,
+            "max_tokens": call.max_tokens,
             // Static prefix → cache_control lets repeated calls within the TTL
             // reuse it (a no-op below the model's min cacheable size, but free).
             "system": [{
                 "type": "text",
-                "text": system,
+                "text": call.system,
                 "cache_control": { "type": "ephemeral" }
             }],
             "tools": [{
-                "name": tool_name,
-                "description": tool_desc,
-                "input_schema": schema
+                "name": call.tool_name,
+                "description": call.tool_desc,
+                "input_schema": call.schema
             }],
-            "tool_choice": { "type": "tool", "name": tool_name },
-            "messages": [{ "role": "user", "content": user }]
+            "tool_choice": { "type": "tool", "name": call.tool_name },
+            "messages": [{ "role": "user", "content": call.user }]
         });
 
-        let headers = vec![("anthropic-version", ANTHROPIC_VERSION.to_string())];
-        let text = post_json(
-            &self.client,
-            &self.endpoint,
-            &headers,
-            Some(&self.gateway_token),
-            &body,
-        )
-        .await?;
+        let extra = vec![("anthropic-version", ANTHROPIC_VERSION.to_string())];
+        let text = self.conn.post_tool(&body, extra, meta).await?;
 
         let parsed: ApiResponse = serde_json::from_str(&text)?;
         let usage = parsed.usage;
@@ -410,33 +522,11 @@ impl CallTool for ClaudeExtractor {
 
 impl RecipeExtractor for ClaudeExtractor {
     fn model(&self) -> &str {
-        &self.model
+        &self.conn.model
     }
 
     async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
-        let req = build_chunk_request(chunk);
-        let (input, usage, stop_reason) = self
-            .call_tool(
-                &req.system,
-                req.user,
-                &req.tool_name,
-                "Return every recipe found in the cookbook section.",
-                req.tool_schema,
-                16000,
-            )
-            .await?;
-
-        warn_if_truncated(stop_reason.as_deref(), &["max_tokens"], &chunk.doc_path);
-
-        let recipes = match input {
-            Some(v) => parse_recipes_payload(v)?,
-            None => Vec::new(),
-        };
-        Ok(ChunkOutcome {
-            recipes,
-            usage,
-            cached: false,
-        })
+        extract_chunk(self, chunk, &["max_tokens"]).await
     }
 }
 
@@ -477,12 +567,7 @@ pub(crate) fn is_openai_compatible_model(model: &str) -> bool {
 /// function call. Serves both OpenAI (`gpt-*`) and Google Gemini (`gemini-*`,
 /// via its OpenAI-compatible endpoint) — the wire format is identical.
 pub(crate) struct OpenAiExtractor {
-    client: reqwest::Client,
-    /// Full endpoint incl. `/chat/completions`.
-    endpoint: String,
-    /// `cf-aig-authorization: Bearer …` for the Cloudflare AI Gateway (BYOK).
-    gateway_token: String,
-    model: String,
+    conn: GatewayClient,
 }
 
 impl OpenAiExtractor {
@@ -490,27 +575,21 @@ impl OpenAiExtractor {
     /// Gateway (BYOK — the gateway injects the provider key); the provider path is
     /// appended to [`gateway_base`]: `gemini-*` → `/google-ai-studio/v1beta/openai`,
     /// otherwise `/openai`. Auth: [`resolve_gateway_token`] (required).
-    pub fn from_env(opts: &Options) -> Result<Self, EpubError> {
+    ///
+    /// `source` labels gateway requests via `cf-aig-metadata` (`""` if unknown).
+    pub fn from_env(opts: &Options, source: &str) -> Result<Self, EpubError> {
         let model = opts
             .model
             .clone()
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-        let is_gemini = model.to_lowercase().starts_with("gemini");
-
-        let gateway_token = resolve_gateway_token()?;
-        let provider_path = if is_gemini {
+        let provider_path = if model.to_lowercase().starts_with("gemini") {
             "google-ai-studio/v1beta/openai"
         } else {
             "openai"
         };
         let endpoint = format!("{}/{provider_path}/chat/completions", gateway_base()?);
-
-        let client = build_client()?;
         Ok(Self {
-            client,
-            endpoint,
-            gateway_token,
-            model,
+            conn: GatewayClient::from_env(endpoint, model, source)?,
         })
     }
 }
@@ -521,41 +600,30 @@ impl CallTool for OpenAiExtractor {
     /// returned no tool call), token usage, and finish reason.
     async fn call_tool(
         &self,
-        system: &str,
-        user: String,
-        tool_name: &str,
-        tool_desc: &str,
-        schema: serde_json::Value,
-        max_tokens: u32,
+        call: ToolCall<'_>,
+        meta: &CallMeta<'_>,
     ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), EpubError> {
         let body = json!({
-            "model": self.model,
-            "max_tokens": max_tokens,
+            "model": self.conn.model,
+            "max_tokens": call.max_tokens,
             "messages": [
-                { "role": "system", "content": system },
-                { "role": "user", "content": user }
+                { "role": "system", "content": call.system },
+                { "role": "user", "content": call.user }
             ],
             "tools": [{
                 "type": "function",
                 "function": {
-                    "name": tool_name,
-                    "description": tool_desc,
-                    "parameters": schema
+                    "name": call.tool_name,
+                    "description": call.tool_desc,
+                    "parameters": call.schema
                 }
             }],
-            "tool_choice": { "type": "function", "function": { "name": tool_name } }
+            "tool_choice": { "type": "function", "function": { "name": call.tool_name } }
         });
 
-        // BYOK gateway: only the gateway authorization header; it injects the
+        // BYOK gateway: no provider-specific headers; the gateway injects the
         // provider's `Authorization: Bearer` key server-side.
-        let text = post_json(
-            &self.client,
-            &self.endpoint,
-            &[],
-            Some(&self.gateway_token),
-            &body,
-        )
-        .await?;
+        let text = self.conn.post_tool(&body, Vec::new(), meta).await?;
 
         let parsed: OpenAiResponse = serde_json::from_str(&text)?;
         let usage = parsed.usage.into();
@@ -575,33 +643,11 @@ impl CallTool for OpenAiExtractor {
 
 impl RecipeExtractor for OpenAiExtractor {
     fn model(&self) -> &str {
-        &self.model
+        &self.conn.model
     }
 
     async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
-        let req = build_chunk_request(chunk);
-        let (input, usage, finish_reason) = self
-            .call_tool(
-                &req.system,
-                req.user,
-                &req.tool_name,
-                "Return every recipe found in the cookbook section.",
-                req.tool_schema,
-                16000,
-            )
-            .await?;
-
-        warn_if_truncated(finish_reason.as_deref(), &["length"], &chunk.doc_path);
-
-        let recipes = match input {
-            Some(v) => parse_recipes_payload(v)?,
-            None => Vec::new(),
-        };
-        Ok(ChunkOutcome {
-            recipes,
-            usage,
-            cached: false,
-        })
+        extract_chunk(self, chunk, &["length"]).await
     }
 }
 
@@ -669,12 +715,15 @@ pub(crate) enum Backend {
 impl Backend {
     /// Pick a backend from `opts.model`: `gpt-*`/`o*`/`gemini-*` →
     /// [`OpenAiExtractor`], otherwise [`ClaudeExtractor`] (the default).
-    pub fn from_env(opts: &Options) -> Result<Self, EpubError> {
+    ///
+    /// `source` labels gateway requests via `cf-aig-metadata`; pass `""` for
+    /// library-wide work like classification.
+    pub fn from_env(opts: &Options, source: &str) -> Result<Self, EpubError> {
         let model = opts.model.as_deref().unwrap_or(DEFAULT_MODEL);
         if is_openai_compatible_model(model) {
-            Ok(Backend::OpenAi(OpenAiExtractor::from_env(opts)?))
+            Ok(Backend::OpenAi(OpenAiExtractor::from_env(opts, source)?))
         } else {
-            Ok(Backend::Claude(ClaudeExtractor::from_env(opts)?))
+            Ok(Backend::Claude(ClaudeExtractor::from_env(opts, source)?))
         }
     }
 
@@ -685,12 +734,18 @@ impl Backend {
         let schema = classify_tool_schema();
         let (input, _usage, _reason) = self
             .call_tool(
-                CLASSIFY_SYSTEM_PROMPT,
-                user,
-                CLASSIFY_TOOL_NAME,
-                "Return the 1-based indices of the books that are cookbooks.",
-                schema,
-                2000,
+                ToolCall {
+                    system: CLASSIFY_SYSTEM_PROMPT,
+                    user,
+                    tool_name: CLASSIFY_TOOL_NAME,
+                    tool_desc: "Return the 1-based indices of the books that are cookbooks.",
+                    schema,
+                    max_tokens: 2000,
+                },
+                &CallMeta {
+                    doc_path: "",
+                    call: "classify",
+                },
             )
             .await?;
         let payload: ClassifyPayload = match input {
@@ -704,22 +759,12 @@ impl Backend {
 impl CallTool for Backend {
     async fn call_tool(
         &self,
-        system: &str,
-        user: String,
-        tool_name: &str,
-        tool_desc: &str,
-        schema: serde_json::Value,
-        max_tokens: u32,
+        call: ToolCall<'_>,
+        meta: &CallMeta<'_>,
     ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), EpubError> {
         match self {
-            Backend::Claude(e) => {
-                e.call_tool(system, user, tool_name, tool_desc, schema, max_tokens)
-                    .await
-            }
-            Backend::OpenAi(e) => {
-                e.call_tool(system, user, tool_name, tool_desc, schema, max_tokens)
-                    .await
-            }
+            Backend::Claude(e) => e.call_tool(call, meta).await,
+            Backend::OpenAi(e) => e.call_tool(call, meta).await,
         }
     }
 }
@@ -805,6 +850,30 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use crate::extractor::{RecipesPayload, TOOL_NAME};
+
+    #[test]
+    fn aig_metadata_header_is_valid_json_with_five_entries() {
+        let (name, value) = aig_metadata_header(
+            "The NoMad Cookbook",
+            "gemini-2.5-flash",
+            &CallMeta {
+                doc_path: "c12.xhtml",
+                call: "extract",
+            },
+        );
+        assert_eq!(name, "cf-aig-metadata");
+        let meta: serde_json::Value = serde_json::from_str(&value).unwrap();
+        let obj = meta.as_object().unwrap();
+        // The gateway saves at most five metadata entries — stay at/under that.
+        assert!(obj.len() <= 5, "must not exceed the gateway's 5-entry cap");
+        assert_eq!(obj["cookbook"], "The NoMad Cookbook");
+        assert_eq!(obj["model"], "gemini-2.5-flash");
+        assert_eq!(obj["doc_path"], "c12.xhtml");
+        assert_eq!(obj["call"], "extract");
+        assert_eq!(obj["prompt_version"], cache::PROMPT_VERSION);
+        // All values must be strings (the gateway accepts string/number/bool).
+        assert!(obj.values().all(serde_json::Value::is_string));
+    }
 
     #[test]
     fn parses_tool_use_response() {

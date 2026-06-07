@@ -129,7 +129,8 @@ pub async fn classify_cookbooks_ai(
     if books.is_empty() {
         return Ok(Vec::new());
     }
-    let backend = Backend::from_env(opts)?;
+    // Library-wide call (no single cookbook), so the metadata cookbook is "".
+    let backend = Backend::from_env(opts, "")?;
     backend.classify_cookbooks(books).await
 }
 
