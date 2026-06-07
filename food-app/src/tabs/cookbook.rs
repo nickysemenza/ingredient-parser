@@ -15,23 +15,44 @@ use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use petgraph::Directed;
 use poll_promise::Promise;
 use recipe_epub::{
-    BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionStats, Options,
+    BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionStats, ImageRef, Options,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::recipe::make_rich;
 
-type LoadResult = Result<(Vec<CookbookRecipe>, ExtractionStats), String>;
+/// A fully loaded book: its recipes + extraction stats, plus the materialized
+/// image bytes (the book cover and every recipe's hero photo) read once off the
+/// UI thread. The bytes are registered with egui as `bytes://<archive_path>` URIs
+/// the first frame they're observed, then referenced by `Image::from_uri`.
+struct LoadedBook {
+    recipes: Vec<CookbookRecipe>,
+    stats: ExtractionStats,
+    /// The book's cover reference (URI key), if any.
+    cover: Option<ImageRef>,
+    /// De-duplicated `(archive_path, bytes)` for the cover + all heroes.
+    images: Vec<(String, Vec<u8>)>,
+}
+
+type LoadResult = Result<LoadedBook, String>;
 
 /// A book discovered while scanning a library directory: its metadata, the
-/// tag-based guess, and the final cookbook verdict (which the AI fallback may
-/// override for [`CookbookGuess::Unknown`] books).
+/// tag-based guess, the final cookbook verdict (which the AI fallback may override
+/// for [`CookbookGuess::Unknown`] books), and (for confirmed cookbooks) its cover
+/// image bytes for the library-grid thumbnail.
 struct ScannedBook {
     meta: BookMeta,
     guess: CookbookGuess,
     is_cookbook: bool,
+    cover: Option<Vec<u8>>,
+}
+
+/// The `bytes://` URI a library cover is registered under (keyed by book path so
+/// each book's thumbnail is distinct).
+fn cover_uri(path: &Path) -> String {
+    format!("bytes://cover/{}", path.to_string_lossy())
 }
 
 type ScanResult = Result<Vec<ScannedBook>, String>;
@@ -123,6 +144,14 @@ pub struct CookbookTab {
     use_ai_fallback: bool,
     /// Free-text filter over the library list (title + authors).
     filter_text: String,
+    /// Whether the library browser shows the cover grid (vs. a compact text list).
+    library_grid: bool,
+    /// Whether the loaded book's image bytes (cover + heroes) have been registered
+    /// with egui this load. Reset on each [`Self::start_load`].
+    images_registered: bool,
+    /// Whether the scanned library's cover bytes have been registered with egui.
+    /// Reset on each [`Self::start_scan`].
+    library_covers_registered: bool,
 }
 
 impl Default for CookbookTab {
@@ -143,6 +172,9 @@ impl Default for CookbookTab {
             cookbooks_only: true,
             use_ai_fallback: false,
             filter_text: String::new(),
+            library_grid: true,
+            images_registered: false,
+            library_covers_registered: false,
         }
     }
 }
@@ -196,33 +228,44 @@ impl CookbookTab {
         );
         ui.separator();
 
-        // Library browser: shown once a directory has been scanned. Clicking a
-        // book feeds the existing extract→browse flow below.
+        // Register image bytes with egui once they're ready (cover thumbnails for
+        // the scanned library, cover + hero photos for the loaded book), so the
+        // `bytes://…` URIs the views reference resolve.
+        self.register_library_covers(&ctx);
+        self.register_loaded_images(&ctx);
+
+        // Library browser as a resizable LEFT sidebar — shown only once a library
+        // has been scanned. The loaded book (below) fills the area to its right.
         let mut action = LibraryAction::None;
-        let mut rendered_library = false;
-        if let Some(scan) = &self.scan {
-            rendered_library = true;
-            // Disjoint field borrows: `scan` (shared) vs the filter/toggle
-            // fields (mutable) — distinct `self` fields, so all coexist.
-            let cookbooks_only = &mut self.cookbooks_only;
-            let use_ai = &mut self.use_ai_fallback;
-            let filter = &mut self.filter_text;
-            match scan.ready() {
-                None => {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label("Scanning library…");
-                    });
-                }
-                Some(Err(err)) => {
-                    ui.colored_label(ui.visuals().error_fg_color, err);
-                }
-                Some(Ok(books)) => {
-                    action = show_library(ui, books, cookbooks_only, use_ai, filter);
-                }
-            }
-        }
-        if rendered_library {
+        if self.scan.is_some() {
+            egui::Panel::left("library_browser")
+                .resizable(true)
+                .default_size(320.0)
+                .show_inside(ui, |ui| {
+                    if let Some(scan) = &self.scan {
+                        // Disjoint field borrows: `scan` (shared) vs the
+                        // filter/toggle fields (mutable) — distinct `self` fields.
+                        let cookbooks_only = &mut self.cookbooks_only;
+                        let use_ai = &mut self.use_ai_fallback;
+                        let filter = &mut self.filter_text;
+                        let grid = &mut self.library_grid;
+                        match scan.ready() {
+                            None => {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label("Scanning library…");
+                                });
+                            }
+                            Some(Err(err)) => {
+                                ui.colored_label(ui.visuals().error_fg_color, err);
+                            }
+                            Some(Ok(books)) => {
+                                action =
+                                    show_library(ui, books, cookbooks_only, use_ai, filter, grid);
+                            }
+                        }
+                    }
+                });
             match action {
                 LibraryAction::None => {}
                 LibraryAction::Rescan => {
@@ -235,7 +278,6 @@ impl CookbookTab {
                     self.start_load(ctx.clone());
                 }
             }
-            ui.separator();
         }
 
         let Some(promise) = &self.promise else {
@@ -269,10 +311,16 @@ impl CookbookTab {
             Some(Err(err)) => {
                 ui.colored_label(ui.visuals().error_fg_color, err);
             }
-            Some(Ok((recipes, _))) if recipes.is_empty() => {
+            Some(Ok(book)) if book.recipes.is_empty() => {
                 ui.label("No recipes found in this EPUB.");
             }
-            Some(Ok((recipes, stats))) => {
+            Some(Ok(book)) => {
+                let LoadedBook {
+                    recipes,
+                    stats,
+                    cover,
+                    images: _,
+                } = book;
                 // Disjoint field borrows: `recipes` from self.promise (shared);
                 // the rest from distinct `self` fields. Bind each before any
                 // closure so no closure captures all of `self`.
@@ -286,6 +334,14 @@ impl CookbookTab {
                 let ref_count: usize = recipes.iter().map(|r| r.references.len()).sum();
 
                 ui.horizontal(|ui| {
+                    // The book's cover as a small thumbnail at the head of the row.
+                    if let Some(c) = cover {
+                        ui.add(
+                            egui::Image::from_uri(format!("bytes://{}", c.path))
+                                .fit_to_exact_size(egui::vec2(28.0, 38.0))
+                                .corner_radius(3.0),
+                        );
+                    }
                     ui.label(RichText::new(format!("{} recipes", recipes.len())).weak());
                     ui.separator();
                     let cost = stats
@@ -375,14 +431,48 @@ impl CookbookTab {
         }
     }
 
+    /// Register the loaded book's image bytes (cover + every hero) with egui the
+    /// first frame the load is ready, so `bytes://<path>` URIs resolve. Idempotent
+    /// per load (guarded by `images_registered`).
+    fn register_loaded_images(&mut self, ctx: &egui::Context) {
+        if self.images_registered {
+            return;
+        }
+        let Some(Ok(book)) = self.promise.as_ref().and_then(Promise::ready) else {
+            return;
+        };
+        for (path, bytes) in &book.images {
+            ctx.include_bytes(format!("bytes://{path}"), bytes.clone());
+        }
+        self.images_registered = true;
+    }
+
+    /// Register the scanned library's cover bytes with egui once the scan is ready,
+    /// so the grid's `bytes://cover/<path>` thumbnails resolve. Idempotent per scan.
+    fn register_library_covers(&mut self, ctx: &egui::Context) {
+        if self.library_covers_registered {
+            return;
+        }
+        let Some(Ok(books)) = self.scan.as_ref().and_then(Promise::ready) else {
+            return;
+        };
+        for b in books {
+            if let Some(bytes) = &b.cover {
+                ctx.include_bytes(cover_uri(&b.meta.path), bytes.clone());
+            }
+        }
+        self.library_covers_registered = true;
+    }
+
     fn start_load(&mut self, ctx: egui::Context) {
         let path = self.path.trim().to_string();
         let no_cache = self.no_cache;
         self.selected = 0;
         self.graph = None; // rebuilt for the newly loaded book
         self.graph_prewarmed = false;
-        // Fresh progress cell for this load (so no stale bar from a prior run);
-        // one clone stays on `self` for the UI, the other goes to the worker.
+        self.images_registered = false; // re-register for the newly loaded book
+                                        // Fresh progress cell for this load (so no stale bar from a prior run);
+                                        // one clone stays on `self` for the UI, the other goes to the worker.
         let progress = Arc::new(ExtractProgressCell::default());
         self.extract_progress = Some(progress.clone());
         let progress_ctx = ctx.clone();
@@ -397,20 +487,30 @@ impl CookbookTab {
                     use_cache: !no_cache,
                     ..Default::default()
                 };
-                rt.block_on(recipe_epub::extract_cookbook_with_progress(
-                    &bytes,
-                    &path,
-                    &opts,
-                    |p| {
-                        // Publish the latest counts and wake the UI so the bar
-                        // advances live as each chunk lands.
-                        progress.done.store(p.done, Ordering::Relaxed);
-                        progress.total.store(p.total, Ordering::Relaxed);
-                        progress.cached.store(p.cached, Ordering::Relaxed);
-                        progress_ctx.request_repaint();
-                    },
-                ))
-                .map_err(|e| e.to_string())
+                let (recipes, stats) = rt
+                    .block_on(recipe_epub::extract_cookbook_with_progress(
+                        &bytes,
+                        &path,
+                        &opts,
+                        |p| {
+                            // Publish the latest counts and wake the UI so the bar
+                            // advances live as each chunk lands.
+                            progress.done.store(p.done, Ordering::Relaxed);
+                            progress.total.store(p.total, Ordering::Relaxed);
+                            progress.cached.store(p.cached, Ordering::Relaxed);
+                            progress_ctx.request_repaint();
+                        },
+                    ))
+                    .map_err(|e| e.to_string())?;
+                // Materialize the cover + each recipe's hero photo in one EPUB open,
+                // off the UI thread, so the views just reference the registered bytes.
+                let (cover, images) = recipe_epub::collect_recipe_images(&bytes, &recipes);
+                Ok(LoadedBook {
+                    recipes,
+                    stats,
+                    cover,
+                    images,
+                })
             })();
             // Wake the UI thread when extraction finishes (poll-promise doesn't
             // repaint on its own).
@@ -426,6 +526,7 @@ impl CookbookTab {
     /// call.
     fn start_scan(&mut self, dir: PathBuf, ctx: egui::Context) {
         self.library_dir = Some(dir.clone());
+        self.library_covers_registered = false; // re-register for the new scan
         let use_ai = self.use_ai_fallback;
         self.scan = Some(Promise::spawn_thread("scan_library", move || {
             let result = (|| -> ScanResult {
@@ -438,6 +539,7 @@ impl CookbookTab {
                             is_cookbook: guess == CookbookGuess::Yes,
                             guess,
                             meta,
+                            cover: None,
                         }
                     })
                     .collect();
@@ -470,6 +572,15 @@ impl CookbookTab {
                     }
                 }
 
+                // Read covers only for confirmed cookbooks (one cover decompress
+                // each) — bounds the extra I/O over a large library while still
+                // giving the grid its thumbnails.
+                for b in &mut books {
+                    if b.is_cookbook {
+                        b.cover = recipe_epub::book_cover(&b.meta.path).map(|(bytes, _mime)| bytes);
+                    }
+                }
+
                 // Cookbooks first, then alphabetical by title.
                 books.sort_by(|a, b| {
                     (!a.is_cookbook, a.meta.title.to_lowercase())
@@ -493,6 +604,7 @@ fn show_library(
     cookbooks_only: &mut bool,
     use_ai: &mut bool,
     filter: &mut String,
+    grid: &mut bool,
 ) -> LibraryAction {
     let mut action = LibraryAction::None;
     let cookbook_count = books.iter().filter(|b| b.is_cookbook).count();
@@ -501,21 +613,24 @@ fn show_library(
         .filter(|b| b.guess == CookbookGuess::Unknown)
         .count();
 
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(format!(
-                "{} epubs · {cookbook_count} cookbooks",
-                books.len()
-            ))
-            .strong(),
-        );
-        ui.separator();
+    ui.label(
+        RichText::new(format!(
+            "{} epubs · {cookbook_count} cookbooks",
+            books.len()
+        ))
+        .strong(),
+    );
+    // Toggles reflow in the narrow sidebar rather than overflowing one row.
+    ui.horizontal_wrapped(|ui| {
         ui.checkbox(cookbooks_only, "Cookbooks only");
         ui.checkbox(use_ai, "Use AI for untagged")
             .on_hover_text(format!(
                 "{unknown_count} book(s) have no tags to judge from. Enable, then Re-scan to \
              classify them with the model.",
             ));
+        // Toggle the cover grid off to reclaim space (falls back to a compact list).
+        ui.toggle_value(grid, "🖼 Covers")
+            .on_hover_text("Show cover thumbnails (off = compact list)");
         if ui
             .button("Re-scan")
             .on_hover_text("Re-read the same library directory")
@@ -529,44 +644,105 @@ fn show_library(
         ui.add(
             egui::TextEdit::singleline(filter)
                 .hint_text("filter by title or author")
-                .desired_width(300.0),
+                .desired_width(f32::INFINITY),
         );
     });
 
     let needle = filter.trim().to_lowercase();
+    // Books passing the cookbooks-only + free-text filters, in display order.
+    let visible = || {
+        books.iter().filter(|b| {
+            if *cookbooks_only && !b.is_cookbook {
+                return false;
+            }
+            if needle.is_empty() {
+                return true;
+            }
+            format!("{} {}", b.meta.title, b.meta.authors.join(" "))
+                .to_lowercase()
+                .contains(&needle)
+        })
+    };
+
+    // Fill the remaining sidebar height; the panel bounds the scroll region.
     egui::ScrollArea::vertical()
-        .max_height(220.0)
-        .auto_shrink([false, true])
+        .auto_shrink([false, false])
         .show(ui, |ui| {
-            for b in books {
-                if *cookbooks_only && !b.is_cookbook {
-                    continue;
-                }
-                if !needle.is_empty() {
-                    let hay =
-                        format!("{} {}", b.meta.title, b.meta.authors.join(" ")).to_lowercase();
-                    if !hay.contains(&needle) {
-                        continue;
+            if *grid {
+                // A wrapped grid of cover cards (cover thumbnail above the title).
+                ui.horizontal_wrapped(|ui| {
+                    for b in visible() {
+                        if book_card(ui, b).clicked() {
+                            action =
+                                LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
+                        }
                     }
-                }
-                let label = if b.meta.authors.is_empty() {
-                    b.meta.title.clone()
-                } else {
-                    format!("{} — {}", b.meta.title, b.meta.authors.join(", "))
-                };
-                let resp = ui.selectable_label(false, label).on_hover_text(
-                    if b.meta.subjects.is_empty() {
-                        "no tags".to_string()
+                });
+            } else {
+                // A compact one-line-per-book list (the space-saving view).
+                for b in visible() {
+                    let label = if b.meta.authors.is_empty() {
+                        b.meta.title.clone()
                     } else {
-                        b.meta.subjects.join(", ")
-                    },
-                );
-                if resp.clicked() {
-                    action = LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
+                        format!("{} — {}", b.meta.title, b.meta.authors.join(", "))
+                    };
+                    let resp = ui.selectable_label(false, label).on_hover_text(
+                        if b.meta.subjects.is_empty() {
+                            "no tags".to_string()
+                        } else {
+                            b.meta.subjects.join(", ")
+                        },
+                    );
+                    if resp.clicked() {
+                        action = LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
+                    }
                 }
             }
         });
     action
+}
+
+/// Fixed cover thumbnail size for the library grid (book-cover ~3:4 aspect).
+const COVER_W: f32 = 96.0;
+const COVER_H: f32 = 132.0;
+
+/// One clickable book card in the library grid: a cover thumbnail (or a
+/// placeholder for cover-less books) above the truncated title. Returns the
+/// card's click response.
+fn book_card(ui: &mut egui::Ui, b: &ScannedBook) -> egui::Response {
+    let inner = ui.allocate_ui(egui::vec2(COVER_W, COVER_H + 32.0), |ui| {
+        ui.set_width(COVER_W);
+        ui.vertical_centered(|ui| {
+            if b.cover.is_some() {
+                ui.add(
+                    egui::Image::from_uri(cover_uri(&b.meta.path))
+                        .fit_to_exact_size(egui::vec2(COVER_W, COVER_H))
+                        .corner_radius(4.0),
+                );
+            } else {
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(COVER_W, COVER_H), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(rect, 4.0, ui.visuals().faint_bg_color);
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "📕",
+                    egui::FontId::proportional(28.0),
+                    ui.visuals().weak_text_color(),
+                );
+            }
+            ui.add(egui::Label::new(RichText::new(&b.meta.title).small()).truncate());
+        });
+    });
+    inner
+        .response
+        .interact(egui::Sense::click())
+        .on_hover_text(if b.meta.subjects.is_empty() {
+            b.meta.title.clone()
+        } else {
+            format!("{} · {}", b.meta.title, b.meta.subjects.join(", "))
+        })
 }
 
 /// Render the selected recipe's detail view. Returns `Some(idx)` if the user
@@ -579,6 +755,17 @@ fn show_recipe_detail(
     let r = &recipes[selected];
     let mut navigate_to = None;
     egui::ScrollArea::vertical().show(ui, |ui| {
+        // The recipe's hero photo, if one was found near its title (bytes were
+        // registered under `bytes://<path>` when the book loaded).
+        if let Some(img) = &r.image {
+            ui.add(
+                egui::Image::from_uri(format!("bytes://{}", img.path))
+                    .max_height(240.0)
+                    .max_width(ui.available_width())
+                    .corner_radius(6.0),
+            );
+            ui.add_space(6.0);
+        }
         ui.heading(&r.meta.title);
         if let Some(category) = &r.meta.category {
             ui.label(RichText::new(category).italics().weak());

@@ -26,11 +26,15 @@ const OPF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <dc:subject>Italian</dc:subject>
     <dc:identifier id="bookid">urn:uuid:test-cookbook</dc:identifier>
     <dc:language>en</dc:language>
+    <meta name="cover" content="coverimg"/>
   </metadata>
   <manifest>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
     <item id="front" href="front.xhtml" media-type="application/xhtml+xml"/>
     <item id="chap" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="coverimg" href="images/cover.jpg" media-type="image/jpeg"/>
+    <item id="p1" href="images/p1.jpg" media-type="image/jpeg"/>
+    <item id="p2" href="images/p2.jpg" media-type="image/jpeg"/>
   </manifest>
   <spine toc="ncx">
     <itemref idref="front"/>
@@ -55,17 +59,25 @@ const FRONT: &str = r#"<?xml version="1.0" encoding="utf-8"?>
   <p>Welcome to the Test Cookbook. This is just a friendly intro with no recipes.</p>
 </body></html>"#;
 
-// One chapter doc with two recipes (Dessert-Person style <p class> paragraphs).
+// One chapter doc with two recipes (Dessert-Person style <p class> paragraphs),
+// each introduced by its own hero <figure><img> (the common cookbook layout).
 const CHAPTER: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml"><body>
+  <figure><img src="images/p1.jpg" alt="Stack of pancakes"/></figure>
   <p class="rt">Pancakes</p>
   <p class="ril">1 cup flour</p>
   <p class="ril">2 eggs</p>
   <p class="rp">Mix and cook on a griddle.</p>
+  <figure><img src="images/p2.jpg" alt="Folded omelette"/></figure>
   <p class="rt">Omelette</p>
   <p class="ril">3 eggs</p>
   <p class="rp">Whisk and fry in butter.</p>
 </body></html>"#;
+
+// Stand-in image bytes (the readers return raw bytes; decoding happens in the UI).
+const COVER_JPG: &[u8] = b"\xff\xd8\xff\xe0COVERJPEG";
+const P1_JPG: &[u8] = b"\xff\xd8\xff\xe0PANCAKEJPEG";
+const P2_JPG: &[u8] = b"\xff\xd8\xff\xe0OMELETTEJPEG";
 
 /// Build a minimal valid EPUB (zip) in memory from the fixtures above.
 fn build_epub() -> Vec<u8> {
@@ -85,6 +97,14 @@ fn build_epub() -> Vec<u8> {
     ] {
         zw.start_file(name, deflated).unwrap();
         zw.write_all(body.as_bytes()).unwrap();
+    }
+    for (name, body) in [
+        ("OEBPS/images/cover.jpg", COVER_JPG),
+        ("OEBPS/images/p1.jpg", P1_JPG),
+        ("OEBPS/images/p2.jpg", P2_JPG),
+    ] {
+        zw.start_file(name, deflated).unwrap();
+        zw.write_all(body).unwrap();
     }
     zw.finish().unwrap().into_inner()
 }
@@ -165,6 +185,61 @@ async fn extracts_recipes_skipping_front_matter() {
         "url was {}",
         recipes[0].url
     );
+}
+
+#[tokio::test]
+async fn binds_hero_photos_and_reads_cover() {
+    // Each recipe is introduced by its own hero figure; binding is by title
+    // proximity, so each recipe gets *its* image, not the other's.
+    let mock = MockExtractor::new(vec![
+        (
+            "Pancakes".to_string(),
+            vec![er(
+                "Pancakes",
+                &["1 cup flour", "2 eggs"],
+                &["Mix and cook on a griddle."],
+            )],
+        ),
+        (
+            "Omelette".to_string(),
+            vec![er("Omelette", &["3 eggs"], &["Whisk and fry in butter."])],
+        ),
+    ]);
+    let bytes = build_epub();
+    let recipes = extract_cookbook_with(&bytes, "test.epub", &Options::default(), &mock, |_| {})
+        .await
+        .unwrap();
+
+    // Each recipe bound the hero introducing it (src resolved against the doc dir).
+    let pancakes = recipes.iter().find(|r| r.meta.title == "Pancakes").unwrap();
+    let omelette = recipes.iter().find(|r| r.meta.title == "Omelette").unwrap();
+    let p_hero = pancakes.image.as_ref().unwrap();
+    assert_eq!(p_hero.path, "OEBPS/images/p1.jpg");
+    assert_eq!(p_hero.mime, "image/jpeg");
+    assert_eq!(p_hero.alt.as_deref(), Some("Stack of pancakes"));
+    assert_eq!(
+        omelette.image.as_ref().map(|i| i.path.as_str()),
+        Some("OEBPS/images/p2.jpg")
+    );
+
+    // The hero bytes materialize from the EPUB (the lazy half of the reference).
+    let (data, mime) = recipe_epub::read_image(&bytes, &p_hero.path).unwrap();
+    assert_eq!(data, P1_JPG);
+    assert!(mime.contains("jpeg"));
+
+    // The cover resolves via the OPF `<meta name="cover">` and reads its bytes.
+    let cover = recipe_epub::cover_image_ref(&bytes).unwrap();
+    assert_eq!(cover.path, "OEBPS/images/cover.jpg");
+    let (cover_ref, items) = recipe_epub::collect_recipe_images(&bytes, &recipes);
+    assert_eq!(
+        cover_ref.as_ref().map(|c| c.path.as_str()),
+        Some("OEBPS/images/cover.jpg")
+    );
+    // One open yields the cover + two distinct heroes = 3 image blobs.
+    assert_eq!(items.len(), 3);
+    assert!(items
+        .iter()
+        .any(|(p, b)| p == "OEBPS/images/cover.jpg" && b == COVER_JPG));
 }
 
 #[tokio::test]

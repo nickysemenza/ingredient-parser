@@ -70,6 +70,16 @@ pub fn book_metadata(path: &Path) -> Result<BookMeta, EpubError> {
     })
 }
 
+/// Read an EPUB's cover image bytes (+ mime) from a file path, for the library
+/// browser's cover thumbnails. Unlike [`book_metadata`] (which only parses the
+/// OPF), this decompresses the cover resource, so it is heavier — call it only for
+/// books worth showing a cover for (e.g. confirmed cookbooks). `None` when the book
+/// declares no cover or can't be opened.
+pub fn book_cover(path: &Path) -> Option<(Vec<u8>, String)> {
+    let mut doc = EpubDoc::new(path).ok()?;
+    doc.get_cover()
+}
+
 /// Whether a book looks like a cookbook, judged only from its tags/title.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

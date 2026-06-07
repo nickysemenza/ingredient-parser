@@ -9,12 +9,101 @@ use ego_tree::iter::Edge;
 use epub::doc::EpubDoc;
 use scraper::{Html, Node};
 
-use crate::{Chunk, EpubError, Link};
+use crate::{Chunk, EpubError, ImageRef, Link};
 
-/// A cleaned text line plus any internal anchor links it contained.
+/// A cleaned text line plus any internal anchor links and embedded images it
+/// contained (images that sat in their own empty block attach to the nearest line).
 struct CleanLine {
     text: String,
     links: Vec<Link>,
+    images: Vec<ImageRef>,
+}
+
+/// Resolve an `<img src>` (relative to its content document `doc_path`) to the
+/// archive-relative path the `epub` crate's `get_resource_by_path` expects.
+/// Returns `None` for external (`http(s):`) or inline (`data:`) sources, which
+/// have no archive entry. Normalizes `.`/`..` segments and a leading `/`
+/// (archive-root) so e.g. `../images/p12.jpg` from `OEBPS/text/ch1.xhtml`
+/// resolves to `OEBPS/images/p12.jpg`.
+fn resolve_relative(doc_path: &str, src: &str) -> Option<String> {
+    // Drop any URL fragment/query before resolving (image srcs rarely carry them,
+    // but a stray `#anchor` would otherwise leak into the path).
+    let src = src.split(['#', '?']).next().unwrap_or(src).trim();
+    if src.is_empty() {
+        return None;
+    }
+    let lower = src.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("data:") {
+        return None;
+    }
+    let mut stack: Vec<&str> = Vec::new();
+    // A non-root-absolute src resolves against the doc's *directory* (everything
+    // before the doc's last `/`); a leading `/` resets to the archive root.
+    if !src.starts_with('/') {
+        if let Some(idx) = doc_path.rfind('/') {
+            for seg in doc_path[..idx].split('/') {
+                match seg {
+                    "" | "." => {}
+                    ".." => {
+                        stack.pop();
+                    }
+                    s => stack.push(s),
+                }
+            }
+        }
+    }
+    for seg in src.trim_start_matches('/').split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                stack.pop();
+            }
+            s => stack.push(s),
+        }
+    }
+    (!stack.is_empty()).then(|| stack.join("/"))
+}
+
+/// MIME type for an image path, derived from its extension. `None` for an
+/// unknown/missing extension — such a reference is dropped (not a displayable image).
+pub(crate) fn mime_from_ext(path: &str) -> Option<String> {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    let ext = file.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase())?;
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        _ => return None,
+    };
+    Some(mime.to_string())
+}
+
+/// Index of the emitted line nearest a buffer `offset`, used to attach an image
+/// that may sit in its own (dropped) empty block. Distance is 0 when the offset
+/// lands inside a line's `[start, end)` range, else the gap to the nearest edge;
+/// ties prefer the line *after* the image (a figure introduces the heading that
+/// follows it). `None` only when there are no emitted lines.
+fn nearest_line(ranges: &[(usize, usize)], offset: usize) -> Option<usize> {
+    let mut best: Option<(usize, usize, bool)> = None; // (distance, index, is_after)
+    for (i, &(start, end)) in ranges.iter().enumerate() {
+        let (dist, after) = if offset < start {
+            (start - offset, true)
+        } else if offset >= end {
+            (offset - end + 1, false)
+        } else {
+            (0, false)
+        };
+        let better = match best {
+            None => true,
+            Some((bd, _, b_after)) => dist < bd || (dist == bd && after && !b_after),
+        };
+        if better {
+            best = Some((dist, i, after));
+        }
+    }
+    best.map(|(_, i, _)| i)
 }
 
 /// Whether an href is an EPUB *internal* link (points within the book) rather
@@ -72,7 +161,7 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
                 let decoded = String::from_utf8_lossy(&raw);
                 // Strip a leading BOM so the html parser sees a clean root.
                 let content = decoded.strip_prefix('\u{feff}').unwrap_or(decoded.as_ref());
-                for line in clean_xhtml_to_lines(content) {
+                for line in clean_xhtml_to_lines(content, &doc_path) {
                     tagged.push((doc_path.clone(), line));
                 }
             }
@@ -108,6 +197,8 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
     let mut chunks = Vec::new();
     let mut lines: Vec<String> = Vec::new();
     let mut chunk_links: Vec<Link> = Vec::new();
+    // Images in the current chunk, tagged with their line index within it.
+    let mut chunk_images: Vec<(usize, ImageRef)> = Vec::new();
     let mut len = 0usize;
     let mut doc: Option<String> = None;
     // The most recent title-like line, and the hint carried into the next chunk
@@ -125,6 +216,7 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
                 text: lines.join("\n"),
                 doc_path: doc.take().unwrap_or_default(),
                 links: std::mem::take(&mut chunk_links),
+                images: std::mem::take(&mut chunk_images),
             });
             lines = Vec::new();
             len = 0;
@@ -140,6 +232,12 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
         if looks_like_title(&line.text) {
             last_title = Some(line.text.clone());
         }
+        // This line's index within the chunk is its position in `lines` (the same
+        // index it will have after `lines.join("\n")`), so tag the line's images.
+        let line_idx = lines.len();
+        for img in line.images {
+            chunk_images.push((line_idx, img));
+        }
         len += line.text.len() + 1;
         lines.push(line.text);
         chunk_links.extend(line.links);
@@ -150,6 +248,7 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
             text: lines.join("\n"),
             doc_path: doc.unwrap_or_default(),
             links: chunk_links,
+            images: chunk_images,
         });
     }
     chunks
@@ -228,7 +327,7 @@ fn is_skip(tag: &str) -> bool {
 /// Strip XHTML to text and join into one string (one line per block element).
 #[cfg(test)]
 pub(crate) fn clean_xhtml_to_text(xhtml: &str) -> String {
-    clean_xhtml_to_lines(xhtml)
+    clean_xhtml_to_lines(xhtml, "")
         .into_iter()
         .map(|l| l.text)
         .collect::<Vec<_>>()
@@ -285,8 +384,9 @@ fn close_self_closing_rawtext(xhtml: &str) -> std::borrow::Cow<'_, str> {
 /// Strip XHTML to text, one line per block-level element, by walking the DOM and
 /// inserting a newline at every block boundary. Captures `<div>`/`<span>`-based
 /// layouts that a tag allowlist would miss, and drops `<script>`/`<style>`/`<head>`.
-/// Also captures internal `<a href>` links per line (the cross-recipe signal).
-fn clean_xhtml_to_lines(xhtml: &str) -> Vec<CleanLine> {
+/// Also captures internal `<a href>` links per line (the cross-recipe signal) and
+/// `<img>` references (resolved against `doc_path`) attached to the nearest line.
+fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
     // NUL marks block boundaries — distinct from source newlines/indentation,
     // which appear inside text nodes and must NOT split a logical line.
     const SEP: char = '\u{0}';
@@ -297,6 +397,9 @@ fn clean_xhtml_to_lines(xhtml: &str) -> Vec<CleanLine> {
     // Internal anchors, recorded as (byte offset in `buf` where the link text
     // began, href, link text) so each can later be mapped to its split line.
     let mut links: Vec<(usize, String, String)> = Vec::new();
+    // Embedded images, recorded as (byte offset in `buf` at the `<img>`, ref);
+    // images often sit in their own empty block, so they map to the nearest line.
+    let mut images: Vec<(usize, ImageRef)> = Vec::new();
     // Open <a> with an internal href: (start offset in buf, href).
     let mut open_anchor: Option<(usize, String)> = None;
 
@@ -315,6 +418,21 @@ fn clean_xhtml_to_lines(xhtml: &str) -> Vec<CleanLine> {
                             if let Some(href) = e.attr("href") {
                                 if is_internal_href(href) {
                                     open_anchor = Some((buf.len(), href.to_string()));
+                                }
+                            }
+                        }
+                        // <img> is a void element (no Close edge), so capture it
+                        // here. Its offset marks where it sits in the text flow.
+                        if name == "img" {
+                            if let Some(src) = e.attr("src") {
+                                if let Some(path) = resolve_relative(doc_path, src) {
+                                    if let Some(mime) = mime_from_ext(&path) {
+                                        let alt = e
+                                            .attr("alt")
+                                            .map(str::to_string)
+                                            .filter(|a| !a.is_empty());
+                                        images.push((buf.len(), ImageRef { path, mime, alt }));
+                                    }
                                 }
                             }
                         }
@@ -346,8 +464,10 @@ fn clean_xhtml_to_lines(xhtml: &str) -> Vec<CleanLine> {
 
     // Map each captured anchor to the split-line it falls in (by byte offset),
     // then normalize. A line's links are those whose start offset lands between
-    // that line's start and the next SEP.
+    // that line's start and the next SEP. Image offsets are kept with each line's
+    // [start, end) range so a later pass can attach each image to the nearest line.
     let mut out: Vec<CleanLine> = Vec::new();
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
     let mut line_start = 0usize;
     for segment in buf.split(SEP) {
         let line_end = line_start + segment.len();
@@ -364,12 +484,22 @@ fn clean_xhtml_to_lines(xhtml: &str) -> Vec<CleanLine> {
                     })
                 })
                 .collect();
+            ranges.push((line_start, line_end));
             out.push(CleanLine {
                 text,
                 links: line_links,
+                images: Vec::new(),
             });
         }
         line_start = line_end + SEP.len_utf8();
+    }
+
+    // Attach each image to the nearest emitted line (its own block is usually
+    // empty text — a bare <figure><img/> — so a strict in-range match would drop it).
+    for (off, img) in images {
+        if let Some(idx) = nearest_line(&ranges, off) {
+            out[idx].images.push(img);
+        }
     }
     out
 }
@@ -389,16 +519,18 @@ fn normalize_ws(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     use rstest::rstest;
 
-    /// A `(doc, CleanLine)` pair with no links, for window_chunks tests.
+    /// A `(doc, CleanLine)` pair with no links or images, for window_chunks tests.
     fn tag(doc: &str, text: &str) -> (String, CleanLine) {
         (
             doc.to_string(),
             CleanLine {
                 text: text.to_string(),
                 links: Vec::new(),
+                images: Vec::new(),
             },
         )
     }
@@ -496,13 +628,42 @@ mod tests {
     }
 
     #[test]
+    fn window_tags_images_with_chunk_line_index() {
+        let hero = ImageRef {
+            path: "images/hero.jpg".to_string(),
+            mime: "image/jpeg".to_string(),
+            alt: None,
+        };
+        let tagged = vec![
+            tag("c.html", "Intro line"),
+            (
+                "c.html".to_string(),
+                CleanLine {
+                    text: "Chocolate Cake".to_string(),
+                    links: Vec::new(),
+                    images: vec![hero.clone()],
+                },
+            ),
+            tag("c.html", "2 cups flour"),
+        ];
+        let chunks = window_chunks(tagged);
+        assert_eq!(chunks.len(), 1);
+        // The image rides on the chunk, tagged with line index 1 (the title line),
+        // which actually points at the title within the joined chunk text.
+        assert_eq!(chunks[0].images.len(), 1);
+        assert_eq!(chunks[0].images[0].0, 1);
+        assert_eq!(chunks[0].images[0].1.path, "images/hero.jpg");
+        assert_eq!(chunks[0].text.split('\n').nth(1), Some("Chocolate Cake"));
+    }
+
+    #[test]
     fn captures_internal_anchor_links_and_strips_markup() {
         let xhtml = r#"<html><body>
             <p>1 recipe <a href="recipes.xhtml#piecrust">The Only Piecrust</a> (this page)</p>
             <p>2 cups flour</p>
             <p>See <a href="https://example.com">our site</a> for more</p>
         </body></html>"#;
-        let lines = clean_xhtml_to_lines(xhtml);
+        let lines = clean_xhtml_to_lines(xhtml, "text/ch1.xhtml");
         // Visible text is intact (link text inlined, no href leakage).
         assert_eq!(lines[0].text, "1 recipe The Only Piecrust (this page)");
         // The internal anchor is captured on its line.
@@ -514,6 +675,72 @@ mod tests {
         // External (http) links are ignored.
         assert_eq!(lines[2].text, "See our site for more");
         assert!(lines[2].links.is_empty());
+    }
+
+    #[test]
+    fn captures_img_and_attaches_to_nearest_line() {
+        // A hero image in its own (text-empty) <figure>, then the recipe title.
+        // The figure's segment is empty (dropped), so the image must bind to the
+        // nearest emitted line — the title that follows it. The <img> src is
+        // resolved relative to the doc path; data:/http srcs are ignored.
+        let xhtml = r#"<html><body>
+            <figure><img src="../images/p12.jpg" alt="A finished cake"/></figure>
+            <h1>Chocolate Cake</h1>
+            <p>2 cups flour</p>
+            <p>An inline icon <img src="data:image/png;base64,AAAA"/> here</p>
+            <p>External <img src="https://cdn.example.com/x.jpg"/> art</p>
+        </body></html>"#;
+        let lines = clean_xhtml_to_lines(xhtml, "OEBPS/text/ch1.xhtml");
+        // The hero binds to the title line, with src resolved and alt captured.
+        let title = lines.iter().find(|l| l.text == "Chocolate Cake").unwrap();
+        assert_eq!(title.images.len(), 1);
+        assert_eq!(title.images[0].path, "OEBPS/images/p12.jpg");
+        assert_eq!(title.images[0].mime, "image/jpeg");
+        assert_eq!(title.images[0].alt.as_deref(), Some("A finished cake"));
+        // data: and http(s) image sources are dropped (no archive entry).
+        assert!(lines
+            .iter()
+            .all(|l| l.images.is_empty() || l.text == "Chocolate Cake"));
+    }
+
+    #[rstest]
+    // relative to the doc's directory
+    #[case("OEBPS/text/ch1.xhtml", "p12.jpg", Some("OEBPS/text/p12.jpg"))]
+    // parent traversal
+    #[case(
+        "OEBPS/text/ch1.xhtml",
+        "../images/p12.jpg",
+        Some("OEBPS/images/p12.jpg")
+    )]
+    // current-dir prefix
+    #[case("OEBPS/text/ch1.xhtml", "./img/a.png", Some("OEBPS/text/img/a.png"))]
+    // archive-root absolute
+    #[case("OEBPS/text/ch1.xhtml", "/images/p12.jpg", Some("images/p12.jpg"))]
+    // doc at archive root
+    #[case("ch1.xhtml", "images/p12.jpg", Some("images/p12.jpg"))]
+    // external / inline sources have no archive entry
+    #[case("OEBPS/text/ch1.xhtml", "https://x.com/a.jpg", None)]
+    #[case("OEBPS/text/ch1.xhtml", "data:image/png;base64,AAAA", None)]
+    fn resolves_relative_img_paths(
+        #[case] doc: &str,
+        #[case] src: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(resolve_relative(doc, src).as_deref(), expected);
+    }
+
+    #[rstest]
+    #[case("a/b/photo.JPG", Some("image/jpeg"))]
+    #[case("photo.jpeg", Some("image/jpeg"))]
+    #[case("cover.png", Some("image/png"))]
+    #[case("anim.gif", Some("image/gif"))]
+    #[case("x.webp", Some("image/webp"))]
+    #[case("logo.svg", Some("image/svg+xml"))]
+    // no extension, or an unknown one, is not a displayable image
+    #[case("noext", None)]
+    #[case("file.txt", None)]
+    fn derives_mime_from_extension(#[case] path: &str, #[case] expected: Option<&str>) {
+        assert_eq!(mime_from_ext(path).as_deref(), expected);
     }
 
     #[test]

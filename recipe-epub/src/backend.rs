@@ -131,7 +131,7 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor>(
     // atomics so each completing task can emit a consistent, monotonic snapshot.
     let done = AtomicUsize::new(0);
     let cached = AtomicUsize::new(0);
-    let per_chunk: Vec<(String, ChunkOutcome)> = stream::iter(chunks.iter())
+    let per_chunk: Vec<(Chunk, ChunkOutcome)> = stream::iter(chunks.iter())
         .map(|chunk| async {
             let outcome = extractor.extract(chunk).await.unwrap_or_else(|e| {
                 tracing::warn!("chunk {} extraction failed: {e}", chunk.doc_path);
@@ -150,7 +150,9 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor>(
                 total,
                 cached: cached.load(Ordering::Relaxed),
             });
-            (chunk.doc_path.clone(), outcome)
+            // Carry the whole chunk (its text lines + image positions) so the
+            // assembler can bind each recipe's hero photo by title proximity.
+            (chunk.clone(), outcome)
         })
         .buffered(opts.concurrency.max(1))
         .collect::<Vec<_>>()
@@ -161,18 +163,18 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor>(
         chunks_total: per_chunk.len(),
         ..Default::default()
     };
-    let recipes_by_doc: Vec<(String, Vec<ExtractedRecipe>)> = per_chunk
+    let recipes_by_chunk: Vec<(Chunk, Vec<ExtractedRecipe>)> = per_chunk
         .into_iter()
-        .map(|(doc, outcome)| {
+        .map(|(chunk, outcome)| {
             if outcome.cached {
                 stats.chunks_cached += 1;
             }
             stats.usage.add(&outcome.usage);
-            (doc, outcome.recipes)
+            (chunk, outcome.recipes)
         })
         .collect();
 
-    let mut recipes = assemble(recipes_by_doc, source);
+    let mut recipes = assemble(recipes_by_chunk, source);
     resolve_references(&mut recipes, &links);
     tracing::info!(
         "epub {source}: {} recipe(s); {}",

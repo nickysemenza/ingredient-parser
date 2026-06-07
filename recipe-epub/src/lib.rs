@@ -32,7 +32,8 @@ pub use extractor::{
 // (native: needs std::fs + the LLM classifier).
 #[cfg(feature = "native")]
 pub use library::{
-    book_metadata, classify_by_tags, classify_cookbooks_ai, find_epubs, BookMeta, CookbookGuess,
+    book_cover, book_metadata, classify_by_tags, classify_cookbooks_ai, find_epubs, BookMeta,
+    CookbookGuess,
 };
 // The native extraction orchestration (backends + cache + async) lives in
 // `backend`; re-export the public entry points so `recipe_epub::extract_cookbook`
@@ -44,6 +45,9 @@ pub use backend::{
 // Section + time types are shared with the web scraper — one shape workspace-wide.
 pub use recipe_scraper::{ParsedSection, RecipeSection, RecipeTimes};
 
+use std::io::Cursor;
+
+use epub::doc::EpubDoc;
 use recipe_scraper::parse_sections;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -104,6 +108,10 @@ pub struct Chunk {
     /// Internal anchor links found anywhere in this chunk's text, with the line
     /// they appeared on. Used to confirm cross-recipe references.
     pub links: Vec<Link>,
+    /// Embedded images found in this chunk, each tagged with the 0-based index of
+    /// the `text` line (after splitting on `\n`) it sits nearest. The line index
+    /// is the proximity coordinate used to bind a hero photo to a recipe title.
+    pub images: Vec<(usize, ImageRef)>,
 }
 
 // The assembled-recipe data shapes (`CookbookRecipe`, `RecipeRef`,
@@ -111,7 +119,7 @@ pub struct Chunk {
 // so the cookbook JSON contract can be depended on without this crate's EPUB/LLM
 // stack. Re-exported here so existing `recipe_epub::CookbookRecipe` (etc.) paths
 // are unchanged. The parser-aware operations live in [`CookbookRecipeExt`] below.
-pub use recipe_types::{CookbookRecipe, RecipeRef, RefConfidence};
+pub use recipe_types::{CookbookRecipe, ImageRef, RecipeRef, RefConfidence};
 
 /// [`CookbookRecipe`] with each ingredient line parsed into a structured
 /// [`Ingredient`] and each instruction into a [`Rich`] (measurement-aware).
@@ -255,7 +263,7 @@ fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
 /// boundary's counterpart to [`chunk_epub`]: the browser runs the LLM per chunk,
 /// then hands the parsed outputs here to build the `CookbookRecipe[]`.
 pub fn assemble_recipes(
-    per_chunk: Vec<(String, Vec<ExtractedRecipe>)>,
+    per_chunk: Vec<(Chunk, Vec<ExtractedRecipe>)>,
     links: Vec<Link>,
     source: &str,
 ) -> Vec<CookbookRecipe> {
@@ -274,20 +282,23 @@ pub fn assemble_recipes(
 /// instead of discarding it. For the common single-chunk recipe it's a no-op.
 /// `pub(crate)` so the native orchestration in [`crate::backend`] can call it.
 pub(crate) fn assemble(
-    per_chunk: Vec<(String, Vec<ExtractedRecipe>)>,
+    per_chunk: Vec<(Chunk, Vec<ExtractedRecipe>)>,
     source: &str,
 ) -> Vec<CookbookRecipe> {
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut out: Vec<CookbookRecipe> = Vec::new();
-    for (doc_path, recipes) in per_chunk {
+    for (chunk, recipes) in per_chunk {
         for r in recipes {
             let title = r.meta.title.trim().to_string();
             let has_ingredients = r.sections.iter().any(|s| !s.ingredients.is_empty());
             if title.is_empty() || !has_ingredients {
                 continue;
             }
+            // The hero photo is whichever image in this chunk sits nearest the
+            // recipe's title line (see `hero_for`); `None` for most recipes.
+            let hero = hero_for(&chunk, &title);
             match index.get(&title.to_lowercase()) {
-                Some(&i) => merge_recipe(&mut out[i], r),
+                Some(&i) => merge_recipe(&mut out[i], r, hero),
                 None => {
                     index.insert(title.to_lowercase(), out.len());
                     let mut meta = r.meta;
@@ -296,8 +307,9 @@ pub(crate) fn assemble(
                         meta,
                         sections: r.sections,
                         source: source.to_string(),
-                        url: format!("{source}#{doc_path}"),
+                        url: format!("{source}#{}", chunk.doc_path),
                         references: Vec::new(),
+                        image: hero,
                     });
                 }
             }
@@ -306,16 +318,52 @@ pub(crate) fn assemble(
     out
 }
 
+/// The hero photo for a recipe: the image in `chunk` sitting nearest the recipe's
+/// title line. Heroes sit just before their title (a `<figure>` then the heading),
+/// so the nearest image *at or above* the title wins; only when none precede it do
+/// we take the nearest below. `None` when the chunk has no images or the title
+/// isn't found in the chunk text. Reuses the reference-matching helpers so a
+/// lightly-reformatted title still locates its line.
+fn hero_for(chunk: &Chunk, title: &str) -> Option<ImageRef> {
+    let norm_title = normalize_title(title);
+    if chunk.images.is_empty() || norm_title.is_empty() {
+        return None;
+    }
+    let title_idx = chunk.text.split('\n').position(|line| {
+        let n = normalize_title(line);
+        !n.is_empty() && contains_whole_tokens(&n, &norm_title)
+    })?;
+    let nearest_above = chunk
+        .images
+        .iter()
+        .filter(|(li, _)| *li <= title_idx)
+        .min_by_key(|(li, _)| title_idx - *li);
+    nearest_above
+        .or_else(|| {
+            chunk
+                .images
+                .iter()
+                .filter(|(li, _)| *li > title_idx)
+                .min_by_key(|(li, _)| *li - title_idx)
+        })
+        .map(|(_, img)| img.clone())
+}
+
 /// Fold a continuation half of a recipe into the already-assembled one: append
 /// its sections and union its notes (and any newly-present metadata), de-duping
 /// identical strings so a recipe that merely repeats across the seam doesn't
 /// double up.
-fn merge_recipe(into: &mut CookbookRecipe, from: ExtractedRecipe) {
+fn merge_recipe(into: &mut CookbookRecipe, from: ExtractedRecipe, hero: Option<ImageRef>) {
     into.sections.extend(from.sections);
     for note in from.meta.notes {
         if !into.meta.notes.contains(&note) {
             into.meta.notes.push(note);
         }
+    }
+    // Keep the first hero found; fill from the continuation chunk only if the
+    // title-bearing chunk had none.
+    if into.image.is_none() {
+        into.image = hero;
     }
     // Fill metadata only the continuation chunk happened to capture.
     let m = &mut into.meta;
@@ -479,6 +527,89 @@ pub(crate) fn resolve_references(recipes: &mut [CookbookRecipe], links: &[Link])
     }
 }
 
+// ===========================================================================
+// Image materialization. References (`ImageRef`) are carried in the recipe data;
+// the actual bytes are read lazily from the EPUB by these helpers when something
+// (the app, an exporter) needs to display or save a photo. All pure byte ops over
+// the in-memory `.epub` — no fs/network — so they compile everywhere `chunk_epub`
+// does. The file-backed `book_cover` (scanning a library by path) lives in
+// `library.rs` (native).
+// ===========================================================================
+
+/// The cover photo of an EPUB as an [`ImageRef`] (path + mime, not bytes), or
+/// `None` if the book declares no cover. Pair with [`read_image`] to get the bytes.
+pub fn cover_image_ref(bytes: &[u8]) -> Option<ImageRef> {
+    let mut doc = EpubDoc::from_reader(Cursor::new(bytes)).ok()?;
+    cover_ref_from_doc(&mut doc)
+}
+
+/// Read one image resource's bytes (+ mime) from an EPUB by its archive path —
+/// the lazy half of the reference model. `None` if the path isn't in the archive.
+pub fn read_image(bytes: &[u8], path: &str) -> Option<(Vec<u8>, String)> {
+    let mut doc = EpubDoc::from_reader(Cursor::new(bytes)).ok()?;
+    let data = doc.get_resource_by_path(path)?;
+    let mime = doc
+        .get_resource_mime_by_path(path)
+        .filter(|m| !m.is_empty())
+        .or_else(|| epub_text::mime_from_ext(path))
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+    Some((data, mime))
+}
+
+/// Read, in a single EPUB open, the cover plus the bytes of every recipe's hero
+/// photo — the convenience the app's load worker calls so all image I/O happens
+/// off the UI thread. Returns the cover reference and a de-duplicated
+/// `(archive_path, bytes)` list covering the cover and all heroes.
+pub fn collect_recipe_images(
+    bytes: &[u8],
+    recipes: &[CookbookRecipe],
+) -> (Option<ImageRef>, Vec<(String, Vec<u8>)>) {
+    let Ok(mut doc) = EpubDoc::from_reader(Cursor::new(bytes)) else {
+        return (None, Vec::new());
+    };
+    let cover = cover_ref_from_doc(&mut doc);
+
+    // Unique archive paths to materialize: the cover, then each recipe's hero.
+    let mut paths: Vec<String> = Vec::new();
+    let push_unique = |p: &str, paths: &mut Vec<String>| {
+        if !paths.iter().any(|q| q == p) {
+            paths.push(p.to_string());
+        }
+    };
+    if let Some(c) = &cover {
+        push_unique(&c.path, &mut paths);
+    }
+    for r in recipes {
+        if let Some(img) = &r.image {
+            push_unique(&img.path, &mut paths);
+        }
+    }
+
+    let items = paths
+        .into_iter()
+        .filter_map(|p| doc.get_resource_by_path(&p).map(|data| (p, data)))
+        .collect();
+    (cover, items)
+}
+
+/// Resolve an open EPUB's cover id to an [`ImageRef`]. Shared by
+/// [`cover_image_ref`] and [`collect_recipe_images`].
+fn cover_ref_from_doc<R: std::io::Read + std::io::Seek>(doc: &mut EpubDoc<R>) -> Option<ImageRef> {
+    let id = doc.get_cover_id()?;
+    let item = doc.resources.get(&id)?;
+    let path = item.path.to_string_lossy().into_owned();
+    let mime = if item.mime.is_empty() {
+        epub_text::mime_from_ext(&path).unwrap_or_else(|| "application/octet-stream".to_string())
+    } else {
+        item.mime.clone()
+    };
+    Some(ImageRef {
+        path,
+        mime,
+        alt: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -533,15 +664,32 @@ mod tests {
         }
     }
 
+    /// A bare chunk carrying just a `doc_path` — text/images empty, so `hero_for`
+    /// yields `None`. For assemble tests that don't exercise photo binding.
+    fn chunk(doc_path: &str) -> Chunk {
+        Chunk {
+            title_hint: None,
+            text: String::new(),
+            doc_path: doc_path.to_string(),
+            links: Vec::new(),
+            images: Vec::new(),
+        }
+    }
+
+    fn img(path: &str) -> ImageRef {
+        ImageRef {
+            path: path.to_string(),
+            mime: "image/jpeg".to_string(),
+            alt: None,
+        }
+    }
+
     #[test]
     fn assemble_merges_by_title_and_drops_empty() {
         let per_chunk = vec![
+            (chunk("c1.xhtml"), vec![er("Pancakes", &["1 cup flour"])]),
             (
-                "c1.xhtml".to_string(),
-                vec![er("Pancakes", &["1 cup flour"])],
-            ),
-            (
-                "c2.xhtml".to_string(),
+                chunk("c2.xhtml"),
                 vec![
                     er("PANCAKES", &["dupe"]), // merged (case-insensitive)
                     er("  ", &["no name"]),    // dropped: empty name
@@ -592,8 +740,8 @@ mod tests {
         };
         let out = assemble(
             vec![
-                ("c1.xhtml".to_string(), vec![title_half]),
-                ("c2.xhtml".to_string(), vec![cont_half]),
+                (chunk("c1.xhtml"), vec![title_half]),
+                (chunk("c2.xhtml"), vec![cont_half]),
             ],
             "book.epub",
         );
@@ -603,6 +751,85 @@ mod tests {
         assert_eq!(out[0].sections.len(), 2);
         // Metadata only the continuation chunk captured is filled in.
         assert_eq!(out[0].meta.recipe_yield.as_deref(), Some("Makes 18"));
+    }
+
+    #[test]
+    fn hero_for_binds_nearest_image_per_recipe() {
+        // One chunk with two recipes; each title's image sits on its own line
+        // (the common case — an empty <figure> binds the image to the heading).
+        let c = Chunk {
+            title_hint: None,
+            text: [
+                "Chocolate Cake",
+                "2 cups flour",
+                "Vanilla Cake",
+                "1 cup sugar",
+            ]
+            .join("\n"),
+            doc_path: "c.xhtml".to_string(),
+            links: Vec::new(),
+            images: vec![(0, img("choc.jpg")), (2, img("vanilla.jpg"))],
+        };
+        // Each recipe binds the image nearest its own title.
+        assert_eq!(hero_for(&c, "Chocolate Cake").unwrap().path, "choc.jpg");
+        assert_eq!(hero_for(&c, "Vanilla Cake").unwrap().path, "vanilla.jpg");
+        // A title not in the chunk text binds nothing.
+        assert!(hero_for(&c, "Lemon Tart").is_none());
+        // No images → no hero.
+        assert!(hero_for(&chunk("c.xhtml"), "Chocolate Cake").is_none());
+    }
+
+    #[test]
+    fn hero_for_prefers_image_above_the_title() {
+        // An image just before the title (a figure → heading) beats one just after.
+        let c = Chunk {
+            title_hint: None,
+            text: ["plated dish", "Apple Pie", "next thing"].join("\n"),
+            doc_path: "c.xhtml".to_string(),
+            links: Vec::new(),
+            images: vec![(0, img("above.jpg")), (2, img("below.jpg"))],
+        };
+        assert_eq!(hero_for(&c, "Apple Pie").unwrap().path, "above.jpg");
+    }
+
+    #[test]
+    fn assemble_attaches_and_keeps_first_hero_on_merge() {
+        // The title-bearing chunk's hero wins; a later same-title chunk can't replace it.
+        let c1 = Chunk {
+            text: "Cake".to_string(),
+            images: vec![(0, img("first.jpg"))],
+            ..chunk("c1.xhtml")
+        };
+        let c2 = Chunk {
+            text: "Cake".to_string(),
+            images: vec![(0, img("second.jpg"))],
+            ..chunk("c2.xhtml")
+        };
+        let out = assemble(
+            vec![
+                (c1, vec![er("Cake", &["flour"])]),
+                (c2, vec![er("Cake", &["sugar"])]),
+            ],
+            "book.epub",
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].image.as_ref().unwrap().path, "first.jpg");
+
+        // When the first chunk had no hero, the continuation supplies one.
+        let p1 = Chunk {
+            text: "Pie".to_string(),
+            ..chunk("c1.xhtml")
+        };
+        let p2 = Chunk {
+            text: "Pie".to_string(),
+            images: vec![(0, img("late.jpg"))],
+            ..chunk("c2.xhtml")
+        };
+        let out2 = assemble(
+            vec![(p1, vec![er("Pie", &["a"])]), (p2, vec![er("Pie", &["b"])])],
+            "book.epub",
+        );
+        assert_eq!(out2[0].image.as_ref().unwrap().path, "late.jpg");
     }
 
     #[test]
@@ -657,6 +884,7 @@ mod tests {
             source: "book.epub".to_string(),
             url: "book.epub#c.xhtml".to_string(),
             references: Vec::new(),
+            image: None,
         }
     }
 

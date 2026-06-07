@@ -123,6 +123,23 @@ pub struct RecipeRef {
 }
 
 /// A fully assembled recipe (raw verbatim strings) with provenance. The EPUB
+/// A reference to an image embedded in an EPUB — the archive-relative path of the
+/// resource plus its MIME type, *not* the bytes. The bytes are materialized lazily
+/// from the still-available EPUB (the file is hundreds of MB; embedding every
+/// hero/cover would bloat the JSON cache and CLI output). A book cover and each
+/// recipe's hero photo are both expressed as one of these.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageRef {
+    /// Path of the image resource within the EPUB archive (resolved relative to
+    /// the referencing content document).
+    pub path: String,
+    /// MIME type, e.g. `image/jpeg`.
+    pub mime: String,
+    /// The `<img alt>` text, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt: Option<String>,
+}
+
 /// extractor's output type; `recipe-epub`'s `CookbookRecipeExt::parse` structures
 /// the lines with the core parser.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -138,4 +155,9 @@ pub struct CookbookRecipe {
     /// payload), so it defaults to empty when deserializing older cached JSON.
     #[serde(default)]
     pub references: Vec<RecipeRef>,
+    /// The recipe's hero photo, if one was found near its title in the EPUB.
+    /// Derived after assembly (not extracted by the LLM, not part of the cache
+    /// payload), so it defaults to `None` when deserializing older cached JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ImageRef>,
 }
