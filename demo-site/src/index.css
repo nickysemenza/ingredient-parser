@@ -2,66 +2,52 @@
 
 @plugin '@tailwindcss/forms';
 
-/*
-  The default border color has changed to `currentColor` in Tailwind CSS v4,
-  so we've added these compatibility styles to make sure everything still
-  looks the same as it did with Tailwind CSS v3.
+/* ── Design tokens ─────────────────────────────────────────────
+   One coherent accent (emerald) + Inter as the sans font. Surfaces
+   lean on Tailwind's built-in neutral scale; we only override what
+   the design system actually needs. */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
 
-  If we ever want to remove these styles, we need to add an explicit border
-  color utility to any element that depends on these defaults.
-*/
+  --color-accent-50: #ecfdf5;
+  --color-accent-100: #d1fae5;
+  --color-accent-200: #a7f3d0;
+  --color-accent-300: #6ee7b7;
+  --color-accent-400: #34d399;
+  --color-accent-500: #10b981;
+  --color-accent-600: #059669;
+  --color-accent-700: #047857;
+  --color-accent-800: #065f46;
+  --color-accent-900: #064e3b;
+}
+
 @layer base {
-  *,
-  ::after,
-  ::before,
-  ::backdrop,
-  ::file-selector-button {
-    border-color: var(--color-gray-200, currentColor);
-  }
-
   body {
-    font-family: 'Inter', sans-serif;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
+}
 
-  /* Custom gradient backgrounds */
-  .gradient-hero {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  }
-
-  .gradient-card {
-    background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
-  }
-
-  /* Glass morphism effect */
-  .glass {
-    background: rgba(255, 255, 255, 0.25);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-  }
-
-  /* Smooth transitions */
-  .transition-all {
-    transition: all 0.3s ease;
-  }
-
-  /* Animations */
-  @keyframes fadeInUp {
-    from {
-      opacity: 0;
-      transform: translateY(30px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .animate-fade-in-up {
-    animation: fadeInUp 0.6s ease-out;
-  }
-
-  /* Hover effects */
-  .hover-lift:hover {
+/* ── Custom utilities (Tailwind v4 @utility) ─────────────────── */
+@utility hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  &:hover {
     transform: translateY(-2px);
+  }
+}
+
+@utility animate-fade-in-up {
+  animation: fade-in-up 0.5s ease-out both;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

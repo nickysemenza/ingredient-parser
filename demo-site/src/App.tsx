@@ -1,11 +1,10 @@
-import { WasmContextProvider } from "./wasmContext";
+import { WasmContextProvider } from "./WasmProvider";
 import { Demo } from "./Demo";
+
 function App() {
   return (
     <WasmContextProvider>
-      <div className="App">
-        <Demo />
-      </div>
+      <Demo />
     </WasmContextProvider>
   );
 }

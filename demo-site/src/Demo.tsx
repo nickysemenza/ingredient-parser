@@ -1,4 +1,10 @@
-import { useCallback, useContext, useEffect, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   RichItem,
   wasm,
@@ -6,444 +12,593 @@ import {
   ScrapedRecipe,
   Measure,
 } from "./wasmContext";
-import ReactJson from "react-json-view";
+
+/* ── URL state helpers ─────────────────────────────────────────
+   Inputs are persisted to the query string so demo links are
+   shareable. Each writer reads the current params first, so the
+   independent effects never clobber each other's keys. */
+const getUrlParam = (key: string): string | null =>
+  new URLSearchParams(window.location.search).get(key);
+
+const setUrlParam = (key: string, value: string | null) => {
+  const params = new URLSearchParams(window.location.search);
+  if (value === null || value === "") {
+    params.delete(key);
+  } else {
+    params.set(key, value);
+  }
+  const qs = params.toString();
+  window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+};
+
+const CORS_PROXY =
+  import.meta.env.VITE_CORS_PROXY ?? "https://cors.nicky.workers.dev/?target=";
+
+const EXAMPLE_INGREDIENTS = [
+  "2 cups all-purpose flour, sifted",
+  "1/2 cup butter, softened",
+  "3 large eggs, beaten",
+  "1 tsp vanilla extract",
+  "2 tbsp olive oil, extra virgin",
+];
+
+const fmtAmount = (w: wasm, a: Measure): string => {
+  try {
+    return w.format_amount(a);
+  } catch {
+    return `${a.value} ${a.unit}`.trim();
+  }
+};
+
 export const Demo: React.FC = () => {
   const w = useContext(WasmContext);
 
-  const [text, setText] = useState("1 cup / 120 grams flour, sifted");
-  const parsed = w?.parse_ingredient(text);
-
-  const exampleIngredients = [
-    "2 cups all-purpose flour, sifted",
-    "1/2 cup butter, softened",
-    "3 large eggs, beaten",
-    "1 tsp vanilla extract",
-    "2 tbsp olive oil, extra virgin",
-  ];
-
-  const [richText, setRichText] = useState(
-    "Add 1/2 cup / 236 grams water to the bowl with the salt and mix."
+  const [text, setText] = useState(
+    () => getUrlParam("i") ?? "1 cup / 120 grams flour, sifted"
   );
-  const ingredientNames = ["flour", "water", "salt"];
-  const parsedRich = w?.parse_rich_text(richText, ingredientNames);
+  const [richText, setRichText] = useState(
+    () =>
+      getUrlParam("rt") ??
+      "Add 1/2 cup / 236 grams water to the bowl with the salt and mix."
+  );
+
+  useEffect(() => setUrlParam("i", text), [text]);
+  useEffect(() => setUrlParam("rt", richText), [richText]);
+
+  const ingredientNames = useMemo(() => ["flour", "water", "salt"], []);
+
+  const parsed = useMemo(
+    () => (w && text ? w.parse_ingredient(text) : undefined),
+    [w, text]
+  );
+  const parsedRich = useMemo(
+    () => (w && richText ? w.parse_rich_text(richText, ingredientNames) : undefined),
+    [w, richText, ingredientNames]
+  );
 
   if (!w) {
-    return null;
+    return (
+      <div className="flex min-h-screen items-center justify-center text-zinc-400">
+        <Spinner />
+        <span className="ml-3 text-sm">Loading parser…</span>
+      </div>
+    );
   }
+
   return (
-    <div className="min-h-screen">
-      <section className="w-full px-6 py-12 gradient-hero xl:px-6 relative overflow-hidden">
-        <div className="absolute inset-0 bg-black opacity-10"></div>
-        <div className="relative z-10 max-w-4xl mx-auto">
-          <div className="text-center mb-10">
-            <h1 className="text-3xl md:text-5xl lg:text-6xl font-extrabold leading-tight text-white mb-4">
-              <span className="bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
-                ingredient-parser
-              </span>
+    <div className="min-h-screen bg-white text-zinc-900">
+      <Nav />
+
+      {/* Hero + live parser */}
+      <section className="relative overflow-hidden border-b border-zinc-100 bg-gradient-to-b from-accent-50 to-white">
+        <div className="mx-auto max-w-4xl px-6 py-16">
+          <div className="mb-10 text-center">
+            <h1 className="text-4xl font-extrabold tracking-tight text-zinc-900 md:text-5xl">
+              ingredient-parser
             </h1>
-            <p className="text-lg md:text-xl text-purple-100 max-w-2xl mx-auto leading-relaxed">
-              Parse recipe ingredients into structured data.
-              <br className="hidden md:block" />
-              <span className="font-semibold text-white">
-                Built with Rust + WASM
+            <p className="mx-auto mt-4 max-w-xl text-lg leading-relaxed text-zinc-600">
+              Turn freeform recipe ingredients into structured data —{" "}
+              <span className="font-semibold text-accent-700">
+                Rust + WebAssembly
               </span>
+              , right in your browser.
             </p>
           </div>
-          <div className="flex justify-center">
-            <div className="w-full max-w-xl">
-              <div className="glass rounded-xl p-6 shadow-xl backdrop-blur-lg border border-white border-opacity-30 animate-fade-in-up hover-lift transition-all">
-                <h3 className="mb-4 text-xl font-semibold text-center text-white">
-                  ✨ Try it out!
-                </h3>
-                <div className="space-y-4">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Enter an ingredient (e.g., '2 cups flour, sifted')"
-                      className="w-full px-4 py-3 text-base rounded-lg border border-white border-opacity-30 bg-white bg-opacity-90 backdrop-blur-sm focus:bg-white focus:ring-2 focus:ring-purple-300 focus:ring-opacity-50 focus:outline-none transition-all duration-300 placeholder-gray-500"
-                      value={text}
-                      onChange={(e) => setText(e.target.value)}
-                    />
-                  </div>
 
-                  <div className="text-center">
-                    <p className="text-white text-xs mb-2 opacity-80">
-                      Try these examples:
-                    </p>
-                    <div className="flex flex-wrap gap-1 justify-center">
-                      {exampleIngredients.map((ingredient, index) => (
-                        <button
-                          key={index}
-                          onClick={() => setText(ingredient)}
-                          className="px-2 py-1 text-xs bg-purple-600 bg-opacity-70 hover:bg-opacity-90 text-white rounded-md transition-all duration-200 hover:scale-105 backdrop-blur-sm border border-purple-300 shadow-sm"
-                        >
-                          {ingredient}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+          <div className="animate-fade-in-up mx-auto max-w-xl rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <label className="mb-2 block text-sm font-medium text-zinc-500">
+              Ingredient line
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. 2 cups flour, sifted"
+              className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base transition focus:border-accent-400 focus:ring-2 focus:ring-accent-200 focus:outline-none"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
 
-                  <div className="bg-white bg-opacity-90 backdrop-blur-sm rounded-lg p-3">
-                    <Debug data={parsed} compact />
-                  </div>
-                </div>
-              </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {EXAMPLE_INGREDIENTS.map((ingredient) => (
+                <button
+                  key={ingredient}
+                  onClick={() => setText(ingredient)}
+                  className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-600 transition hover:border-accent-300 hover:bg-accent-50 hover:text-accent-700"
+                >
+                  {ingredient}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-5 border-t border-zinc-100 pt-5">
+              <IngredientResult w={w} parsed={parsed} />
             </div>
           </div>
         </div>
       </section>
 
-      <section className="w-full px-6 py-12 bg-gradient-to-br from-gray-50 to-white">
-        <div className="max-w-5xl mx-auto">
-          <div className="mb-12">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl md:text-4xl font-extrabold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-3">
-                🌐 Recipe Scraper
-              </h2>
-              <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-                Extract structured ingredient data from any recipe URL
-              </p>
-            </div>
-            <div className="gradient-card rounded-xl p-6 shadow-lg border border-gray-100">
-              <Scraper />
-            </div>
+      {/* Recipe scraper */}
+      <section className="border-b border-zinc-100 bg-zinc-50">
+        <div className="mx-auto max-w-5xl px-6 py-16">
+          <SectionHeader
+            icon={<IconGlobe />}
+            title="Recipe scraper"
+            subtitle="Extract structured ingredients and instructions from any recipe URL."
+          />
+          <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <Scraper />
           </div>
-          <div className="mb-12">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl md:text-4xl font-extrabold bg-gradient-to-r from-green-600 to-teal-600 bg-clip-text text-transparent mb-3">
-                📝 Rich Text Parser
-              </h2>
-              <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-4">
-                Parse ingredient names and amounts from freeform recipe
-                instructions.
-              </p>
-              <div className="flex justify-center">
-                <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                  <Debug data={{ ingredientNames: ingredientNames }} compact />
-                </div>
-              </div>
-            </div>
-            <div className="gradient-card rounded-xl p-6 shadow-lg border border-gray-100">
-              <div className="space-y-4">
-                <input
-                  type="text"
-                  placeholder="Enter recipe instructions..."
-                  className="w-full px-4 py-3 text-base rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-300 focus:ring-opacity-50 focus:border-green-400 focus:outline-none transition-all duration-300"
-                  value={richText}
-                  onChange={(e) => setRichText(e.target.value)}
-                />
-                <div className="bg-white rounded-lg p-4 border border-gray-200 min-h-[80px]">
-                  <div className="text-base leading-relaxed">
-                    {w && parsedRich && formatRichText(w, parsedRich)}
-                  </div>
-                </div>
-              </div>
+        </div>
+      </section>
+
+      {/* Rich text parser */}
+      <section className="bg-white">
+        <div className="mx-auto max-w-5xl px-6 py-16">
+          <SectionHeader
+            icon={<IconText />}
+            title="Rich text parser"
+            subtitle="Detect ingredient names and amounts inside freeform instructions."
+          />
+
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-sm text-zinc-500">
+            <span>Known ingredients:</span>
+            {ingredientNames.map((n) => (
+              <span
+                key={n}
+                className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-mono text-xs text-zinc-600"
+              >
+                {n}
+              </span>
+            ))}
+          </div>
+
+          <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <input
+              type="text"
+              placeholder="Enter recipe instructions…"
+              className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base transition focus:border-accent-400 focus:ring-2 focus:ring-accent-200 focus:outline-none"
+              value={richText}
+              onChange={(e) => setRichText(e.target.value)}
+            />
+            <div className="mt-4 min-h-[72px] rounded-lg border border-zinc-100 bg-zinc-50 p-4 text-base leading-relaxed">
+              {parsedRich && formatRichText(w, parsedRich)}
             </div>
           </div>
         </div>
       </section>
 
-      <section className="bg-gradient-to-r from-gray-900 to-black text-white">
-        <div className="max-w-5xl mx-auto px-6 py-8">
-          <div className="flex flex-col md:flex-row items-center justify-between">
-            <div className="mb-6 md:mb-0">
-              <h3 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-                ingredient-parser
-              </h3>
-              <p className="text-gray-400 mt-2">
-                © {new Date().getFullYear()} Nicky Semenza
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-4">
-              <a
-                href="https://github.com/nickysemenza/ingredient-parser"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center px-4 py-2 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-lg transition-all duration-300 backdrop-blur-sm"
-              >
-                <span className="mr-2">⭐</span>
-                <img
-                  alt="GitHub Repo stars"
-                  src="https://img.shields.io/github/stars/nickysemenza/ingredient-parser?style=social"
-                  className="filter invert"
-                />
-              </a>
-              <a
-                href="https://crates.io/crates/ingredient"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center px-4 py-2 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-lg transition-all duration-300 backdrop-blur-sm"
-              >
-                <span className="mr-2">📦</span>
-                <img
-                  alt="Crates.io"
-                  src="https://img.shields.io/crates/v/ingredient?style=flat&color=white"
-                />
-              </a>
-              <a
-                href="https://docs.rs/ingredient"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center px-4 py-2 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-lg transition-all duration-300 backdrop-blur-sm"
-              >
-                <span className="mr-2">📚</span>
-                <img
-                  alt="docs.rs"
-                  src="https://docs.rs/ingredient/badge.svg"
-                />
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
+      <Footer />
     </div>
   );
 };
 
-const scaleAmount = (amount: Measure, scale: number) => {
-  return {
-    ...amount,
-    value: amount.value * scale,
-    upper_value: amount.upper_value ? amount.upper_value * scale : undefined,
-  };
+const Nav: React.FC = () => {
+  const [copied, setCopied] = useState(false);
+  const copyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard unavailable; no-op
+    }
+  }, []);
+
+  return (
+    <nav className="sticky top-0 z-20 border-b border-zinc-100 bg-white/80 backdrop-blur">
+      <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
+        <span className="font-mono text-sm font-semibold tracking-tight text-zinc-900">
+          ingredient-parser
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={copyLink}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100"
+          >
+            <IconLink />
+            {copied ? "Copied!" : "Copy link"}
+          </button>
+          <a
+            href="https://github.com/nickysemenza/ingredient-parser"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100"
+          >
+            <IconGitHub />
+            GitHub
+          </a>
+        </div>
+      </div>
+    </nav>
+  );
 };
+
+const SectionHeader: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+}> = ({ icon, title, subtitle }) => (
+  <div className="text-center">
+    <div className="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent-100 text-accent-700">
+      {icon}
+    </div>
+    <h2 className="text-2xl font-bold tracking-tight text-zinc-900 md:text-3xl">
+      {title}
+    </h2>
+    <p className="mx-auto mt-2 max-w-2xl text-zinc-600">{subtitle}</p>
+  </div>
+);
+
+const IngredientResult: React.FC<{
+  w: wasm;
+  parsed: ReturnType<wasm["parse_ingredient"]> | undefined;
+}> = ({ w, parsed }) => {
+  if (!parsed) {
+    return (
+      <p className="text-sm text-zinc-400">
+        Type an ingredient above to see it parsed.
+      </p>
+    );
+  }
+  const amounts = parsed.amounts ?? [];
+  return (
+    <div>
+      <h4 className="text-lg font-semibold text-zinc-900">
+        {parsed.name || <span className="italic text-zinc-400">no name</span>}
+      </h4>
+
+      {amounts.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {amounts.map((a, i) => (
+            <span
+              key={i}
+              className="rounded-md bg-accent-50 px-2.5 py-1 text-sm font-medium text-accent-700"
+            >
+              {fmtAmount(w, a)}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {parsed.modifier && (
+        <p className="mt-2.5 text-sm italic text-zinc-500">{parsed.modifier}</p>
+      )}
+
+      <details className="mt-4">
+        <summary className="cursor-pointer font-mono text-xs text-zinc-400 transition select-none hover:text-zinc-600">
+          raw JSON
+        </summary>
+        <pre className="mt-2 overflow-auto rounded-lg bg-zinc-900 p-3 font-mono text-xs leading-relaxed text-zinc-100">
+          {JSON.stringify(parsed, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
+};
+
+const scaleAmount = (amount: Measure, scale: number): Measure => ({
+  ...amount,
+  value: amount.value * scale,
+  upper_value: amount.upper_value ? amount.upper_value * scale : undefined,
+});
 
 const Scraper: React.FC = () => {
   const w = useContext(WasmContext);
-  const [scrapedRecipe, setRecipe] = useState<ScrapedRecipe | undefined>(
-    undefined
-  );
+  const [scrapedRecipe, setRecipe] = useState<ScrapedRecipe | undefined>();
   const [url, setURL] = useState(
-    "https://cooking.nytimes.com/recipes/1020830-caramelized-shallot-pasta"
+    () =>
+      getUrlParam("url") ??
+      "https://cooking.nytimes.com/recipes/1020830-caramelized-shallot-pasta"
   );
-  const [scaleFactor, setScaleFactor] = useState(1.0);
+  const [scaleFactor, setScaleFactor] = useState(() => {
+    const fromUrl = parseFloat(getUrlParam("scale") ?? "");
+    return Number.isFinite(fromUrl) && fromUrl > 0 ? fromUrl : 1.0;
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const doScrape = useCallback(async () => {
-    let res = await fetch("https://cors.nicky.workers.dev/?target=" + url);
-    let body = await res.text();
-    w && setRecipe(w.scrape(body, url));
-  }, [w, url]);
+  useEffect(() => setUrlParam("url", url), [url]);
+  useEffect(
+    () => setUrlParam("scale", scaleFactor === 1 ? null : String(scaleFactor)),
+    [scaleFactor]
+  );
 
+  const doScrape = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!w || !url) return;
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(CORS_PROXY + encodeURIComponent(url), {
+          signal,
+        });
+        if (!res.ok) throw new Error(`Fetch failed (HTTP ${res.status})`);
+        const body = await res.text();
+        setRecipe(w.scrape(body, url));
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+        setRecipe(undefined);
+        setError(
+          e instanceof Error
+            ? `Couldn't scrape this page: ${e.message}`
+            : "Couldn't scrape this page."
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [w, url]
+  );
+
+  // Debounced auto-scrape so typing a URL doesn't fire a request per keystroke.
   useEffect(() => {
-    doScrape();
-  }, [w, url, doScrape]);
+    if (!w) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => doScrape(controller.signal), 500);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [w, doScrape]);
 
-  const ingredientNames =
-    scrapedRecipe && w
-      ? scrapedRecipe.sections
-          .flatMap((s) => s.ingredients)
-          .map((i) => w.parse_ingredient(i).name)
-      : [];
+  const parsedIngredients = useMemo(
+    () =>
+      w && scrapedRecipe
+        ? scrapedRecipe.sections
+            .flatMap((s) => s.ingredients)
+            .map((i) => w.parse_ingredient(i))
+        : [],
+    [w, scrapedRecipe]
+  );
+  const ingredientNames = useMemo(
+    () => parsedIngredients.map((p) => p.name),
+    [parsedIngredients]
+  );
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col lg:flex-row gap-8">
-        <div className="flex-1">
-          <div className="space-y-4">
-            <input
-              type="text"
-              placeholder="Enter recipe URL (e.g., from NYTimes Cooking)"
-              className="w-full px-6 py-4 text-lg rounded-xl border border-gray-300 focus:ring-4 focus:ring-blue-300 focus:ring-opacity-50 focus:border-blue-400 focus:outline-none transition-all duration-300"
-              value={url}
-              onChange={(e) => setURL(e.target.value)}
-            />
-            {scrapedRecipe && (
-              <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6">
-                <h3 className="text-2xl font-bold text-gray-800 mb-2">
-                  {scrapedRecipe.name}
-                </h3>
-                {scrapedRecipe.category && (
-                  <p className="text-sm italic text-gray-500 mb-1">
-                    {scrapedRecipe.category}
-                  </p>
-                )}
-                {scrapedRecipe.times && (
-                  <div className="flex flex-wrap gap-3 text-sm text-gray-600 mb-2">
-                    {(
-                      [
-                        ["active", scrapedRecipe.times.active],
-                        ["total", scrapedRecipe.times.total],
-                        ["prep", scrapedRecipe.times.prep],
-                        ["cook", scrapedRecipe.times.cook],
-                      ] as const
-                    )
-                      .filter(([, value]) => value)
-                      .map(([label, value]) => (
-                        <span key={label}>
-                          ⏱ {label}: {value}
-                        </span>
-                      ))}
-                  </div>
-                )}
-                {scrapedRecipe.description && (
-                  <p className="text-gray-700 italic mb-2">
-                    {scrapedRecipe.description}
-                  </p>
-                )}
-                {scrapedRecipe.equipment &&
-                  scrapedRecipe.equipment.length > 0 && (
-                    <ul className="text-sm text-gray-600 mb-2">
-                      {scrapedRecipe.equipment.map((e, i) => (
-                        <li key={i}>🔧 {e}</li>
-                      ))}
-                    </ul>
-                  )}
-                {scrapedRecipe.notes && scrapedRecipe.notes.length > 0 && (
-                  <ul className="text-sm text-gray-500 mb-2">
-                    {scrapedRecipe.notes.map((n, i) => (
-                      <li key={i}>📝 {n}</li>
+      <div className="relative">
+        <input
+          type="text"
+          placeholder="Enter a recipe URL (e.g. from NYTimes Cooking)"
+          className="w-full rounded-xl border border-zinc-300 bg-white px-5 py-4 pr-12 text-lg transition focus:border-accent-400 focus:ring-2 focus:ring-accent-200 focus:outline-none"
+          value={url}
+          onChange={(e) => setURL(e.target.value)}
+        />
+        {loading && (
+          <div className="absolute top-1/2 right-4 -translate-y-1/2 text-accent-600">
+            <Spinner />
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {scrapedRecipe && (
+        <>
+          <div className="flex flex-col gap-6 lg:flex-row">
+            <div className="flex-1 rounded-xl border border-zinc-100 bg-zinc-50 p-6">
+              <h3 className="text-2xl font-bold text-zinc-900">
+                {scrapedRecipe.name}
+              </h3>
+              {scrapedRecipe.category && (
+                <p className="mt-1 text-sm italic text-zinc-500">
+                  {scrapedRecipe.category}
+                </p>
+              )}
+              {scrapedRecipe.times && (
+                <div className="mt-2 flex flex-wrap gap-3 text-sm text-zinc-600">
+                  {(
+                    [
+                      ["active", scrapedRecipe.times.active],
+                      ["total", scrapedRecipe.times.total],
+                      ["prep", scrapedRecipe.times.prep],
+                      ["cook", scrapedRecipe.times.cook],
+                    ] as const
+                  )
+                    .filter(([, value]) => value)
+                    .map(([label, value]) => (
+                      <span key={label}>
+                        ⏱ {label}: {value}
+                      </span>
                     ))}
-                  </ul>
-                )}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center text-gray-600">
-                    <span className="mr-2">🍽️</span>
-                    <span>Recipe successfully scraped!</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600 font-medium">
-                      Scale:
-                    </span>
-                    {[0.5, 1, 2, 3].map((scale) => (
-                      <button
-                        key={scale}
-                        onClick={() => setScaleFactor(scale)}
-                        className={`px-3 py-1 text-sm font-medium rounded-lg transition-all duration-200 ${
-                          scaleFactor === scale
-                            ? "bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-md"
-                            : "bg-white text-gray-700 hover:bg-gray-100 border border-gray-300"
-                        }`}
-                      >
-                        {scale === 0.5 ? "½" : scale}x
-                      </button>
-                    ))}
-                    <input
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={scaleFactor}
-                      onChange={(e) =>
-                        setScaleFactor(parseFloat(e.target.value) || 1)
-                      }
-                      className="w-16 px-2 py-1 text-sm text-center border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:outline-none"
-                    />
-                  </div>
                 </div>
+              )}
+              {scrapedRecipe.description && (
+                <p className="mt-2 italic text-zinc-700">
+                  {scrapedRecipe.description}
+                </p>
+              )}
+              {scrapedRecipe.equipment && scrapedRecipe.equipment.length > 0 && (
+                <ul className="mt-2 text-sm text-zinc-600">
+                  {scrapedRecipe.equipment.map((e, i) => (
+                    <li key={i}>🔧 {e}</li>
+                  ))}
+                </ul>
+              )}
+              {scrapedRecipe.notes && scrapedRecipe.notes.length > 0 && (
+                <ul className="mt-2 text-sm text-zinc-500">
+                  {scrapedRecipe.notes.map((n, i) => (
+                    <li key={i}>📝 {n}</li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="mt-4 flex items-center gap-2">
+                <span className="text-sm font-medium text-zinc-600">Scale:</span>
+                {[0.5, 1, 2, 3].map((scale) => (
+                  <button
+                    key={scale}
+                    onClick={() => setScaleFactor(scale)}
+                    className={`rounded-lg px-3 py-1 text-sm font-medium transition ${
+                      scaleFactor === scale
+                        ? "bg-accent-600 text-white shadow-sm"
+                        : "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
+                    }`}
+                  >
+                    {scale === 0.5 ? "½" : scale}x
+                  </button>
+                ))}
+                <input
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={scaleFactor}
+                  onChange={(e) =>
+                    setScaleFactor(parseFloat(e.target.value) || 1)
+                  }
+                  className="w-16 rounded-lg border border-zinc-300 px-2 py-1 text-center text-sm focus:border-accent-400 focus:ring-2 focus:ring-accent-200 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {scrapedRecipe.image && (
+              <div className="lg:w-1/3">
+                <img
+                  className="h-64 w-full rounded-xl object-cover shadow-sm lg:h-full"
+                  src={scrapedRecipe.image}
+                  alt={scrapedRecipe.name}
+                />
               </div>
             )}
           </div>
-        </div>
-        <div className="lg:w-1/3">
-          {scrapedRecipe && (
-            <img
-              className="w-full h-64 lg:h-48 object-cover rounded-xl shadow-lg"
-              src={scrapedRecipe.image}
-              alt={scrapedRecipe.name}
-            />
-          )}
-        </div>
-      </div>
 
-      {scrapedRecipe && (
-        <div className="grid md:grid-cols-2 gap-8">
-          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
-            <h4 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
-              <span className="mr-2">🧂</span>
-              Ingredients
-            </h4>
-            <div className="space-y-3">
-              {w &&
-                scrapedRecipe.sections
-                  .flatMap((s) => s.ingredients)
-                  .map((i, index) => {
-                    const p = w.parse_ingredient(i);
-                  return (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between py-3 px-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200"
-                    >
-                      <div className="flex-1">
-                        <div className="font-semibold text-gray-800 underline decoration-purple-400 decoration-2">
-                          {p.name}
-                        </div>
-                        {p.modifier && (
-                          <div className="text-sm italic text-gray-600 mt-1">
-                            {p.modifier}
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-right font-medium text-purple-600 ml-4">
-                        {p.amounts
-                          .filter((a) => a.unit !== "$" && a.unit !== "kcal")
-                          .map((a) => scaleAmount(a, scaleFactor))
-                          .map((a) => w.format_amount(a))
-                          .join(" / ")}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
-            <h4 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
-              <span className="mr-2">👩‍🍳</span>
-              Instructions
-            </h4>
-            <ol className="space-y-4">
-              {w &&
-                scrapedRecipe.sections
-                  .flatMap((s) => s.instructions)
-                  .map((instruction, index) => (
-                  <li
+          <div className="grid gap-8 md:grid-cols-2">
+            <div className="rounded-2xl border border-zinc-100 bg-white p-6">
+              <h4 className="mb-5 text-xl font-bold text-zinc-900">
+                Ingredients
+              </h4>
+              <div className="space-y-2.5">
+                {parsedIngredients.map((p, index) => (
+                  <div
                     key={index}
-                    className="flex items-start p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200"
+                    className="flex items-center justify-between gap-4 rounded-xl bg-zinc-50 px-4 py-3 transition hover:bg-zinc-100"
                   >
-                    <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-full flex items-center justify-center text-sm font-bold mr-4">
-                      {index + 1}
-                    </div>
-                    <div className="flex-1 text-gray-700 leading-relaxed">
-                      {formatRichText(
-                        w,
-                        w.parse_rich_text(instruction, ingredientNames)
+                    <div className="flex-1">
+                      <div className="font-semibold text-zinc-800 underline decoration-accent-400 decoration-2 underline-offset-2">
+                        {p.name}
+                      </div>
+                      {p.modifier && (
+                        <div className="mt-1 text-sm italic text-zinc-500">
+                          {p.modifier}
+                        </div>
                       )}
                     </div>
-                  </li>
+                    <div className="text-right font-medium text-accent-700">
+                      {p.amounts
+                        .filter((a) => a.unit !== "$" && a.unit !== "kcal")
+                        .map((a) => scaleAmount(a, scaleFactor))
+                        .map((a) => fmtAmount(w!, a))
+                        .join(" / ")}
+                    </div>
+                  </div>
                 ))}
-            </ol>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-100 bg-white p-6">
+              <h4 className="mb-5 text-xl font-bold text-zinc-900">
+                Instructions
+              </h4>
+              <ol className="space-y-3">
+                {scrapedRecipe.sections
+                  .flatMap((s) => s.instructions)
+                  .map((instruction, index) => (
+                    <li
+                      key={index}
+                      className="flex items-start gap-4 rounded-xl bg-zinc-50 p-4 transition hover:bg-zinc-100"
+                    >
+                      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent-600 text-sm font-bold text-white">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1 leading-relaxed text-zinc-700">
+                        {w &&
+                          formatRichText(
+                            w,
+                            w.parse_rich_text(instruction, ingredientNames)
+                          )}
+                      </div>
+                    </li>
+                  ))}
+              </ol>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
 };
 
-const Debug: React.FC<{ data: any; compact?: boolean }> = ({ data, compact }) =>
-  !compact ? (
-    <div className="bg-gray-900 rounded-xl p-4 overflow-auto">
-      <ReactJson
-        src={data}
-        theme="monokai"
-        displayDataTypes={false}
-        displayObjectSize={false}
-        collapsed={1}
-      />
-    </div>
-  ) : (
-    <div className="rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-green-300 text-sm shadow-lg">
-      <div className="flex items-center px-4 py-2 bg-gray-700 rounded-t-xl">
-        <span className="text-purple-300 font-mono text-xs">JSON Output</span>
+const Footer: React.FC = () => (
+  <footer className="bg-zinc-900 text-white">
+    <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-6 px-6 py-10 md:flex-row">
+      <div>
+        <h3 className="font-mono text-xl font-bold">ingredient-parser</h3>
+        <p className="mt-1 text-sm text-zinc-400">
+          © {new Date().getFullYear()} Nicky Semenza
+        </p>
       </div>
-      <pre className="p-4 overflow-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
-        <code className="text-green-300 font-mono text-sm leading-relaxed">
-          {JSON.stringify(data, null, 2)}
-        </code>
-      </pre>
+      <div className="flex flex-wrap items-center gap-3">
+        <a
+          href="https://github.com/nickysemenza/ingredient-parser"
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-lg bg-white/10 px-4 py-2 transition hover:bg-white/20"
+        >
+          <img
+            alt="GitHub Repo stars"
+            src="https://img.shields.io/github/stars/nickysemenza/ingredient-parser?style=social"
+            className="invert"
+          />
+        </a>
+        <a
+          href="https://crates.io/crates/ingredient"
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-lg bg-white/10 px-4 py-2 transition hover:bg-white/20"
+        >
+          <img
+            alt="Crates.io"
+            src="https://img.shields.io/crates/v/ingredient?style=flat&color=white"
+          />
+        </a>
+        <a
+          href="https://docs.rs/ingredient"
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-lg bg-white/10 px-4 py-2 transition hover:bg-white/20"
+        >
+          <img alt="docs.rs" src="https://docs.rs/ingredient/badge.svg" />
+        </a>
+      </div>
     </div>
-  );
+  </footer>
+);
 
-export const formatRichText = (w: wasm, text: RichItem[]) => {
+const formatRichText = (w: wasm, text: RichItem[]) => {
   return text.map((t, index) => {
     switch (t.kind) {
       case "Text":
@@ -451,7 +606,7 @@ export const formatRichText = (w: wasm, text: RichItem[]) => {
       case "Ing":
         return (
           <span
-            className="inline px-2 py-1 bg-orange-100 text-orange-800 rounded-md font-semibold mx-1 border border-orange-200"
+            className="mx-0.5 inline rounded-md border border-accent-200 bg-accent-100 px-1.5 py-0.5 font-semibold text-accent-800"
             key={`ing-${index}`}
           >
             {t.value}
@@ -465,10 +620,10 @@ export const formatRichText = (w: wasm, text: RichItem[]) => {
         const displayAmount = val.unit === "whole" ? { ...val, unit: "" } : val;
         return (
           <span
-            className="inline px-2 py-1 bg-green-100 text-green-800 rounded-md font-semibold mx-1 border border-green-200"
+            className="mx-0.5 inline rounded-md border border-blue-200 bg-blue-100 px-1.5 py-0.5 font-semibold text-blue-800"
             key={`measure-${index}`}
           >
-            {w.format_amount(displayAmount)}
+            {fmtAmount(w, displayAmount)}
           </span>
         );
       }
@@ -477,3 +632,88 @@ export const formatRichText = (w: wasm, text: RichItem[]) => {
     }
   });
 };
+
+/* ── Inline icons (lucide-style, no dependency) ────────────────── */
+const Spinner: React.FC = () => (
+  <svg
+    className="h-5 w-5 animate-spin"
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
+    <circle
+      className="opacity-25"
+      cx="12"
+      cy="12"
+      r="10"
+      stroke="currentColor"
+      strokeWidth="4"
+    />
+    <path
+      className="opacity-75"
+      fill="currentColor"
+      d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"
+    />
+  </svg>
+);
+
+const IconGlobe: React.FC = () => (
+  <svg
+    className="h-6 w-6"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="10" />
+    <path d="M2 12h20" />
+    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+  </svg>
+);
+
+const IconText: React.FC = () => (
+  <svg
+    className="h-6 w-6"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 7V4h16v3" />
+    <path d="M9 20h6" />
+    <path d="M12 4v16" />
+  </svg>
+);
+
+const IconLink: React.FC = () => (
+  <svg
+    className="h-4 w-4"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </svg>
+);
+
+const IconGitHub: React.FC = () => (
+  <svg
+    className="h-4 w-4"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.05 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05A9.39 9.39 0 0 1 12 6.84c.85 0 1.71.12 2.51.34 1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.92-2.34 4.78-4.57 5.04.36.32.68.94.68 1.9v2.82c0 .27.18.6.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2z" />
+  </svg>
+);
