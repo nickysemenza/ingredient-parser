@@ -148,7 +148,29 @@ impl IngredientParser {
                 continue;
             }
 
-            parsed.push_modifier(ModifierPart::Prep(adjective.clone()));
+            // Fold a stranded intensifier adverb ("very") sitting immediately
+            // before the adjective into the modifier too, and extend the cut so it
+            // doesn't get left behind in the name ("very thinly sliced chives" ->
+            // name "chives", modifier "very thinly sliced"). Only the word directly
+            // abutting the adjective is consumed.
+            let mut prep = adjective.clone();
+            let mut cut = pos;
+            if let Some(prev) = name_lower[..pos].split_whitespace().next_back() {
+                if crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&prev) {
+                    if let Some(wstart) = name_lower[..pos].rfind(prev) {
+                        let boundary_ok = name.is_char_boundary(wstart)
+                            && name[..wstart]
+                                .chars()
+                                .next_back()
+                                .is_none_or(char::is_whitespace);
+                        if boundary_ok {
+                            prep = format!("{prev} {adjective}");
+                            cut = wstart;
+                        }
+                    }
+                }
+            }
+            parsed.push_modifier(ModifierPart::Prep(prep));
 
             // Rebuild both `name` and its lowercase view from the same before/after
             // slices, so `name_lower` is kept in sync without re-lowercasing the
@@ -170,8 +192,8 @@ impl IngredientParser {
                 out.trim().to_string()
             };
 
-            name = join(&name, pos, end);
-            name_lower = join(&name_lower, pos, end);
+            name = join(&name, cut, end);
+            name_lower = join(&name_lower, cut, end);
         }
 
         parsed.name = name;
@@ -416,8 +438,17 @@ fn split_word_alternative(
         "on", "in", "at", "the", "a", "an", "of",
     ];
 
+    // Only an *adjective* left can share the right side's head noun ("fresh or
+    // frozen blueberries" -> "fresh blueberries"). A complete-noun left absorbs
+    // nothing ("amaretto or dark rum" stays "amaretto", not "amaretto rum").
+    let left_lower = left.to_lowercase();
+    let left_is_premodifier = crate::parser::vocab::SHARED_HEAD_MODIFIERS
+        .contains(&left_lower.as_str())
+        || adjectives.contains(&left_lower);
+
     let reconstruct = left_tokens.len() == 1
         && right_tokens.len() >= 2
+        && left_is_premodifier
         && !adjectives.contains(&right_tokens[0].to_lowercase())
         && !right_tokens
             .iter()

@@ -62,10 +62,106 @@ pub(crate) const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
 /// `Unit::Whole`, and listing it here would parse "whole wheat flour" as having
 /// unit "whole" instead of keeping "whole wheat" in the name.
 pub(crate) const NON_STANDARD_UNITS: &[&str] = &[
-    "recipe", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch", "package",
-    "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin", "rib", "ribs",
-    "sprig", "sprigs", "pint", "pints", "piece", "pieces", "disk", "disks", "stalk", "stalks",
+    "recipe", "recipes", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch",
+    "package", "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin", "rib",
+    "ribs", "sprig", "sprigs", "pint", "pints", "piece", "pieces", "disk", "disks", "stalk",
+    "stalks", "loaf", "loaves",
 ];
+
+/// Premodifier words used to gate the "A or B C" alternative reconstruction in
+/// `refine::split_word_alternative`. Only when the left side is one of these — a
+/// word that commonly *premodifies* a head noun, i.e. a descriptor adjective or
+/// an attributive noun — is the right side's head grafted on: "fresh or frozen
+/// blueberries" -> "fresh blueberries", "lemon or orange zest" -> "lemon zest".
+/// A complete *ingredient* noun on the left ("amaretto or dark rum", "walnuts or
+/// macadamia nuts") is whole on its own and must NOT absorb the alternative's
+/// head noun, so it stays "amaretto" / "walnuts" with the rest in the modifier.
+///
+/// A heuristic allowlist by necessity: "lemon" and "amaretto" are both nouns, so
+/// only world knowledge separates "lemon zest" (good) from "amaretto rum" (bad).
+/// Missing a premodifier just leaves the bare left as the name (mildly wrong);
+/// wrongly including an ingredient noun would graft nonsense — so bias the list
+/// toward true modifiers and common attributive nouns, not standalone foods.
+pub(crate) const SHARED_HEAD_MODIFIERS: &[&str] = &[
+    // state / preparation
+    "fresh",
+    "frozen",
+    "dried",
+    "raw",
+    "roasted",
+    "toasted",
+    "cooked",
+    "melted",
+    "softened",
+    "salted",
+    "unsalted",
+    "smoked",
+    "pickled",
+    "canned",
+    "cured",
+    "shelled",
+    // ripeness / texture
+    "ripe",
+    "firm",
+    "soft",
+    "smooth",
+    "crunchy",
+    "fine",
+    "coarse",
+    "ground",
+    "whole",
+    // color
+    "red",
+    "white",
+    "green",
+    "yellow",
+    "black",
+    "brown",
+    "golden",
+    "purple",
+    "dark",
+    "light",
+    // flavor / heat
+    "sweet",
+    "hot",
+    "mild",
+    "spicy",
+    "bitter",
+    "sour",
+    "savory",
+    "bittersweet",
+    "semisweet",
+    // processing / grade
+    "instant",
+    "rapid",
+    "quick",
+    "bleached",
+    "unbleached",
+    "refined",
+    "virgin",
+    "fancy",
+    // fat / size
+    "skim",
+    "nonfat",
+    "lean",
+    "large",
+    "small",
+    "medium",
+    "jumbo",
+    "baby",
+    // common attributive nouns that premodify a shared head ("lemon zest")
+    "lemon",
+    "lime",
+    "orange",
+    "grapefruit",
+];
+
+/// Intensifier adverbs that precede a preparation phrase ("very thinly sliced").
+/// They carry no ingredient meaning on their own, so when one is stranded
+/// immediately before an extracted prep adjective it is folded into the modifier
+/// too — otherwise "very thinly sliced chives" leaves "very chives" as the name.
+/// See `refine::extract_adjectives_from_name`.
+pub(crate) const INTENSIFIER_ADVERBS: &[&str] = &["very", "really"];
 
 /// Container nouns that can follow a parenthesized size, e.g. the "piece" in
 /// "1 (1-ounce) piece ginger". Kept narrow so the size-hoisting parser doesn't

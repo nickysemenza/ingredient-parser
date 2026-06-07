@@ -381,3 +381,17 @@
 {"input": "2 tablespoons XFF Chili Oil", "name": "XFF Chili Oil", "amounts": [{"unit": "tbsp", "value": 2.0}]}
 {"input": "8 cups (2 L) lamb broth", "name": "lamb broth", "amounts": [{"unit": "cup", "value": 8.0}, {"unit": "l", "value": 2.0}]}
 {"input": "1 teaspoon XFF Chili Oil (this page; optional)", "name": "XFF Chili Oil", "amounts": [{"unit": "tsp", "value": 1.0}], "optional": true, "xfail": "cross-ref+optional combo '(this page; optional)' not split: should strip the page ref and set optional"}
+// Real cubby cookbook-import lines that older parses mangled (parser-audit): a
+// stranded intensifier ("very") before a prep phrase, and non-standard quantity
+// units "recipes"/"loaf" that must be hoisted out of the name into the amounts.
+{"input": "2 tablespoons very thinly sliced chives", "name": "chives", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "very thinly sliced"}
+{"input": "2 tablespoons very finely chopped fennel fronds", "name": "fennel fronds", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "very finely chopped"}
+{"input": "2 recipes Flaky All-Butter Pie Dough", "name": "Flaky All-Butter Pie Dough", "amounts": [{"unit": "recipe", "value": 2}]}
+{"input": "1 loaf baked Brioche", "name": "baked Brioche", "amounts": [{"unit": "loaf", "value": 1}]}
+// "A or B C" alternatives: graft the shared head noun only when the left is an
+// adjective ("fresh or frozen blueberries" -> "fresh blueberries", covered
+// above). A complete-noun left must stay whole — not absorb the alternative's
+// trailing noun ("amaretto or dark rum" must be "amaretto", not "amaretto rum").
+{"input": "2 tablespoons amaretto or dark rum", "name": "amaretto", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "or dark rum"}
+{"input": "1 cup walnuts or macadamia nuts", "name": "walnuts", "amounts": [{"unit": "cup", "value": 1}], "modifier": "or macadamia nuts"}
+{"input": "1 cup fresh or frozen blueberries", "name": "fresh blueberries", "amounts": [{"unit": "cup", "value": 1}], "modifier": "or frozen blueberries"}
