@@ -1,5 +1,4 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WasmContextProvider } from "./WasmProvider";
 import { Demo } from "./Demo";
 
 // Scraped recipes don't change underneath us, so cache them indefinitely —
@@ -13,9 +12,7 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <WasmContextProvider>
-        <Demo />
-      </WasmContextProvider>
+      <Demo />
     </QueryClientProvider>
   );
 }

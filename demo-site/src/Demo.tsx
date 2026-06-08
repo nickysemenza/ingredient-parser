@@ -1,18 +1,7 @@
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  RichItem,
-  wasm,
-  WasmContext,
-  ScrapedRecipe,
-  Measure,
-} from "./wasmContext";
+import { RichItem, wasm, ScrapedRecipe, Measure } from "./wasm";
+import { Spinner } from "./Spinner";
 
 /* ── URL state helpers ─────────────────────────────────────────
    Inputs are persisted to the query string so demo links are
@@ -43,17 +32,17 @@ const EXAMPLE_INGREDIENTS = [
   "2 tbsp olive oil, extra virgin",
 ];
 
-const fmtAmount = (w: wasm, a: Measure): string => {
+// WASM is guaranteed loaded before this tree mounts (see main.tsx), so every
+// call here is synchronous and never guards on the module being ready.
+const fmtAmount = (a: Measure): string => {
   try {
-    return w.format_amount(a);
+    return wasm.format_amount(a);
   } catch {
     return `${a.value} ${a.unit}`.trim();
   }
 };
 
 export const Demo: React.FC = () => {
-  const w = useContext(WasmContext);
-
   const [text, setText] = useState(
     () => getUrlParam("i") ?? "1 cup / 120 grams flour, sifted"
   );
@@ -69,17 +58,14 @@ export const Demo: React.FC = () => {
   const ingredientNames = useMemo(() => ["flour", "water", "salt"], []);
 
   const parsed = useMemo(
-    () => (w && text ? w.parse_ingredient(text) : undefined),
-    [w, text]
+    () => (text ? wasm.parse_ingredient(text) : undefined),
+    [text]
   );
   const parsedRich = useMemo(
-    () => (w && richText ? w.parse_rich_text(richText, ingredientNames) : undefined),
-    [w, richText, ingredientNames]
+    () => (richText ? wasm.parse_rich_text(richText, ingredientNames) : undefined),
+    [richText, ingredientNames]
   );
 
-  // Render the full shell immediately; the ~2.2 MB WASM streams in the
-  // background and each interactive area shows its own loading state.
-  // Inputs stay live so a typed line parses the moment the module resolves.
   return (
     <div className="min-h-screen bg-white text-zinc-900">
       <Nav />
@@ -125,7 +111,7 @@ export const Demo: React.FC = () => {
             </div>
 
             <div className="mt-5 border-t border-zinc-100 pt-5">
-              <IngredientResult w={w} parsed={parsed} />
+              <IngredientResult parsed={parsed} />
             </div>
           </div>
         </div>
@@ -175,14 +161,7 @@ export const Demo: React.FC = () => {
               onChange={(e) => setRichText(e.target.value)}
             />
             <div className="mt-4 min-h-[72px] rounded-lg border border-zinc-100 bg-zinc-50 p-4 text-base leading-relaxed">
-              {w ? (
-                parsedRich && formatRichText(w, parsedRich)
-              ) : (
-                <span className="flex items-center text-zinc-400">
-                  <Spinner />
-                  <span className="ml-2.5 text-sm">Loading parser…</span>
-                </span>
-              )}
+              {parsedRich && formatRichText(parsedRich)}
             </div>
           </div>
         </div>
@@ -251,17 +230,8 @@ const SectionHeader: React.FC<{
 );
 
 const IngredientResult: React.FC<{
-  w: wasm | undefined;
-  parsed: ReturnType<wasm["parse_ingredient"]> | undefined;
-}> = ({ w, parsed }) => {
-  if (!w) {
-    return (
-      <div className="flex items-center text-zinc-400">
-        <Spinner />
-        <span className="ml-2.5 text-sm">Loading parser…</span>
-      </div>
-    );
-  }
+  parsed: ReturnType<typeof wasm.parse_ingredient> | undefined;
+}> = ({ parsed }) => {
   if (!parsed) {
     return (
       <p className="text-sm text-zinc-400">
@@ -283,7 +253,7 @@ const IngredientResult: React.FC<{
               key={i}
               className="rounded-md bg-accent-50 px-2.5 py-1 text-sm font-medium text-accent-700"
             >
-              {fmtAmount(w, a)}
+              {fmtAmount(a)}
             </span>
           ))}
         </div>
@@ -312,7 +282,6 @@ const scaleAmount = (amount: Measure, scale: number): Measure => ({
 });
 
 const Scraper: React.FC = () => {
-  const w = useContext(WasmContext);
   const [url, setURL] = useState(
     () =>
       getUrlParam("url") ??
@@ -343,14 +312,14 @@ const Scraper: React.FC = () => {
     error,
   } = useQuery<ScrapedRecipe>({
     queryKey: ["scrape", debouncedUrl],
-    enabled: !!w && !!debouncedUrl,
+    enabled: !!debouncedUrl,
     queryFn: async ({ signal }) => {
       const res = await fetch(CORS_PROXY + encodeURIComponent(debouncedUrl), {
         signal,
       });
       if (!res.ok) throw new Error(`Fetch failed (HTTP ${res.status})`);
       const body = await res.text();
-      return w!.scrape(body, debouncedUrl);
+      return wasm.scrape(body, debouncedUrl);
     },
   });
   const errorMessage = error
@@ -359,12 +328,12 @@ const Scraper: React.FC = () => {
 
   const parsedIngredients = useMemo(
     () =>
-      w && scrapedRecipe
+      scrapedRecipe
         ? scrapedRecipe.sections
             .flatMap((s) => s.ingredients)
-            .map((i) => w.parse_ingredient(i))
+            .map((i) => wasm.parse_ingredient(i))
         : [],
-    [w, scrapedRecipe]
+    [scrapedRecipe]
   );
   const ingredientNames = useMemo(
     () => parsedIngredients.map((p) => p.name),
@@ -381,16 +350,12 @@ const Scraper: React.FC = () => {
           value={url}
           onChange={(e) => setURL(e.target.value)}
         />
-        {(loading || !w) && (
+        {loading && (
           <div className="absolute top-1/2 right-4 -translate-y-1/2 text-accent-600">
             <Spinner />
           </div>
         )}
       </div>
-
-      {!w && (
-        <p className="text-sm text-zinc-400">Loading parser…</p>
-      )}
 
       {errorMessage && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -512,7 +477,7 @@ const Scraper: React.FC = () => {
                       {p.amounts
                         .filter((a) => a.unit !== "$" && a.unit !== "kcal")
                         .map((a) => scaleAmount(a, scaleFactor))
-                        .map((a) => fmtAmount(w!, a))
+                        .map((a) => fmtAmount(a))
                         .join(" / ")}
                     </div>
                   </div>
@@ -536,11 +501,9 @@ const Scraper: React.FC = () => {
                         {index + 1}
                       </div>
                       <div className="flex-1 leading-relaxed text-zinc-700">
-                        {w &&
-                          formatRichText(
-                            w,
-                            w.parse_rich_text(instruction, ingredientNames)
-                          )}
+                        {formatRichText(
+                          wasm.parse_rich_text(instruction, ingredientNames)
+                        )}
                       </div>
                     </li>
                   ))}
@@ -599,7 +562,7 @@ const Footer: React.FC = () => (
   </footer>
 );
 
-const formatRichText = (w: wasm, text: RichItem[]) => {
+const formatRichText = (text: RichItem[]) => {
   return text.map((t, index) => {
     switch (t.kind) {
       case "Text":
@@ -624,7 +587,7 @@ const formatRichText = (w: wasm, text: RichItem[]) => {
             className="mx-0.5 inline rounded-md border border-blue-200 bg-blue-100 px-1.5 py-0.5 font-semibold text-blue-800"
             key={`measure-${index}`}
           >
-            {fmtAmount(w, displayAmount)}
+            {fmtAmount(displayAmount)}
           </span>
         );
       }
@@ -635,29 +598,6 @@ const formatRichText = (w: wasm, text: RichItem[]) => {
 };
 
 /* ── Inline icons (lucide-style, no dependency) ────────────────── */
-const Spinner: React.FC = () => (
-  <svg
-    className="h-5 w-5 animate-spin"
-    viewBox="0 0 24 24"
-    fill="none"
-    aria-hidden="true"
-  >
-    <circle
-      className="opacity-25"
-      cx="12"
-      cy="12"
-      r="10"
-      stroke="currentColor"
-      strokeWidth="4"
-    />
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"
-    />
-  </svg>
-);
-
 const IconGlobe: React.FC = () => (
   <svg
     className="h-6 w-6"
