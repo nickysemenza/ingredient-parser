@@ -149,8 +149,15 @@ pub fn convert_measure_with_graph(
     let n_b = graph.node_indices().find(|i| graph[*i] == unit_b)?;
 
     debug!("calculating {:?} to {:?}", n_a, n_b);
+    // Edge cost is a uniform 1.0 (fewest hops), NOT the edge weight. The weight is
+    // the conversion *factor*, and the result is the PRODUCT of factors along the
+    // path (below) — so minimizing their SUM would optimize the wrong quantity. It
+    // could prefer a cheap-sum indirect route (or a chain of <1 reverse edges) over
+    // a direct user mapping, returning a derived value instead of the authoritative
+    // one and compounding rounding. In a consistent graph every path yields the same
+    // product, so fewest hops is correct and minimizes multiplicative drift.
     let Some((_, steps)) =
-        petgraph::algo::astar(graph, n_a, |finish| finish == n_b, |e| *e.weight(), |_| 0.0)
+        petgraph::algo::astar(graph, n_a, |finish| finish == n_b, |_| 1.0, |_| 0.0)
     else {
         debug!("convert failed for {:?}", input);
         return None;
@@ -378,5 +385,44 @@ mod tests {
 
         assert_eq!(r1.unwrap().value(), 120.0);
         assert_eq!(r2.unwrap().value(), 360.0);
+    }
+
+    #[test]
+    fn test_convert_prefers_direct_mapping_over_indirect() {
+        // Conflicting mappings: a direct widget->g (10) and an indirect
+        // widget->blob->g (2 * 6 = 12). The indirect route has a cheaper edge-weight
+        // SUM (2 + 6 = 8 < 10), so cost-by-weight A* would wrongly pick it and return
+        // 12 g. Cost-by-hops picks the 1-hop direct mapping → the authoritative 10 g.
+        // Custom (Other) units: no normalization, no volume bridge in play.
+        let mappings = vec![
+            (Measure::new("widget", 1.0), Measure::new("g", 10.0)),
+            (Measure::new("widget", 1.0), Measure::new("blob", 2.0)),
+            (Measure::new("blob", 1.0), Measure::new("g", 6.0)),
+        ];
+        let result = convert_measure_via_mappings(
+            &Measure::new("widget", 1.0),
+            MeasureKind::Weight,
+            &mappings,
+        );
+        assert_eq!(result.unwrap().value(), 10.0);
+    }
+
+    #[test]
+    fn test_convert_not_lured_through_cheap_reverse_edges() {
+        // A direct widget->g (1000) vs a multi-hop chain of sub-1 weights that sums
+        // far cheaper but is the wrong route. Fewest-hops must still take the single
+        // direct edge (1000 g), not the longer cheap-sum detour.
+        let mappings = vec![
+            (Measure::new("widget", 1.0), Measure::new("g", 1000.0)),
+            (Measure::new("widget", 1.0), Measure::new("blob", 0.5)),
+            (Measure::new("blob", 1.0), Measure::new("speck", 0.5)),
+            (Measure::new("speck", 1.0), Measure::new("g", 0.5)),
+        ];
+        let result = convert_measure_via_mappings(
+            &Measure::new("widget", 1.0),
+            MeasureKind::Weight,
+            &mappings,
+        );
+        assert_eq!(result.unwrap().value(), 1000.0);
     }
 }
