@@ -91,6 +91,11 @@ fn deserialize_rational_opt<'de, D: Deserializer<'de>>(
 // Multiplication factors for unit conversions
 const TSP_TO_TBSP: f64 = 3.0;
 const TSP_TO_FL_OZ: f64 = 2.0;
+// Bridge between the two volume normalization bases (teaspoon for the US/spoon family,
+// milliliter for the metric family). Fixed geometric ratio, density-independent:
+// 1 US tsp = 4.92892 ml (keeps cup = 48 tsp = 236.59 ml consistent). Seeded into the
+// conversion graph so US and metric volumes interconvert; see conversion.rs make_graph.
+pub(crate) const TSP_TO_ML: f64 = 4.92892;
 const G_TO_K: f64 = 1000.0;
 const CUP_TO_QUART: f64 = 4.0;
 const TSP_TO_CUP: f64 = 48.0;

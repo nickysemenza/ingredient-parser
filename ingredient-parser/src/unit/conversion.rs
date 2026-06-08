@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use super::{kind::MeasureKind, measure::Measure, Unit};
+use super::{kind::MeasureKind, measure::Measure, measure::TSP_TO_ML, Unit};
 use crate::util::round_to_int;
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;
@@ -59,6 +59,31 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
             g.add_edge(n_b, n_a, crate::util::truncate_3_decimals(a_val / b_val));
         }
     }
+
+    // Bridge the two volume normalization bases (teaspoon for the US/spoon family,
+    // milliliter for the metric family). Without this edge the families are disconnected,
+    // so a US-volume-only graph can't reach the `ml` node that `MeasureKind::Volume`
+    // targets (the "1 cup -> Volume: not convertible" bug). The ratio is a fixed
+    // geometric constant, density-independent. Only seed when a volume unit is already
+    // present, so unrelated graphs (and the graph viz / island detector) gain no stray
+    // nodes.
+    if unit_index.contains_key(&Unit::Teaspoon) || unit_index.contains_key(&Unit::Milliliter) {
+        let n_tsp = *unit_index
+            .entry(Unit::Teaspoon)
+            .or_insert_with(|| g.add_node(Unit::Teaspoon));
+        let n_ml = *unit_index
+            .entry(Unit::Milliliter)
+            .or_insert_with(|| g.add_node(Unit::Milliliter));
+        if g.find_edge(n_tsp, n_ml).is_none() {
+            g.add_edge(n_tsp, n_ml, crate::util::truncate_3_decimals(TSP_TO_ML));
+            g.add_edge(
+                n_ml,
+                n_tsp,
+                crate::util::truncate_3_decimals(1.0 / TSP_TO_ML),
+            );
+        }
+    }
+
     g
 }
 
@@ -180,8 +205,10 @@ mod tests {
 
         let graph = make_graph(&mappings);
 
-        assert_eq!(graph.node_count(), 2);
-        assert_eq!(graph.edge_count(), 2);
+        // cup normalizes to the tsp node, which triggers the tsp<->ml volume bridge:
+        // nodes {tsp, g, ml}, edges tsp<->g and tsp<->ml.
+        assert_eq!(graph.node_count(), 3);
+        assert_eq!(graph.edge_count(), 4);
     }
 
     #[test]
@@ -193,7 +220,8 @@ mod tests {
 
         let graph = make_graph(&mappings);
 
-        assert_eq!(graph.edge_count(), 2);
+        // 2 for tsp<->g (duplicate mapping deduped) + 2 for the tsp<->ml bridge.
+        assert_eq!(graph.edge_count(), 4);
     }
 
     #[test]
@@ -205,7 +233,52 @@ mod tests {
 
         let graph = make_graph(&mappings);
 
+        // Both mappings collapse to the same tsp<->g edge weight + the tsp<->ml bridge.
+        assert_eq!(graph.edge_count(), 4);
+    }
+
+    #[test]
+    fn test_make_graph_volume_bridge_seeded_when_volume_present() {
+        // A US-volume mapping gains the metric `ml` node via the bridge.
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+        let graph = make_graph(&mappings);
+        assert!(graph.node_indices().any(|i| graph[i] == Unit::Milliliter));
+        assert!(graph.node_indices().any(|i| graph[i] == Unit::Teaspoon));
+    }
+
+    #[test]
+    fn test_make_graph_no_bridge_without_volume() {
+        // No volume unit -> no stray tsp/ml nodes seeded.
+        let mappings = vec![(Measure::new("g", 1.0), Measure::new("$", 8.0))];
+        let graph = make_graph(&mappings);
+        assert_eq!(graph.node_count(), 2);
         assert_eq!(graph.edge_count(), 2);
+        assert!(!graph.node_indices().any(|i| graph[i] == Unit::Teaspoon));
+        assert!(!graph.node_indices().any(|i| graph[i] == Unit::Milliliter));
+    }
+
+    #[test]
+    fn test_convert_cup_to_volume_via_bridge() {
+        // The core bug: 1 cup should be convertible to Volume (ml) even though the only
+        // mapping is a density-dependent cup->g. ~236.6 ml.
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+        let measure = Measure::new("cup", 1.0);
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Volume, &mappings);
+        assert!(result.is_some());
+        let ml = result.unwrap();
+        assert_eq!(*ml.unit(), Unit::Milliliter);
+        assert!((ml.value() - 236.0).abs() < 2.0, "got {}", ml.value());
+    }
+
+    #[test]
+    fn test_convert_metric_volume_still_works() {
+        // Metric-only volume mapping: ml node already present, bridge adds tsp but the
+        // direct ml result is unchanged.
+        let mappings = vec![(Measure::new("ml", 100.0), Measure::new("g", 90.0))];
+        let measure = Measure::new("ml", 250.0);
+        let result = convert_measure_via_mappings(&measure, MeasureKind::Volume, &mappings);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().value(), 250.0);
     }
 
     #[test]

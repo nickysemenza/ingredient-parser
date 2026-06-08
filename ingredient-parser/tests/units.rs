@@ -335,9 +335,17 @@ fn test_measure_conversions() {
             .unwrap()
     );
 
-    // Conversion to incompatible kind fails
+    // tbsp is itself a volume, so converting to Volume succeeds via the tsp<->ml bridge
+    // (1 tbsp = 3 tsp ~= 14.8 ml), even though the only mapping is tbsp->dollars.
+    let vol = m
+        .convert_measure_via_mappings(MeasureKind::Volume, std::slice::from_ref(&tbsp_dollars))
+        .unwrap();
+    assert_eq!(*vol.unit(), Unit::Milliliter);
+    assert!((vol.value() - 15.0).abs() < 1.0, "got {}", vol.value());
+
+    // Conversion to a genuinely incompatible kind still fails (no path to length).
     assert!(m
-        .convert_measure_via_mappings(MeasureKind::Volume, &[tbsp_dollars])
+        .convert_measure_via_mappings(MeasureKind::Length, &[tbsp_dollars])
         .is_none());
 }
 
@@ -491,16 +499,21 @@ fn test_graph_creation_and_printing() {
         (Measure::new("tbsp", 1.0), Measure::new("dollar", 30.0)),
         (Measure::new("tsp", 1.0), Measure::new("gram", 1.0)),
     ]);
+    // The `ml` node and tsp<->ml edges are seeded by the volume bridge (a volume unit,
+    // tsp, is present in the graph).
     assert_eq!(
         print_graph(g),
         r#"digraph {
     0 [ label = "tsp" ]
     1 [ label = "cent" ]
     2 [ label = "g" ]
+    3 [ label = "ml" ]
     0 -> 1 [ label = "1000" ]
     1 -> 0 [ label = "0.001" ]
     0 -> 2 [ label = "1" ]
     2 -> 0 [ label = "1" ]
+    0 -> 3 [ label = "4.928" ]
+    3 -> 0 [ label = "0.202" ]
 }
 "#
     );
