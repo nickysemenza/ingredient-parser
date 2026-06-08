@@ -25,6 +25,11 @@ ingredient.workspace = true
 recipe-scraper.workspace = true
 serde.workspace = true
 serde-wasm-bindgen = "0.6"
+# Generates the boundary `.d.ts` from the Rust structs below (replacing the old
+# hand-written `typescript_custom_section`). The `From<upstream>` impls are the
+# compile-time drift check against the core crates. "js" routes the wasm ABI
+# through serde-wasm-bindgen, matching how this crate already crosses the boundary.
+tsify-next = { version = "0.5", features = ["js"] }
 js-sys = "0.3"
 tracing.workspace = true
 wasm-tracing = "2.1"

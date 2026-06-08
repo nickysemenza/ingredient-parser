@@ -1,103 +1,66 @@
 #![cfg(target_arch = "wasm32")]
 
-use wasm_bindgen::JsValue;
+use ingredient_wasm::{WAmount, WUnitMappings};
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
+fn amount(unit: &str, value: f64) -> WAmount {
+    WAmount {
+        unit: unit.to_string(),
+        value,
+        upper_value: None,
+    }
+}
+
 #[wasm_bindgen_test]
 fn test_parse_ingredient_simple() {
     let result = ingredient_wasm::parse_ingredient("2 cups flour");
-    assert!(result.is_ok());
+    assert_eq!(result.name, "flour");
+    assert_eq!(result.amounts.len(), 1);
 }
 
 #[wasm_bindgen_test]
 fn test_parse_ingredient_with_modifier() {
     let result = ingredient_wasm::parse_ingredient("1 cup sugar, sifted");
-    assert!(result.is_ok());
+    assert_eq!(result.name, "sugar");
+    assert_eq!(result.modifier.as_deref(), Some("sifted"));
 }
 
 #[wasm_bindgen_test]
 fn test_parse_ingredient_with_fraction() {
     let result = ingredient_wasm::parse_ingredient("1/2 tsp salt");
-    assert!(result.is_ok());
+    assert_eq!(result.name, "salt");
 }
 
 #[wasm_bindgen_test]
 fn test_parse_ingredient_range() {
     let result = ingredient_wasm::parse_ingredient("1-2 tbsp olive oil");
-    assert!(result.is_ok());
+    assert_eq!(result.name, "olive oil");
 }
 
 #[wasm_bindgen_test]
 fn test_format_amount() {
-    let amount = js_sys::Object::new();
-    js_sys::Reflect::set(
-        &amount,
-        &JsValue::from_str("unit"),
-        &JsValue::from_str("cup"),
-    )
-    .unwrap();
-    js_sys::Reflect::set(
-        &amount,
-        &JsValue::from_str("value"),
-        &JsValue::from_f64(2.0),
-    )
-    .unwrap();
-
-    let result = ingredient_wasm::format_amount(&amount.into());
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), "2 cup");
+    assert_eq!(ingredient_wasm::format_amount(amount("cup", 2.0)), "2 cup");
 }
 
 #[wasm_bindgen_test]
 fn test_format_amount_value() {
-    let amount = js_sys::Object::new();
-    js_sys::Reflect::set(&amount, &JsValue::from_str("unit"), &JsValue::from_str("g")).unwrap();
-    js_sys::Reflect::set(
-        &amount,
-        &JsValue::from_str("value"),
-        &JsValue::from_f64(100.5),
-    )
-    .unwrap();
-
-    let result = ingredient_wasm::format_amount_value(&amount.into());
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 100.5);
+    assert_eq!(
+        ingredient_wasm::format_amount_value(amount("g", 100.5)),
+        100.5
+    );
 }
 
 #[wasm_bindgen_test]
 fn test_amount_kind_weight() {
-    let amount = js_sys::Object::new();
-    js_sys::Reflect::set(&amount, &JsValue::from_str("unit"), &JsValue::from_str("g")).unwrap();
-    js_sys::Reflect::set(
-        &amount,
-        &JsValue::from_str("value"),
-        &JsValue::from_f64(100.0),
-    )
-    .unwrap();
-
-    let result = ingredient_wasm::amount_kind(&amount.into());
+    let result = ingredient_wasm::amount_kind(amount("g", 100.0));
     assert!(result.is_ok());
 }
 
 #[wasm_bindgen_test]
 fn test_amount_kind_volume() {
-    let amount = js_sys::Object::new();
-    js_sys::Reflect::set(
-        &amount,
-        &JsValue::from_str("unit"),
-        &JsValue::from_str("cup"),
-    )
-    .unwrap();
-    js_sys::Reflect::set(
-        &amount,
-        &JsValue::from_str("value"),
-        &JsValue::from_f64(1.0),
-    )
-    .unwrap();
-
-    let result = ingredient_wasm::amount_kind(&amount.into());
+    let result = ingredient_wasm::amount_kind(amount("cup", 1.0));
     assert!(result.is_ok());
 }
 
@@ -133,7 +96,7 @@ fn test_parse_unit_mapping_price_per_format() {
 #[wasm_bindgen_test]
 fn test_parse_unit_mapping_with_source() {
     let result = ingredient_wasm::parse_unit_mapping("4 lb = $5 @ costco".to_string());
-    assert!(result.is_ok());
+    assert_eq!(result.unwrap().source.as_deref(), Some("costco"));
 }
 
 #[wasm_bindgen_test]
@@ -162,8 +125,6 @@ fn test_parse_rich_text_multiple_ingredients() {
 
 #[wasm_bindgen_test]
 fn test_graph_unit_mappings_empty() {
-    let result = ingredient_wasm::graph_unit_mappings(vec![]);
-    assert!(result.is_ok());
-    let dot = result.unwrap();
+    let dot = ingredient_wasm::graph_unit_mappings(WUnitMappings(vec![]));
     assert!(dot.contains("digraph"));
 }
