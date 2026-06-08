@@ -70,8 +70,25 @@ fn v_fraction(input: &str) -> Res<&str, f64> {
         )),
     }
 }
+/// Parse a finite f64, rejecting the non-finite spellings `nom::double` accepts.
+///
+/// Rust's float parser (and thus `nom::double`) treats "inf", "infinity", and
+/// "nan" as valid floats, so without this guard "inf/2" or "nan ½" would parse
+/// as a numeric value. Reject any non-finite result so only real numbers parse.
+/// Shared with `measurement::number`, which uses it for the plain-decimal path.
+pub(crate) fn finite_double(input: &str) -> Res<&str, f64> {
+    let (remaining, value) = double(input)?;
+    if value.is_finite() {
+        Ok((remaining, value))
+    } else {
+        Err(nom::Err::Error(
+            nom_language::error::VerboseError::from_error_kind(input, nom::error::ErrorKind::Float),
+        ))
+    }
+}
+
 fn n_fraction(input: &str) -> Res<&str, f64> {
-    context("n_fraction", (double, tag("/"), double))
+    context("n_fraction", (finite_double, tag("/"), finite_double))
         .parse(input)
         .and_then(|(next_input, res)| {
             if res.2 == 0.0 {
@@ -96,8 +113,8 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
 
     // Define parser for unicode vulgar fractions with optional whole number
     let vulgar_fraction_parser = (
-        opt((double, space0)), // Optional whole number with optional whitespace
-        v_fraction,            // Unicode vulgar fraction like ½, ¼, etc.
+        opt((finite_double, space0)), // Optional whole number with optional whitespace
+        v_fraction,                   // Unicode vulgar fraction like ½, ¼, etc.
     );
 
     // Separator between a whole number and a slash fraction: either plain
@@ -107,8 +124,8 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
 
     // Define parser for slash-notation fractions with optional whole number
     let slash_fraction_parser = (
-        opt((double, whole_fraction_sep)), // Optional whole number + separator
-        n_fraction,                        // Standard fraction notation like 1/4, 3/8, etc.
+        opt((finite_double, whole_fraction_sep)), // Optional whole number + separator
+        n_fraction,                               // Standard fraction notation like 1/4, 3/8, etc.
     );
 
     traced_parser!(
@@ -264,6 +281,20 @@ mod tests {
     #[test]
     fn test_fraction_zero_numerator() {
         assert_eq!(fraction_number("0/1"), Ok(("", 0.0)));
+    }
+
+    /// `nom::double` accepts "inf"/"infinity"/"nan"; the fraction parsers must
+    /// reject them (via `finite_double`) so "inf/2" or "nan ½" never parse as a
+    /// numeric value. Regression for the finite-guard bypass.
+    #[rstest]
+    #[case::inf_numerator("inf/2")]
+    #[case::infinity_numerator("infinity/2")]
+    #[case::nan_numerator("nan/1")]
+    #[case::inf_denominator("1/inf")]
+    #[case::inf_whole_vulgar("inf ½")]
+    #[case::inf_whole_slash("inf 1/2")]
+    fn test_fraction_rejects_non_finite(#[case] input: &str) {
+        assert!(fraction_number(input).is_err(), "should reject {input}");
     }
 
     #[test]

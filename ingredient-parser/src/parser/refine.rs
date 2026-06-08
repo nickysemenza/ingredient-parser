@@ -122,6 +122,9 @@ impl IngredientParser {
             .collect();
         found_adjectives.sort_by_key(|adj| Reverse(adj.len()));
 
+        // Count of leading prep adjectives already moved to the front, so several
+        // ("chopped minced onion") keep their source order instead of reversing.
+        let mut leading_count = 0usize;
         for adjective in found_adjectives {
             let Some(pos) = name_lower.find(adjective.as_str()) else {
                 continue;
@@ -170,7 +173,19 @@ impl IngredientParser {
                     }
                 }
             }
-            parsed.push_modifier(ModifierPart::Prep(prep));
+            // A prep adjective at the *start* of the name leads the modifier
+            // ("minced lamb (not too lean)" -> "minced (not too lean)"), matching
+            // what the grammar's old leading-adjective branch produced before prep
+            // extraction was unified here. A mid/trailing one is appended. Several
+            // leading ones keep source order via the running insert index.
+            if name[..cut].trim().is_empty() {
+                parsed
+                    .modifier
+                    .insert(leading_count, ModifierPart::Prep(prep));
+                leading_count += 1;
+            } else {
+                parsed.push_modifier(ModifierPart::Prep(prep));
+            }
 
             // Rebuild both `name` and its lowercase view from the same before/after
             // slices, so `name_lower` is kept in sync without re-lowercasing the

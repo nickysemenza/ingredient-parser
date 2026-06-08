@@ -60,12 +60,6 @@ pub fn truncate_3_decimals(f: f64) -> f64 {
     f64::trunc(f * 1000.0) / 1000.0
 }
 
-/// Round a float to nearest integer
-/// Used for final conversion results
-pub(crate) fn round_to_int(x: f64) -> f64 {
-    x.round()
-}
-
 /// Truncate a string to a maximum length, adding "..." if truncated.
 ///
 /// Uses character count, not byte count, to handle unicode correctly.

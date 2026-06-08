@@ -7,7 +7,6 @@
 use std::collections::HashMap;
 
 use super::{kind::MeasureKind, measure::Measure, measure::TSP_TO_ML, Unit};
-use crate::util::round_to_int;
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use tracing::debug;
@@ -45,18 +44,39 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
 
         let a_val = m_a.value();
         let b_val = m_b.value();
-        let a_to_b_weight = crate::util::truncate_3_decimals(b_val / a_val);
+        // Full-precision factors. The conversion result is integer-rounded at
+        // the end, so truncating to 3 decimals here only compounded drift over
+        // multi-hop paths without changing the rounded output.
+        let a_to_b_weight = b_val / a_val;
+        let b_to_a_weight = a_val / b_val;
 
-        let exists = g
-            .find_edge(n_a, n_b)
-            .and_then(|e| g.edge_weight(e))
-            .is_some_and(|w| *w == a_to_b_weight);
-        if !exists {
-            // if a to b exists with the right weight, then b to a likely exists too
-            // edge from a to b
-            g.add_edge(n_a, n_b, a_to_b_weight);
-            // edge from b to a
-            g.add_edge(n_b, n_a, crate::util::truncate_3_decimals(a_val / b_val));
+        match g.find_edge(n_a, n_b) {
+            // Edge already present. If the weight conflicts (e.g. both
+            // "1 cup = 120 g" and "1 cup = 130 g" were supplied), update it in
+            // place — latest mapping wins — rather than adding a *parallel* edge
+            // that fewest-hops A* would then pick between nondeterministically.
+            Some(e) => {
+                if g.edge_weight(e).is_some_and(|w| *w != a_to_b_weight) {
+                    debug!(
+                        "conflicting mapping {:?}->{:?}, using latest weight {}",
+                        m_a.unit(),
+                        m_b.unit(),
+                        a_to_b_weight
+                    );
+                    if let Some(w) = g.edge_weight_mut(e) {
+                        *w = a_to_b_weight;
+                    }
+                    if let Some(re) = g.find_edge(n_b, n_a) {
+                        if let Some(rw) = g.edge_weight_mut(re) {
+                            *rw = b_to_a_weight;
+                        }
+                    }
+                }
+            }
+            None => {
+                g.add_edge(n_a, n_b, a_to_b_weight);
+                g.add_edge(n_b, n_a, b_to_a_weight);
+            }
         }
     }
 
@@ -75,12 +95,8 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
             .entry(Unit::Milliliter)
             .or_insert_with(|| g.add_node(Unit::Milliliter));
         if g.find_edge(n_tsp, n_ml).is_none() {
-            g.add_edge(n_tsp, n_ml, crate::util::truncate_3_decimals(TSP_TO_ML));
-            g.add_edge(
-                n_ml,
-                n_tsp,
-                crate::util::truncate_3_decimals(1.0 / TSP_TO_ML),
-            );
+            g.add_edge(n_tsp, n_ml, TSP_TO_ML);
+            g.add_edge(n_ml, n_tsp, 1.0 / TSP_TO_ML);
         }
     }
 
@@ -172,8 +188,8 @@ pub fn convert_measure_with_graph(
     let input_upper = input.upper_value();
     let result = Measure::new_with_upper(
         unit_b,
-        round_to_int(input_val * factor),
-        input_upper.map(|x| round_to_int(x * factor)),
+        (input_val * factor).round(),
+        input_upper.map(|x| (x * factor).round()),
     );
     debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
     Some(result.denormalize())
@@ -405,6 +421,26 @@ mod tests {
             &mappings,
         );
         assert_eq!(result.unwrap().value(), 10.0);
+    }
+
+    #[test]
+    fn test_conflicting_mapping_updates_in_place_last_wins() {
+        // Two conflicting mappings for the same pair must NOT create a parallel
+        // edge (which fewest-hops A* would pick between nondeterministically).
+        // The latest mapping wins. Custom units avoid the volume bridge.
+        let mappings = vec![
+            (Measure::new("widget", 1.0), Measure::new("g", 10.0)),
+            (Measure::new("widget", 1.0), Measure::new("g", 13.0)),
+        ];
+        let graph = make_graph(&mappings);
+        // Exactly one edge each way, not two parallel ones.
+        assert_eq!(graph.edge_count(), 2);
+        let result = convert_measure_via_mappings(
+            &Measure::new("widget", 1.0),
+            MeasureKind::Weight,
+            &mappings,
+        );
+        assert_eq!(result.unwrap().value(), 13.0);
     }
 
     #[test]

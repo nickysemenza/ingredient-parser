@@ -78,35 +78,34 @@ impl Unit {
             canonical => canonical,
         }
     }
-    // TODO(perf, deferred from todo 013 item 6): built-in variants could return a
-    // `&'static str` (e.g. `as_static_str()`), allocating only for `Other(s)`. This
-    // is on the Display/output path, not the parse hot path — deferred to avoid any
-    // risk to Display behavior until it shows up in a profile.
-    pub fn to_str(&self) -> String {
+    /// The unit's canonical string form. Built-in variants borrow a `&'static
+    /// str`; only `Other(s)` allocates (to singularize), so `Display` and other
+    /// output paths avoid a per-call `String` for the common case.
+    pub fn to_str(&self) -> Cow<'static, str> {
         match self {
-            Unit::Gram => "g".to_string(),
-            Unit::Kilogram => "kg".to_string(),
-            Unit::Liter => "l".to_string(),
-            Unit::Milliliter => "ml".to_string(),
-            Unit::Teaspoon => "tsp".to_string(),
-            Unit::Tablespoon => "tbsp".to_string(),
-            Unit::Cup => "cup".to_string(),
-            Unit::Quart => "quart".to_string(),
-            Unit::FluidOunce => "fl oz".to_string(),
-            Unit::Ounce => "oz".to_string(),
-            Unit::Pound => "lb".to_string(),
-            Unit::Cent => "cent".to_string(),
-            Unit::Dollar => "$".to_string(),
-            Unit::KCal => "kcal".to_string(),
-            Unit::Second => "second".to_string(),
-            Unit::Minute => "minute".to_string(),
-            Unit::Hour => "hour".to_string(),
-            Unit::Day => "day".to_string(),
-            Unit::Fahrenheit => "fahrenheit".to_string(),
-            Unit::Celsius => "celsius".to_string(),
-            Unit::Inch => "\"".to_string(),
-            Unit::Whole => "whole".to_string(),
-            Unit::Other(s) => singular(s).into_owned(),
+            Unit::Gram => Cow::Borrowed("g"),
+            Unit::Kilogram => Cow::Borrowed("kg"),
+            Unit::Liter => Cow::Borrowed("l"),
+            Unit::Milliliter => Cow::Borrowed("ml"),
+            Unit::Teaspoon => Cow::Borrowed("tsp"),
+            Unit::Tablespoon => Cow::Borrowed("tbsp"),
+            Unit::Cup => Cow::Borrowed("cup"),
+            Unit::Quart => Cow::Borrowed("quart"),
+            Unit::FluidOunce => Cow::Borrowed("fl oz"),
+            Unit::Ounce => Cow::Borrowed("oz"),
+            Unit::Pound => Cow::Borrowed("lb"),
+            Unit::Cent => Cow::Borrowed("cent"),
+            Unit::Dollar => Cow::Borrowed("$"),
+            Unit::KCal => Cow::Borrowed("kcal"),
+            Unit::Second => Cow::Borrowed("second"),
+            Unit::Minute => Cow::Borrowed("minute"),
+            Unit::Hour => Cow::Borrowed("hour"),
+            Unit::Day => Cow::Borrowed("day"),
+            Unit::Fahrenheit => Cow::Borrowed("fahrenheit"),
+            Unit::Celsius => Cow::Borrowed("celsius"),
+            Unit::Inch => Cow::Borrowed("\""),
+            Unit::Whole => Cow::Borrowed("whole"),
+            Unit::Other(s) => Cow::Owned(singular(s).into_owned()),
         }
     }
 }

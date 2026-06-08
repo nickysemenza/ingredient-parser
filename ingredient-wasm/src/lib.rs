@@ -56,7 +56,7 @@ impl From<&Measure> for WAmount {
         Self {
             // `unit().to_str()` (canonical/singular, matching serde) — NOT
             // `unit_as_string()`, which pluralizes for display.
-            unit: m.unit().to_str(),
+            unit: m.unit().to_str().into_owned(),
             value: m.value(),
             upper_value: m.upper_value(),
         }

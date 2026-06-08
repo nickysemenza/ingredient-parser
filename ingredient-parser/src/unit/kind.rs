@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr};
+use std::{borrow::Cow, fmt, str::FromStr};
 
 use super::Unit;
 
@@ -35,13 +35,23 @@ impl MeasureKind {
             MeasureKind::Nutrient(s) => Unit::Other(s.clone()),
         }
     }
-    pub fn to_str(&self) -> &str {
-        for (s, kind) in MEASURE_KIND_MAPPINGS {
-            if self == kind {
-                return s;
+    /// The kind's canonical string form, which inverts [`FromStr`]: the inner
+    /// string of `Other`/`Nutrient` is carried as an `other:<s>`/`nutrient:<s>`
+    /// prefix (both previously collapsed to a lossy bare `"other"`). Static
+    /// variants borrow; the two parameterized ones allocate.
+    pub fn to_str(&self) -> Cow<'_, str> {
+        match self {
+            MeasureKind::Other(s) => Cow::Owned(format!("other:{s}")),
+            MeasureKind::Nutrient(s) => Cow::Owned(format!("nutrient:{s}")),
+            _ => {
+                for (s, kind) in MEASURE_KIND_MAPPINGS {
+                    if self == kind {
+                        return Cow::Borrowed(s);
+                    }
+                }
+                Cow::Borrowed("other")
             }
         }
-        "other"
     }
 
     /// Returns whether this measure kind should scale when adjusting recipe quantities.
@@ -58,7 +68,9 @@ impl MeasureKind {
 
 impl fmt::Display for MeasureKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
+        // Delegate to the canonical `to_str` form so Display and the string
+        // representation never diverge.
+        write!(f, "{}", self.to_str())
     }
 }
 
@@ -81,6 +93,10 @@ impl FromStr for MeasureKind {
         // Check for nutrient prefix pattern: "nutrient:g protein"
         if let Some(nutrient_unit) = s_norm.strip_prefix("nutrient:") {
             return Ok(MeasureKind::Nutrient(nutrient_unit.to_string()));
+        }
+        // Mirror `to_str`'s `other:<s>` form so the two round-trip.
+        if let Some(other_unit) = s_norm.strip_prefix("other:") {
+            return Ok(MeasureKind::Other(other_unit.to_string()));
         }
 
         for (str_repr, kind) in MEASURE_KIND_MAPPINGS {
@@ -128,10 +144,21 @@ mod tests {
     #[case::time(MeasureKind::Time, "time")]
     #[case::temperature(MeasureKind::Temperature, "temperature")]
     #[case::length(MeasureKind::Length, "length")]
-    #[case::other(MeasureKind::Other("pinch".to_string()), "other")]
-    #[case::nutrient(MeasureKind::Nutrient("g protein".to_string()), "other")]
+    #[case::other(MeasureKind::Other("pinch".to_string()), "other:pinch")]
+    #[case::nutrient(MeasureKind::Nutrient("g protein".to_string()), "nutrient:g protein")]
     fn test_measure_kind_to_str(#[case] kind: MeasureKind, #[case] expected: &str) {
         assert_eq!(kind.to_str(), expected);
+    }
+
+    /// `to_str` must invert `from_str` for every variant, including the
+    /// parameterized `Other`/`Nutrient` that previously lost their inner string.
+    #[rstest]
+    #[case::weight(MeasureKind::Weight)]
+    #[case::length(MeasureKind::Length)]
+    #[case::other(MeasureKind::Other("pinch".to_string()))]
+    #[case::nutrient(MeasureKind::Nutrient("g protein".to_string()))]
+    fn test_measure_kind_to_str_round_trips(#[case] kind: MeasureKind) {
+        assert_eq!(MeasureKind::from_str(&kind.to_str()).unwrap(), kind);
     }
 
     // ============================================================================
@@ -160,10 +187,11 @@ mod tests {
     // ============================================================================
 
     #[rstest]
-    #[case::weight(MeasureKind::Weight, "Weight")]
-    #[case::volume(MeasureKind::Volume, "Volume")]
-    #[case::nutrient(MeasureKind::Nutrient("g protein".to_string()), "Nutrient(\"g protein\")")]
+    #[case::weight(MeasureKind::Weight, "weight")]
+    #[case::volume(MeasureKind::Volume, "volume")]
+    #[case::nutrient(MeasureKind::Nutrient("g protein".to_string()), "nutrient:g protein")]
     fn test_measure_kind_display(#[case] kind: MeasureKind, #[case] expected: &str) {
+        // Display delegates to the canonical `to_str` form.
         assert_eq!(format!("{kind}"), expected);
     }
 

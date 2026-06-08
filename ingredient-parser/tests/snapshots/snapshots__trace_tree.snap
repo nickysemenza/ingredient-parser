@@ -89,5 +89,4 @@ expression: traced.trace.format_tree(false)
       │  └─ parse_unit_only "flour, sifted" ✗
       │     └─ unit_extra "flour, sifted" ✗
       ├─ bracketed_amounts "flour, sifted" ✗
-      ├─ adjective "flour, sifted" ✗
       └─ parenthesized_amounts ", sifted" ✗

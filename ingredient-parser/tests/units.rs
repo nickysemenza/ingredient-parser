@@ -106,27 +106,25 @@ fn test_unit_other_to_str() {
 // ============================================================================
 
 #[rstest]
-#[case::weight(MeasureKind::Weight, "Weight", "weight")]
-#[case::volume(MeasureKind::Volume, "Volume", "volume")]
-#[case::money(MeasureKind::Money, "Money", "money")]
-#[case::calories(MeasureKind::Calories, "Calories", "calories")]
-#[case::time(MeasureKind::Time, "Time", "time")]
-#[case::temperature(MeasureKind::Temperature, "Temperature", "temperature")]
-#[case::length(MeasureKind::Length, "Length", "length")]
-fn test_measure_kind_display_and_to_str(
-    #[case] kind: MeasureKind,
-    #[case] display: &str,
-    #[case] to_str: &str,
-) {
-    assert_eq!(format!("{kind}"), display);
-    assert_eq!(kind.to_str(), to_str);
+// Display now delegates to the canonical lowercase `to_str` form.
+#[case::weight(MeasureKind::Weight, "weight")]
+#[case::volume(MeasureKind::Volume, "volume")]
+#[case::money(MeasureKind::Money, "money")]
+#[case::calories(MeasureKind::Calories, "calories")]
+#[case::time(MeasureKind::Time, "time")]
+#[case::temperature(MeasureKind::Temperature, "temperature")]
+#[case::length(MeasureKind::Length, "length")]
+fn test_measure_kind_display_and_to_str(#[case] kind: MeasureKind, #[case] expected: &str) {
+    assert_eq!(format!("{kind}"), expected);
+    assert_eq!(kind.to_str(), expected);
 }
 
 #[test]
 fn test_measure_kind_other() {
+    // `Other`/`Nutrient` carry their inner string so `to_str` inverts `from_str`.
     let other = MeasureKind::Other("custom".to_string());
-    assert_eq!(format!("{other}"), "Other(\"custom\")");
-    assert_eq!(other.to_str(), "other");
+    assert_eq!(format!("{other}"), "other:custom");
+    assert_eq!(other.to_str(), "other:custom");
 }
 
 #[rstest]
@@ -512,8 +510,8 @@ fn test_graph_creation_and_printing() {
     1 -> 0 [ label = "0.001" ]
     0 -> 2 [ label = "1" ]
     2 -> 0 [ label = "1" ]
-    0 -> 3 [ label = "4.928" ]
-    3 -> 0 [ label = "0.202" ]
+    0 -> 3 [ label = "4.92892" ]
+    3 -> 0 [ label = "0.20288420181297323" ]
 }
 "#
     );

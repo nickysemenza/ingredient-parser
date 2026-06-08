@@ -46,17 +46,28 @@ pub(crate) struct ParsedIngredient {
 
 impl ParsedIngredient {
     /// Join the modifier parts into the single string form, trimming empties.
-    /// `", "` between parts mirrors the old `append_modifier` behavior, so the
-    /// lowered modifier is byte-identical.
+    /// Parts are comma-joined ("sifted, fresh"), except a parenthetical aside is
+    /// space-joined to what precedes it ("minced (not too lean)") — the join the
+    /// grammar's old `raw_modifier` did inline, relocated here now that prep
+    /// extraction is a single owner producing separate parts.
     pub(crate) fn modifier_string(&self) -> Option<String> {
-        let joined = self
+        let parts: Vec<&str> = self
             .modifier
             .iter()
             .map(|part| part.text().trim())
             .filter(|text| !text.is_empty())
-            .collect::<Vec<_>>()
-            .join(", ");
-        (!joined.is_empty()).then_some(joined)
+            .collect();
+        if parts.is_empty() {
+            return None;
+        }
+        let mut out = String::new();
+        for (i, part) in parts.iter().enumerate() {
+            if i > 0 {
+                out.push_str(if part.starts_with('(') { " " } else { ", " });
+            }
+            out.push_str(part);
+        }
+        Some(out)
     }
 
     /// Append a part to the modifier (skips empty additions, like the old

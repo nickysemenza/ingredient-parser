@@ -122,7 +122,6 @@ pub struct RecipeRef {
     pub confidence: RefConfidence,
 }
 
-/// A fully assembled recipe (raw verbatim strings) with provenance. The EPUB
 /// A reference to an image embedded in an EPUB — the archive-relative path of the
 /// resource plus its MIME type, *not* the bytes. The bytes are materialized lazily
 /// from the still-available EPUB (the file is hundreds of MB; embedding every
@@ -140,6 +139,7 @@ pub struct ImageRef {
     pub alt: Option<String>,
 }
 
+/// A fully assembled recipe (raw verbatim strings) with provenance. The EPUB
 /// extractor's output type; `recipe-epub`'s `CookbookRecipeExt::parse` structures
 /// the lines with the core parser.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

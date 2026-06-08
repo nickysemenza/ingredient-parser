@@ -16,9 +16,34 @@ use tracing::debug;
 /// arithmetic (`normalize()` and the conversion graph) multiplies by `f64`
 /// conversion factors and round-trips Rational64 → f64 → Rational64, so adding
 /// measures of different units is approximate, not exact.
-/// Non-finite input (filtered out upstream) falls back to zero.
+/// Input that `approximate_float` can't represent — non-finite, or a magnitude
+/// beyond `i64` range — clamps to a sign-preserving extreme rather than
+/// collapsing to zero, so a valid-but-enormous quantity stays enormous and
+/// ordered instead of silently becoming 0 (which would corrupt the parse). NaN,
+/// which shouldn't reach here once `finite_double` guards the number parsers,
+/// maps to 0.
 fn to_rational(value: f64) -> Rational64 {
-    Rational64::approximate_float(value).unwrap_or_else(|| Rational64::from_integer(0))
+    Rational64::approximate_float(value).unwrap_or_else(|| {
+        if value.is_nan() {
+            Rational64::from_integer(0)
+        } else if value < 0.0 {
+            Rational64::from_integer(i64::MIN)
+        } else {
+            Rational64::from_integer(i64::MAX)
+        }
+    })
+}
+
+/// Ensure a range reads low→high. A reversed range like "5 to 2 cups" is almost
+/// certainly a transcription quirk, and downstream code assumes
+/// `value <= upper_value`; swap so that invariant always holds. The upper-bound
+/// -only form `(0.0, Some(upper))` ("up to 5") is already ordered, so it is left
+/// untouched.
+fn ordered_bounds(value: f64, upper_value: Option<f64>) -> (f64, Option<f64>) {
+    match upper_value {
+        Some(upper) if upper < value => (upper, Some(value)),
+        other => (value, other),
+    }
 }
 
 /// Best-effort `f64` view of a rational (for arithmetic, conversion, and the
@@ -227,6 +252,7 @@ fn is_nutrient_unit(s: &str) -> bool {
 
 impl Measure {
     pub(crate) fn new_with_upper(unit: Unit, value: f64, upper_value: Option<f64>) -> Measure {
+        let (value, upper_value) = ordered_bounds(value, upper_value);
         Measure {
             unit,
             value: to_rational(value),
@@ -351,6 +377,7 @@ impl Measure {
         let unit =
             Unit::from_str(&normalized_unit).unwrap_or(Unit::Other(normalized_unit.into_owned()));
 
+        let (value, upper_value) = ordered_bounds(value, upper_value);
         Measure {
             unit,
             value: to_rational(value),
@@ -529,6 +556,40 @@ impl fmt::Display for Measure {
 mod tests {
     use super::*;
     use rstest::rstest;
+
+    // ============================================================================
+    // Rational conversion + range-ordering invariants
+    // ============================================================================
+
+    /// A magnitude beyond `i64` range must clamp to a sign-preserving extreme,
+    /// never collapse to 0 (which silently corrupted huge quantities before).
+    #[test]
+    fn test_to_rational_overflow_clamps_not_zero() {
+        let huge = to_rational(1e30);
+        assert_ne!(huge, Rational64::from_integer(0));
+        assert!(to_f64(huge) > 0.0);
+        assert_eq!(to_rational(-1e30), Rational64::from_integer(i64::MIN));
+        // NaN has no magnitude, so it maps to 0.
+        assert_eq!(to_rational(f64::NAN), Rational64::from_integer(0));
+    }
+
+    /// A reversed range ("5 to 2 cups") must be stored low→high so downstream
+    /// code can rely on `value <= upper_value`.
+    #[test]
+    fn test_reversed_range_is_ordered() {
+        let m = Measure::with_range("cup", 5.0, 2.0);
+        assert_eq!(m.value(), 2.0);
+        assert_eq!(m.upper_value(), Some(5.0));
+        // An already-ordered range is untouched, and the upper-bound-only form
+        // (0 lower) is left as-is.
+        let ok = Measure::with_range("cup", 2.0, 3.0);
+        assert_eq!((ok.value(), ok.upper_value()), (2.0, Some(3.0)));
+        let upper_only = Measure::new_with_upper(Unit::Cup, 0.0, Some(5.0));
+        assert_eq!(
+            (upper_only.value(), upper_only.upper_value()),
+            (0.0, Some(5.0))
+        );
+    }
 
     // ============================================================================
     // Measure Normalization Tests

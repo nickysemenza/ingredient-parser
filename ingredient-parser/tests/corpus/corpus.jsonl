@@ -3,6 +3,10 @@
 // Rows without `xfail` are committed (must parse exactly — regression guard).
 // Rows with `xfail` are known gaps: the label is the *desired* parse, and the
 // mismatch is reported but tolerated until the parser improves.
+// WARNING: amount `value`/`upper_value` are compared as EXACT rationals (a JSON
+// number is recovered via Rational64::approximate_float). Author repeating
+// decimals at full f64 precision — `0.6666666666666666`, NOT `0.667` (which
+// becomes 667/1000 and silently fails to match ⅔). Terminating decimals are fine.
 // See tests/accuracy.rs for scoring. Labels follow the Design Decisions in lib.rs.
 //
 // --- basics: amount + unit + name ---

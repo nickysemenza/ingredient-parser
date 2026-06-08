@@ -2,31 +2,14 @@
 
 use nom::{
     branch::alt, bytes::complete::tag, character::complete::space1, combinator::opt,
-    error::context, error::ParseError, number::complete::double, Parser,
+    error::context, Parser,
 };
 
-use crate::fraction::fraction_number;
+use crate::fraction::{finite_double, fraction_number};
 use crate::parser::{text_number, thousands_number, Res};
 use crate::traced_parser;
 
 use super::MeasurementParser;
-
-/// Parse a finite f64, rejecting the non-finite spellings `nom::double` accepts.
-///
-/// Rust's float parser (and thus `nom::double`) treats "inf", "infinity", and
-/// "nan" as valid floats. In prose that means words like "Reinforce" or
-/// "infused" get their "inf" matched as a `Measure { value: inf }`. Reject any
-/// non-finite result so only real numbers parse.
-fn finite_double(input: &str) -> Res<&str, f64> {
-    let (remaining, value) = double(input)?;
-    if value.is_finite() {
-        Ok((remaining, value))
-    } else {
-        Err(nom::Err::Error(
-            nom_language::error::VerboseError::from_error_kind(input, nom::error::ErrorKind::Float),
-        ))
-    }
-}
 
 /// Parse a double but don't consume trailing periods that aren't part of decimals.
 ///

@@ -1,8 +1,8 @@
 #[allow(deprecated)]
 use nom::{
     bytes::complete::tag,
-    character::complete::{not_line_ending, space0, space1},
-    combinator::{opt, verify},
+    character::complete::{not_line_ending, space0},
+    combinator::opt,
     error::context,
     multi::many1,
     Parser,
@@ -11,7 +11,7 @@ use nom::{
 use super::ir::{ModifierPart, ParsedIngredient};
 use super::normalize::{lift_inline_descriptive_paren, normalize_input, strip_optional_note};
 use super::refine::clean_modifier;
-use crate::parser::{parse_ingredient_text, parse_unit_text, MeasurementParser, Res};
+use crate::parser::{parse_ingredient_text, MeasurementParser, Res};
 use crate::trace;
 use crate::traced_parser;
 use crate::unit::Measure;
@@ -153,12 +153,17 @@ impl IngredientParser {
     pub(crate) fn parse_ingredient<'a>(&self, input: &'a str) -> Res<&'a str, ParsedIngredient> {
         let mp = MeasurementParser::new(&self.units, false);
 
+        // NOTE: a leading preparation adjective ("1 cup chopped onion") is NOT
+        // consumed here — it stays in the name chunks and is extracted into the
+        // modifier by the single owner of prep extraction, `refine`'s
+        // `extract_adjectives_from_name`/`fix_leading_prep_phrase`. The grammar
+        // used to peel a leading adjective separately, which double-handled prep
+        // words with refine's name scan; collapsing to one owner removed that.
         let ingredient_format = (
             opt(|a| mp.parse_measurement_list(a)),
             space0,
             opt(|a| mp.parse_bracketed_amounts(a)),
             space0,
-            opt((|a| self.adjective(a), space1)),
             opt(many1(parse_ingredient_text)),
             opt(|a| mp.parse_parenthesized_amounts(a)),
             opt(tag(", ")),
@@ -176,7 +181,6 @@ impl IngredientParser {
                         _,
                         bracketed_amounts,
                         _,
-                        adjective,
                         name_chunks,
                         paren_amounts,
                         _,
@@ -192,7 +196,7 @@ impl IngredientParser {
                                 bracketed_amounts,
                                 paren_amounts,
                             ),
-                            modifier: raw_modifier(adjective, modifier_text)
+                            modifier: raw_modifier(modifier_text)
                                 .map(|m| vec![ModifierPart::Raw(m)])
                                 .unwrap_or_default(),
                             optional: false,
@@ -202,24 +206,6 @@ impl IngredientParser {
             ),
             |i: &ParsedIngredient| i.name.clone(),
             "parse failed"
-        )
-    }
-
-    /// Parse and validate an adjective string.
-    fn adjective<'a>(&self, input: &'a str) -> Res<&'a str, String> {
-        traced_parser!(
-            "adjective",
-            input,
-            context(
-                "adjective",
-                verify(parse_unit_text, |s: &str| {
-                    self.adjectives.contains(&s.to_lowercase())
-                }),
-            )
-            .parse(input)
-            .map(|(rest, s)| (rest, s.to_string())),
-            |s: &String| s.clone(),
-            "not an adjective"
         )
     }
 }
@@ -237,20 +223,10 @@ fn raw_name(name_chunks: Option<Vec<&str>>) -> String {
     name_chunks.unwrap_or_default().join("").trim().to_string()
 }
 
-fn raw_modifier(adjective: Option<(String, &str)>, modifier_text: &str) -> Option<String> {
-    // The grammar captures a *leading* prep adjective ("minced lamb …") separately
-    // from the trailing post-name text ("(not too lean)"). The adjective leads the
-    // modifier; join it to any trailing text with a separator so the two never glue
-    // into "(not too lean)minced". A parenthetical aside reads naturally with a
-    // space ("minced (not too lean)"); other text is comma-joined ("minced, fresh").
-    let text = modifier_text.trim();
-    let modifier = match adjective.map(|(adjective, _)| adjective) {
-        Some(adjective) if text.is_empty() => adjective,
-        Some(adjective) if text.starts_with('(') => format!("{adjective} {text}"),
-        Some(adjective) => format!("{adjective}, {text}"),
-        None => text.to_owned(),
-    };
-    clean_modifier(Some(modifier))
+fn raw_modifier(modifier_text: &str) -> Option<String> {
+    // The grammar captures only the trailing post-name text (after the first
+    // ", "). Leading prep adjectives are extracted later by `refine`.
+    clean_modifier(Some(modifier_text.trim().to_owned()))
 }
 
 fn merge_amounts(

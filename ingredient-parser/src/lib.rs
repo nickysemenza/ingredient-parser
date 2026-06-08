@@ -231,12 +231,12 @@ static DEFAULT_PARSER: LazyLock<IngredientParser> = LazyLock::new(IngredientPars
 /// How confident the parser is in a result, derived from how it was reached.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Confidence {
-    /// A structured parse with at least one amount, no leftover digit.
+    /// A structured parse with at least one amount.
     High,
-    /// Parsed, but a digit in the input produced no amount (a likely missed
-    /// quantity).
+    /// A clean name-only parse with no digit present (e.g. "salt to taste").
     Medium,
-    /// Fell back to a name-only ingredient (no structured parse succeeded).
+    /// A digit was present but produced no amount — a likely missed quantity,
+    /// or a hard fallback to a name-only ingredient.
     Low,
 }
 
