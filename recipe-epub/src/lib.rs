@@ -610,6 +610,57 @@ fn cover_ref_from_doc<R: std::io::Read + std::io::Seek>(doc: &mut EpubDoc<R>) ->
     })
 }
 
+// ===========================================================================
+// Book-level OPF metadata (title / authors / subjects). The wasm-safe path —
+// reads only the OPF the EPUB already parsed on open, no content decompression.
+// `library.rs::book_metadata` is the file-backed counterpart (it adds the path
+// and a file-stem title fallback); both share `meta_from_doc`.
+// ===========================================================================
+
+/// Book-level metadata from an EPUB's OPF, available from any open document
+/// (file- or reader-backed). The wasm-safe sibling of [`BookMeta`], which adds
+/// the source file path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpubMeta {
+    /// OPF `<dc:title>`; empty when the book declares none. The reader-backed
+    /// path has no file name to fall back on, so the caller supplies a default.
+    pub title: String,
+    /// OPF `<dc:creator>` entries.
+    pub authors: Vec<String>,
+    /// OPF `<dc:subject>` tags (Calibre genres). Often empty.
+    pub subjects: Vec<String>,
+}
+
+/// Extract title/authors/subjects from an already-open EPUB's OPF. Shared by the
+/// wasm-safe [`epub_metadata`] and the file-backed [`book_metadata`].
+pub(crate) fn meta_from_doc<R: std::io::Read + std::io::Seek>(doc: &EpubDoc<R>) -> EpubMeta {
+    let collect = |prop: &str| -> Vec<String> {
+        doc.metadata
+            .iter()
+            .filter(|m| m.property == prop)
+            .map(|m| m.value.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .collect()
+    };
+    EpubMeta {
+        title: doc
+            .get_title()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .unwrap_or_default(),
+        authors: collect("creator"),
+        subjects: collect("subject"),
+    }
+}
+
+/// Title/authors/subjects from an in-memory EPUB's OPF — the wasm-safe metadata
+/// read (`EpubDoc::from_reader`, no fs). `None` if the bytes aren't a readable
+/// EPUB. Pure: parses only the OPF the EPUB loads on open.
+pub fn epub_metadata(bytes: &[u8]) -> Option<EpubMeta> {
+    let doc = EpubDoc::from_reader(Cursor::new(bytes)).ok()?;
+    Some(meta_from_doc(&doc))
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]

@@ -46,27 +46,20 @@ pub struct BookMeta {
 /// none.
 pub fn book_metadata(path: &Path) -> Result<BookMeta, EpubError> {
     let doc = EpubDoc::new(path).map_err(|e| EpubError::Open(e.to_string()))?;
-    let collect = |prop: &str| -> Vec<String> {
-        doc.metadata
-            .iter()
-            .filter(|m| m.property == prop)
-            .map(|m| m.value.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .collect()
+    let meta = crate::meta_from_doc(&doc);
+    // The shared (reader-backed) helper can't see a file name; fall back here.
+    let title = if meta.title.is_empty() {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    } else {
+        meta.title
     };
-    let title = doc
-        .get_title()
-        .filter(|t| !t.trim().is_empty())
-        .unwrap_or_else(|| {
-            path.file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        });
     Ok(BookMeta {
         path: path.to_path_buf(),
         title,
-        authors: collect("creator"),
-        subjects: collect("subject"),
+        authors: meta.authors,
+        subjects: meta.subjects,
     })
 }
 
