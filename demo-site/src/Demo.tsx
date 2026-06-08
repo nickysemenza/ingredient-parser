@@ -5,6 +5,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   RichItem,
   wasm,
@@ -76,15 +77,9 @@ export const Demo: React.FC = () => {
     [w, richText, ingredientNames]
   );
 
-  if (!w) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-zinc-400">
-        <Spinner />
-        <span className="ml-3 text-sm">Loading parser…</span>
-      </div>
-    );
-  }
-
+  // Render the full shell immediately; the ~2.2 MB WASM streams in the
+  // background and each interactive area shows its own loading state.
+  // Inputs stay live so a typed line parses the moment the module resolves.
   return (
     <div className="min-h-screen bg-white text-zinc-900">
       <Nav />
@@ -180,7 +175,14 @@ export const Demo: React.FC = () => {
               onChange={(e) => setRichText(e.target.value)}
             />
             <div className="mt-4 min-h-[72px] rounded-lg border border-zinc-100 bg-zinc-50 p-4 text-base leading-relaxed">
-              {parsedRich && formatRichText(w, parsedRich)}
+              {w ? (
+                parsedRich && formatRichText(w, parsedRich)
+              ) : (
+                <span className="flex items-center text-zinc-400">
+                  <Spinner />
+                  <span className="ml-2.5 text-sm">Loading parser…</span>
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -249,9 +251,17 @@ const SectionHeader: React.FC<{
 );
 
 const IngredientResult: React.FC<{
-  w: wasm;
+  w: wasm | undefined;
   parsed: ReturnType<wasm["parse_ingredient"]> | undefined;
 }> = ({ w, parsed }) => {
+  if (!w) {
+    return (
+      <div className="flex items-center text-zinc-400">
+        <Spinner />
+        <span className="ml-2.5 text-sm">Loading parser…</span>
+      </div>
+    );
+  }
   if (!parsed) {
     return (
       <p className="text-sm text-zinc-400">
@@ -303,7 +313,6 @@ const scaleAmount = (amount: Measure, scale: number): Measure => ({
 
 const Scraper: React.FC = () => {
   const w = useContext(WasmContext);
-  const [scrapedRecipe, setRecipe] = useState<ScrapedRecipe | undefined>();
   const [url, setURL] = useState(
     () =>
       getUrlParam("url") ??
@@ -313,8 +322,6 @@ const Scraper: React.FC = () => {
     const fromUrl = parseFloat(getUrlParam("scale") ?? "");
     return Number.isFinite(fromUrl) && fromUrl > 0 ? fromUrl : 1.0;
   });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setUrlParam("url", url), [url]);
   useEffect(
@@ -322,43 +329,33 @@ const Scraper: React.FC = () => {
     [scaleFactor]
   );
 
-  const doScrape = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!w || !url) return;
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(CORS_PROXY + encodeURIComponent(url), {
-          signal,
-        });
-        if (!res.ok) throw new Error(`Fetch failed (HTTP ${res.status})`);
-        const body = await res.text();
-        setRecipe(w.scrape(body, url));
-      } catch (e) {
-        if ((e as Error).name === "AbortError") return;
-        setRecipe(undefined);
-        setError(
-          e instanceof Error
-            ? `Couldn't scrape this page: ${e.message}`
-            : "Couldn't scrape this page."
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [w, url]
-  );
-
-  // Debounced auto-scrape so typing a URL doesn't fire a request per keystroke.
+  // Debounce the URL so typing doesn't key a fetch per keystroke; the
+  // debounced value drives the query, which handles abort + caching.
+  const [debouncedUrl, setDebouncedUrl] = useState(url);
   useEffect(() => {
-    if (!w) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => doScrape(controller.signal), 500);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [w, doScrape]);
+    const timer = setTimeout(() => setDebouncedUrl(url), 500);
+    return () => clearTimeout(timer);
+  }, [url]);
+
+  const {
+    data: scrapedRecipe,
+    isFetching: loading,
+    error,
+  } = useQuery<ScrapedRecipe>({
+    queryKey: ["scrape", debouncedUrl],
+    enabled: !!w && !!debouncedUrl,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(CORS_PROXY + encodeURIComponent(debouncedUrl), {
+        signal,
+      });
+      if (!res.ok) throw new Error(`Fetch failed (HTTP ${res.status})`);
+      const body = await res.text();
+      return w!.scrape(body, debouncedUrl);
+    },
+  });
+  const errorMessage = error
+    ? `Couldn't scrape this page: ${(error as Error).message}`
+    : null;
 
   const parsedIngredients = useMemo(
     () =>
@@ -384,16 +381,20 @@ const Scraper: React.FC = () => {
           value={url}
           onChange={(e) => setURL(e.target.value)}
         />
-        {loading && (
+        {(loading || !w) && (
           <div className="absolute top-1/2 right-4 -translate-y-1/2 text-accent-600">
             <Spinner />
           </div>
         )}
       </div>
 
-      {error && (
+      {!w && (
+        <p className="text-sm text-zinc-400">Loading parser…</p>
+      )}
+
+      {errorMessage && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+          {errorMessage}
         </div>
       )}
 
