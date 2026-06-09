@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, fmt, str::FromStr};
 
 use super::Unit;

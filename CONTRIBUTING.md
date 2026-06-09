@@ -12,9 +12,11 @@ when deciding what a line *should* parse to.
 | --- | --- |
 | `ingredient-parser` | Core parser library (published to crates.io as `ingredient`) |
 | `ingredient-wasm` | WASM bindings |
+| `recipe-types` | Plain recipe data shapes shared across crates |
 | `recipe-scraper` / `recipe-scraper-fetcher` | Extract recipes from web pages |
+| `recipe-epub` | Extract recipes from EPUB cookbooks (AI-assisted) |
 | `food-cli` | Command-line tool for parsing/scraping |
-| `food-app` | egui desktop/web playground |
+| `food-app` | egui desktop playground |
 | `demo-site` | React + Vite demo frontend |
 
 ## Quick commands

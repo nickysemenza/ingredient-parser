@@ -75,22 +75,18 @@ pub(super) fn looks_like_step_number(input: &str) -> bool {
 /// A dimension suffix is a hyphen followed by a distance unit.
 /// For example, "1-inch" in "1-inch piece ginger" should not be parsed as quantity=1.
 pub(super) fn starts_with_dimension_suffix(text: &str) -> bool {
-    let text = text.to_lowercase();
-    if !text.starts_with('-') {
+    // No allocation: `is_distance_unit` is already case-insensitive, so slice
+    // the unit token directly instead of lowercasing + collecting.
+    let Some(after_hyphen) = text.strip_prefix('-') else {
+        return false;
+    };
+    let end = after_hyphen
+        .find(|c: char| !c.is_alphabetic())
+        .unwrap_or(after_hyphen.len());
+    if end == 0 {
         return false;
     }
-
-    let after_hyphen = &text[1..];
-    let unit_part: String = after_hyphen
-        .chars()
-        .take_while(|c| c.is_alphabetic())
-        .collect();
-
-    if unit_part.is_empty() {
-        return false;
-    }
-
-    is_distance_unit(&unit_part)
+    is_distance_unit(&after_hyphen[..end])
 }
 
 use crate::parser::vocab::DISTANCE_UNIT_BASES;

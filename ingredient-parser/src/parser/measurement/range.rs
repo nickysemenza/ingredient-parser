@@ -4,25 +4,37 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{space0, space1},
-    error::{context, ParseError},
+    error::context,
     Parser,
 };
 use tracing::info;
 
 use crate::parser::Res;
 use crate::traced_parser;
-use crate::unit::Measure;
+use crate::unit::{Measure, Unit};
 
 use super::{optional_period_or_of, MeasurementParser, DEFAULT_UNIT};
 
+/// Canonical [`Unit`] for a raw unit spelling, so range endpoints compare by
+/// unit identity rather than spelling ("tsp" == "teaspoons", "g" == "G").
+fn canonical_unit(s: &str) -> Unit {
+    use std::str::FromStr;
+    // `Unit::from_str` is infallible; `normalize` singularizes unknown units.
+    Unit::from_str(s)
+        .unwrap_or(Unit::Other(s.to_string()))
+        .normalize()
+}
+
 impl<'a> MeasurementParser<'a> {
-    /// Parse a *cross-unit* range like "2 teaspoons to 2 tablespoons" — a range
-    /// whose two endpoints carry *different* units. Unlike a same-unit range
-    /// ("2 to 3 cups"), this can't collapse into one `Measure { upper_value }`,
-    /// so both endpoints are returned as separate amounts: `[2 tsp, 2 tbsp]`.
+    /// Parse a range with an explicit unit on *both* endpoints, like
+    /// "2 teaspoons to 2 tablespoons" or "2 tsp to 3 teaspoons".
     ///
-    /// Requires an explicit unit on *both* sides and that the two units differ;
-    /// otherwise it fails so the same-unit range parser handles it.
+    /// Endpoints with *different* canonical units can't collapse into one
+    /// `Measure { upper_value }`, so both are returned as separate amounts:
+    /// `[2 tsp, 2 tbsp]`. Endpoints with the *same* canonical unit — however
+    /// spelled ("tsp" vs "teaspoons") — fold into one ranged measure; handling
+    /// that here (rather than failing over to the unitless-upper range parser)
+    /// is what consumes the second unit token out of the name.
     pub(super) fn parse_cross_unit_range<'b>(&self, input: &'b str) -> Res<&'b str, Vec<Measure>> {
         let format = (
             |a| self.parse_number(a), // lower value
@@ -42,25 +54,23 @@ impl<'a> MeasurementParser<'a> {
             input,
             context("cross_unit_range", format)
                 .parse(input)
-                .and_then(|(next_input, res)| {
+                .map(|(next_input, res)| {
                     let (low_val, _, low_unit, _, _, _, high_val, _, high_unit, _) = res;
-                    // Same unit → not a cross-unit range; let the range parser fold
-                    // it into a single Measure with an upper bound instead.
-                    if low_unit.to_lowercase() == high_unit.to_lowercase() {
-                        return Err(nom::Err::Error(
-                            nom_language::error::VerboseError::from_error_kind(
-                                input,
-                                nom::error::ErrorKind::Verify,
-                            ),
-                        ));
-                    }
-                    Ok((
-                        next_input,
+                    // Same canonical unit ("2 tsp to 3 teaspoons") → one ranged
+                    // measure; different units → two separate amounts.
+                    let measures = if canonical_unit(&low_unit) == canonical_unit(&high_unit) {
+                        vec![Measure::from_parts(
+                            low_unit.to_lowercase().as_ref(),
+                            low_val,
+                            Some(high_val),
+                        )]
+                    } else {
                         vec![
                             Measure::from_parts(low_unit.to_lowercase().as_ref(), low_val, None),
                             Measure::from_parts(high_unit.to_lowercase().as_ref(), high_val, None),
-                        ],
-                    ))
+                        ]
+                    };
+                    (next_input, measures)
                 }),
             |measures: &Vec<Measure>| measures
                 .iter()
@@ -129,13 +139,14 @@ impl<'a> MeasurementParser<'a> {
     ) -> Res<&'b str, Option<Measure>> {
         // Format for a measurement with a range
         let range_format = (
-            nom::combinator::opt(tag("about ")), // Optional "about" for estimates
-            |a| self.parse_value(a),             // The lower value
-            space0,                              // Optional whitespace
+            // Optional approximation qualifier ("about", "roughly", …, any case)
+            nom::combinator::opt(super::single::leading_qualifier),
+            |a| self.parse_value(a),                // The lower value
+            space0,                                 // Optional whitespace
             nom::combinator::opt(|a| self.unit(a)), // Optional unit for lower value
-            |a| self.parse_range_end(a),         // The upper range value
+            |a| self.parse_range_end(a),            // The upper range value
             nom::combinator::opt(|a| self.unit(a)), // Optional unit for upper value
-            optional_period_or_of,               // Optional period or "of"
+            optional_period_or_of,                  // Optional period or "of"
         );
 
         traced_parser!(
@@ -146,8 +157,14 @@ impl<'a> MeasurementParser<'a> {
                 .map(|(next_input, res)| {
                     let (_, lower_value, _, lower_unit, upper_val, upper_unit, _) = res;
 
-                    // Check for unit mismatch - both units must be the same if both are specified
-                    if upper_unit.is_some() && lower_unit != upper_unit {
+                    // Both units, when specified, must canonicalize to the same
+                    // unit ("1g-2G", "1g-2grams" are fine; "1g-2tbsp" is not).
+                    let mismatch = match (&lower_unit, &upper_unit) {
+                        (Some(lo), Some(hi)) => canonical_unit(lo) != canonical_unit(hi),
+                        (None, Some(_)) => true,
+                        _ => false,
+                    };
+                    if mismatch {
                         info!(
                             "unit mismatch between range values: {:?} vs {:?}",
                             lower_unit, upper_unit
@@ -191,8 +208,10 @@ mod tests {
         units()
     }
 
-    /// A cross-unit range "2 tsp to 2 tbsp" yields two separate amounts (it can't
-    /// fold into one ranged Measure); a same-unit range falls through.
+    /// A cross-unit range "2 tsp to 2 tbsp" yields two separate amounts (it
+    /// can't fold into one ranged Measure); same-CANONICAL-unit endpoints —
+    /// however spelled — fold into one ranged measure, consuming both unit
+    /// tokens so neither leaks into the name.
     #[rstest]
     fn test_cross_unit_range(units_fx: HashSet<String>) {
         let parser = MeasurementParser::new(&units_fx, false);
@@ -202,8 +221,29 @@ mod tests {
         assert_eq!(measures.len(), 2);
         assert_eq!(measures[0].unit_as_string(), "tsp");
         assert_eq!(measures[1].unit_as_string(), "tbsp");
-        // Same unit on both sides → not a cross-unit range.
-        assert!(parser.parse_cross_unit_range("2 cups to 3 cups").is_err());
+        // Same canonical unit on both sides → one ranged measure.
+        for input in ["2 cups to 3 cups", "2 tsp to 3 teaspoons"] {
+            let (_, measures) = parser.parse_cross_unit_range(input).unwrap();
+            assert_eq!(measures.len(), 1, "input: {input}");
+            assert_eq!(
+                (measures[0].value(), measures[0].upper_value()),
+                (2.0, Some(3.0)),
+                "input: {input}"
+            );
+        }
+    }
+
+    /// Differently-spelled same units fold into a single ranged measure: the
+    /// comparison is canonical-unit, not raw-string ("g" == "G" == "grams").
+    #[rstest]
+    #[case::alias("1g-2grams")]
+    #[case::case_mixed("1g-2G")]
+    fn test_range_same_canonical_unit(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measure) = parser.parse_range_with_units(input).unwrap();
+        let measure = measure.unwrap(); // same canonical unit must parse as a range
+        assert_eq!(measure.unit_as_string(), "g");
+        assert_eq!((measure.value(), measure.upper_value()), (1.0, Some(2.0)));
     }
 
     /// Unit mismatch in dash-style ranges returns None (e.g. "1g-2tbsp"). Word-style

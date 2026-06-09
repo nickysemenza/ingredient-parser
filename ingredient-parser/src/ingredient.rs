@@ -1,9 +1,9 @@
 use std::fmt;
 
 use crate::{from_str, unit::Measure};
+use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
-#[derive(Clone, PartialEq, PartialOrd, Debug, Default)]
+#[derive(Clone, PartialEq, PartialOrd, Debug, Default, Serialize, Deserialize)]
 /// A parsed ingredient with structured components
 ///
 /// This struct represents an ingredient that has been parsed from a text string
@@ -48,10 +48,7 @@ pub struct Ingredient {
     /// Optional preparation instructions or modifiers
     pub modifier: Option<String>,
     /// Whether this ingredient is optional (e.g., wrapped in parentheses)
-    #[cfg_attr(
-        feature = "serde-derive",
-        serde(default, skip_serializing_if = "std::ops::Not::not")
-    )]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub optional: bool,
 }
 

@@ -134,7 +134,7 @@
 {"input": "3 TbSp butter", "name": "butter", "amounts": [{"unit": "tbsp", "value": 3.0}]}
 {"input": "2 cups chopped onion", "name": "onion", "amounts": [{"unit": "cup", "value": 2.0}], "modifier": "chopped"}
 {"input": "1 cup minced garlic", "name": "garlic", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "minced"}
-{"input": "1 cup chopped parsley (about 2 bunches)", "name": "parsley", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "whole", "value": 2.0}], "modifier": "chopped"}
+{"input": "1 cup chopped parsley (about 2 bunches)", "name": "parsley", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "bunch", "value": 2.0}], "modifier": "chopped"}
 {"input": "3 tbsp fresh lemon juice (from approximately 1 lemon)", "name": "fresh lemon juice", "amounts": [{"unit": "tbsp", "value": 3.0}, {"unit": "whole", "value": 1.0}]}
 {"input": "1 cup diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "diced"}
 {"input": "60 cilantro leaves (from about 15 sprigs)", "name": "cilantro leaves", "amounts": [{"unit": "whole", "value": 60.0}, {"unit": "sprig", "value": 15.0}]}
@@ -399,3 +399,10 @@
 {"input": "2 tablespoons amaretto or dark rum", "name": "amaretto", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "or dark rum"}
 {"input": "1 cup walnuts or macadamia nuts", "name": "walnuts", "amounts": [{"unit": "cup", "value": 1}], "modifier": "or macadamia nuts"}
 {"input": "1 cup fresh or frozen blueberries", "name": "fresh blueberries", "amounts": [{"unit": "cup", "value": 1}], "modifier": "or frozen blueberries"}
+{"input": "2 tsp to 3 teaspoons sugar", "name": "sugar", "amounts": [{"unit": "tsp", "value": 2, "upper_value": 3}]}
+{"input": "1g-2G salt", "name": "salt", "amounts": [{"unit": "g", "value": 1, "upper_value": 2}]}
+{"input": "2 packets yeast", "name": "yeast", "amounts": [{"unit": "packet", "value": 2}]}
+{"input": "2 heads garlic", "name": "garlic", "amounts": [{"unit": "head", "value": 2}]}
+{"input": "1 cup basil or chopped parsley", "name": "basil", "amounts": [{"unit": "cup", "value": 1}], "modifier": "or chopped parsley"}
+{"input": "1 and ½ cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.5}]}
+{"input": "1 cup parsley, chopped (about 2 cups) plus more for garnish", "name": "parsley", "amounts": [{"unit": "cup", "value": 1}, {"unit": "cup", "value": 2}], "modifier": "chopped plus more for garnish"}

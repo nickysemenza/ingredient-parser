@@ -43,10 +43,6 @@ fn get_testdata() -> HashMap<String, String> {
                 .to_string(),
             include_testdata!("nytimes_toll-house-chocolate-chip-cookies.html").to_string(),
         ),
-        (
-            "https://cooking.nytimes.com/recipes/1022674-chewy-gingerbread-cookies".to_string(),
-            include_testdata!("nytimes_toll-house-chocolate-chip-cookies.html").to_string(),
-        ),
     ])
 }
 
@@ -176,7 +172,7 @@ fn test_scrape_chefsteps() {
         "https://www.chefsteps.com/activities/rich-and-moist-cornbread",
     )
     .unwrap();
-    dbg!(r);
-    // assert_eq!(r.instructions().count(), 7);
-    // assert_eq!(r.ingredients().count(), 17);
+    assert_eq!(r.name, "Rich and Moist Cornbread");
+    assert_eq!(r.ingredients().count(), 12);
+    assert_eq!(r.instructions().count(), 10);
 }

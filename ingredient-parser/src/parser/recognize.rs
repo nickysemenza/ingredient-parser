@@ -103,11 +103,16 @@ impl IngredientParser {
         let trimmed = input.trim();
 
         // Find the leading "… of " / "… from " clause whose pivot is immediately
-        // followed by a number (e.g. "Seeds scraped from 1 …"). Requiring the
-        // number keeps normal names with "of"/"from" (e.g. "cream of tartar",
-        // "heart of palm") from being captured. Use the LAST such pivot before a
-        // number so multi-word leads ("finely grated zest of") are kept whole.
+        // followed by a number (e.g. "Seeds scraped from 1 …"). Uses the EARLIEST
+        // qualifying pivot across both separators.
         let lower = trimmed.to_lowercase();
+        // Lowercasing can change byte lengths for some Unicode (e.g. 'İ' ->
+        // "i̇"), so offsets found in `lower` would misalign with `trimmed` and
+        // slicing could split a char (panic). Bail for such rare inputs, the
+        // same defense extract_adjectives_from_name uses.
+        if lower.len() != trimmed.len() {
+            return None;
+        }
         let pivot_end = [" of ", " from "]
             .iter()
             .filter_map(|sep| {

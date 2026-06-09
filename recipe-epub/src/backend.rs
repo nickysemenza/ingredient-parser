@@ -139,6 +139,7 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor>(
                     recipes: Vec::new(),
                     usage: Usage::default(),
                     cached: false,
+                    truncated: false,
                 }
             });
             if outcome.cached {
@@ -208,10 +209,16 @@ impl<E: RecipeExtractor> RecipeExtractor for CachingExtractor<'_, E> {
                 recipes: hit,
                 usage: Usage::default(),
                 cached: true,
+                truncated: false,
             });
         }
         let outcome = self.inner.extract(chunk).await?;
-        if let Err(e) = cache::write(&self.dir, &key, &outcome.recipes) {
+        // Never cache a truncated outcome: it would silently serve the partial
+        // recipe list on every future run. Leaving it uncached lets a later run
+        // (bigger limit, different model) re-attempt the chunk.
+        if outcome.truncated {
+            tracing::warn!("chunk {} truncated; not caching", chunk.doc_path);
+        } else if let Err(e) = cache::write(&self.dir, &key, &outcome.recipes) {
             tracing::warn!("cache write failed: {e}");
         }
         Ok(outcome)
@@ -264,24 +271,22 @@ fn build_client() -> Result<reqwest::Client, EpubError> {
 }
 
 /// POST `body` as JSON to `endpoint`, applying provider-specific `headers`
-/// (auth, API version, …) plus the optional Cloudflare gateway authorization,
-/// and return the response body text. Maps a non-2xx status to [`EpubError::Api`].
+/// (auth, API version, …) plus the Cloudflare gateway authorization, and
+/// return the response body text. Maps a non-2xx status to [`EpubError::Api`].
 /// Owns the build-request / send / status-check mechanics shared by both backends.
 async fn post_json(
     client: &reqwest::Client,
     endpoint: &str,
     headers: &[(&str, String)],
-    gateway_token: Option<&str>,
+    gateway_token: &str,
     body: &serde_json::Value,
 ) -> Result<String, EpubError> {
     let mut req = client
         .post(endpoint)
-        .header("content-type", "application/json");
+        .header("content-type", "application/json")
+        .header("cf-aig-authorization", format!("Bearer {gateway_token}"));
     for (name, value) in headers {
         req = req.header(*name, value);
-    }
-    if let Some(token) = gateway_token {
-        req = req.header("cf-aig-authorization", format!("Bearer {token}"));
     }
     let resp = req.json(body).send().await?;
 
@@ -383,19 +388,24 @@ impl GatewayClient {
             &self.client,
             &self.endpoint,
             &extra_headers,
-            Some(&self.gateway_token),
+            &self.gateway_token,
             body,
         )
         .await
     }
 }
 
-/// Warn (once) when a finish/stop reason indicates the model's output was
-/// truncated at the token limit, so the recipe tail may be missing.
-fn warn_if_truncated(reason: Option<&str>, truncated_reasons: &[&str], doc_path: &str) {
-    if reason.is_some_and(|r| truncated_reasons.contains(&r)) {
-        tracing::warn!("chunk {doc_path} hit token limit; some recipes may be truncated");
-    }
+/// Whether a finish/stop reason indicates the model's output was truncated at
+/// the token limit, so the result tail may be missing.
+fn is_truncated(reason: Option<&str>, truncated_reasons: &[&str]) -> bool {
+    reason.is_some_and(|r| truncated_reasons.contains(&r))
+}
+
+/// Both providers' truncation tokens (Anthropic `max_tokens`, OpenAI `length`).
+const TRUNCATED_REASONS: &[&str] = &["max_tokens", "length"];
+
+fn warn_truncated(doc_path: &str) {
+    tracing::warn!("chunk {doc_path} hit token limit; some recipes may be truncated");
 }
 
 /// One forced-tool LLM call, abstracted over the provider wire format so callers
@@ -440,7 +450,10 @@ async fn extract_chunk<T: CallTool>(
         )
         .await?;
 
-    warn_if_truncated(reason.as_deref(), truncated_reasons, &chunk.doc_path);
+    let truncated = is_truncated(reason.as_deref(), truncated_reasons);
+    if truncated {
+        warn_truncated(&chunk.doc_path);
+    }
 
     let recipes = match input {
         Some(v) => parse_recipes_payload(v)?,
@@ -450,6 +463,7 @@ async fn extract_chunk<T: CallTool>(
         recipes,
         usage,
         cached: false,
+        truncated,
     })
 }
 
@@ -605,9 +619,22 @@ impl CallTool for OpenAiExtractor {
         call: ToolCall<'_>,
         meta: &CallMeta<'_>,
     ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), EpubError> {
+        // OpenAI reasoning models (o1/o3/o4) and the gpt-5 family reject
+        // `max_tokens` with a 400; they require `max_completion_tokens`.
+        // Gemini's OpenAI-compat endpoint still takes `max_tokens`.
+        let m = self.conn.model.to_lowercase();
+        let token_param = if m.starts_with("o1")
+            || m.starts_with("o3")
+            || m.starts_with("o4")
+            || m.starts_with("gpt-5")
+        {
+            "max_completion_tokens"
+        } else {
+            "max_tokens"
+        };
         let body = json!({
             "model": self.conn.model,
-            "max_tokens": call.max_tokens,
+            token_param: call.max_tokens,
             "messages": [
                 { "role": "system", "content": call.system },
                 { "role": "user", "content": call.user }
@@ -734,7 +761,7 @@ impl Backend {
     pub async fn classify_cookbooks(&self, books: &[BookMeta]) -> Result<Vec<bool>, EpubError> {
         let user = classify_user_prompt(books);
         let schema = classify_tool_schema();
-        let (input, _usage, _reason) = self
+        let (input, _usage, reason) = self
             .call_tool(
                 ToolCall {
                     system: CLASSIFY_SYSTEM_PROMPT,
@@ -750,6 +777,13 @@ impl Backend {
                 },
             )
             .await?;
+        // A truncated index list silently mislabels the tail books as
+        // non-cookbooks — at minimum, say so.
+        if is_truncated(reason.as_deref(), TRUNCATED_REASONS) {
+            tracing::warn!(
+                "cookbook classification hit the token limit; some books may be mislabeled"
+            );
+        }
         let payload: ClassifyPayload = match input {
             Some(v) => serde_json::from_value(v)?,
             None => ClassifyPayload::default(),
@@ -852,6 +886,55 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use crate::extractor::{RecipesPayload, TOOL_NAME};
+
+    /// Inner extractor returning a fixed outcome, for cache-policy tests.
+    struct FixedExtractor {
+        truncated: bool,
+    }
+
+    impl RecipeExtractor for FixedExtractor {
+        async fn extract(&self, _chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
+            Ok(ChunkOutcome {
+                recipes: Vec::new(),
+                usage: Usage::default(),
+                cached: false,
+                truncated: self.truncated,
+            })
+        }
+    }
+
+    /// A truncated outcome must NOT be cached (it would silently serve the
+    /// partial recipe list forever); a complete one must be.
+    #[tokio::test]
+    async fn truncated_outcome_is_not_cached() {
+        let chunk = Chunk {
+            title_hint: None,
+            text: "some cookbook text".to_string(),
+            doc_path: "c1.xhtml".to_string(),
+            links: Vec::new(),
+            images: Vec::new(),
+        };
+        for (truncated, expect_cached_on_rerun) in [(true, false), (false, true)] {
+            let dir = std::env::temp_dir().join(format!(
+                "recipe-epub-trunc-test-{truncated}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            let caching = CachingExtractor {
+                inner: &FixedExtractor { truncated },
+                dir: dir.clone(),
+                model: "test-model".to_string(),
+            };
+            let first = caching.extract(&chunk).await.unwrap();
+            assert!(!first.cached);
+            let second = caching.extract(&chunk).await.unwrap();
+            assert_eq!(
+                second.cached, expect_cached_on_rerun,
+                "truncated={truncated}"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
 
     #[test]
     fn aig_metadata_header_is_valid_json_with_five_entries() {

@@ -22,24 +22,17 @@ serde_json.workspace = true
 egui_ltreeview = "0.7"
 rand = "0.10.0"
 tracing.workspace = true
-tracing-wasm = "0.2.1"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tracing-subscriber = "0.3"
-# Cookbook (EPUB) tab — native only.
+# Cookbook (EPUB) tab.
 recipe-epub.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-# Load AI gateway creds from a repo-root .env on startup (native only).
+# Load AI gateway creds from a repo-root .env on startup.
 dotenvy.workspace = true
-# Recipe-reference digraph in the Cookbook tab (native only).
+# Recipe-reference digraph in the Cookbook tab.
 egui_graphs = "0.30"
 petgraph = "0.8"
 # Native file/folder pickers for the Cookbook tab (pick an EPUB, pick a library).
 rfd = "0.17"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures = "0.4"
-console_error_panic_hook = "0.1"
 
 [lints]
 workspace = true

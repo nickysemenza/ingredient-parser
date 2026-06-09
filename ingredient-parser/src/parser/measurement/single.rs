@@ -1,6 +1,4 @@
 use nom::error::ParseError;
-#[allow(deprecated)]
-use nom::sequence::tuple;
 use nom::{
     branch::alt,
     bytes::complete::tag_no_case,
@@ -26,7 +24,6 @@ impl<'a> MeasurementParser<'a> {
     ///
     /// Also handles format: "4 (13-millimeter/½-inch) slices" where a parenthesized
     /// description appears between the number and unit.
-    #[allow(deprecated)]
     pub(super) fn parse_single_measurement<'b>(&self, input: &'b str) -> Res<&'b str, Measure> {
         let measurement_parser = (
             opt(leading_qualifier),
@@ -43,7 +40,7 @@ impl<'a> MeasurementParser<'a> {
         traced_parser!(
             "parse_single_measurement",
             input,
-            context("single_measurement", tuple(measurement_parser))
+            context("single_measurement", measurement_parser)
                 .parse(input)
                 .and_then(|(next_input, res)| {
                     let (
@@ -170,14 +167,10 @@ impl<'a> MeasurementParser<'a> {
             return Err(reject_measurement(input));
         }
 
+        // (The early return above already rejected rich-text mode, so a plain
+        // `space0` is correct here.)
         let unit_only_format = (
-            |a| {
-                if self.is_rich_text {
-                    space1(a)
-                } else {
-                    space0(a)
-                }
-            },
+            space0,
             |a| self.unit_extra(a),
             optional_period_or_of,
             space1,
@@ -318,16 +311,14 @@ fn amount_qualifier_between(input: &str) -> Res<&str, ()> {
     Ok((input, ()))
 }
 
-/// Consume a leading approximation qualifier ("about", "generous", "scant",
-/// "heaping", …), optionally preceded by an article ("a"/"an"), so the amount
-/// after it still parses. Case-insensitive; the qualifier text is discarded.
+/// Consume a leading approximation/size qualifier ("about", "roughly",
+/// "generous", "scant", …), optionally preceded by an article ("a"/"an"), so
+/// the amount after it still parses. Case-insensitive; the qualifier text is
+/// discarded — except by `rich_text`, which re-emits the consumed span as
+/// prose (the reason this is pub(crate)).
 ///
 /// Wrapped in `opt(...)` by the caller, so a partial match (e.g. consuming "a "
 /// then failing) backtracks and consumes nothing.
-/// Consume a leading approximation/size qualifier ("about", "roughly",
-/// "generous", …) with an optional indefinite article, e.g. the "about " in
-/// "about 3 minutes". Exposed for `rich_text`, which re-emits the consumed span
-/// as prose instead of discarding it.
 pub(crate) fn leading_qualifier(input: &str) -> Res<&str, ()> {
     let (input, _) = opt(alt((tag_no_case("a "), tag_no_case("an ")))).parse(input)?;
     let (input, _) = alt((

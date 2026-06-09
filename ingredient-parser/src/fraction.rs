@@ -54,14 +54,12 @@ pub fn is_vulgar(c: char) -> bool {
 
 /// parses unicode vulgar fractions
 fn v_fraction(input: &str) -> Res<&str, f64> {
-    // Get the first character and try to convert it
-    let mut chars = input.chars();
-    match chars.next().and_then(v_frac_to_num) {
-        Some(val) => {
-            // Advance past the unicode fraction character
-            let char_len = input.chars().next().map_or(0, |c| c.len_utf8());
-            Ok((&input[char_len..], val))
-        }
+    match input
+        .chars()
+        .next()
+        .and_then(|c| v_frac_to_num(c).map(|val| (c, val)))
+    {
+        Some((c, val)) => Ok((&input[c.len_utf8()..], val)),
         None => Err(nom::Err::Error(
             nom_language::error::VerboseError::from_error_kind(
                 input,
@@ -111,10 +109,15 @@ fn n_fraction(input: &str) -> Res<&str, f64> {
 pub fn fraction_number(input: &str) -> Res<&str, f64> {
     use crate::traced_parser;
 
+    // Separator between a whole number and a vulgar fraction: a spelled-out
+    // "and" ("1 and ½"), or optional whitespace (the glyph can attach: "1½").
+    // The "and" form is tried first so the space isn't consumed by `space0`.
+    let whole_vulgar_sep = alt((recognize((space1, tag_no_case("and"), space1)), space0));
+
     // Define parser for unicode vulgar fractions with optional whole number
     let vulgar_fraction_parser = (
-        opt((finite_double, space0)), // Optional whole number with optional whitespace
-        v_fraction,                   // Unicode vulgar fraction like ½, ¼, etc.
+        opt((finite_double, whole_vulgar_sep)), // Optional whole number + separator
+        v_fraction,                             // Unicode vulgar fraction like ½, ¼, etc.
     );
 
     // Separator between a whole number and a slash fraction: either plain
@@ -263,6 +266,9 @@ mod tests {
     #[case::two_and_seventh("2⅐", 2.0 + 1.0 / 7.0)]
     #[case::one_and_half_word("1 and 1/2", 1.5)]
     #[case::two_and_third_word("2 and 1/3", 2.0 + 1.0 / 3.0)]
+    // The "and" separator works for vulgar glyphs too, not just slash form.
+    #[case::one_and_half_vulgar("1 and ½", 1.5)]
+    #[case::two_and_third_vulgar("2 and ⅓", 2.0 + 1.0 / 3.0)]
     fn test_fraction_number_mixed(#[case] input: &str, #[case] expected: f64) {
         assert_eq!(fraction_number(input), Ok(("", expected)));
     }

@@ -31,7 +31,16 @@ impl ReqwestOtelSpanBackend for TimeTrace {
 }
 
 pub fn http_client() -> ClientWithMiddleware {
-    ClientBuilder::new(reqwest::Client::new())
+    // Bounded timeouts: without them a hung/slow-loris server stalls
+    // scrape_url forever (reqwest's default has NO total or connect timeout).
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        // Builder only fails on TLS/resolver misconfiguration; fall back to the
+        // default client (no timeout) rather than panicking.
+        .unwrap_or_default();
+    ClientBuilder::new(client)
         .with(reqwest_tracing::TracingMiddleware::<TimeTrace>::new())
         .build()
 }

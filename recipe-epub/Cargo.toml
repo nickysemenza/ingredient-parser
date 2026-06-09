@@ -11,10 +11,11 @@ publish = false
 
 # The `native` feature carries everything that can't compile to
 # wasm32-unknown-unknown: the reqwest-based LLM backends, the std::fs extraction
-# cache, and the async/tokio orchestration. `cookbook-wasm` depends on this crate
-# with `default-features = false`, leaving only the pure pipeline — EPUB unzip +
-# text chunking (`chunk_epub`), request building (`build_chunk_request`), LLM
-# response parsing, and assembly (`assemble_recipes`). food-cli keeps `native`.
+# cache, and the async/tokio orchestration. With `default-features = false` only
+# the pure pipeline remains — EPUB unzip + text chunking (`chunk_epub`), request
+# building (`build_chunk_request`), LLM response parsing, and assembly
+# (`assemble_recipes`) — for a potential future wasm consumer; every current
+# in-tree consumer keeps `native`.
 [features]
 default = ["native"]
 native = ["dep:reqwest", "dep:tokio", "dep:futures", "dep:walkdir"]
@@ -41,7 +42,7 @@ walkdir = { version = "2", optional = true }  # recursive epub discovery (native
 [dev-dependencies]
 rstest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-zip = "8"  # build tiny in-memory EPUB fixtures (matches epub's zip major)
+zip = "8"  # build tiny in-memory EPUB fixtures (epub itself reads via zip 3)
 
 [lints]
 workspace = true

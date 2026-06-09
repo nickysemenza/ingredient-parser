@@ -150,10 +150,6 @@ pub use crate::ingredient::Ingredient;
 use parser::MeasurementParser;
 use unit::Measure;
 
-#[cfg(feature = "serde-derive")]
-#[macro_use]
-extern crate serde;
-
 pub mod error;
 pub mod fraction;
 pub mod ingredient;
@@ -210,24 +206,6 @@ pub fn from_str(input: &str) -> Ingredient {
 /// `Send + Sync` and immutable in `from_str`, so a process-lifetime static is safe.
 static DEFAULT_PARSER: LazyLock<IngredientParser> = LazyLock::new(IngredientParser::new);
 
-/// Customizable ingredient parser with configurable units and adjectives
-///
-/// This parser allows you to customize which units and adjectives are recognized
-/// during parsing. For parsing recipe instructions (with rich text support),
-/// use [`RichParser`](crate::rich_text::RichParser) instead.
-///
-/// # Examples
-///
-/// ```
-/// use ingredient::IngredientParser;
-///
-/// // Create parser with custom units
-/// let parser = IngredientParser::new()
-///     .with_units(&["handful", "handfuls"]);
-///
-/// let ingredient = parser.from_str("2 handfuls of nuts");
-/// assert_eq!(ingredient.name, "nuts");
-/// ```
 /// How confident the parser is in a result, derived from how it was reached.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Confidence {
@@ -253,6 +231,24 @@ pub struct Diagnostics {
     pub unparsed_digit: bool,
 }
 
+/// Customizable ingredient parser with configurable units and adjectives
+///
+/// This parser allows you to customize which units and adjectives are recognized
+/// during parsing. For parsing recipe instructions (with rich text support),
+/// use [`RichParser`](crate::rich_text::RichParser) instead.
+///
+/// # Examples
+///
+/// ```
+/// use ingredient::IngredientParser;
+///
+/// // Create parser with custom units
+/// let parser = IngredientParser::new()
+///     .with_units(&["handful", "handfuls"]);
+///
+/// let ingredient = parser.from_str("2 handfuls of nuts");
+/// assert_eq!(ingredient.name, "nuts");
+/// ```
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct IngredientParser {
     /// Set of recognized measurement units
@@ -324,14 +320,14 @@ impl IngredientParser {
         &self.units
     }
 
-    /// wrapper for [self.parse_ingredient]
-    /// ```
-    /// use ingredient::{from_str};
-    /// assert_eq!(from_str("one whole egg").to_string(),"1 egg");
-    /// ```
-    /// Parse an ingredient string into an Ingredient object
+    /// Parse an ingredient string into an [`Ingredient`].
     ///
-    /// This method never panics and provides fallback behavior for unparseable input
+    /// Never fails: unparseable input falls back to a name-only ingredient.
+    ///
+    /// ```
+    /// use ingredient::from_str;
+    /// assert_eq!(from_str("one whole egg").to_string(), "1 egg");
+    /// ```
     pub fn from_str(&self, input: &str) -> Ingredient {
         self.parse_ingredient_line(input)
     }
@@ -421,7 +417,11 @@ impl IngredientParser {
         self.parse_ingredient_line_with_trace(input)
     }
 
-    /// Parses one or two amounts, e.g. `12 grams` or `120 grams / 1 cup`. Used by [self.parse_ingredient].
+    /// Parse a string containing one or more measurements, e.g. `12 grams` or
+    /// `120 grams / 1 cup`.
+    ///
+    /// Returns the parsed [`Measure`]s, or an error if no measurement is found.
+    ///
     /// ```
     /// use ingredient::{IngredientParser,unit::Measure};
     /// let ip = IngredientParser::new();
@@ -438,9 +438,6 @@ impl IngredientParser {
     ///    vec![Measure::new("grams",120.0),Measure::new("cup", 1.0),Measure::new("whole", 1.0)]
     ///  );
     /// ```
-    /// Parse a string containing one or more measurements
-    ///
-    /// Returns a Result with a Vec of Measures, or an error if parsing fails
     #[tracing::instrument(name = "parse_amount")]
     pub fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
         let mp = MeasurementParser::new(&self.units, false);

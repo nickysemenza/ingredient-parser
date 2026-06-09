@@ -204,10 +204,10 @@ fn test_teaspoon_denormalize(#[case] tsp_value: f64, #[case] expected_unit: &str
 }
 
 #[rstest]
-#[case::small_sec(30.0, "second")]
+#[case::small_sec(30.0, "seconds")]
 #[case::minutes(120.0, "minutes")]
-#[case::hour(7200.0, "hour")]
-#[case::day(100000.0, "day")]
+#[case::hour(7200.0, "hours")]
+#[case::day(100000.0, "days")]
 fn test_second_denormalize(#[case] sec_value: f64, #[case] expected_unit: &str) {
     let m = Measure::new("second", sec_value);
     assert_eq!(m.denormalize().unit_as_string(), expected_unit);
@@ -263,7 +263,7 @@ fn test_measure_pluralization(#[case] unit: &str, #[case] value: f64, #[case] ex
 #[case::simple("cups", 2.0, None, "2 cups")]
 #[case::singular("cup", 1.0, None, "1 cup")]
 #[case::range("cups", 1.0, Some(2.0), "1 - 2 cups")]
-#[case::zero_range("days", 0.0, Some(3.0), "3 day")]
+#[case::zero_range("days", 0.0, Some(3.0), "3 days")]
 fn test_measure_display(
     #[case] unit: &str,
     #[case] value: f64,

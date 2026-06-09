@@ -28,8 +28,9 @@ pub struct ExtractedRecipe {
 }
 
 /// Token usage reported by the model API for one call. Field names match the
-/// Anthropic Messages API `usage` object; OpenAI/Gemini report the same counts
-/// under different names, so a future backend maps them into this shape.
+/// Anthropic Messages API `usage` object; the OpenAI-compatible backend maps
+/// its `prompt_tokens`/`completion_tokens` into this shape (see
+/// `backend::OpenAiUsage`).
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct Usage {
     #[serde(default)]
@@ -61,6 +62,10 @@ pub struct ChunkOutcome {
     pub usage: Usage,
     /// True when served from the on-disk cache (no API call, no cost).
     pub cached: bool,
+    /// True when the model's output hit the token limit, so `recipes` may be
+    /// incomplete. A truncated outcome must NOT be cached — a later run (bigger
+    /// limit, different model) should re-attempt the chunk.
+    pub truncated: bool,
 }
 
 /// The LLM request for one chunk: the system prompt, the user text, and the
@@ -237,6 +242,7 @@ impl RecipeExtractor for MockExtractor {
             recipes: out,
             usage: Usage::default(),
             cached: false,
+            truncated: false,
         })
     }
 }

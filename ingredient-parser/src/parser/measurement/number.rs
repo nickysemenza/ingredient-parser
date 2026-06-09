@@ -162,7 +162,8 @@ impl<'a> MeasurementParser<'a> {
             "parse_upper_bound_only",
             input,
             context("upper_bound_only", format).parse(input),
-            // Note: upper is always Some when this succeeds (see line 128 above)
+            // Note: upper is always Some when this succeeds (the .map above
+            // always builds Some(upper_value))
             |(_, upper): &(f64, Option<f64>)| format!("up to {}", upper.unwrap_or(0.0)),
             "no upper bound"
         )

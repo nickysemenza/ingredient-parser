@@ -249,7 +249,7 @@ fn test_rich_text_basic(
 }
 
 #[rstest]
-#[case::ingredient_at_start("butter should be soft", &["butter"], vec![text(""), ing("butter"), text(" should be soft")])]
+#[case::ingredient_at_start("butter should be soft", &["butter"], vec![ing("butter"), text(" should be soft")])]
 #[case::ingredient_middle("fold in the chocolate chips gently", &["chocolate chips"], vec![text("fold in the "), ing("chocolate chips"), text(" gently")])]
 fn test_rich_text_ingredient_positions(
     #[case] input: &str,
@@ -380,9 +380,18 @@ fn test_rich_text_multiple_ingredients() {
 
 #[rstest]
 fn test_measurement_edge_cases(parser: IngredientParser) {
-    // Unit mismatch in ranges - parser handles gracefully
+    // A cross-unit range can't fold into one ranged measure; both endpoints
+    // become separate amounts and the name survives.
     let ingredient = parser.from_str("1 cup to 2 tbsp flour");
-    assert!(ingredient.name.contains("flour") || !ingredient.amounts.is_empty());
+    assert_eq!(ingredient.name, "flour");
+    assert_eq!(
+        ingredient
+            .amounts
+            .iter()
+            .map(|m| m.to_string())
+            .collect::<Vec<_>>(),
+        vec!["1 cup", "2 tbsp"]
+    );
 
     // Plus expression with incompatible units - should still parse something
     let ingredient = parser.from_str("1 cup plus 2 grams flour");
@@ -404,6 +413,22 @@ fn test_measurement_edge_cases(parser: IngredientParser) {
     let rich_parser = RichParser::new(Vec::<String>::new());
     let result = rich_parser.parse("add one cup of flour").unwrap();
     assert!(!result.is_empty());
+}
+
+// ============================================================================
+// "from_str never fails" robustness
+// ============================================================================
+
+/// Inputs whose lowercase form has a different byte length (e.g. 'İ' U+0130 →
+/// "i̇") must not panic: recognizers that search a lowercased copy used to
+/// slice the original string with misaligned offsets. from_str must always
+/// fall back gracefully instead.
+#[rstest]
+#[case::dotted_i_before_of_pivot("Zest İ of ½ lemon")]
+#[case::dotted_i_only("İ")]
+#[case::dotted_i_with_amount("1 cup İrmik")]
+fn test_from_str_length_changing_lowercase_no_panic(#[case] input: &str) {
+    let _ = from_str(input); // must not panic
 }
 
 // ============================================================================
@@ -498,14 +523,6 @@ fn test_rich_text_at_least_as_lower_bound() {
     assert_eq!(result[1], measure("hours", 2.0));
 }
 
-#[rstest]
-fn test_parse_with_trace(parser: IngredientParser) {
-    let traced = parser.parse_with_trace("2 cups flour");
-    assert!(traced.result.is_ok());
-    assert_eq!(traced.result.unwrap().name, "flour");
-    assert!(!traced.trace.format_tree(false).is_empty());
-}
-
 // ============================================================================
 // Trailing Amount Format Tests (European/Professional Cookbook Style)
 // ============================================================================
@@ -517,16 +534,11 @@ fn test_parse_with_trace(parser: IngredientParser) {
 #[case::temp_only_c("Milk — 37°C")]
 fn test_trailing_temp_only_not_used(parser: IngredientParser, #[case] input: &str) {
     let result = parser.from_str(input);
-    // Temperature-only trailing amounts should NOT be parsed as the primary amount
-    // The result should either have no amounts or fall back to normal parsing
-    let has_non_temp_amount = result.amounts.iter().any(|m| {
-        !matches!(
-            m.unit(),
-            ingredient::unit::Unit::Fahrenheit | ingredient::unit::Unit::Celsius
-        )
-    });
+    // The trailing temperature describes a property, not a quantity: it must
+    // not become an amount at all. (The old disjunctive assertion passed even
+    // when the temperature WAS taken as the primary amount.)
     assert!(
-        !has_non_temp_amount || result.amounts.is_empty(),
+        result.amounts.is_empty(),
         "Temperature-only trailing should not be used as amount: {input} -> {result:?}"
     );
 }

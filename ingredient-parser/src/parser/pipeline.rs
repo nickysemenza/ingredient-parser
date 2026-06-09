@@ -1,4 +1,3 @@
-#[allow(deprecated)]
 use nom::{
     bytes::complete::tag,
     character::complete::{not_line_ending, space0},

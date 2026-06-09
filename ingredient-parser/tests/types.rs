@@ -71,15 +71,9 @@ fn test_ingredient_display() {
 
 #[test]
 fn test_ingredient_error() {
-    // Display for each error variant
+    // Display for each variant the library actually produces
+    // (ParseError/Generic are deprecated and never constructed).
     let error_cases: Vec<(IngredientError, &str)> = vec![
-        (
-            IngredientError::ParseError {
-                input: "bad input".to_string(),
-                context: "invalid format".to_string(),
-            },
-            "Failed to parse ingredient 'bad input': invalid format",
-        ),
         (
             IngredientError::AmountParseError {
                 input: "2x cups".to_string(),
@@ -94,12 +88,6 @@ fn test_ingredient_error() {
             },
             "Measure operation 'add' failed: incompatible units",
         ),
-        (
-            IngredientError::Generic {
-                message: "something went wrong".to_string(),
-            },
-            "Ingredient parsing error: something went wrong",
-        ),
     ];
 
     for (err, expected) in error_cases {
@@ -107,21 +95,20 @@ fn test_ingredient_error() {
     }
 
     // Clone and PartialEq
-    let err1 = IngredientError::ParseError {
+    let err1 = IngredientError::AmountParseError {
         input: "test".to_string(),
-        context: "test context".to_string(),
+        reason: "test reason".to_string(),
     };
     let err2 = err1.clone();
     assert_eq!(err1, err2);
 
-    let err3 = IngredientError::Generic {
-        message: "different error".to_string(),
+    let err3 = IngredientError::MeasureError {
+        operation: "add".to_string(),
+        reason: "different error".to_string(),
     };
     assert_ne!(err1, err3);
 
     // IngredientResult type alias
-    let result: IngredientResult<i32> = Err(IngredientError::Generic {
-        message: "error".to_string(),
-    });
+    let result: IngredientResult<i32> = Err(err3);
     assert!(result.is_err());
 }

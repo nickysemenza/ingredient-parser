@@ -5,17 +5,16 @@ use clap::{Parser, Subcommand};
 use recipe_epub::CookbookRecipeExt; // .parse() / .low_confidence_lines() on CookbookRecipe
 
 #[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
-#[clap(propagate_version = true)]
+#[command(author, version, about, long_about = None)]
+#[command(propagate_version = true)]
 struct Cli {
-    #[clap(subcommand)]
+    #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     Scrape {
-        #[clap(value_parser)]
         url: String,
         #[arg(short, long)]
         json: bool,
@@ -25,7 +24,6 @@ enum Commands {
     /// Scrape every recipe from a local EPUB cookbook file (AI-assisted)
     ScrapeEpub {
         /// Path to the .epub file
-        #[clap(value_parser)]
         path: String,
         #[arg(short, long)]
         json: bool,
@@ -47,7 +45,6 @@ enum Commands {
     /// (have a number but yield no amount) as accuracy-corpus candidates.
     ScanCookbooks {
         /// Directory to scan recursively for .epub files
-        #[clap(value_parser)]
         dir: String,
         /// Max number of books to scan (uses the on-disk cache, so re-runs are free)
         #[arg(long, default_value_t = 10)]
@@ -61,7 +58,6 @@ enum Commands {
         concurrency: usize,
     },
     ParseIngredient {
-        #[clap(value_parser)]
         name: String,
         /// Enable debug trace output showing which parsers were used
         #[arg(short, long)]
@@ -81,7 +77,6 @@ enum Commands {
     /// `scrape <url> --json | jq -r '.sections[].ingredients[]'`.
     ParseLines {
         /// Path to a file with one ingredient line per line (blank lines skipped)
-        #[clap(value_parser)]
         file: String,
     },
     /// Render the accuracy corpus (tests/corpus/corpus.jsonl) as an HTML table
@@ -327,7 +322,13 @@ async fn main() {
     match &cli.command {
         Commands::Scrape { url, json, parse } => {
             let s = recipe_scraper_fetcher::Fetcher::new();
-            let scraped = s.scrape_url(url).await.unwrap();
+            let scraped = match s.scrape_url(url).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("scrape error: {e}");
+                    std::process::exit(1);
+                }
+            };
             if *parse {
                 let parsed = scraped.parse();
                 if *json {
@@ -547,9 +548,10 @@ async fn main() {
                     }
                 }
             } else {
+                // JSON only — stdout must stay pipeable (`… | jq`); the human-
+                // readable Display line was breaking that.
                 let res = ingredient::from_str(name);
                 println!("{}", serde_json::to_string_pretty(&res).unwrap());
-                println!("{res}")
             }
         }
         Commands::ParseLines { file } => {
@@ -650,13 +652,21 @@ async fn main() {
                 parser = parser.with_units(&extra);
             }
 
-            // Try to parse a simple amount with the unit and check if the parsed unit matches
+            // Try to parse "1 <unit>". An unknown unit isn't an error — it falls
+            // back to the bare-count `whole` — so Whole only counts as valid when
+            // the input itself spells it ("whole"/"each"). Comparing the
+            // CANONICAL unit (not the raw spelling) keeps aliases and plurals
+            // valid: "tablespoon", "cups", "grams".
+            use std::str::FromStr;
             let test_input = format!("1 {unit}");
+            let input_is_whole =
+                ingredient::unit::Unit::from_str(unit) == Ok(ingredient::unit::Unit::Whole);
             let is_valid = parser
                 .parse_amount(&test_input)
                 .map(|amounts| {
-                    !amounts.is_empty()
-                        && amounts[0].unit().to_str().to_lowercase() == unit.to_lowercase()
+                    amounts.first().is_some_and(|m| {
+                        *m.unit() != ingredient::unit::Unit::Whole || input_is_whole
+                    })
                 })
                 .unwrap_or(false);
 

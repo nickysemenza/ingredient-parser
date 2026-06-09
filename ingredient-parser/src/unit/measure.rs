@@ -87,7 +87,9 @@ fn serialize_unit<S: Serializer>(unit: &Unit, s: S) -> Result<S::Ok, S::Error> {
 /// Deserialize Unit from a string
 fn deserialize_unit<'de, D: Deserializer<'de>>(d: D) -> Result<Unit, D::Error> {
     let s = String::deserialize(d)?;
-    Ok(Unit::from_str(&s).unwrap_or(Unit::Other(singular(&s).into_owned())))
+    // `Unit::from_str` is infallible (the fallback arm is unreachable);
+    // `normalize` singularizes unknown units.
+    Ok(Unit::from_str(&s).unwrap_or(Unit::Other(s)).normalize())
 }
 
 /// Serialize a rational quantity as a plain JSON number (f64).
@@ -115,7 +117,8 @@ fn deserialize_rational_opt<'de, D: Deserializer<'de>>(
 
 // Multiplication factors for unit conversions
 const TSP_TO_TBSP: f64 = 3.0;
-const TSP_TO_FL_OZ: f64 = 2.0;
+// 1 fl oz = 2 tbsp = 6 tsp (the table below is teaspoons-per-from-unit)
+const TSP_TO_FL_OZ: f64 = TSP_TO_TBSP * 2.0;
 // Bridge between the two volume normalization bases (teaspoon for the US/spoon family,
 // milliliter for the metric family). Fixed geometric ratio, density-independent:
 // 1 US tsp = 4.92892 ml (keeps cup = 48 tsp = 236.59 ml consistent). Seeded into the
@@ -303,11 +306,13 @@ impl Measure {
         let b_kind = b.kind()?;
         let self_kind = self.kind()?;
 
-        if let MeasureKind::Other(_) = b_kind {
-            return Ok(self.clone());
-        }
-
         if self_kind != b_kind {
+            // A custom-unit rhs that doesn't match keeps self: unknown units must not
+            // poison an otherwise-valid sum. Matching kinds — including identical
+            // custom kinds like clove+clove or whole+whole — fall through and add.
+            if matches!(b_kind, MeasureKind::Other(_)) {
+                return Ok(self.clone());
+            }
             return Err(IngredientError::MeasureError {
                 operation: "add".to_string(),
                 reason: format!(
@@ -491,8 +496,10 @@ impl Measure {
     pub fn unit_as_string(&self) -> String {
         let unit_str = self.unit().to_str();
         let base = singular(&unit_str);
-        if (*self.unit() == Unit::Cup || *self.unit() == Unit::Minute)
-            && (self.value() > 1.0 || self.upper_value().unwrap_or(0.0) > 1.0)
+        if matches!(
+            self.unit(),
+            Unit::Cup | Unit::Second | Unit::Minute | Unit::Hour | Unit::Day
+        ) && (self.value() > 1.0 || self.upper_value().unwrap_or(0.0) > 1.0)
         {
             let mut s = base.into_owned();
             s.push('s');
@@ -522,10 +529,12 @@ impl fmt::Display for Measure {
         }
         // `Unit::Whole` is the parser-internal sentinel for a bare count ("2 eggs"); it
         // renders as just the quantity. Serialization still emits "whole" via `to_str()`.
-        let suffix = if *self.unit() == Unit::Whole {
+        // The suffix must come from the DENORMALIZED measure: `denormalize` can remap
+        // the unit (48 tsp -> 1 cup, 7200 s -> 2 hours), and value/unit must agree.
+        let suffix = if *measure.unit() == Unit::Whole {
             String::new()
         } else {
-            format!(" {}", self.unit_as_string())
+            format!(" {}", measure.unit_as_string())
         };
         if let Some(u) = measure.upper_value() {
             if u != 0.0 {
@@ -758,6 +767,10 @@ mod tests {
     #[case::money_cents("$", 0.01, None, "$0.01")]
     #[case::money_half("$", 0.5, None, "$0.5")]
     #[case::money_range("$", 2.0, Some(4.0), "$2 - $4")]
+    // Display must pair the denormalized VALUE with the denormalized UNIT:
+    // 48 tsp denormalizes to 1 cup, 7200 s to 2 hours.
+    #[case::tsp_denormalizes_to_cup("tsp", 48.0, None, "1 cup")]
+    #[case::seconds_denormalize_to_hours("second", 7200.0, None, "2 hours")]
     fn test_measure_display(
         #[case] unit: &str,
         #[case] value: f64,
@@ -787,6 +800,35 @@ mod tests {
         let sum = a.add(b).unwrap();
         assert!(sum.value().is_finite());
         assert!(sum.value() > big);
+    }
+
+    /// 1 fl oz = 2 tbsp = 6 tsp, so 1 fl oz + 1 tbsp = 9 tsp (displays "3 tbsp").
+    /// Pins the TSP_TO_FL_OZ factor, which was 2.0 (tbsp-per-fl-oz misapplied as
+    /// tsp-per-fl-oz) — a silent 3x error in every fl-oz conversion.
+    #[test]
+    fn test_add_fl_oz_factor() {
+        let sum = Measure::new("fl oz", 1.0)
+            .add(Measure::new("tbsp", 1.0))
+            .unwrap();
+        assert_eq!(*sum.unit(), Unit::Teaspoon);
+        assert_eq!(sum.value(), 9.0);
+        assert_eq!(format!("{sum}"), "3 tbsp");
+    }
+
+    /// Adding two measures of the SAME custom kind must sum, not silently keep
+    /// the left operand (the Other-kind early-return used to fire before the
+    /// kind-equality check). Bare counts (whole) are Other("whole") and add too.
+    #[rstest]
+    #[case::custom_unit("clove", 1.0, 2.0, 3.0)]
+    #[case::bare_count("whole", 2.0, 3.0, 5.0)]
+    fn test_add_same_other_kind(
+        #[case] unit: &str,
+        #[case] a: f64,
+        #[case] b: f64,
+        #[case] expected: f64,
+    ) {
+        let sum = Measure::new(unit, a).add(Measure::new(unit, b)).unwrap();
+        assert_eq!(sum.value(), expected);
     }
 
     /// Same-unit rational add stays exact: ⅓ cup + ⅓ cup == ⅔ cup, with no f64

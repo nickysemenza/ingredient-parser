@@ -6,7 +6,6 @@ use ingredient::{
     IngredientParser,
 };
 use ld_json::extract_ld;
-pub use ld_json::parse_yield_string;
 use scraper::Html;
 
 use serde::{Deserialize, Serialize};
@@ -19,7 +18,7 @@ use tracing::info;
 
 #[derive(Error, Debug)]
 pub enum ScrapeError {
-    #[error("could not find fetch `{0}`")]
+    #[error("fetch failed: {0}")]
     Http(String),
     #[error("could not find ld+json for `{0}`")]
     NoLDJSON(String),
@@ -158,7 +157,7 @@ pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     // Prefer LD+JSON, but fall back to HTML scraping on *any* LD failure —
     // missing, malformed/undeserializable, or present-but-no-recipe — rather
     // than erroring out. Previously only the "no ld+json at all" case degraded.
-    let from_ld = match extract_ld(dom.clone()) {
+    let from_ld = match extract_ld(&dom) {
         Ok(ld_schemas) => {
             let items = ld_schemas.len();
             ld_schemas

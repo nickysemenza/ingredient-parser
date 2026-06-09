@@ -24,6 +24,7 @@ dotenvy = "0.15"
 ingredient = { path = "ingredient-parser" }
 recipe-types = { path = "recipe-types" }
 recipe-scraper = { path = "recipe-scraper" }
+recipe-scraper-fetcher = { path = "recipe-scraper-fetcher" }
 recipe-epub = { path = "recipe-epub" }
 
 [workspace.lints.clippy]

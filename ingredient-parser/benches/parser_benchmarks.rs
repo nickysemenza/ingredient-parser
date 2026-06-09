@@ -36,7 +36,7 @@ fn benchmark_ingredient_parsing(c: &mut Criterion) {
             b.iter(|| rich_parser.parse(black_box(input)))
         });
 
-        // Benchmark error handling path (using parse_amount which returns Result)
+        // Benchmark standalone amount parsing over the same inputs
         group.bench_with_input(BenchmarkId::new("parse_amount", name), input, |b, input| {
             let parser = IngredientParser::new();
             b.iter(|| parser.parse_amount(black_box(input)))
@@ -63,12 +63,6 @@ fn benchmark_amount_parsing(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("parse_amount", name), input, |b, input| {
             b.iter(|| parser.parse_amount(black_box(input)))
         });
-
-        group.bench_with_input(
-            BenchmarkId::new("parse_amount_unwrap", name),
-            input,
-            |b, input| b.iter(|| parser.parse_amount(black_box(input)).unwrap()),
-        );
     }
 
     group.finish();

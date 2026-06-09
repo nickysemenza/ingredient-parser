@@ -7,16 +7,21 @@ rust-version = "1.85"
 description = "recipe ingredient parser"
 license = "MIT"
 repository = "https://github.com/nickysemenza/ingredient-parser"
-readme = "README.md"
+# NOTE: git tracks the file as lowercase `readme.md`; the path must match
+# exactly or `cargo package`/`publish` fails on case-sensitive filesystems.
+readme = "readme.md"
 
 
 [features]
-default = ["serde-derive"]
-serde-derive = ["serde/derive"]
+default = []
+# No-op kept for backward compatibility: serde support used to be optional
+# behind this feature, but the crate's types always required serde in practice
+# (serde_json is a hard dependency), so serde is now unconditional.
+serde-derive = []
 bench = ["dep:criterion"]
 
 [dependencies]
-serde = { workspace = true, optional = true }
+serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 petgraph = "0.8.0"
@@ -36,7 +41,6 @@ features = ["alloc"]
 [dev-dependencies]
 proptest = "1.5"
 rstest.workspace = true
-serde = { workspace = true }
 insta = "1"
 
 [[bench]]

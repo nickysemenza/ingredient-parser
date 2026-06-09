@@ -130,6 +130,16 @@ impl IngredientParser {
                 continue;
             };
 
+            // An adjective after a word-boundary " or " belongs to the
+            // ALTERNATIVE, not the primary: leave it for the alternative passes
+            // ("basil or chopped parsley" must keep "chopped" with parsley, not
+            // read as prep for basil).
+            if let Some(or_pos) = name_lower.find(" or ") {
+                if pos > or_pos {
+                    continue;
+                }
+            }
+
             let end = pos + adjective.len();
             // `pos`/`end` are byte offsets into the lowercased name. Lowercasing
             // can change byte lengths for some Unicode (e.g. 'İ' -> "i̇"), so these
@@ -552,13 +562,14 @@ fn extract_secondary_amounts(
         return (vec![], modifier.to_string());
     }
 
-    let cleaned = format!(
+    // Collapse, don't just trim: a mid-modifier match ("chopped (about 2 cups)
+    // plus more") leaves the spaces on both sides of the excised parenthetical
+    // adjacent, which trim() can't fix.
+    let cleaned = super::normalize::collapse_whitespace(&format!(
         "{}{}",
         &modifier[..full_match.start()],
         &modifier[full_match.end()..]
-    )
-    .trim()
-    .to_string();
+    ));
 
     (measures, cleaned)
 }
@@ -659,6 +670,11 @@ mod tests {
     #[case::boundary_guard("well-chopped onion", "well-chopped onion", None)]
     // Two adjectives in one name exercise the loop's name/name_lower rebuild.
     #[case::two_adjectives("chopped sifted flour", "flour", Some("chopped, sifted"))]
+    // An adjective inside an "or" alternative is left for the alternative
+    // passes ("chopped" describes parsley, not basil). One before "or" is
+    // still extracted.
+    #[case::after_or_left_alone("basil or chopped parsley", "basil or chopped parsley", None)]
+    #[case::before_or_extracted("chopped basil or parsley", "basil or parsley", Some("chopped"))]
     fn test_extract_adjectives_from_name(
         #[case] name: &str,
         #[case] want_name: &str,
@@ -705,6 +721,23 @@ mod tests {
         let mut i = ing("scallions", Some(modifier));
         parser.extract_secondary_amounts_from_modifier(&mut i);
         assert_eq!(i.amounts.len(), want_amounts, "modifier: {modifier}");
+    }
+
+    /// A MID-modifier hoist must not leave a doubled internal space where the
+    /// parenthetical was excised (trim only fixes the ends).
+    #[test]
+    fn test_extract_secondary_amounts_mid_modifier_whitespace() {
+        let parser = IngredientParser::new();
+        let mut i = ing(
+            "parsley",
+            Some("chopped (about 2 cups) plus more for garnish"),
+        );
+        parser.extract_secondary_amounts_from_modifier(&mut i);
+        assert_eq!(i.amounts.len(), 1);
+        assert_eq!(
+            i.modifier_string().as_deref(),
+            Some("chopped plus more for garnish")
+        );
     }
 
     /// A no-quantity "X or Y" alternative is split out of the name, with the head

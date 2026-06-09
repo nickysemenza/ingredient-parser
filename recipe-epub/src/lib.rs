@@ -105,8 +105,9 @@ pub struct Chunk {
     pub text: String,
     /// The originating spine-doc path, used to label `url`.
     pub doc_path: String,
-    /// Internal anchor links found anywhere in this chunk's text, with the line
-    /// they appeared on. Used to confirm cross-recipe references.
+    /// Internal anchor links found anywhere in this chunk's text (chunk-wide —
+    /// the line they appeared on is not preserved). Used book-wide to confirm
+    /// cross-recipe references.
     pub links: Vec<Link>,
     /// Embedded images found in this chunk, each tagged with the 0-based index of
     /// the `text` line (after splitting on `\n`) it sits nearest. The line index
@@ -238,11 +239,11 @@ impl ExtractionStats {
 fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
     let m = model.to_lowercase();
     let table = [
-        ("haiku-4-5", (1.0, 5.0)),
         ("haiku", (1.0, 5.0)),
-        ("sonnet-4", (3.0, 15.0)),
         ("sonnet", (3.0, 15.0)),
-        ("opus", (5.0, 25.0)),
+        // Pinned to opus-4-5: older Opus models have different (higher) rates,
+        // so they fall through to "n/a" rather than a wrong estimate.
+        ("opus-4-5", (5.0, 25.0)),
         ("gemini-2.5-flash-lite", (0.10, 0.40)),
         ("gemini-2.5-flash", (0.30, 2.50)),
         ("gemini-2.0-flash-lite", (0.075, 0.30)),

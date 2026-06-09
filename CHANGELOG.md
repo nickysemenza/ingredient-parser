@@ -8,6 +8,13 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- `IngredientParser::parse_with_diagnostics` returning non-failing parse
+  diagnostics (`Diagnostics { confidence, fell_back, unparsed_digit }` with the
+  `Confidence` enum) — surfaces whether a line parsed cleanly or quietly fell
+  back to a name-only ingredient.
+- `IngredientParser::parse_multi`, splitting unambiguous multi-ingredient lines
+  (semicolon lists, or `" and "`-joined segments that each carry an amount)
+  into separate ingredients.
 - Spelled-out word numbers `two`–`twelve` and `dozen` (e.g. `two eggs` →
   `2 whole`). Previously only `one`/`a`/`an` were recognized. Numeric words are
   matched only on word boundaries, so `ten` is not matched inside `tenderloin`.
@@ -26,6 +33,25 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Changed
 
+- `Measure` stores quantities as **exact rationals** internally (`⅓ == ⅓`
+  exactly; same-unit addition is exact). The public API and JSON wire format
+  are unchanged: `value()`/`upper_value()` still return `f64`, serde still
+  reads/writes plain numbers.
+- `Display` renders cooking fractions as vulgar glyphs (`½ cup` instead of
+  `0.5 cup`, mixed `1¼`), with a decimal fallback for non-fraction values; the
+  denormalized value now always pairs with the denormalized **unit** (48 tsp
+  displays `1 cup`, not `1 tsp`), and second/hour/day pluralize like minute.
+- `serde` is now a required dependency: the optional `serde-derive` feature
+  never compiled when disabled (unit/measure types used serde unconditionally)
+  and `serde_json` was required anyway. The `serde-derive` feature name remains
+  as an empty no-op for compatibility.
+- Range endpoints compare by canonical unit, not spelling: `2 tsp to 3
+  teaspoons` folds into one ranged measure, `1g-2G` parses as `1-2 g`.
+- More count units recognize their plurals (`packets`, `heads`, `bunches`,
+  `cans`, `packages`, `tins`, `strands`, `pinches`), and sibilant `-es` plurals
+  singularize correctly (`bunches` → `bunch`, not `bunche`).
+- `RichParser` ingredient-name extraction is order-independent and matches
+  repeated names (earliest-match scan instead of one pass per name).
 - `RichParser::new` now accepts any `IntoIterator<Item: Into<String>>` instead of
   only `Vec<String>`, so callers can pass `["flour", "sugar"]` without
   `.to_string()`. Existing `Vec<String>` callers are unaffected; empty literals
@@ -42,6 +68,20 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- Fluid-ounce conversions were 3× off: the fl oz → tsp factor was 2.0 (the
+  tablespoons-per-fl-oz value); 1 fl oz now correctly normalizes to 6 tsp.
+- `Measure::add` silently kept only the left operand for same-kind custom
+  units (`1 clove + 2 cloves` returned `1 clove`; bare counts too). Identical
+  custom kinds now sum.
+- `from_str` could panic on inputs whose lowercase form changes byte length
+  (e.g. `İ`); it now always falls back gracefully.
+- `inf`/`nan` no longer parse as quantities anywhere (one number parser had
+  bypassed the finite guard), so `nan lb = $5` is rejected instead of becoming
+  a 0-lb mapping.
+- Prep adjectives are no longer stolen out of `or` alternatives:
+  `basil or chopped parsley` keeps `chopped` with the alternative.
+- The mixed-number `and` separator works with vulgar fractions (`1 and ½`).
+- Deprecated `IngredientError::ParseError`/`Generic` (never produced).
 - Adjective extraction now respects whole-word boundaries, so an adjective inside
   a hyphenated token is left alone: `3 tablespoons well-chopped parsley` keeps
   the name `well-chopped parsley` instead of corrupting it to `well-`.

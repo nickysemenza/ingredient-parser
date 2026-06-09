@@ -50,10 +50,47 @@ pub fn show_parsed(ui: &mut egui::Ui, parsed: &ParsedRecipe) {
     show_parsed_sections(ui, &parsed.sections);
 }
 
-/// Render parsed recipe sections (ingredients with color-coded amounts +
-/// measurement-aware instructions). Shared by the web Recipe tab and the
+/// A parsed ingredient as a collapsible row: the color-coded one-liner, with
+/// the raw JSON underneath. Shared by the web Recipe tab and the Cookbook
+/// (EPUB) tab, which adds a cross-recipe link next to it.
+pub(crate) fn show_ingredient_collapsing(
+    ui: &mut egui::Ui,
+    i: &ingredient::ingredient::Ingredient,
+) {
+    ui.collapsing(make_rich(i), |ui| {
+        ui.label(serde_json::to_string_pretty(&i).unwrap())
+    });
+}
+
+/// One instruction line as a card of measurement-aware chunks (amounts and
+/// ingredient names color-coded). Shared by the web Recipe tab and the
 /// Cookbook (EPUB) tab.
-pub fn show_parsed_sections(ui: &mut egui::Ui, sections: &[ParsedSection]) {
+pub(crate) fn show_instruction_chunks(ui: &mut egui::Ui, chunks: &[ingredient::rich_text::Chunk]) {
+    ui.horizontal_wrapped(|ui| {
+        theme::card(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for chunk in chunks {
+                match chunk {
+                    ingredient::rich_text::Chunk::Measure(ms) => {
+                        for m in ms {
+                            ui.label(RichText::new(m.to_string()).color(theme::AMOUNT));
+                        }
+                    }
+                    ingredient::rich_text::Chunk::Text(t) => {
+                        ui.label(t);
+                    }
+                    ingredient::rich_text::Chunk::Ing(i) => {
+                        ui.label(RichText::new(i).color(theme::NAME));
+                    }
+                }
+            }
+        });
+    });
+}
+
+/// Render parsed recipe sections (ingredients with color-coded amounts +
+/// measurement-aware instructions) for the web Recipe tab.
+fn show_parsed_sections(ui: &mut egui::Ui, sections: &[ParsedSection]) {
     for section in sections {
         if let Some(name) = &section.name {
             ui.heading(name);
@@ -62,32 +99,13 @@ pub fn show_parsed_sections(ui: &mut egui::Ui, sections: &[ParsedSection]) {
             ui.vertical(|ui| {
                 section.ingredients.iter().for_each(|x| {
                     theme::card_compact(ui, |ui| {
-                        ui.collapsing(make_rich(x), |ui| {
-                            ui.label(serde_json::to_string_pretty(&x).unwrap())
-                        });
+                        show_ingredient_collapsing(ui, x);
                     });
                 });
             });
             ui.vertical(|ui| {
                 section.instructions.iter().for_each(|x| {
-                    ui.horizontal_wrapped(|ui| {
-                        theme::card(ui, |ui| {
-                            ui.spacing_mut().item_spacing.x = 0.0;
-                            x.iter().for_each(|x| match x {
-                                ingredient::rich_text::Chunk::Measure(x) => {
-                                    x.iter().for_each(|x| {
-                                        ui.label(RichText::new(x.to_string()).color(theme::AMOUNT));
-                                    })
-                                }
-                                ingredient::rich_text::Chunk::Text(t) => {
-                                    ui.label(t);
-                                }
-                                ingredient::rich_text::Chunk::Ing(i) => {
-                                    ui.label(RichText::new(i).color(theme::NAME));
-                                }
-                            });
-                        });
-                    });
+                    show_instruction_chunks(ui, x);
                 });
             });
         });

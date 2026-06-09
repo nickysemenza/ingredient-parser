@@ -1,7 +1,10 @@
 //! Open an EPUB and turn its content documents into cleaned text [`Chunk`]s.
 //!
-//! Phase 1: one chunk per spine document. Phase 3 replaces this with TOC-region
-//! accumulation so a recipe split across multiple spine docs is reassembled.
+//! Each spine document is cleaned to lines (full DOM walk; every block tag is a
+//! line boundary), the lines are concatenated in reading order, then windowed
+//! into ~`CHUNK_BUDGET`-sized chunks broken at title-like lines (see
+//! `window_chunks`), with the last-seen title carried forward as a `title_hint`
+//! when a chunk has to be cut mid-recipe.
 
 use std::io::Cursor;
 
@@ -509,8 +512,9 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
 /// custom-font glyphs). Private Use Area glyphs are left as-is — without the
 /// embedded font's cmap we can't decode them to real characters.
 fn normalize_ws(s: &str) -> String {
+    // NBSP needs no special-casing: it is whitespace, so `split_whitespace`
+    // collapses it along with everything else.
     let cleaned: String = s
-        .replace('\u{a0}', " ")
         .chars()
         .filter(|c| c.is_whitespace() || !c.is_control())
         .collect();

@@ -5,9 +5,9 @@ use crate::{
     IngredientParser, Res,
 };
 use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0, Parser};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde-derive", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum Chunk {
     Measure(Vec<Measure>),
@@ -29,28 +29,42 @@ fn condense_text(r: Rich) -> Rich {
 }
 // find any text chunks which have an ingredient name as a substring in them.
 // if so, split on the ingredient name, giving it it's own `Chunk::Ing`.
+//
+// Repeatedly splits at the EARLIEST match across all names, so extraction is
+// independent of the order names are listed in and repeated names are all
+// found ("Add sugar and flour" highlights both for names ["flour", "sugar"]).
 fn extract_ingredients(r: Rich, ingredient_names: &[String]) -> Rich {
     r.into_iter()
         .flat_map(|s| match s {
-            Chunk::Text(mut text) => {
-                // let mut a = s;
+            Chunk::Text(text) => {
                 let mut text_or_ing_res = vec![];
+                let mut rest = text.as_str();
 
-                for candidate in ingredient_names.iter().filter(|x| !x.is_empty()) {
-                    if let Some((prefix, suffix)) = text.split_once(candidate) {
-                        text_or_ing_res.push(Chunk::Text(prefix.to_string()));
-                        text_or_ing_res.push(Chunk::Ing(candidate.to_string()));
-                        text = suffix.to_string();
+                // Earliest match position across all candidate names; ties go
+                // to the longer name so "sea salt" wins over "salt".
+                let earliest = |haystack: &str| {
+                    ingredient_names
+                        .iter()
+                        .filter(|x| !x.is_empty())
+                        .filter_map(|c| haystack.find(c.as_str()).map(|pos| (pos, c)))
+                        .min_by_key(|(pos, c)| (*pos, std::cmp::Reverse(c.len())))
+                };
+
+                while let Some((pos, candidate)) = earliest(rest) {
+                    if pos > 0 {
+                        text_or_ing_res.push(Chunk::Text(rest[..pos].to_string()));
                     }
+                    text_or_ing_res.push(Chunk::Ing(candidate.clone()));
+                    rest = &rest[pos + candidate.len()..];
                 }
-                if !text.is_empty() {
+                if !rest.is_empty() {
                     // ignore empty
-                    text_or_ing_res.push(Chunk::Text(text));
+                    text_or_ing_res.push(Chunk::Text(rest.to_string()));
                 }
 
                 text_or_ing_res
             }
-            _ => vec![s.clone()],
+            other => vec![other],
         })
         .collect()
 }
@@ -403,6 +417,39 @@ mod tests {
         let names = vec!["".to_string(), "flour".to_string()];
         let result = extract_ingredients(chunks, &names);
         assert!(!result.is_empty());
+    }
+
+    /// Extraction must be independent of the order names are listed: with
+    /// names ["flour", "sugar"], "Add sugar and flour" must highlight BOTH
+    /// (the old one-pass-per-name scan never revisited the prefix, leaving
+    /// "sugar" as plain text).
+    #[test]
+    fn test_extract_ingredients_order_independent() {
+        let chunks = vec![Chunk::Text("Add sugar and flour".to_string())];
+        let names = vec!["flour".to_string(), "sugar".to_string()];
+        let result = extract_ingredients(chunks, &names);
+        assert_eq!(
+            result,
+            vec![
+                Chunk::Text("Add ".to_string()),
+                Chunk::Ing("sugar".to_string()),
+                Chunk::Text(" and ".to_string()),
+                Chunk::Ing("flour".to_string()),
+            ]
+        );
+    }
+
+    /// Every occurrence of a repeated name is extracted, not just the first.
+    #[test]
+    fn test_extract_ingredients_repeated_name() {
+        let chunks = vec![Chunk::Text("Add flour then more flour".to_string())];
+        let names = vec!["flour".to_string()];
+        let result = extract_ingredients(chunks, &names);
+        let flour_count = result
+            .iter()
+            .filter(|c| matches!(c, Chunk::Ing(s) if s == "flour"))
+            .count();
+        assert_eq!(flour_count, 2);
     }
 
     // ============================================================================

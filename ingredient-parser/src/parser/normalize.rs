@@ -346,23 +346,22 @@ pub(super) fn strip_optional_note(input: &str) -> (Cow<'_, str>, bool) {
         return (Cow::Borrowed(input), false);
     }
 
-    let mut found = false;
-    let mut text = if PAREN.is_match(input) {
-        found = true;
+    // Check both patterns before allocating: the common case is no match, and
+    // it must stay allocation-free (this runs on every parsed line).
+    let paren_hit = PAREN.is_match(input);
+    if !paren_hit && !TRAIL_WORD.is_match(input) {
+        return (Cow::Borrowed(input), false);
+    }
+
+    let mut text = if paren_hit {
         PAREN.replace_all(input, "").into_owned()
     } else {
         input.to_string()
     };
     if TRAIL_WORD.is_match(&text) {
-        found = true;
         text = TRAIL_WORD.replace(&text, "").into_owned();
     }
-
-    if found {
-        (Cow::Owned(text), true)
-    } else {
-        (Cow::Borrowed(input), false)
-    }
+    (Cow::Owned(text), true)
 }
 
 /// Detect a *descriptive* parenthetical wedged between name words — a
@@ -396,10 +395,42 @@ pub(super) fn lift_inline_descriptive_paren(input: &str) -> Option<(String, Stri
     }
 
     // Only lift descriptive asides: a temperature (°) or a distance unit token.
-    let looks_descriptive = inner.contains('°')
-        || inner
-            .split(|c: char| !c.is_alphabetic())
-            .any(|w| !w.is_empty() && crate::parser::is_distance_unit(w));
+    // The ambiguous bases "in" (the English preposition) and "m" only count
+    // when number-adjacent, so "(packed in oil)" is not mistaken for a
+    // dimension while "(1 in thick)" still is.
+    let number_adjacent = |token_start: usize| {
+        inner[..token_start]
+            .chars()
+            .rev()
+            .find(|c| !c.is_whitespace() && *c != '-' && *c != '/')
+            .is_some_and(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
+    };
+    let is_distance_token = |token_start: usize, w: &str| {
+        crate::parser::is_distance_unit(w)
+            && (!matches!(w.to_lowercase().as_str(), "in" | "m") || number_adjacent(token_start))
+    };
+    let has_distance_token = || {
+        let mut token_start = 0usize;
+        let mut in_token = false;
+        for (i, c) in inner
+            .char_indices()
+            .chain(std::iter::once((inner.len(), ' ')))
+        {
+            if c.is_alphabetic() {
+                if !in_token {
+                    token_start = i;
+                    in_token = true;
+                }
+            } else if in_token {
+                if is_distance_token(token_start, &inner[token_start..i]) {
+                    return true;
+                }
+                in_token = false;
+            }
+        }
+        false
+    };
+    let looks_descriptive = inner.contains('°') || has_distance_token();
     if !looks_descriptive {
         return None;
     }
@@ -431,6 +462,13 @@ mod tests {
     )]
     // Mass/volume parenthetical → left for the amount path.
     #[case::mass("flour (190 grams) sifted", None)]
+    // The English preposition "in" must not read as the inch unit: only a
+    // number-adjacent "in"/"m" counts as a dimension.
+    #[case::preposition_in("tuna (packed in oil) drained", None)]
+    #[case::number_adjacent_in(
+        "steak (1 in thick) trimmed",
+        Some(("steak trimmed", "1 in thick"))
+    )]
     // Count + size ("4 (½-inch) slices"): digit before paren, not a name word.
     #[case::count_size("4 (½-inch) slices pork", None)]
     // Trailing paren (no name text after) → left for other paths.

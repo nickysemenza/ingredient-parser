@@ -92,22 +92,24 @@ impl Default for Fetcher {
 mod tests {
     use super::*;
 
+    // `.invalid` is RFC 2606-reserved and guaranteed never to resolve; a
+    // registrable name (the old doesnotresolve.com) could be bought or
+    // wildcarded by a captive resolver, inverting these tests.
+    const UNRESOLVABLE: &str = "https://nonexistent.invalid";
+
     #[tokio::test]
     async fn scrape_errors() {
         assert!(matches!(
-            Fetcher::new()
-                .scrape_url("https://doesnotresolve.com")
-                .await
-                .unwrap_err(),
+            Fetcher::new().scrape_url(UNRESOLVABLE).await.unwrap_err(),
             crate::ScrapeError::Http(_)
         ));
 
         assert_eq!(
             Fetcher::new_with_cache(HashMap::from([(
-                "https://doesnotresolve.com".to_string(),
+                UNRESOLVABLE.to_string(),
                 "foo".to_string(),
             )]))
-            .fetch_html("https://doesnotresolve.com")
+            .fetch_html(UNRESOLVABLE)
             .await
             .unwrap(),
             "foo"
@@ -165,12 +167,12 @@ mod tests {
     async fn test_cache_miss_with_invalid_url() {
         // Cache has a different URL, so it will miss and try to fetch
         let fetcher = Fetcher::new_with_cache(HashMap::from([(
-            "https://other.com".to_string(),
+            "https://other.invalid".to_string(),
             "content".to_string(),
         )]));
 
         // This URL is not in the cache, so it will try to fetch and fail
-        let result = fetcher.scrape_url("https://doesnotresolve.com").await;
+        let result = fetcher.scrape_url(UNRESOLVABLE).await;
         assert!(result.is_err());
     }
 }

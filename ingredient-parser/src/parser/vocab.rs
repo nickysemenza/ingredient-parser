@@ -61,11 +61,14 @@ pub(crate) const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
 /// unit set. Note: "whole" is deliberately NOT included — it's the built-in
 /// `Unit::Whole`, and listing it here would parse "whole wheat flour" as having
 /// unit "whole" instead of keeping "whole wheat" in the name.
+/// `is_addon_unit` is an exact-match lookup with no plural normalization, so
+/// every plural form must be listed explicitly alongside its singular.
 pub(crate) const NON_STANDARD_UNITS: &[&str] = &[
-    "recipe", "recipes", "packet", "sticks", "stick", "cloves", "clove", "bunch", "head", "pinch",
-    "package", "slice", "slices", "standard", "can", "leaf", "leaves", "strand", "tin", "rib",
-    "ribs", "sprig", "sprigs", "pint", "pints", "piece", "pieces", "disk", "disks", "stalk",
-    "stalks", "loaf", "loaves",
+    "recipe", "recipes", "packet", "packets", "sticks", "stick", "cloves", "clove", "bunch",
+    "bunches", "head", "heads", "pinch", "pinches", "package", "packages", "slice", "slices",
+    "standard", "can", "cans", "leaf", "leaves", "strand", "strands", "tin", "tins", "rib", "ribs",
+    "sprig", "sprigs", "pint", "pints", "piece", "pieces", "disk", "disks", "stalk", "stalks",
+    "loaf", "loaves",
 ];
 
 /// Premodifier words used to gate the "A or B C" alternative reconstruction in
@@ -192,6 +195,7 @@ pub(crate) const CONTAINER_NOUNS: &[&str] = &[
     "fillet",
     "fillets",
     "loaf",
+    "loaves",
     "slab",
     "slabs",
     "chunk",

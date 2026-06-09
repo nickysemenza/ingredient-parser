@@ -1825,7 +1825,6 @@ dependencies = [
 name = "food-app"
 version = "0.1.0"
 dependencies = [
- "console_error_panic_hook",
  "dotenvy",
  "eframe",
  "egui_extras",
@@ -1845,8 +1844,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "tracing-wasm",
- "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -4318,7 +4315,6 @@ dependencies = [
  "reqwest",
  "reqwest-middleware",
  "reqwest-tracing",
- "task-local-extensions",
  "tokio",
  "tracing",
 ]
@@ -5205,15 +5201,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "task-local-extensions"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba323866e5d033818e3240feeb9f7db2c4296674e4d9e16b97b7bf8f490434e8"
-dependencies = [
- "pin-utils",
-]
-
-[[package]]
 name = "tempfile"
 version = "3.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5573,17 +5560,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-wasm"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4575c663a174420fa2d78f4108ff68f65bf2fbb7dd89f33749b6e826b3626e07"
-dependencies = [
- "tracing",
- "tracing-subscriber",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5876,8 +5852,6 @@ dependencies = [
  "cfg-if",
  "once_cell",
  "rustversion",
- "serde",
- "serde_json",
  "wasm-bindgen-macro",
  "wasm-bindgen-shared",
 ]

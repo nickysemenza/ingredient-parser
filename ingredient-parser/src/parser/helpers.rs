@@ -9,20 +9,19 @@ use nom::{
     combinator::{map_res, opt, recognize},
     error::{context, ParseError},
     multi::{many0, many1},
-    number::complete::double,
     IResult, Parser,
 };
 use nom_language::error::VerboseError;
 
-use crate::fraction::fraction_number;
+use crate::fraction::{finite_double, fraction_number};
 use crate::unit::Measure;
 
 pub(crate) type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
 /// Parse a simple amount string like "4 lb", "$5", "120g", "1/2 cup"
 ///
-/// This is a public utility for parsing amount strings without full ingredient context.
-/// It handles:
+/// Crate-internal utility for parsing standalone amount strings without full
+/// ingredient context (used by `unit_mapping`). It handles:
 /// - Currency prefix: "$5", "$3.50"
 /// - Number + unit: "4 lb", "120g", "2.5 cups"
 /// - Fractions: "1/2 cup", "1 ½ lb"
@@ -74,9 +73,10 @@ pub(crate) fn parse_amount_string(input: &str) -> Result<Measure, String> {
 /// Parse a number using fraction or decimal parsing
 fn parse_number(input: &str) -> Res<&str, f64> {
     // Fraction first ("1/2", "1 ½"), then thousands-separated integers ("1,000"),
-    // then a plain decimal. thousands_number must come before `double`, which
-    // would otherwise stop at the comma and parse "1,000" as just 1.
-    alt((fraction_number, thousands_number, double)).parse(input)
+    // then a plain decimal. thousands_number must come before the decimal parser,
+    // which would otherwise stop at the comma and parse "1,000" as just 1.
+    // finite_double (not raw `double`) so "inf"/"nan" never parse as amounts.
+    alt((fraction_number, thousands_number, finite_double)).parse(input)
 }
 
 /// Parse a number written with thousands separators, e.g. "1,000" or "1,000,000"
@@ -158,8 +158,8 @@ pub(crate) fn text_number(input: &str) -> Res<&str, f64> {
             |i| number_word("one", 1.0, i),
             |i| number_word("dozen", 12.0, i),
             |i| number_word("half", 0.5, i),
-            |i| tag("an ").parse(i).map(|(r, _)| (r, 1.0)),
-            |i| tag("a ").parse(i).map(|(r, _)| (r, 1.0)),
+            |i| tag_no_case("an ").parse(i).map(|(r, _)| (r, 1.0)),
+            |i| tag_no_case("a ").parse(i).map(|(r, _)| (r, 1.0)),
         )),
     )
     .parse(input)
@@ -220,6 +220,9 @@ mod tests {
     #[case::dozen("dozen", "", 12.0)]
     #[case::a("a ", "", 1.0)]
     #[case::an("an ", "", 1.0)]
+    // Articles are case-insensitive like the number words ("An egg", "A cup").
+    #[case::a_capitalized("A cup", "cup", 1.0)]
+    #[case::an_capitalized("An egg", "egg", 1.0)]
     #[case::half("half", "", 0.5)]
     #[case::half_a("half a cup", " a cup", 0.5)]
     #[case::two_with_remainder("two eggs", " eggs", 2.0)]
@@ -275,6 +278,12 @@ mod tests {
     #[case::invalid_number("abc lb", "Invalid")]
     #[case::invalid_currency("$abc", "Invalid price")]
     #[case::non_alpha_unit("5 !!!", "Missing unit")]
+    // Non-finite spellings must not parse as numbers (finite_double guard):
+    // "$inf" would otherwise clamp to i64::MAX, "nan lb" to a 0-lb measure.
+    #[case::inf_value("inf lb", "Invalid")]
+    #[case::nan_value("nan lb", "Invalid")]
+    #[case::inf_currency("$inf", "Invalid price")]
+    #[case::nan_currency("$nan", "Invalid price")]
     fn test_parse_amount_string_error(#[case] input: &str, #[case] expected_error: &str) {
         let result = parse_amount_string(input);
         assert!(result.is_err());

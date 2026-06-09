@@ -10,36 +10,6 @@
 use ingredient::from_str;
 use proptest::prelude::*;
 
-// Generate reasonable ingredient strings for testing
-prop_compose! {
-    fn arb_ingredient_string()(
-        amount in prop::option::of("[0-9]+\\.?[0-9]*"),
-        unit in prop::option::of(r"[a-zA-Z]+"),
-        name in r"[a-zA-Z ]+",
-        modifier in prop::option::of(r", [a-zA-Z ]+")
-    ) -> String {
-        let mut result = String::new();
-
-        if let Some(amount) = amount {
-            result.push_str(&amount);
-            result.push(' ');
-        }
-
-        if let Some(unit) = unit {
-            result.push_str(&unit);
-            result.push(' ');
-        }
-
-        result.push_str(&name);
-
-        if let Some(modifier) = modifier {
-            result.push_str(&modifier);
-        }
-
-        result
-    }
-}
-
 // Generate arbitrary text strings
 prop_compose! {
     fn arb_text_input()(input in r"[a-zA-Z0-9 .,;/\-\(\)½¼¾]*") -> String {

@@ -1,6 +1,5 @@
 //! Cookbook tab: load a local EPUB cookbook and browse its AI-extracted
-//! recipes. Native-only — `recipe-epub` pulls file/network/tokio deps that
-//! don't build for wasm, so the whole module is gated out of the web build.
+//! recipes.
 
 use crate::theme;
 use eframe::egui::{self, RichText};
@@ -20,8 +19,6 @@ use recipe_epub::{
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
-use super::recipe::make_rich;
 
 /// A fully loaded book: its recipes + extraction stats, plus the materialized
 /// image bytes (the book cover and every recipe's hero photo) read once off the
@@ -47,6 +44,9 @@ struct ScannedBook {
     guess: CookbookGuess,
     is_cookbook: bool,
     cover: Option<Vec<u8>>,
+    /// Lowercased "title authors" haystack, precomputed at scan time so the
+    /// library filter doesn't rebuild it per book per frame.
+    search_key: String,
 }
 
 /// The `bytes://` URI a library cover is registered under (keyed by book path so
@@ -471,8 +471,9 @@ impl CookbookTab {
         self.graph = None; // rebuilt for the newly loaded book
         self.graph_prewarmed = false;
         self.images_registered = false; // re-register for the newly loaded book
-                                        // Fresh progress cell for this load (so no stale bar from a prior run);
-                                        // one clone stays on `self` for the UI, the other goes to the worker.
+
+        // Fresh progress cell for this load (so no stale bar from a prior run);
+        // one clone stays on `self` for the UI, the other goes to the worker.
         let progress = Arc::new(ExtractProgressCell::default());
         self.extract_progress = Some(progress.clone());
         let progress_ctx = ctx.clone();
@@ -535,11 +536,14 @@ impl CookbookTab {
                     .filter_map(|p| recipe_epub::book_metadata(p).ok())
                     .map(|meta| {
                         let guess = recipe_epub::classify_by_tags(&meta);
+                        let search_key =
+                            format!("{} {}", meta.title, meta.authors.join(" ")).to_lowercase();
                         ScannedBook {
                             is_cookbook: guess == CookbookGuess::Yes,
                             guess,
                             meta,
                             cover: None,
+                            search_key,
                         }
                     })
                     .collect();
@@ -658,9 +662,7 @@ fn show_library(
             if needle.is_empty() {
                 return true;
             }
-            format!("{} {}", b.meta.title, b.meta.authors.join(" "))
-                .to_lowercase()
-                .contains(&needle)
+            b.search_key.contains(&needle)
         })
     };
 
@@ -876,8 +878,6 @@ fn show_sections_with_links(
     recipe: &CookbookRecipe,
     recipes: &[CookbookRecipe],
 ) -> Option<usize> {
-    use ingredient::rich_text::Chunk;
-
     let mut navigate_to = None;
     for (raw_sec, sec) in raw.iter().zip(parsed) {
         if let Some(name) = &sec.name {
@@ -888,9 +888,7 @@ fn show_sections_with_links(
                 for (raw_line, ing) in raw_sec.ingredients.iter().zip(&sec.ingredients) {
                     theme::card_compact(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
-                            ui.collapsing(make_rich(ing), |ui| {
-                                ui.label(serde_json::to_string_pretty(ing).unwrap());
-                            });
+                            super::recipe::show_ingredient_collapsing(ui, ing);
                             // If this verbatim line is a cross-recipe reference, add
                             // a link to the target recipe.
                             if let Some(idx) = recipe
@@ -915,28 +913,7 @@ fn show_sections_with_links(
             });
             ui.vertical(|ui| {
                 for instr in &sec.instructions {
-                    ui.horizontal_wrapped(|ui| {
-                        theme::card(ui, |ui| {
-                            ui.spacing_mut().item_spacing.x = 0.0;
-                            for chunk in instr {
-                                match chunk {
-                                    Chunk::Measure(ms) => {
-                                        for m in ms {
-                                            ui.label(
-                                                RichText::new(m.to_string()).color(theme::AMOUNT),
-                                            );
-                                        }
-                                    }
-                                    Chunk::Text(t) => {
-                                        ui.label(t);
-                                    }
-                                    Chunk::Ing(i) => {
-                                        ui.label(RichText::new(i).color(theme::NAME));
-                                    }
-                                }
-                            }
-                        });
-                    });
+                    super::recipe::show_instruction_chunks(ui, instr);
                 }
             });
         });

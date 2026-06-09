@@ -14,20 +14,33 @@ fn is_notes_heading(name: &str) -> bool {
 }
 
 /// Humanize an ISO-8601 duration (e.g. `PT1H30M` -> "1 hour 30 minutes",
-/// `PT35M` -> "35 minutes"). Returns `None` for anything that isn't a `PT…`
-/// duration with at least one component. Only hours/minutes are surfaced
-/// (seconds are dropped — recipe times never need them).
+/// `PT35M` -> "35 minutes", `P0DT1H30M` -> "1 hour 30 minutes"). Returns `None`
+/// for anything that isn't a `P…` duration with at least one component. A date
+/// part may carry a day count (folded into hours — WP Recipe Maker emits
+/// `P0DT0H30M`); only hours/minutes are surfaced (seconds are dropped — recipe
+/// times never need them).
 fn humanize_iso8601_duration(input: &str) -> Option<String> {
-    let rest = input.trim().strip_prefix("PT")?;
+    let rest = input.trim().strip_prefix('P')?;
+    let (date_part, time_part) = match rest.split_once('T') {
+        Some((d, t)) => (d, t),
+        None => (rest, ""),
+    };
     let mut hours: u64 = 0;
     let mut minutes: u64 = 0;
     let mut num = String::new();
     let mut saw_component = false;
-    for c in rest.chars() {
+    // Date part: only a day count is meaningful for recipe times; anything
+    // else (years/months/weeks) isn't a recipe duration.
+    if !date_part.is_empty() {
+        let days: u64 = date_part.strip_suffix('D')?.parse().ok()?;
+        hours += days * 24;
+        saw_component = true;
+    }
+    for c in time_part.chars() {
         match c {
             '0'..='9' => num.push(c),
             'H' => {
-                hours = num.parse().ok()?;
+                hours += num.parse::<u64>().ok()?;
                 num.clear();
                 saw_component = true;
             }
@@ -93,11 +106,11 @@ fn extract_tool_names(value: &Value) -> Vec<String> {
 /// it represents servings.
 ///
 /// Handles both clean JSON-LD yields ("4 servings", "12 pancakes") and freeform
-/// EPUB/prose yields ("Makes about 12 pancakes", "Serves 4"): a leading prose
+/// prose yields ("Makes about 12 pancakes", "Serves 4"): a leading prose
 /// prefix before the first number is trimmed so the amount parser sees the
 /// quantity, and a "serv*" anywhere (Serves / servings) is treated as servings
 /// even when the number sits after the word ("Serves 4").
-pub fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
+pub(crate) fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
     let parser = IngredientParser::new().with_units(&["serving", "servings"]);
 
     // Common unicode vulgar fractions also count as the start of the quantity.
@@ -130,7 +143,8 @@ pub fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
                 (
                     Some(RecipeYield {
                         value: num as f64,
-                        unit: "servings".to_string(),
+                        // Singular "serving" — the parser's canonical spelling.
+                        unit: "serving".to_string(),
                     }),
                     Some(num),
                 )
@@ -151,7 +165,7 @@ fn extract_yield_from_wrapper(
         ld_schema::RecipeYieldWrapper::Number(n) => (
             Some(RecipeYield {
                 value: *n,
-                unit: "servings".to_string(),
+                unit: "serving".to_string(),
             }),
             Some(*n as u32),
         ),
@@ -171,7 +185,7 @@ fn extract_yield_from_wrapper(
                 (
                     Some(RecipeYield {
                         value: *n,
-                        unit: "servings".to_string(),
+                        unit: "serving".to_string(),
                     }),
                     Some(*n as u32),
                 )
@@ -216,13 +230,9 @@ fn normalize_root_recipe(
                 .map(|i| i.text().collect::<Vec<_>>().join(""))
                 .collect::<Vec<_>>()
         }
-        ld_schema::InstructionWrapper::D(d) => d
-            .first()
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|i| i.text)
-            .collect(),
+        // Nested-array shape: flatten ALL groups — keeping only the first would
+        // silently drop every later group of steps.
+        ld_schema::InstructionWrapper::D(d) => d.into_iter().flatten().map(|i| i.text).collect(),
     };
 
     // Parse yield if present
@@ -295,7 +305,9 @@ fn normalize_ld_json(
     url: &str,
 ) -> Result<ScrapedRecipe, ScrapeError> {
     match ld_schema_a {
-        ld_schema::Root::List(mut l) => match l.pop() {
+        // First element, matching the first-match convention everywhere else
+        // (the Graph arm, scrape()'s find_map over chunks).
+        ld_schema::Root::List(l) => match l.into_iter().next() {
             Some(recipe) => normalize_root_recipe(recipe, url),
             None => Err(ScrapeError::LDJSONMissingRecipe(url.to_string(), 0)),
         },
@@ -317,7 +329,7 @@ fn normalize_ld_json(
     }
 }
 
-pub(crate) fn extract_ld(dom: Html) -> Result<Vec<String>, ScrapeError> {
+pub(crate) fn extract_ld(dom: &Html) -> Result<Vec<String>, ScrapeError> {
     let selector = match Selector::parse("script[type='application/ld+json']") {
         Ok(s) => s,
         Err(e) => return Err(ScrapeError::Parse(format!("{e:?}"))),
@@ -334,8 +346,7 @@ pub(crate) fn extract_ld(dom: Html) -> Result<Vec<String>, ScrapeError> {
         _ => Ok(json_chunks),
     }
 }
-fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
-    let json = json.as_str();
+fn parse_ld_json(json: &str) -> Result<ld_schema::Root, ScrapeError> {
     let v: ld_schema::Root = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
@@ -353,7 +364,7 @@ fn parse_ld_json(json: String) -> Result<ld_schema::Root, ScrapeError> {
 }
 
 pub fn scrape_from_ld_json(json: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
-    let ld_schema = parse_ld_json(json.to_owned())?;
+    let ld_schema = parse_ld_json(json)?;
     normalize_ld_json(ld_schema, url)
 }
 
@@ -386,7 +397,6 @@ mod tests {
   "recipeInstructions": []
 }
 "#
-                .to_string()
             )
             .unwrap(),
             crate::ld_schema::Root::Recipe(Box::new(crate::ld_schema::RootRecipe {
@@ -411,7 +421,7 @@ mod tests {
     #[case::empty("")]
     #[case::incomplete("{")]
     fn test_parse_invalid_json(#[case] input: &str) {
-        let result = parse_ld_json(input.to_string());
+        let result = parse_ld_json(input);
         assert!(result.is_err());
     }
 
@@ -442,6 +452,62 @@ mod tests {
         assert_eq!(recipe.name, "Test Recipe");
     }
 
+    /// A multi-recipe list picks the FIRST recipe (the page's primary), matching
+    /// the first-match convention everywhere else (was `pop()` = last).
+    #[test]
+    fn test_normalize_list_root_picks_first() {
+        let mk = |name: &str| RootRecipe {
+            context: None,
+            name: name.to_string(),
+            description: None,
+            image: None,
+            total_time: None,
+            prep_time: None,
+            cook_time: None,
+            recipe_yield: None,
+            recipe_category: None,
+            tool: None,
+            recipe_ingredient: vec![],
+            recipe_instructions: InstructionWrapper::A(vec![]),
+        };
+        let root = Root::List(vec![mk("First"), mk("Second")]);
+        assert_eq!(
+            normalize_ld_json(root, "https://example.com").unwrap().name,
+            "First"
+        );
+    }
+
+    /// The nested-array instruction shape keeps EVERY group of steps, flattened
+    /// in order (truncating to the first group silently lost the rest).
+    #[test]
+    fn test_instruction_wrapper_d_flattens_all_groups() {
+        let step = |text: &str| crate::ld_schema::RecipeInstructionA {
+            context: None,
+            type_field: "HowToStep".to_string(),
+            text: text.to_string(),
+        };
+        let root = Root::Recipe(Box::new(RootRecipe {
+            context: None,
+            name: "Grouped".to_string(),
+            description: None,
+            image: None,
+            total_time: None,
+            prep_time: None,
+            cook_time: None,
+            recipe_yield: None,
+            recipe_category: None,
+            tool: None,
+            recipe_ingredient: vec![],
+            recipe_instructions: InstructionWrapper::D(vec![
+                vec![step("Step 1"), step("Step 2")],
+                vec![step("Step 3")],
+            ]),
+        }));
+        let recipe = normalize_ld_json(root, "https://example.com").unwrap();
+        let instructions: Vec<&str> = recipe.instructions().collect();
+        assert_eq!(instructions, vec!["Step 1", "Step 2", "Step 3"]);
+    }
+
     #[test]
     fn test_normalize_empty_list() {
         let root = Root::List(vec![]);
@@ -456,7 +522,7 @@ mod tests {
     #[test]
     fn test_extract_ld_no_script() {
         let html = Html::parse_document("<html><body>No recipe here</body></html>");
-        let result = extract_ld(html);
+        let result = extract_ld(&html);
         assert!(result.is_err());
     }
 
@@ -470,7 +536,7 @@ mod tests {
             <body></body>
             </html>"#,
         );
-        let result = extract_ld(html);
+        let result = extract_ld(&html);
         assert!(result.is_ok());
         let scripts = result.unwrap();
         assert_eq!(scripts.len(), 1);
@@ -563,7 +629,7 @@ mod tests {
     )]
     #[case::number_wrapper(
         RecipeYieldWrapper::Number(4.0),
-        Some(RecipeYield { value: 4.0, unit: "servings".to_string() }),
+        Some(RecipeYield { value: 4.0, unit: "serving".to_string() }),
         Some(4)
     )]
     #[case::string_array_first_valid(
@@ -583,7 +649,7 @@ mod tests {
     )]
     #[case::number_array(
         RecipeYieldWrapper::NumberArray(vec![8.0, 2.0]),
-        Some(RecipeYield { value: 8.0, unit: "servings".to_string() }),
+        Some(RecipeYield { value: 8.0, unit: "serving".to_string() }),
         Some(8)
     )]
     #[case::number_array_empty(
@@ -619,6 +685,12 @@ mod tests {
     #[case::no_prefix("35M", None)]
     #[case::garbage("nonsense", None)]
     #[case::empty("", None)]
+    // Date part: a day count is accepted (WP Recipe Maker emits P0DT0H30M);
+    // days fold into hours. Non-day date parts aren't recipe durations.
+    #[case::zero_days("P0DT1H30M", Some("1 hour 30 minutes"))]
+    #[case::days_and_hours("P1DT2H", Some("26 hours"))]
+    #[case::days_only("P1D", Some("24 hours"))]
+    #[case::months_rejected("P1M", None)]
     fn test_humanize_iso8601_duration(#[case] input: &str, #[case] expected: Option<&str>) {
         assert_eq!(
             humanize_iso8601_duration(input),

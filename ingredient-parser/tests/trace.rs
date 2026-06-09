@@ -16,13 +16,6 @@ fn parser() -> IngredientParser {
 }
 
 #[fixture]
-fn parser_with_adjectives() -> IngredientParser {
-    // "sliced", "thinly sliced", and "freshly ground" are all default adjectives,
-    // so the default parser exercises the same longest-match behavior.
-    IngredientParser::new()
-}
-
-#[fixture]
 fn parser_with_units() -> IngredientParser {
     IngredientParser::new().with_units(&["dash", "pinch", "handful"])
 }
@@ -161,49 +154,11 @@ fn test_trace_incomplete_outcome() {
 }
 
 // NOTE: the parse_with_trace happy path (result == from_str + non-empty tree) is
-// smoke-tested across the WHOLE corpus by `accuracy.rs::trace_path_matches_from_str`.
-// Tests below cover trace-specific behavior that the corpus can't express:
-// custom-parser config through the traced path, permissive edge cases, and the
-// range-unit-mismatch formatting path.
-
-// ============================================================================
-// Adjective Tests
-// ============================================================================
-
-#[rstest]
-fn test_adjective_extraction(parser: IngredientParser) {
-    let result = parser.parse_with_trace("1 cup chopped onion");
-    assert!(result.result.is_ok());
-    let ingredient = result.result.unwrap();
-    assert_eq!(ingredient.name, "onion");
-    assert!(ingredient.modifier.as_ref().unwrap().contains("chopped"));
-}
-
-#[rstest]
-fn test_longer_adjective_matches_first(parser_with_adjectives: IngredientParser) {
-    let result = parser_with_adjectives.parse_with_trace("1 cup thinly sliced onion");
-    assert!(result.result.is_ok());
-    let ingredient = result.result.unwrap();
-    assert_eq!(ingredient.name, "onion");
-    assert!(ingredient
-        .modifier
-        .as_ref()
-        .unwrap()
-        .contains("thinly sliced"));
-}
-
-#[rstest]
-fn test_multiword_adjective_extraction(parser_with_adjectives: IngredientParser) {
-    let result = parser_with_adjectives.parse_with_trace("1 cup freshly ground pepper");
-    assert!(result.result.is_ok());
-    let ingredient = result.result.unwrap();
-    assert_eq!(ingredient.name, "pepper");
-    assert!(ingredient
-        .modifier
-        .as_ref()
-        .unwrap()
-        .contains("freshly ground"));
-}
+// smoke-tested across the WHOLE corpus by `accuracy.rs::trace_path_matches_from_str`,
+// and from_str accuracy (adjective extraction etc.) belongs in
+// tests/corpus/corpus.jsonl. Tests below cover trace-specific behavior the
+// corpus can't express: custom-parser config through the traced path and
+// permissive edge cases.
 
 // ============================================================================
 // Custom Unit Tests
@@ -362,15 +317,16 @@ fn test_parse_with_trace_edge_cases(
     assert_eq!(result.result.unwrap().name, expected_name);
 }
 
-/// Test that unit mismatch in ranges is handled gracefully with tracing enabled.
-/// This exercises the trace formatting code path for range unit mismatch.
+/// Unit mismatch in ranges is handled gracefully with tracing enabled, and
+/// the formatted tree actually carries the range parser's mismatch branch.
+/// (The previous version asserted only unconditional invariants of
+/// parse_with_trace — it could not fail.)
 #[rstest]
 fn test_parse_with_trace_range_unit_mismatch(parser: IngredientParser) {
-    // "1g-2tbsp" has mismatched units which should be detected
     let result = parser.parse_with_trace("1g-2tbsp flour");
-    assert!(result.result.is_ok());
-    // The trace should have captured timing info
-    assert!(result.trace.baseline_instant.is_some());
-    // The trace should have the input
-    assert_eq!(result.trace.input, "1g-2tbsp flour");
+    let tree = result.trace.format_tree(false);
+    assert!(
+        tree.contains("range_with_units") || tree.contains("cross_unit_range"),
+        "trace tree should show the range parser attempt:\n{tree}"
+    );
 }

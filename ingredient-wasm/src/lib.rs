@@ -69,16 +69,17 @@ impl From<Measure> for WAmount {
     }
 }
 
-/// A parsed ingredient (mirrors `Ingredient`).
-#[derive(Tsify, Serialize, Deserialize)]
+/// A parsed ingredient (mirrors `Ingredient`). Into-only: never deserialized
+/// back from JS, so no `Deserialize`/`default` ceremony.
+#[derive(Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct WIngredient {
     pub name: String,
     pub amounts: Vec<WAmount>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub modifier: Option<String>,
     /// Whether this ingredient is optional (e.g., wrapped in parentheses).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub optional: bool,
 }
 
@@ -133,16 +134,16 @@ impl WUnitMappings {
     }
 }
 
-/// Prep/cook/total times (mirrors `RecipeTimes`).
-#[derive(Tsify, Serialize, Deserialize)]
+/// Prep/cook/total times (mirrors `RecipeTimes`). Into-only.
+#[derive(Tsify, Serialize)]
 pub struct WRecipeTimes {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prep: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cook: Option<String>,
 }
 
@@ -157,11 +158,12 @@ impl From<RecipeTimes> for WRecipeTimes {
     }
 }
 
-/// A recipe component with raw ingredient/instruction lines (mirrors `RecipeSection`).
-#[derive(Tsify, Serialize, Deserialize)]
+/// A recipe component with raw ingredient/instruction lines (mirrors
+/// `RecipeSection`). Into-only.
+#[derive(Tsify, Serialize)]
 pub struct WRecipeSection {
     /// Component label (e.g., "For the sauce"); absent for the main/only section.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub ingredients: Vec<String>,
     pub instructions: Vec<String>,
@@ -179,24 +181,24 @@ impl From<RecipeSection> for WRecipeSection {
 
 /// A scraped recipe (mirrors `ScrapedRecipe`). `recipe_yield`/`servings` from the
 /// upstream struct are intentionally omitted — the demo never consumes them.
-#[derive(Tsify, Serialize, Deserialize)]
+#[derive(Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 pub struct WScrapedRecipe {
     /// Recipe components; most recipes have a single unnamed section.
     pub sections: Vec<WRecipeSection>,
     pub name: String,
     pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub times: Option<WRecipeTimes>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub equipment: Vec<String>,
 }
 
@@ -216,8 +218,8 @@ impl From<ScrapedRecipe> for WScrapedRecipe {
     }
 }
 
-/// One span of measurement-aware instruction text (mirrors `Chunk`).
-#[derive(Tsify, Serialize, Deserialize)]
+/// One span of measurement-aware instruction text (mirrors `Chunk`). Into-only.
+#[derive(Tsify, Serialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum RichItem {
     Text(String),
@@ -235,23 +237,29 @@ impl From<Chunk> for RichItem {
     }
 }
 
-/// `RichItem[]` (`transparent` → `type RichItems = RichItem[]`).
-#[derive(Tsify, Serialize, Deserialize)]
+/// `RichItem[]` (`transparent` → `type RichItems = RichItem[]`). Into-only.
+#[derive(Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(transparent)]
 pub struct RichItems(pub Vec<RichItem>);
 
-// Hand-authored boundary type that can't be derived: `AmountKind`, a
-// `nutrient:${string}` template-literal union.
+// Hand-authored boundary types that can't be derived: `AmountKind` (a
+// template-literal union) and the nutrient-conversion result record.
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "AmountKind")]
     pub type WAmountKind;
+
+    #[wasm_bindgen(typescript_type = "Record<string, WAmount | null>")]
+    pub type WNutrientAmounts;
 }
 
+// Keep in lockstep with `MeasureKind::to_str()`: the parameterized variants
+// render as `other:<unit>` / `nutrient:<unit>` (a bare "other" is never
+// produced — `Unit::Whole` is `other:whole`). Pinned by `amount_kind_strings`.
 #[wasm_bindgen(typescript_custom_section)]
 const HAND_AUTHORED_TS: &str = r#"
-type AmountKind = "weight" | "volume" | "money" | "calories" | "time" | "temperature" | "length" | "other" | `nutrient:${string}`;
+type AmountKind = "weight" | "volume" | "money" | "calories" | "time" | "temperature" | "length" | `other:${string}` | `nutrient:${string}`;
 "#;
 
 fn from_js<T: for<'de> Deserialize<'de>>(v: impl Into<JsValue>, ctx: &str) -> Result<T, String> {
@@ -281,11 +289,10 @@ pub fn format_amount_value(amount: WAmount) -> f64 {
 
 #[wasm_bindgen]
 pub fn amount_kind(amount: WAmount) -> Result<WAmountKind, String> {
-    amount
-        .to_measure()
-        .kind()
-        .map_err(|_| "Unknown unit kind".to_string())
-        .and_then(|k| to_js(&k.to_str(), "amount kind").map(Into::into))
+    // `Measure::kind` is infallible for every unit; the error path only exists
+    // to satisfy its Result signature.
+    let kind = amount.to_measure().kind().map_err(|e| e.to_string())?;
+    to_js(&kind.to_str(), "amount kind").map(Into::into)
 }
 
 #[wasm_bindgen]
@@ -302,8 +309,9 @@ pub fn conv_amount_to_kind(
     let pairs = mappings.to_pairs();
     let measure = amount.to_measure();
     let kind_str: String = from_js(target_kind, "amount kind")?;
-    let kind =
-        MeasureKind::from_str(&kind_str).map_err(|_| format!("Invalid amount kind: {kind_str}"))?;
+    // `MeasureKind::from_str` is infallible (unknown strings map to Other);
+    // the fallback arm is unreachable.
+    let kind = MeasureKind::from_str(&kind_str).unwrap_or(MeasureKind::Other(kind_str));
 
     measure
         .convert_measure_via_mappings(kind.clone(), &pairs)
@@ -335,7 +343,9 @@ pub fn conv_amount_to_nutrients(
     mappings: WUnitMappings,
     nutrient_targets: Vec<String>,
     amount: WAmount,
-) -> Result<JsValue, String> {
+) -> Result<WNutrientAmounts, String> {
+    use wasm_bindgen::JsCast;
+
     let measure = amount.to_measure();
     let graph = make_graph(&mappings.to_pairs());
 
@@ -353,7 +363,7 @@ pub fn conv_amount_to_nutrients(
             .map_err(|_| "Failed to set property on result object")?;
     }
 
-    Ok(result.into())
+    Ok(result.unchecked_into())
 }
 
 #[wasm_bindgen]
@@ -379,4 +389,46 @@ pub fn parse_rich_text(text: String, ingredient_names: Vec<String>) -> Result<Ri
         .parse(&text)
         .map_err(|e| e.to_string())
         .map(|chunks| RichItems(chunks.into_iter().map(RichItem::from).collect()))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    /// The hand-authored `AmountKind` TS union must stay in lockstep with
+    /// `MeasureKind::to_str()`. The parameterized kinds render as
+    /// `other:<unit>` / `nutrient:<unit>` — a bare "other" is never produced
+    /// (even `whole` is `other:whole`), so the union must carry the
+    /// `other:${string}` arm, not a bare "other".
+    #[test]
+    fn amount_kind_strings_match_ts_union() {
+        let kind_str = |unit: &str| {
+            WAmount {
+                unit: unit.to_string(),
+                value: 1.0,
+                upper_value: None,
+            }
+            .to_measure()
+            .kind()
+            .unwrap()
+            .to_str()
+            .into_owned()
+        };
+        assert_eq!(kind_str("g"), "weight");
+        assert_eq!(kind_str("cup"), "volume");
+        assert_eq!(kind_str("whole"), "other:whole");
+        assert_eq!(kind_str("clove"), "other:clove");
+        assert_eq!(kind_str("g protein"), "nutrient:g protein");
+        // Every static union member must be producible too.
+        for (unit, want) in [
+            ("$", "money"),
+            ("kcal", "calories"),
+            ("minute", "time"),
+            ("fahrenheit", "temperature"),
+            ("inch", "length"),
+        ] {
+            assert_eq!(kind_str(unit), want, "unit: {unit}");
+        }
+    }
 }

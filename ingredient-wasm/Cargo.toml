@@ -20,7 +20,7 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
-wasm-bindgen = { version = "0.2.100", features = ["serde-serialize"] }
+wasm-bindgen = "0.2.100"
 ingredient.workspace = true
 recipe-scraper.workspace = true
 serde.workspace = true

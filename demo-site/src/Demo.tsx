@@ -21,6 +21,15 @@ const setUrlParam = (key: string, value: string | null) => {
   window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
 };
 
+/* Persist a value to the query string, debounced: a replaceState per
+   keystroke trips Safari's 100-calls-per-30s rate limit (SecurityError). */
+const useUrlParamSync = (key: string, value: string | null) => {
+  useEffect(() => {
+    const timer = setTimeout(() => setUrlParam(key, value), 500);
+    return () => clearTimeout(timer);
+  }, [key, value]);
+};
+
 const CORS_PROXY =
   import.meta.env.VITE_CORS_PROXY ?? "https://cors.nicky.workers.dev/?target=";
 
@@ -42,6 +51,17 @@ const fmtAmount = (a: Measure): string => {
   }
 };
 
+// wasm.parse_rich_text throws (a raw string) on unparseable input; falling
+// back to a single Text chunk keeps a render-path call from unmounting the
+// page (there's no error boundary above these sections).
+const safeParseRichText = (text: string, names: string[]): RichItem[] => {
+  try {
+    return wasm.parse_rich_text(text, names);
+  } catch {
+    return [{ kind: "Text", value: text }];
+  }
+};
+
 export const Demo: React.FC = () => {
   const [text, setText] = useState(
     () => getUrlParam("i") ?? "1 cup / 120 grams flour, sifted"
@@ -52,8 +72,8 @@ export const Demo: React.FC = () => {
       "Add 1/2 cup / 236 grams water to the bowl with the salt and mix."
   );
 
-  useEffect(() => setUrlParam("i", text), [text]);
-  useEffect(() => setUrlParam("rt", richText), [richText]);
+  useUrlParamSync("i", text);
+  useUrlParamSync("rt", richText);
 
   const ingredientNames = useMemo(() => ["flour", "water", "salt"], []);
 
@@ -62,7 +82,8 @@ export const Demo: React.FC = () => {
     [text]
   );
   const parsedRich = useMemo(
-    () => (richText ? wasm.parse_rich_text(richText, ingredientNames) : undefined),
+    () =>
+      richText ? safeParseRichText(richText, ingredientNames) : undefined,
     [richText, ingredientNames]
   );
 
@@ -292,11 +313,8 @@ const Scraper: React.FC = () => {
     return Number.isFinite(fromUrl) && fromUrl > 0 ? fromUrl : 1.0;
   });
 
-  useEffect(() => setUrlParam("url", url), [url]);
-  useEffect(
-    () => setUrlParam("scale", scaleFactor === 1 ? null : String(scaleFactor)),
-    [scaleFactor]
-  );
+  useUrlParamSync("url", url);
+  useUrlParamSync("scale", scaleFactor === 1 ? null : String(scaleFactor));
 
   // Debounce the URL so typing doesn't key a fetch per keystroke; the
   // debounced value drives the query, which handles abort + caching.
@@ -322,8 +340,12 @@ const Scraper: React.FC = () => {
       return wasm.scrape(body, debouncedUrl);
     },
   });
+  // wasm.scrape rejections are raw strings (Result<_, String>), not Errors —
+  // `(error as Error).message` would render "undefined".
   const errorMessage = error
-    ? `Couldn't scrape this page: ${(error as Error).message}`
+    ? `Couldn't scrape this page: ${
+        error instanceof Error ? error.message : String(error)
+      }`
     : null;
 
   const parsedIngredients = useMemo(
@@ -502,7 +524,7 @@ const Scraper: React.FC = () => {
                       </div>
                       <div className="flex-1 leading-relaxed text-zinc-700">
                         {formatRichText(
-                          wasm.parse_rich_text(instruction, ingredientNames)
+                          safeParseRichText(instruction, ingredientNames)
                         )}
                       </div>
                     </li>

@@ -40,7 +40,7 @@ impl StringOrList {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "recipe")]
+#[serde(rename_all = "camelCase")]
 pub struct RootRecipe {
     #[serde(rename = "@context")]
     pub context: Option<String>,
@@ -149,19 +149,15 @@ pub struct RootGraph {
     #[serde(rename = "@graph")]
     pub graph: Vec<Graph>,
 }
+/// One `@graph` node: a recipe, or anything else. Untagged, so every non-recipe
+/// node (Article, WebPage, ImageObject, …) lands in `Other` — listing them as
+/// separate `Value` variants made everything after the first unreachable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-// #[serde(tag = "@type")]
 #[serde(untagged)]
 pub enum Graph {
-    // Boxed: RootRecipe is much larger than the other (Value-shaped) variants.
+    // Boxed: RootRecipe is much larger than the catch-all variant.
     Recipe(Box<RootRecipe>),
-    Article(Value),
-    WebPage(Value),
-    ImageObject(Image),
-    BreadcrumbList(Value),
-    WebSite(Value),
-    Organization(Value),
-    Person(Value),
+    Other(Value),
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]

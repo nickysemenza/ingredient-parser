@@ -3,8 +3,6 @@
 
 use food_app::MyApp;
 
-// When compiling natively:
-#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     // Load AI gateway creds (AI_GATEWAY_API_KEY, CLOUDFLARE_AI_GATEWAY_BASE_URL)
     // from a repo-root .env. Missing file is fine; real exported vars take precedence.
@@ -20,23 +18,4 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(MyApp::new(cc)))
         }),
     )
-}
-
-// When compiling to web using trunk:
-#[cfg(target_arch = "wasm32")]
-fn main() {
-    console_error_panic_hook::set_once();
-    tracing_wasm::set_as_global_default();
-
-    let web_options = eframe::WebOptions::default();
-
-    wasm_bindgen_futures::spawn_local(async {
-        eframe::start_web(
-            "the_canvas_id",
-            web_options,
-            Box::new(|cc| Box::new(MyApp::new(cc))),
-        )
-        .await
-        .expect("failed to start eframe");
-    });
 }

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -191,26 +192,52 @@ impl fmt::Display for Unit {
     }
 }
 
-pub(crate) fn singular(s: &str) -> Cow<'_, str> {
-    // Fast path: if already lowercase ASCII with no trailing 's', borrow directly
-    if s.bytes().all(|b| !b.is_ascii_uppercase()) {
-        match s.strip_suffix('s') {
-            Some(stripped) => Cow::Borrowed(stripped),
-            None => Cow::Borrowed(s),
+/// Strip a plural suffix from an (already-singular-or-plural) unit word.
+/// "-es" after a sibilant ("bunches", "boxes", "dishes") strips to the base;
+/// otherwise a bare trailing "s" is stripped ("cups", "slices", "recipes").
+fn strip_plural(s: &str) -> &str {
+    if let Some(base) = s.strip_suffix("es") {
+        if base.ends_with("ch")
+            || base.ends_with("sh")
+            || base.ends_with("ss")
+            || base.ends_with('x')
+            || base.ends_with('z')
+        {
+            return base;
         }
+    }
+    s.strip_suffix('s').unwrap_or(s)
+}
+
+pub(crate) fn singular(s: &str) -> Cow<'_, str> {
+    // Fast path: if already lowercase ASCII, borrow directly
+    if s.bytes().all(|b| !b.is_ascii_uppercase()) {
+        Cow::Borrowed(strip_plural(s))
     } else {
         // Slow path: needs lowercasing
         let lowered = s.to_lowercase();
-        match lowered.strip_suffix('s') {
-            Some(stripped) => Cow::Owned(stripped.to_string()),
-            None => Cow::Owned(lowered),
-        }
+        Cow::Owned(strip_plural(&lowered).to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_singular_plural_suffixes() {
+        // Bare trailing "s"
+        assert_eq!(singular("cups"), "cup");
+        assert_eq!(singular("slices"), "slice");
+        assert_eq!(singular("recipes"), "recipe");
+        // Sibilant "-es" plurals strip the whole suffix ("bunche" was wrong)
+        assert_eq!(singular("bunches"), "bunch");
+        assert_eq!(singular("pinches"), "pinch");
+        assert_eq!(singular("boxes"), "box");
+        // Already singular stays put
+        assert_eq!(singular("bunch"), "bunch");
+        assert_eq!(singular("box"), "box");
+    }
 
     #[test]
     fn test_is_addon_unit() {

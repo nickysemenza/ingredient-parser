@@ -4,27 +4,30 @@ This repository includes comprehensive benchmarking infrastructure using [Criter
 
 ## Running Benchmarks Locally
 
+The bench target requires the `bench` feature — without `--features bench`,
+`cargo bench` silently runs nothing.
+
 ```bash
 cd ingredient-parser
 
 # Run all benchmarks
-cargo bench
+cargo bench --features bench
 
 # Quick test run (less statistical rigor, faster)
-cargo bench -- --test
+cargo bench --features bench -- --test
 
 # Run specific benchmark groups
-cargo bench ingredient_parsing
-cargo bench amount_parsing
+cargo bench --features bench ingredient_parsing
+cargo bench --features bench amount_parsing
 
 # Run specific benchmark
-cargo bench batch_parse_recipe
+cargo bench --features bench batch_parse_recipe
 
 # Save baseline for comparison
-cargo bench -- --save-baseline my-baseline
+cargo bench --features bench -- --save-baseline my-baseline
 
 # Compare against baseline
-cargo bench -- --baseline my-baseline
+cargo bench --features bench -- --baseline my-baseline
 ```
 
 ## Continuous Integration
@@ -58,10 +61,11 @@ The benchmarks test various aspects of the ingredient parser:
 - **Text numbers**: "one cup whole milk"
 - **Unicode fractions**: "⅓ cup brown sugar"
 
-Each test case is run against:
-- `from_str()` - normal parsing
-- `from_str_rich()` - rich text parsing
-- `try_from_str()` - error handling path
+Each test case is run against the real benchmark groups in
+`benches/parser_benchmarks.rs`:
+- `from_str` - normal parsing
+- `rich_parse` - rich text parsing (`RichParser`)
+- `parse_amount` - standalone amount parsing
 
 ### Amount Parsing Benchmarks
 - **Single amounts**: "2 cups"
@@ -94,7 +98,7 @@ When you run benchmarks locally, Criterion generates detailed HTML reports:
    # Download from http://www.gnuplot.info/
    ```
 
-3. **View reports**: After running `cargo bench`, open `target/criterion/report/index.html` in your browser
+3. **View reports**: After running `cargo bench --features bench`, open `target/criterion/report/index.html` in your browser
 
 ## Interpreting Results
 
@@ -115,7 +119,7 @@ When you run benchmarks locally, Criterion generates detailed HTML reports:
 ### Common Issues
 1. **Benchmarks too slow**: Reduce sample size in criterion configuration
 2. **Inconsistent results**: Check for background processes affecting CPU
-3. **Missing baseline**: Run `cargo bench` locally to establish baseline
+3. **Missing baseline**: Run `cargo bench --features bench` locally to establish baseline
 4. **No HTML reports**: Install gnuplot for visual charts
 
 ### Performance Analysis

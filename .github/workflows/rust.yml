@@ -44,7 +44,7 @@ jobs:
       - name: Generate code coverage
         run: |
           cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info \
-            --exclude food_cli --exclude food_ui --exclude food_web --exclude ingredient-wasm
+            --exclude food-cli --exclude food-app --exclude ingredient-wasm
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v7
         with:
@@ -92,6 +92,29 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Run benchmarks once (criterion --test) so they keep compiling and executing
         run: cargo bench -p ingredient --features bench -- --test
+  demo-site:
+    name: demo-site (build + lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: demo-site/pnpm-lock.yaml
+      - uses: jetli/wasm-pack-action@v0.4.0
+      # `tsc` (inside the build) typechecks the demo against the freshly
+      # generated wasm `.d.ts`, so a Tsify type change can't merge green and
+      # only fail on the post-merge deploy.
+      - name: Build site
+        run: make build-demo-site
+      - name: Lint
+        run: pnpm run lint
+        working-directory: demo-site
   deploy:
     needs: [build]
     runs-on: ubuntu-latest
