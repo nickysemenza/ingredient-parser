@@ -33,5 +33,5 @@ doc = false
 bench = false
 
 # Standalone workspace: keeps the fuzz crate (and libfuzzer-sys) out of the main
-# workspace's build, clippy, MSRV, and cargo-deny scope.
+# workspace's build, clippy, and MSRV scope.
 [workspace]

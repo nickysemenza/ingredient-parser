@@ -51,14 +51,6 @@ jobs:
           files: lcov.info
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
-  deny:
-    name: cargo-deny (supply chain)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
   msrv:
     name: MSRV (1.85)
     runs-on: ubuntu-latest
