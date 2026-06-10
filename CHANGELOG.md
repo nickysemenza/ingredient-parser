@@ -12,9 +12,9 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   diagnostics (`Diagnostics { confidence, fell_back, unparsed_digit }` with the
   `Confidence` enum) — surfaces whether a line parsed cleanly or quietly fell
   back to a name-only ingredient.
-- `IngredientParser::parse_multi`, splitting unambiguous multi-ingredient lines
-  (semicolon lists, or `" and "`-joined segments that each carry an amount)
-  into separate ingredients.
+- `ParseTrace::stages` returning a structured `StageReport` (normalize rewrites,
+  recognizer attempts, grammar outcome, refine passes, result preview) — the
+  data behind the `--explain` stage view, for programmatic consumers.
 - Spelled-out word numbers `two`–`twelve` and `dozen` (e.g. `two eggs` →
   `2 whole`). Previously only `one`/`a`/`an` were recognized. Numeric words are
   matched only on word boundaries, so `ten` is not matched inside `tenderloin`.

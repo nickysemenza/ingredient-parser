@@ -2,7 +2,7 @@
 
 #![allow(clippy::unwrap_used)]
 
-use ingredient::trace::{ParseTrace, TraceNode, TraceOutcome};
+use ingredient::trace::{GrammarOutcome, ParseTrace, TraceNode, TraceOutcome};
 use ingredient::IngredientParser;
 use rstest::{fixture, rstest};
 
@@ -315,6 +315,136 @@ fn test_parse_with_trace_edge_cases(
         "Unexpected parse failure for: {input:?}"
     );
     assert_eq!(result.result.unwrap().name, expected_name);
+}
+
+// ============================================================================
+// StageReport Tests (ParseTrace::stages)
+// ============================================================================
+
+/// Plain line: no normalize rewrites, all recognizers fail, grammar parses,
+/// no refine passes — the trivial path through every bucket.
+#[rstest]
+fn test_stages_plain_line(parser: IngredientParser) {
+    let report = parser.parse_with_trace("2 cups flour").trace.stages();
+    assert!(report.normalize.is_empty());
+    assert_eq!(report.recognizers.len(), 3);
+    assert!(!report.recognizer_matched());
+    assert_eq!(
+        report.grammar,
+        Some(GrammarOutcome::Parsed("flour".to_string()))
+    );
+    assert!(report.refine.is_empty());
+    assert_eq!(report.result_preview.as_deref(), Some("flour"));
+}
+
+/// Normalize rewrite: the leading determiner strip lands in the normalize
+/// bucket with its before → after texts.
+#[rstest]
+fn test_stages_normalize_rewrite(parser: IngredientParser) {
+    let report = parser.parse_with_trace("the 1 cup flour").trace.stages();
+    assert_eq!(report.normalize.len(), 1);
+    let rewrite = &report.normalize[0];
+    assert_eq!(rewrite.name, "strip_leading_determiner");
+    assert_eq!(rewrite.before, "the 1 cup flour");
+    assert_eq!(rewrite.after, "1 cup flour");
+    assert_eq!(
+        report.grammar,
+        Some(GrammarOutcome::Parsed("flour".to_string()))
+    );
+}
+
+/// Special-form recognizer match: x_of_construction matches and the grammar
+/// outcome comes from the nested re-parse of the rewritten line.
+#[rstest]
+fn test_stages_recognizer_match(parser: IngredientParser) {
+    let report = parser.parse_with_trace("Juice of 1 lemon").trace.stages();
+    assert!(report.recognizer_matched());
+    let matched = report
+        .recognizers
+        .iter()
+        .find(|r| r.output.is_some())
+        .unwrap();
+    assert_eq!(matched.name, "x_of_construction");
+    assert_eq!(matched.output.as_deref(), Some("lemon"));
+    assert_eq!(
+        report.grammar,
+        Some(GrammarOutcome::Parsed("lemon".to_string()))
+    );
+    assert_eq!(report.result_preview.as_deref(), Some("lemon"));
+}
+
+/// Refine pass: the word-alternative split shows up in the refine bucket.
+#[rstest]
+fn test_stages_refine_pass(parser: IngredientParser) {
+    let report = parser.parse_with_trace("red or white onion").trace.stages();
+    assert_eq!(report.refine.len(), 1);
+    assert_eq!(report.refine[0].name, "extract_word_alternative_from_name");
+    assert_eq!(report.result_preview.as_deref(), Some("red onion"));
+}
+
+/// Synthetic trees pin the bucketing variants real parses can't reach:
+/// a failed grammar node → FellBack, a recognizer-only success → Skipped,
+/// and a trace with no core nodes at all → grammar None / everything in
+/// normalize / no result preview.
+#[test]
+fn test_stages_synthetic_variants() {
+    fn trace_with_children(children: Vec<TraceNode>) -> ParseTrace {
+        let mut root = TraceNode::new("parse_line", "input");
+        for c in children {
+            root.add_child(c);
+        }
+        ParseTrace {
+            input: "input".to_string(),
+            root,
+            baseline_instant: None,
+            baseline_unix_micros: 0,
+        }
+    }
+
+    // Grammar node failed → FellBack.
+    let mut grammar = TraceNode::new("parse_ingredient", "input");
+    grammar.failure("no parse");
+    let report = trace_with_children(vec![grammar]).stages();
+    assert_eq!(report.grammar, Some(GrammarOutcome::FellBack));
+    assert_eq!(report.result_preview, None);
+
+    // Recognizer succeeded with no nested grammar → Skipped.
+    let mut recognizer = TraceNode::new("x_of_construction", "input");
+    recognizer.success(5, "lemon");
+    let report = trace_with_children(vec![recognizer]).stages();
+    assert_eq!(report.grammar, Some(GrammarOutcome::Skipped));
+    assert!(report.recognizer_matched());
+
+    // No core nodes at all → grammar None, children bucketed as normalize.
+    let mut rewrite = TraceNode::new("some_rewrite", "input");
+    rewrite.success(0, "rewritten");
+    let report = trace_with_children(vec![rewrite]).stages();
+    assert_eq!(report.grammar, None);
+    assert!(report.recognizers.is_empty());
+    assert_eq!(report.normalize.len(), 1);
+    assert_eq!(report.normalize[0].after, "rewritten");
+}
+
+/// Regression guard: `format_stages` (the `--explain` renderer, now backed by
+/// `stages()`) still emits the stage labels the CLI output is known by.
+#[rstest]
+fn test_format_stages_labels(parser: IngredientParser) {
+    let out = parser
+        .parse_with_trace("2 cups flour")
+        .trace
+        .format_stages(false);
+    for label in [
+        "input:",
+        "normalize:",
+        "recognize:",
+        "grammar:",
+        "refine:",
+        "result:",
+    ] {
+        assert!(out.contains(label), "missing label {label} in:\n{out}");
+    }
+    assert!(out.contains("(no rewrites fired)"));
+    assert!(out.contains("name=\"flour\""));
 }
 
 /// Unit mismatch in ranges is handled gracefully with tracing enabled, and

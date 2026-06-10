@@ -16,8 +16,10 @@
 mod collector;
 mod format;
 mod jaeger;
+mod stages;
 
 pub use collector::is_tracing_enabled;
+pub use stages::{GrammarOutcome, RecognizerAttempt, StageReport, StageRewrite};
 // Thread-local span-stack mutators: in-crate only (the `traced_parser!` macro and
 // the pipeline/recognize/refine phases). Not part of the public API — the public
 // entry point is `IngredientParser::parse_with_trace` → `ParseTrace`.
@@ -153,7 +155,14 @@ impl ParseTrace {
     /// # Arguments
     /// * `colored` - Whether to use ANSI color codes
     pub fn format_stages(&self, colored: bool) -> String {
-        format::format_stages(&self.root, colored)
+        format::format_stages(&self.stages(), colored)
+    }
+
+    /// Bucket the trace into a structured stage-level report (the data behind
+    /// [`format_stages`](Self::format_stages)) — normalize rewrites, recognizer
+    /// attempts, grammar outcome, refine passes, and the result preview.
+    pub fn stages(&self) -> StageReport {
+        stages::build_report(&self.root)
     }
 
     /// Export trace to Jaeger-compatible JSON format
