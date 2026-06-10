@@ -33,7 +33,7 @@ impl PersistedState {
         Self {
             current_tab: app.current_tab,
             url: app.url.clone(),
-            test_input: app.test_input.clone(),
+            test_input: app.test.input.clone(),
             cookbook_path: app.cookbook.path.clone(),
             library_dir: app.cookbook.library_dir.clone(),
             cookbooks_only: app.cookbook.cookbooks_only,
@@ -49,7 +49,7 @@ impl PersistedState {
     pub fn apply_to(self, app: &mut MyApp) {
         app.current_tab = self.current_tab;
         app.url = self.url;
-        app.test_input = self.test_input;
+        app.test.input = self.test_input;
         app.cookbook.path = self.cookbook_path;
         app.cookbook.library_dir = self.library_dir;
         app.cookbook.cookbooks_only = self.cookbooks_only;

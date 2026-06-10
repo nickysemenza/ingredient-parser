@@ -6,4 +6,4 @@ mod test;
 pub use cookbook::CookbookTab;
 pub use debug::show_debug_tab;
 pub use recipe::{show_parsed, show_raw};
-pub use test::show_test_tab;
+pub use test::TestTab;

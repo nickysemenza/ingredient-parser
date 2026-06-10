@@ -10,8 +10,8 @@ use ingredient::trace::ParseTrace;
 use poll_promise::Promise;
 use rand::RngExt;
 use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
-use tabs::CookbookTab;
-use tabs::{show_debug_tab, show_parsed, show_raw, show_test_tab};
+use tabs::{show_debug_tab, show_parsed, show_raw};
+use tabs::{CookbookTab, TestTab};
 
 #[derive(PartialEq, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 enum Tab {
@@ -35,9 +35,7 @@ pub struct MyApp {
     current_tab: Tab,
     selected_ingredient_idx: Option<usize>,
     // Test tab state
-    test_input: String,
-    test_trace: Option<ParseTrace>,
-    test_result: Option<ingredient::ingredient::Ingredient>,
+    test: TestTab,
     // Cookbook (EPUB) tab state
     cookbook: CookbookTab,
 }
@@ -50,9 +48,7 @@ impl Default for MyApp {
                 .to_string(),
             current_tab: Tab::Recipe,
             selected_ingredient_idx: None,
-            test_input: "2 cups all-purpose flour, sifted".to_string(),
-            test_trace: None,
-            test_result: None,
+            test: TestTab::default(),
             cookbook: CookbookTab::default(),
         }
     }
@@ -168,12 +164,7 @@ impl eframe::App for MyApp {
 
         egui::CentralPanel::default().show_inside(ui, |ui| match self.current_tab {
             Tab::Test => {
-                show_test_tab(
-                    ui,
-                    &mut self.test_input,
-                    &mut self.test_trace,
-                    &mut self.test_result,
-                );
+                self.test.show(ui);
             }
             Tab::Recipe => {
                 if let Some(promise) = &self.promise {
