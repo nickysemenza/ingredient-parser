@@ -127,6 +127,9 @@ pub struct CookbookTab {
     /// Live chunk-extraction progress for the in-flight `promise`, drawn as a
     /// determinate bar while it runs. Re-created on each load.
     extract_progress: Option<Arc<ExtractProgressCell>>,
+    /// When the in-flight load started — drives the elapsed label shown before
+    /// the chunk count is known.
+    load_started: Option<std::time::Instant>,
     selected: usize,
     /// Whether the central panel shows the reference digraph vs the browser.
     show_graph: bool,
@@ -164,6 +167,7 @@ impl Default for CookbookTab {
             no_cache: false,
             promise: None,
             extract_progress: None,
+            load_started: None,
             selected: 0,
             show_graph: false,
             graph: None,
@@ -253,7 +257,13 @@ impl CookbookTab {
                             None => {
                                 ui.horizontal(|ui| {
                                     ui.spinner();
-                                    ui.label("Scanning library…");
+                                    let dir = self
+                                        .library_dir
+                                        .as_deref()
+                                        .and_then(Path::file_name)
+                                        .map(|d| d.to_string_lossy().into_owned())
+                                        .unwrap_or_else(|| "library".to_string());
+                                    ui.label(format!("Scanning {dir}…"));
                                 });
                             }
                             Some(Err(err)) => {
@@ -304,8 +314,17 @@ impl CookbookTab {
                 } else {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Extracting recipes…");
+                        let file = Path::new(&self.path)
+                            .file_name()
+                            .map(|f| f.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "recipes".to_string());
+                        let elapsed = self.load_started.map_or(0, |t| t.elapsed().as_secs());
+                        ui.label(format!("Extracting {file}… ({elapsed}s)"));
                     });
+                    // No chunk callbacks arrive yet in this phase (chunking the
+                    // EPUB itself) — tick the elapsed label ourselves.
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_secs(1));
                 }
             }
             Some(Err(err)) => {
@@ -398,9 +417,17 @@ impl CookbookTab {
                     .resizable(true)
                     .default_size(240.0)
                     .show_inside(ui, |ui| {
+                        let mut nav_selected = Some(*selected);
+                        let nav_changed = super::arrow_nav(ui, &mut nav_selected, recipes.len());
+                        if let (true, Some(s)) = (nav_changed, nav_selected) {
+                            *selected = s;
+                        }
                         egui::ScrollArea::vertical().show(ui, |ui| {
                             for (i, r) in recipes.iter().enumerate() {
-                                ui.selectable_value(selected, i, &r.meta.title);
+                                let response = ui.selectable_value(selected, i, &r.meta.title);
+                                if nav_changed && *selected == i {
+                                    response.scroll_to_me(Some(egui::Align::Center));
+                                }
                             }
                         });
                     });
@@ -478,6 +505,7 @@ impl CookbookTab {
         let path = self.path.trim().to_string();
         let no_cache = self.no_cache;
         self.selected = 0;
+        self.load_started = Some(std::time::Instant::now());
         self.graph = None; // rebuilt for the newly loaded book
         self.graph_prewarmed = false;
         self.images_registered = false; // re-register for the newly loaded book

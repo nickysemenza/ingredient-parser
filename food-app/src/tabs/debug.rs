@@ -12,6 +12,7 @@ pub enum TraceTreeContext {
 }
 
 pub fn show_debug_tab(ui: &mut egui::Ui, traces: &[ParseTrace], selected: &mut Option<usize>) {
+    let nav_changed = super::arrow_nav(ui, selected, traces.len());
     // Use columns for better layout
     ui.columns(2, |columns| {
         // Left column: ingredient selector
@@ -22,11 +23,12 @@ pub fn show_debug_tab(ui: &mut egui::Ui, traces: &[ParseTrace], selected: &mut O
             .show(&mut columns[0], |ui| {
                 for (idx, trace) in traces.iter().enumerate() {
                     let is_selected = *selected == Some(idx);
-                    if ui
-                        .selectable_label(is_selected, truncate_str(&trace.input, 50))
-                        .clicked()
-                    {
+                    let response = ui.selectable_label(is_selected, truncate_str(&trace.input, 50));
+                    if response.clicked() {
                         *selected = Some(idx);
+                    }
+                    if nav_changed && *selected == Some(idx) {
+                        response.scroll_to_me(Some(egui::Align::Center));
                     }
                 }
             });
