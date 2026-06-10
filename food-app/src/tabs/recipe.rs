@@ -23,7 +23,7 @@ pub(crate) fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
         amount_list.as_str(),
         0.0,
         TextFormat {
-            color: theme::AMOUNT,
+            color: theme::palette().amount(),
             ..Default::default()
         },
     );
@@ -31,7 +31,7 @@ pub(crate) fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
         name.as_str(),
         0.0,
         TextFormat {
-            color: theme::NAME,
+            color: theme::palette().name(),
             ..Default::default()
         },
     );
@@ -39,7 +39,7 @@ pub(crate) fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
         modifier.as_str(),
         0.0,
         TextFormat {
-            color: theme::MODIFIER,
+            color: theme::palette().modifier(),
             ..Default::default()
         },
     );
@@ -73,14 +73,14 @@ pub(crate) fn show_instruction_chunks(ui: &mut egui::Ui, chunks: &[ingredient::r
                 match chunk {
                     ingredient::rich_text::Chunk::Measure(ms) => {
                         for m in ms {
-                            ui.label(RichText::new(m.to_string()).color(theme::AMOUNT));
+                            ui.label(RichText::new(m.to_string()).color(theme::palette().amount()));
                         }
                     }
                     ingredient::rich_text::Chunk::Text(t) => {
                         ui.label(t);
                     }
                     ingredient::rich_text::Chunk::Ing(i) => {
-                        ui.label(RichText::new(i).color(theme::NAME));
+                        ui.label(RichText::new(i).color(theme::palette().name()));
                     }
                 }
             }
@@ -121,12 +121,14 @@ pub fn show_raw(ui: &mut egui::Ui, recipe: &ScrapedRecipe) {
                     "Yield: {} {}",
                     recipe_yield.value, recipe_yield.unit
                 ))
-                .color(theme::AMOUNT),
+                .color(theme::palette().amount()),
             );
             ui.separator();
         }
         if let Some(servings) = &recipe.servings {
-            ui.label(RichText::new(format!("Servings: {servings}")).color(theme::AMOUNT));
+            ui.label(
+                RichText::new(format!("Servings: {servings}")).color(theme::palette().amount()),
+            );
         }
     });
     ui.separator();

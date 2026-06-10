@@ -259,13 +259,13 @@ impl TestTab {
                         ui.label(truncate_str(&r.input, 60)).on_hover_text(&r.input);
                     });
                     table_row.col(|ui| {
-                        ui.label(RichText::new(r.name()).color(theme::NAME));
+                        ui.label(RichText::new(r.name()).color(theme::palette().name()));
                     });
                     table_row.col(|ui| {
-                        ui.label(RichText::new(r.amounts_text()).color(theme::AMOUNT));
+                        ui.label(RichText::new(r.amounts_text()).color(theme::palette().amount()));
                     });
                     table_row.col(|ui| {
-                        ui.label(RichText::new(r.modifier()).color(theme::MODIFIER));
+                        ui.label(RichText::new(r.modifier()).color(theme::palette().modifier()));
                     });
                     table_row.col(|ui| {
                         confidence_badge(ui, &r.diagnostics);
@@ -313,9 +313,9 @@ fn sort_header(
 /// Colored confidence label; hover explains the diagnostic flags.
 fn confidence_badge(ui: &mut egui::Ui, diagnostics: &Diagnostics) {
     let (text, color) = match diagnostics.confidence {
-        Confidence::High => ("High", theme::TRACE_OK),
-        Confidence::Medium => ("Medium", theme::TRACE_INCOMPLETE),
-        Confidence::Low => ("Low", theme::TRACE_FAIL),
+        Confidence::High => ("High", theme::palette().trace_ok()),
+        Confidence::Medium => ("Medium", theme::palette().trace_incomplete()),
+        Confidence::Low => ("Low", theme::palette().trace_fail()),
     };
     let mut notes = Vec::new();
     if diagnostics.fell_back {
@@ -358,11 +358,15 @@ fn show_stages(ui: &mut egui::Ui, report: &StageReport) {
                 match &r.output {
                     Some(out) => {
                         ui.label(
-                            RichText::new(format!("{} ✓ → {out}", r.name)).color(theme::TRACE_OK),
+                            RichText::new(format!("{} ✓ → {out}", r.name))
+                                .color(theme::palette().trace_ok()),
                         );
                     }
                     None => {
-                        ui.label(RichText::new(format!("{} ✗", r.name)).color(theme::TRACE_FAIL));
+                        ui.label(
+                            RichText::new(format!("{} ✗", r.name))
+                                .color(theme::palette().trace_fail()),
+                        );
                     }
                 }
             }
@@ -372,10 +376,14 @@ fn show_stages(ui: &mut egui::Ui, report: &StageReport) {
     if let Some(grammar) = &report.grammar {
         stage_card(ui, "grammar", |ui| match grammar {
             GrammarOutcome::Parsed(name) => {
-                ui.label(RichText::new(format!("name=\"{name}\"")).color(theme::TRACE_OK));
+                ui.label(
+                    RichText::new(format!("name=\"{name}\"")).color(theme::palette().trace_ok()),
+                );
             }
             GrammarOutcome::FellBack => {
-                ui.label(RichText::new("(no parse — fell back)").color(theme::TRACE_FAIL));
+                ui.label(
+                    RichText::new("(no parse — fell back)").color(theme::palette().trace_fail()),
+                );
             }
             GrammarOutcome::Skipped => {
                 ui.label(RichText::new("(skipped — recognizer produced the result)").weak());
@@ -395,10 +403,10 @@ fn show_stages(ui: &mut egui::Ui, report: &StageReport) {
 
     stage_card(ui, "result", |ui| match &report.result_preview {
         Some(name) => {
-            ui.label(RichText::new(format!("name=\"{name}\"")).color(theme::TRACE_OK));
+            ui.label(RichText::new(format!("name=\"{name}\"")).color(theme::palette().trace_ok()));
         }
         None => {
-            ui.label(RichText::new("(name-only fallback)").color(theme::TRACE_FAIL));
+            ui.label(RichText::new("(name-only fallback)").color(theme::palette().trace_fail()));
         }
     });
 }

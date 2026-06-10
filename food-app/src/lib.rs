@@ -33,6 +33,7 @@ pub struct MyApp {
     promise: Option<Promise<ehttp::Result<Wrapper>>>,
     url: String,
     current_tab: Tab,
+    theme: theme::ThemeChoice,
     selected_ingredient_idx: Option<usize>,
     // Test tab state
     test: TestTab,
@@ -47,6 +48,7 @@ impl Default for MyApp {
             url: "https://cooking.nytimes.com/recipes/1022674-chewy-gingerbread-cookies"
                 .to_string(),
             current_tab: Tab::Recipe,
+            theme: theme::ThemeChoice::default(),
             selected_ingredient_idx: None,
             test: TestTab::default(),
             cookbook: CookbookTab::default(),
@@ -79,7 +81,6 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String) -> bool {
 impl MyApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        theme::apply(&cc.egui_ctx);
         let mut app = Self::default();
         if let Some(storage) = cc.storage {
             if let Some(state) =
@@ -88,6 +89,8 @@ impl MyApp {
                 state.apply_to(&mut app);
             }
         }
+        // After restoring state so the persisted flavor is the one applied.
+        theme::apply(&cc.egui_ctx, app.theme);
         app
     }
 }
@@ -126,6 +129,26 @@ impl eframe::App for MyApp {
                     Tab::Cookbook,
                     format!("{} Cookbook", theme::icon::COOKBOOK),
                 );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let icon = match self.theme {
+                        theme::ThemeChoice::Mocha => theme::icon::LIGHT_MODE,
+                        theme::ThemeChoice::Latte => theme::icon::DARK_MODE,
+                    };
+                    if ui
+                        .button(icon)
+                        .on_hover_text("Switch light/dark theme")
+                        .clicked()
+                    {
+                        self.theme = match self.theme {
+                            theme::ThemeChoice::Mocha => theme::ThemeChoice::Latte,
+                            theme::ThemeChoice::Latte => theme::ThemeChoice::Mocha,
+                        };
+                        theme::set_theme(ui.ctx(), self.theme);
+                        // Hub colors are baked into the reference graph at
+                        // build time — rebuild it under the new palette.
+                        self.cookbook.invalidate_graph();
+                    }
+                });
             });
         });
 
@@ -193,7 +216,7 @@ impl eframe::App for MyApp {
                                                     recipe_yield.value,
                                                     recipe_yield.unit
                                                 ))
-                                                .color(theme::AMOUNT),
+                                                .color(theme::palette().amount()),
                                             );
                                         }
                                         if let Some(servings) = &w.recipe.servings {
@@ -202,7 +225,7 @@ impl eframe::App for MyApp {
                                                     "{} Servings: {servings}",
                                                     theme::icon::SERVINGS
                                                 ))
-                                                .color(theme::AMOUNT),
+                                                .color(theme::palette().amount()),
                                             );
                                         }
                                         if let Some(t) = &w.recipe.times {

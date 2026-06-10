@@ -11,6 +11,7 @@ use crate::{MyApp, Tab};
 #[serde(default)]
 pub(crate) struct PersistedState {
     pub current_tab: Tab,
+    pub theme: crate::theme::ThemeChoice,
     pub url: String,
     pub test_input: String,
     pub cookbook_path: String,
@@ -32,6 +33,7 @@ impl PersistedState {
     pub fn capture(app: &MyApp) -> Self {
         Self {
             current_tab: app.current_tab,
+            theme: app.theme,
             url: app.url.clone(),
             test_input: app.test.input.clone(),
             cookbook_path: app.cookbook.path.clone(),
@@ -48,6 +50,7 @@ impl PersistedState {
     /// re-fetch via the existing first-frame fetch on the Recipe/Debug tabs.
     pub fn apply_to(self, app: &mut MyApp) {
         app.current_tab = self.current_tab;
+        app.theme = self.theme;
         app.url = self.url;
         app.test.input = self.test_input;
         app.cookbook.path = self.cookbook_path;

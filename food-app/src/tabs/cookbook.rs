@@ -501,6 +501,13 @@ impl CookbookTab {
         }
     }
 
+    /// Drop the built reference graph so it rebuilds with the active palette
+    /// (hub-node colors are baked in at build time). Called on theme switches.
+    pub(crate) fn invalidate_graph(&mut self) {
+        self.graph = None;
+        self.graph_prewarmed = false;
+    }
+
     fn start_load(&mut self, ctx: egui::Context) {
         let path = self.path.trim().to_string();
         let no_cache = self.no_cache;
@@ -813,7 +820,10 @@ fn show_recipe_detail(
 
         ui.horizontal_wrapped(|ui| {
             if let Some(y) = &r.meta.recipe_yield {
-                ui.label(RichText::new(format!("{} {y}", theme::icon::YIELD)).color(theme::AMOUNT));
+                ui.label(
+                    RichText::new(format!("{} {y}", theme::icon::YIELD))
+                        .color(theme::palette().amount()),
+                );
             }
             if let Some(t) = &r.meta.times {
                 for (label, value) in [
@@ -1035,7 +1045,7 @@ fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
                 NODE_RADIUS
             };
             if is_hub {
-                node.set_color(theme::GRAPH_NODE);
+                node.set_color(theme::palette().graph_node());
             }
             // Place on a phyllotaxis-style spiral so initial positions are
             // distinct and roughly even — a good seed for force-directed layout.

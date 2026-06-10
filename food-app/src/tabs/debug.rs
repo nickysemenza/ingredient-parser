@@ -99,9 +99,11 @@ fn format_node_label_rich(node: &TraceNode) -> RichText {
 
     match &node.outcome {
         // Success path
-        TraceOutcome::Success { .. } => RichText::new(text).color(theme::TRACE_OK).strong(),
+        TraceOutcome::Success { .. } => RichText::new(text)
+            .color(theme::palette().trace_ok())
+            .strong(),
         // Failed branches
-        TraceOutcome::Failure { .. } => RichText::new(text).color(theme::TRACE_FAIL),
-        TraceOutcome::Incomplete => RichText::new(text).color(theme::TRACE_INCOMPLETE),
+        TraceOutcome::Failure { .. } => RichText::new(text).color(theme::palette().trace_fail()),
+        TraceOutcome::Incomplete => RichText::new(text).color(theme::palette().trace_incomplete()),
     }
 }
