@@ -1097,21 +1097,36 @@ fn show_reference_graph(
     // and surface a one-click "open" affordance (a graph click selecting a node
     // is more discoverable than expecting the user to also switch tabs).
     let mut clicked_open: Option<usize> = None;
-    if let Some(nid) = graph.selected_nodes().first().copied() {
-        if let Some(node) = graph.node(nid) {
-            let recipe_idx = *node.payload();
-            *selected = recipe_idx;
-            let title = node.label();
+    match graph.selected_nodes().first().copied() {
+        Some(nid) => {
+            if let Some(node) = graph.node(nid) {
+                let recipe_idx = *node.payload();
+                *selected = recipe_idx;
+                let title = node.label();
+                egui::Area::new(egui::Id::new("graph_selection"))
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0))
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(&title).strong());
+                                if ui.button(format!("Open {}", theme::icon::OPEN)).clicked() {
+                                    clicked_open = Some(recipe_idx);
+                                }
+                            });
+                        });
+                    });
+            }
+        }
+        // Nothing selected: tell the user how to drive the graph.
+        None => {
             egui::Area::new(egui::Id::new("graph_selection"))
                 .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0))
                 .show(ui.ctx(), |ui| {
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(&title).strong());
-                            if ui.button(format!("Open {}", theme::icon::OPEN)).clicked() {
-                                clicked_open = Some(recipe_idx);
-                            }
-                        });
+                        ui.label(
+                            RichText::new("Click a node to select · drag to pan · scroll to zoom")
+                                .weak(),
+                        );
                     });
                 });
         }

@@ -88,6 +88,31 @@ pub(crate) fn show_instruction_chunks(ui: &mut egui::Ui, chunks: &[ingredient::r
     });
 }
 
+/// Below this width the ingredient/instruction columns stack vertically
+/// instead of cramping side by side.
+const STACK_BREAKPOINT: f32 = 640.0;
+
+/// Lay out a section's ingredients and instructions: two columns when there's
+/// room, stacked (with sub-headings) below [`STACK_BREAKPOINT`].
+fn section_columns(
+    ui: &mut egui::Ui,
+    ingredients: impl FnOnce(&mut egui::Ui),
+    instructions: impl FnOnce(&mut egui::Ui),
+) {
+    if ui.available_width() < STACK_BREAKPOINT {
+        ui.label(RichText::new("Ingredients").strong());
+        ingredients(ui);
+        ui.add_space(4.0);
+        ui.label(RichText::new("Instructions").strong());
+        instructions(ui);
+    } else {
+        ui.horizontal(|ui| {
+            ui.vertical(ingredients);
+            ui.vertical(instructions);
+        });
+    }
+}
+
 /// Render parsed recipe sections (ingredients with color-coded amounts +
 /// measurement-aware instructions) for the web Recipe tab.
 fn show_parsed_sections(ui: &mut egui::Ui, sections: &[ParsedSection]) {
@@ -95,20 +120,21 @@ fn show_parsed_sections(ui: &mut egui::Ui, sections: &[ParsedSection]) {
         if let Some(name) = &section.name {
             ui.heading(name);
         }
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
+        section_columns(
+            ui,
+            |ui| {
                 section.ingredients.iter().for_each(|x| {
                     theme::card_compact(ui, |ui| {
                         show_ingredient_collapsing(ui, x);
                     });
                 });
-            });
-            ui.vertical(|ui| {
+            },
+            |ui| {
                 section.instructions.iter().for_each(|x| {
                     show_instruction_chunks(ui, x);
                 });
-            });
-        });
+            },
+        );
     }
 }
 
@@ -136,18 +162,19 @@ pub fn show_raw(ui: &mut egui::Ui, recipe: &ScrapedRecipe) {
         if let Some(name) = &section.name {
             ui.heading(name);
         }
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
+        section_columns(
+            ui,
+            |ui| {
                 section.ingredients.iter().for_each(|x| {
                     ui.label(x);
                 });
-            });
-            ui.vertical(|ui| {
+            },
+            |ui| {
                 section.instructions.iter().for_each(|x| {
                     ui.label(x);
                 });
-            });
-        });
+            },
+        );
     }
 
     // Equipment + notes, mirroring the Cookbook tab's detail view.
