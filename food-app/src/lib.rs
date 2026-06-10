@@ -1,6 +1,7 @@
 // UI code uses unwrap for display purposes where panics are acceptable
 #![allow(clippy::unwrap_used)]
 
+mod persist;
 mod tabs;
 mod theme;
 
@@ -12,8 +13,9 @@ use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
 use tabs::CookbookTab;
 use tabs::{show_debug_tab, show_parsed, show_raw, show_test_tab};
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 enum Tab {
+    #[default]
     Recipe,
     Debug,
     Test,
@@ -82,11 +84,27 @@ impl MyApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply(&cc.egui_ctx);
-        Default::default()
+        let mut app = Self::default();
+        if let Some(storage) = cc.storage {
+            if let Some(state) =
+                eframe::get_value::<persist::PersistedState>(storage, eframe::APP_KEY)
+            {
+                state.apply_to(&mut app);
+            }
+        }
+        app
     }
 }
 
 impl eframe::App for MyApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(
+            storage,
+            eframe::APP_KEY,
+            &persist::PersistedState::capture(self),
+        );
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Top panel with tab bar (always visible)
         egui::Panel::top("tab_bar").show_inside(ui, |ui| {

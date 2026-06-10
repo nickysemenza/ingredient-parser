@@ -118,7 +118,9 @@ type RefGraphView<'a> = GraphView<
 
 /// State for the Cookbook (EPUB) tab.
 pub struct CookbookTab {
-    path: String,
+    // `pub(crate)` fields are snapshotted by `crate::persist::PersistedState`
+    // (inputs and view toggles only — promises and loaded data stay per-run).
+    pub(crate) path: String,
     no_cache: bool,
     /// `None` until a load is started.
     promise: Option<Promise<LoadResult>>,
@@ -134,18 +136,19 @@ pub struct CookbookTab {
     /// Whether the layout has been pre-warmed (run headless) for the current
     /// graph, so it opens settled rather than visibly animating into place.
     graph_prewarmed: bool,
-    /// The library directory last scanned (for `Re-scan`).
-    library_dir: Option<PathBuf>,
+    /// The library directory last scanned (for `Re-scan`); also the starting
+    /// directory for the file pickers when restored from a previous session.
+    pub(crate) library_dir: Option<PathBuf>,
     /// `None` until a library scan is started.
     scan: Option<Promise<ScanResult>>,
     /// Show only books judged to be cookbooks in the library list.
-    cookbooks_only: bool,
+    pub(crate) cookbooks_only: bool,
     /// Run the AI fallback over untagged books during a scan.
-    use_ai_fallback: bool,
+    pub(crate) use_ai_fallback: bool,
     /// Free-text filter over the library list (title + authors).
     filter_text: String,
     /// Whether the library browser shows the cover grid (vs. a compact text list).
-    library_grid: bool,
+    pub(crate) library_grid: bool,
     /// Whether the loaded book's image bytes (cover + heroes) have been registered
     /// with egui this load. Reset on each [`Self::start_load`].
     images_registered: bool,
@@ -186,10 +189,7 @@ impl CookbookTab {
         // Source controls: pick a single EPUB, pick a whole library, or type a path.
         ui.horizontal(|ui| {
             if ui.button("📂 Pick EPUB…").clicked() {
-                if let Some(p) = rfd::FileDialog::new()
-                    .add_filter("EPUB", &["epub"])
-                    .pick_file()
-                {
+                if let Some(p) = self.file_dialog().add_filter("EPUB", &["epub"]).pick_file() {
                     self.path = p.to_string_lossy().into_owned();
                     self.start_load(ctx.clone());
                 }
@@ -199,7 +199,7 @@ impl CookbookTab {
                 .on_hover_text("Pick a Calibre root (or any folder); finds every .epub inside")
                 .clicked()
             {
-                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                if let Some(dir) = self.file_dialog().pick_folder() {
                     self.start_scan(dir, ctx.clone());
                 }
             }
@@ -462,6 +462,16 @@ impl CookbookTab {
             }
         }
         self.library_covers_registered = true;
+    }
+
+    /// A native file dialog starting in the last-scanned library directory
+    /// (restored across sessions), so repeat picks don't start from $HOME.
+    fn file_dialog(&self) -> rfd::FileDialog {
+        let dialog = rfd::FileDialog::new();
+        match &self.library_dir {
+            Some(dir) => dialog.set_directory(dir),
+            None => dialog,
+        }
     }
 
     fn start_load(&mut self, ctx: egui::Context) {

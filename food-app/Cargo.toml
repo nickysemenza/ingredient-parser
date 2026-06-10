@@ -12,12 +12,15 @@ publish = false
 # catppuccin-egui crate only supports egui <=0.33, and we're on 0.34.
 egui_extras = { version = "0.34.0", features = ["image", "http"] }
 egui_material_icons = "0.6"
-eframe = "0.34.0"
+# `persistence` enables eframe storage (App::save/get_value) — last tab,
+# inputs, view toggles, and window geometry survive restarts.
+eframe = { version = "0.34.0", features = ["persistence"] }
 ehttp = "0.7.0"
 image = { version = "0.25.1", default-features = false, features = ["jpeg", "png"] }
 poll-promise = "0.3"
 recipe-scraper.workspace = true
 ingredient.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 egui_ltreeview = "0.7"
 rand = "0.10.0"
