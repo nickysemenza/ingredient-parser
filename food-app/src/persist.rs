@@ -60,3 +60,53 @@ impl PersistedState {
         app.cookbook.library_grid = self.library_grid;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// capture → ron → deserialize → apply_to round-trips every persisted
+    /// field. ron because that's what eframe's native storage writes.
+    #[test]
+    fn round_trip_through_ron() {
+        let mut app = MyApp {
+            current_tab: Tab::Test,
+            theme: crate::theme::ThemeChoice::Latte,
+            url: "https://example.com/recipe".to_string(),
+            ..Default::default()
+        };
+        app.test.input = "2 cups flour\n1 egg".to_string();
+        app.cookbook.path = "/books/pok-pok.epub".to_string();
+        app.cookbook.library_dir = Some(std::path::PathBuf::from("/books"));
+        app.cookbook.cookbooks_only = false;
+        app.cookbook.use_ai_fallback = true;
+        app.cookbook.library_grid = false;
+
+        let ron = ron::to_string(&PersistedState::capture(&app)).unwrap();
+        let restored: PersistedState = ron::from_str(&ron).unwrap();
+        let mut fresh = MyApp::default();
+        restored.apply_to(&mut fresh);
+
+        assert!(fresh.current_tab == Tab::Test);
+        assert!(fresh.theme == crate::theme::ThemeChoice::Latte);
+        assert_eq!(fresh.url, app.url);
+        assert_eq!(fresh.test.input, app.test.input);
+        assert_eq!(fresh.cookbook.path, app.cookbook.path);
+        assert_eq!(fresh.cookbook.library_dir, app.cookbook.library_dir);
+        assert!(!fresh.cookbook.cookbooks_only);
+        assert!(fresh.cookbook.use_ai_fallback);
+        assert!(!fresh.cookbook.library_grid);
+    }
+
+    /// An older/empty snapshot must fall back to the app's defaults (per-field
+    /// `#[serde(default)]`), not zero values — an empty URL would otherwise
+    /// clobber the sample recipe.
+    #[test]
+    fn missing_fields_fall_back_to_app_defaults() {
+        let restored: PersistedState = ron::from_str("()").unwrap();
+        let defaults = MyApp::default();
+        assert_eq!(restored.url, defaults.url);
+        assert_eq!(restored.test_input, defaults.test.input);
+        assert!(restored.cookbooks_only == defaults.cookbook.cookbooks_only);
+    }
+}
