@@ -135,6 +135,17 @@ pub fn find_connected_components(graph: &MeasureGraph) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// One hop of an explained conversion path: `from_unit —×factor→ to_unit`.
+///
+/// Units are the *normalized* graph nodes (e.g. a cup amount enters the graph
+/// at the teaspoon node), so a path reads exactly as the graph traversed it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversionStep {
+    pub from_unit: Unit,
+    pub to_unit: Unit,
+    pub factor: f64,
+}
+
 /// Convert a measure to a target kind using a pre-built conversion graph.
 ///
 /// This uses the A* algorithm to find the shortest path in the conversion graph
@@ -151,12 +162,26 @@ pub fn find_connected_components(graph: &MeasureGraph) -> Vec<Vec<String>> {
 ///
 /// # Returns
 /// `Some(converted_measure)` if a conversion path exists, `None` otherwise
-#[tracing::instrument]
 pub fn convert_measure_with_graph(
     measure: &Measure,
     target: MeasureKind,
     graph: &MeasureGraph,
 ) -> Option<Measure> {
+    convert_measure_with_graph_explained(measure, target, graph).map(|(m, _)| m)
+}
+
+/// Like [`convert_measure_with_graph`], but also returns the traversed path —
+/// one [`ConversionStep`] per graph edge, in order, whose factors multiply to
+/// the overall conversion factor (empty when source and target share a node).
+/// This is the conversion's "show your work": it makes a wrong result
+/// self-explanatory (e.g. a 34 g amount reaching money via a bogus
+/// `g → whole → $` route reads right off the steps).
+#[tracing::instrument]
+pub fn convert_measure_with_graph_explained(
+    measure: &Measure,
+    target: MeasureKind,
+    graph: &MeasureGraph,
+) -> Option<(Measure, Vec<ConversionStep>)> {
     let input = measure.normalize();
     let unit_a = input.unit().clone();
     let unit_b = target.unit();
@@ -172,16 +197,24 @@ pub fn convert_measure_with_graph(
     // a direct user mapping, returning a derived value instead of the authoritative
     // one and compounding rounding. In a consistent graph every path yields the same
     // product, so fewest hops is correct and minimizes multiplicative drift.
-    let Some((_, steps)) =
+    let Some((_, path)) =
         petgraph::algo::astar(graph, n_a, |finish| finish == n_b, |_| 1.0, |_| 0.0)
     else {
         debug!("convert failed for {:?}", input);
         return None;
     };
     let mut factor: f64 = 1.0;
-    for x in 0..steps.len() - 1 {
-        let edge = graph.find_edge(*steps.get(x)?, *steps.get(x + 1)?)?;
-        factor *= graph.edge_weight(edge)?;
+    let mut steps = Vec::with_capacity(path.len().saturating_sub(1));
+    for x in 0..path.len() - 1 {
+        let (n_from, n_to) = (*path.get(x)?, *path.get(x + 1)?);
+        let edge = graph.find_edge(n_from, n_to)?;
+        let weight = *graph.edge_weight(edge)?;
+        steps.push(ConversionStep {
+            from_unit: graph[n_from].clone(),
+            to_unit: graph[n_to].clone(),
+            factor: weight,
+        });
+        factor *= weight;
     }
 
     let input_val = input.value();
@@ -191,8 +224,8 @@ pub fn convert_measure_with_graph(
         (input_val * factor).round(),
         input_upper.map(|x| (x * factor).round()),
     );
-    debug!("{:?} -> {:?} ({} hops)", input, result, steps.len());
-    Some(result.denormalize())
+    debug!("{:?} -> {:?} ({} hops)", input, result, path.len());
+    Some((result.denormalize(), steps))
 }
 
 /// Convert a measure to a target kind using user-provided mappings.
@@ -460,5 +493,49 @@ mod tests {
             &mappings,
         );
         assert_eq!(result.unwrap().value(), 1000.0);
+    }
+
+    #[test]
+    fn test_explained_path_factors_multiply_to_conversion() {
+        // widget -> g -> dollar: two hops whose step factors must multiply to
+        // the overall factor, with units reported in traversal order.
+        let mappings = vec![
+            (Measure::new("widget", 1.0), Measure::new("g", 200.0)),
+            (Measure::new("g", 100.0), Measure::new("dollar", 2.0)),
+        ];
+        let graph = make_graph(&mappings);
+
+        let (result, steps) = convert_measure_with_graph_explained(
+            &Measure::new("widget", 3.0),
+            MeasureKind::Money,
+            &graph,
+        )
+        .unwrap();
+
+        assert_eq!(result.value(), 12.0); // 3 widget = 600 g = $12
+        assert_eq!(steps.len(), 2);
+        // Steps report the NORMALIZED graph nodes: money normalizes to cents.
+        assert_eq!(steps[0].from_unit.to_str(), "widget");
+        assert_eq!(steps[0].to_unit.to_str(), "g");
+        assert_eq!(steps[1].to_unit.to_str(), "cent");
+        // 200 g/widget × 2 cent/g = 400 cents/widget; 3 widget = 1200 cents = $12.
+        let product: f64 = steps.iter().map(|s| s.factor).product();
+        assert!((product - 400.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_explained_same_node_is_empty_path() {
+        let mappings = vec![(Measure::new("widget", 1.0), Measure::new("g", 200.0))];
+        let graph = make_graph(&mappings);
+
+        let (result, steps) = convert_measure_with_graph_explained(
+            &Measure::new("g", 50.0),
+            MeasureKind::Weight,
+            &graph,
+        )
+        .unwrap();
+
+        assert_eq!(result.value(), 50.0);
+        assert!(steps.is_empty());
     }
 }
