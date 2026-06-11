@@ -1,6 +1,6 @@
 pub(crate) mod core;
 pub(crate) use core::is_addon_unit;
-pub(crate) use core::singular;
+pub use core::singular;
 pub use core::{is_valid, Unit};
 
 pub mod kind;

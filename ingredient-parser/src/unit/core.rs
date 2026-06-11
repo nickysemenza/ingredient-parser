@@ -209,7 +209,12 @@ fn strip_plural(s: &str) -> &str {
     s.strip_suffix('s').unwrap_or(s)
 }
 
-pub(crate) fn singular(s: &str) -> Cow<'_, str> {
+/// Lowercase + strip a plural suffix from a unit word ("Scoops" -> "scoop",
+/// "pouches" -> "pouch"). Public because downstream boundary code (e.g.
+/// recipebridge's bare-count serving guard) must relabel units with exactly
+/// the form this parser would read off a recipe line — reimplementing the
+/// rule there would drift.
+pub fn singular(s: &str) -> Cow<'_, str> {
     // Fast path: if already lowercase ASCII, borrow directly
     if s.bytes().all(|b| !b.is_ascii_uppercase()) {
         Cow::Borrowed(strip_plural(s))
