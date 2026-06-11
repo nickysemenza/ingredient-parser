@@ -110,7 +110,7 @@ fn extract_tool_names(value: &Value) -> Vec<String> {
 /// prefix before the first number is trimmed so the amount parser sees the
 /// quantity, and a "serv*" anywhere (Serves / servings) is treated as servings
 /// even when the number sits after the word ("Serves 4").
-pub(crate) fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
+pub fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
     let parser = IngredientParser::new().with_units(&["serving", "servings"]);
 
     // Common unicode vulgar fractions also count as the start of the quantity.

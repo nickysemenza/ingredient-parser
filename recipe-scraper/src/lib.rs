@@ -6,6 +6,9 @@ use ingredient::{
     IngredientParser,
 };
 use ld_json::extract_ld;
+// Re-exported on purpose: cubby's recipebridge wasm crate (separate repo)
+// calls `recipe_scraper::parse_yield_string` — pub(crate) breaks its build.
+pub use ld_json::parse_yield_string;
 use scraper::Html;
 
 use serde::{Deserialize, Serialize};
