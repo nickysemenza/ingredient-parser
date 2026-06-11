@@ -57,6 +57,46 @@ pub(crate) const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
     "for greasing",
 ];
 
+/// Usage-classification phrase tables (see `crate::usage`). Each maps a set of
+/// purpose phrases to one [`IngredientUsage`](crate::usage::IngredientUsage)
+/// role. They deliberately overlap `DEFAULT_PURPOSE_PHRASES` above — the
+/// extractor moves these phrases into the modifier, the classifier reads them
+/// back out — so keep the two in sync when adding a phrase.
+///
+/// All entries must be phrase-anchored ("for frying"), never bare verbs
+/// ("fry"/"fried"): "refried beans", "stir-fry sauce", and "dried Thai chiles,
+/// fried" are all Normal ingredients.
+pub(crate) const GARNISH_PHRASES: &[&str] = &[
+    "for garnish",
+    "for garnishing",
+    "for decoration",
+    "for decorating",
+];
+
+pub(crate) const FRYING_PHRASES: &[&str] = &[
+    "for frying",
+    "for deep-frying",
+    "for deep frying",
+    "for pan-frying",
+    "for pan frying",
+    "for shallow frying",
+    "for the fryer",
+];
+
+pub(crate) const PAN_GREASE_PHRASES: &[&str] =
+    &["for greasing", "for the pan", "for buttering", "for oiling"];
+
+pub(crate) const DREDGING_PHRASES: &[&str] = &["for dredging", "for dusting", "for coating"];
+
+pub(crate) const SEASONING_PHRASES: &[&str] = &["to taste", "for seasoning"];
+
+pub(crate) const MARINADE_PHRASES: &[&str] = &["for the marinade", "for marinating"];
+
+/// Section-name words that mark every ingredient in the section as marinade
+/// components (matched word-anchored against the section title, e.g.
+/// "For the marinade", "Brine").
+pub(crate) const MARINADE_SECTION_WORDS: &[&str] = &["marinade", "marinating", "brine"];
+
 /// Non-standard units that aren't really convertible, seeded into the parser's
 /// unit set. Note: "whole" is deliberately NOT included — it's the built-in
 /// `Unit::Whole`, and listing it here would parse "whole wheat flour" as having

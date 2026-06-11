@@ -81,6 +81,12 @@ pub struct WIngredient {
     /// Whether this ingredient is optional (e.g., wrapped in parentheses).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub optional: bool,
+    /// The role the line declares (snake_case `IngredientUsage`, e.g.
+    /// "frying_medium" for "oil, for frying").
+    #[tsify(
+        type = "\"normal\" | \"frying_medium\" | \"pan_grease\" | \"seasoning\" | \"dredging\" | \"garnish\" | \"marinade\""
+    )]
+    pub usage: ingredient::IngredientUsage,
 }
 
 impl From<Ingredient> for WIngredient {
@@ -90,6 +96,7 @@ impl From<Ingredient> for WIngredient {
             amounts: i.amounts.iter().map(WAmount::from).collect(),
             modifier: i.modifier,
             optional: i.optional,
+            usage: i.usage,
         }
     }
 }

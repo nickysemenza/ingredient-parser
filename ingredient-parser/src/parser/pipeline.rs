@@ -14,6 +14,7 @@ use crate::parser::{parse_ingredient_text, MeasurementParser, Res};
 use crate::trace;
 use crate::traced_parser;
 use crate::unit::Measure;
+use crate::usage::classify_usage;
 use crate::{Ingredient, IngredientParser};
 
 impl IngredientParser {
@@ -87,6 +88,16 @@ impl IngredientParser {
         if is_optional {
             ingredient.optional = true;
         }
+        // Authoritative usage classification: re-run with the whole line in
+        // hand, so purpose phrases the modifier extraction missed still count.
+        // Construction-time classification (Ingredient::new, the IR lowering)
+        // only sees name+modifier; this is the one place with the full text.
+        ingredient.usage = classify_usage(
+            &ingredient.name,
+            ingredient.modifier.as_deref(),
+            Some(input),
+            None,
+        );
         (ingredient, fell_back)
     }
 
@@ -215,6 +226,7 @@ fn fallback_ingredient(input: &str) -> Ingredient {
         amounts: vec![],
         modifier: None,
         optional: false,
+        usage: classify_usage(input.trim(), None, None, None),
     }
 }
 

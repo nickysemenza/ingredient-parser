@@ -25,7 +25,7 @@
 // Test-harness code: a malformed corpus line should fail the test loudly.
 #![allow(clippy::panic)]
 
-use ingredient::{from_str, unit::Measure, IngredientParser};
+use ingredient::{from_str, unit::Measure, IngredientParser, IngredientUsage};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -39,6 +39,10 @@ struct CorpusRow {
     modifier: Option<String>,
     #[serde(default)]
     optional: bool,
+    /// Expected usage classification. Absent means `Normal` — a test-side
+    /// ergonomic default only; the `Ingredient.usage` field itself has none.
+    #[serde(default)]
+    usage: IngredientUsage,
     /// When set, documents a known parser gap. A mismatch is reported but does
     /// not fail the test; the string explains the gap.
     #[serde(default)]
@@ -70,25 +74,28 @@ fn accuracy_corpus() {
     let total = rows.len();
     assert!(total > 0, "corpus is empty");
 
-    let (mut name_ok, mut amt_ok, mut mod_ok, mut opt_ok, mut exact) = (0, 0, 0, 0, 0);
+    let (mut name_ok, mut amt_ok, mut mod_ok, mut opt_ok, mut use_ok, mut exact) =
+        (0, 0, 0, 0, 0, 0);
     let mut known_gaps = 0usize;
     let mut regressions: Vec<(&str, Vec<String>)> = Vec::new();
     let mut promotable: Vec<&str> = Vec::new();
 
     for row in &rows {
         let got = from_str(&row.input);
-        let (n, a, m, o) = (
+        let (n, a, m, o, u) = (
             got.name == row.name,
             got.amounts == row.amounts,
             got.modifier == row.modifier,
             got.optional == row.optional,
+            got.usage == row.usage,
         );
         name_ok += n as usize;
         amt_ok += a as usize;
         mod_ok += m as usize;
         opt_ok += o as usize;
+        use_ok += u as usize;
 
-        if n && a && m && o {
+        if n && a && m && o && u {
             exact += 1;
             if row.xfail.is_some() {
                 promotable.push(&row.input);
@@ -119,6 +126,9 @@ fn accuracy_corpus() {
                 got.optional, row.optional
             ));
         }
+        if !u {
+            diff.push(format!("usage: got {:?}, want {:?}", got.usage, row.usage));
+        }
 
         if row.xfail.is_some() {
             known_gaps += 1;
@@ -133,7 +143,7 @@ fn accuracy_corpus() {
     eprintln!("exact matches:  {exact} ({:.1}%)", pct(exact));
     eprintln!("known gaps:     {known_gaps} (xfail)");
     eprintln!(
-        "per-field:      name {name_ok}/{total}  amounts {amt_ok}/{total}  modifier {mod_ok}/{total}  optional {opt_ok}/{total}"
+        "per-field:      name {name_ok}/{total}  amounts {amt_ok}/{total}  modifier {mod_ok}/{total}  optional {opt_ok}/{total}  usage {use_ok}/{total}"
     );
     eprintln!("============================================\n");
 

@@ -11,7 +11,8 @@
               "upper_value": null
             }
           ],
-          "modifier": null
+          "modifier": null,
+          "usage": "normal"
         },
         {
           "name": "baking soda",
@@ -22,7 +23,8 @@
               "upper_value": null
             }
           ],
-          "modifier": null
+          "modifier": null,
+          "usage": "normal"
         },
         {
           "name": "salt",
@@ -33,7 +35,8 @@
               "upper_value": null
             }
           ],
-          "modifier": null
+          "modifier": null,
+          "usage": "normal"
         },
         {
           "name": "butter",
@@ -49,7 +52,8 @@
               "upper_value": null
             }
           ],
-          "modifier": "softened"
+          "modifier": "softened",
+          "usage": "normal"
         },
         {
           "name": "granulated sugar",
@@ -60,7 +64,8 @@
               "upper_value": null
             }
           ],
-          "modifier": null
+          "modifier": null,
+          "usage": "normal"
         },
         {
           "name": "brown sugar",
@@ -71,7 +76,8 @@
               "upper_value": null
             }
           ],
-          "modifier": "packed"
+          "modifier": "packed",
+          "usage": "normal"
         },
         {
           "name": "vanilla extract",
@@ -82,7 +88,8 @@
               "upper_value": null
             }
           ],
-          "modifier": null
+          "modifier": null,
+          "usage": "normal"
         },
         {
           "name": "large eggs",
@@ -93,7 +100,8 @@
               "upper_value": null
             }
           ],
-          "modifier": null
+          "modifier": null,
+          "usage": "normal"
         },
         {
           "name": "semisweet chocolate chips",
@@ -109,7 +117,8 @@
               "upper_value": null
             }
           ],
-          "modifier": null
+          "modifier": null,
+          "usage": "normal"
         },
         {
           "name": "nuts",
@@ -121,7 +130,8 @@
             }
           ],
           "modifier": "chopped",
-          "optional": true
+          "optional": true,
+          "usage": "normal"
         }
       ],
       "instructions": [

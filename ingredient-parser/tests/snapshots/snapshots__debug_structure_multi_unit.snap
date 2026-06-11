@@ -25,4 +25,5 @@ Ingredient {
     ],
     modifier: None,
     optional: false,
+    usage: Normal,
 }

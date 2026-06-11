@@ -147,6 +147,7 @@ use std::sync::LazyLock;
 
 pub use crate::error::{IngredientError, IngredientResult};
 pub use crate::ingredient::Ingredient;
+pub use crate::usage::{classify_usage, IngredientUsage};
 use parser::MeasurementParser;
 use unit::Measure;
 
@@ -158,6 +159,7 @@ pub mod rich_text;
 pub mod trace;
 pub mod unit;
 pub mod unit_mapping;
+pub mod usage;
 pub mod util;
 
 pub(crate) use parser::Res;

@@ -1,5 +1,6 @@
 // Parser accuracy corpus. One JSON object per line; `//` lines and blanks are ignored.
-// Fields: input (required), name, amounts:[{unit,value,upper_value?}], modifier, optional, xfail.
+// Fields: input (required), name, amounts:[{unit,value,upper_value?}], modifier, optional, usage, xfail.
+// `usage` is the expected classification (snake_case IngredientUsage); absent = "normal".
 // Rows without `xfail` are committed (must parse exactly — regression guard).
 // Rows with `xfail` are known gaps: the label is the *desired* parse, and the
 // mismatch is reported but tolerated until the parser improves.
@@ -70,7 +71,7 @@
 //
 // --- trailing clauses ---
 {"input": "3 cups all-purpose flour, plus more for dusting", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 3}], "modifier": "plus more for dusting"}
-{"input": "Salt and pepper to taste", "name": "Salt and pepper", "modifier": "to taste"}
+{"input": "Salt and pepper to taste", "name": "Salt and pepper", "modifier": "to taste", "usage": "seasoning"}
 //
 // --- optional (parenthesized whole line) ---
 {"input": "(1/2 cup chopped walnuts)", "name": "walnuts", "amounts": [{"unit": "cup", "value": 0.5}], "modifier": "chopped", "optional": true}
@@ -138,9 +139,9 @@
 {"input": "3 tbsp fresh lemon juice (from approximately 1 lemon)", "name": "fresh lemon juice", "amounts": [{"unit": "tbsp", "value": 3.0}, {"unit": "whole", "value": 1.0}]}
 {"input": "1 cup diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "diced"}
 {"input": "60 cilantro leaves (from about 15 sprigs)", "name": "cilantro leaves", "amounts": [{"unit": "whole", "value": 60.0}, {"unit": "sprig", "value": 15.0}]}
-{"input": "salt to taste", "name": "salt", "modifier": "to taste"}
-{"input": "Confectioners' sugar for dusting", "name": "Confectioners' sugar", "modifier": "for dusting"}
-{"input": "Fresh parsley for garnish", "name": "Fresh parsley", "modifier": "for garnish"}
+{"input": "salt to taste", "name": "salt", "modifier": "to taste", "usage": "seasoning"}
+{"input": "Confectioners' sugar for dusting", "name": "Confectioners' sugar", "modifier": "for dusting", "usage": "dredging"}
+{"input": "Fresh parsley for garnish", "name": "Fresh parsley", "modifier": "for garnish", "usage": "garnish"}
 {"input": "2 cups all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 2.0}]}
 {"input": "1 tsp five-spice powder", "name": "five-spice powder", "amounts": [{"unit": "tsp", "value": 1.0}]}
 {"input": "about 2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}]}
@@ -290,7 +291,7 @@
 {"input": "1 recipe Flaky All-Butter Pie Dough (this page) or ½ recipe Rough Puff Pastry (this page)", "name": "Flaky All-Butter Pie Dough", "amounts": [{"unit": "recipe", "value": 1.0}], "modifier": "or ½ recipe Rough Puff Pastry"}
 {"input": "3 or 4 dried Thai chiles, broken in half", "name": "dried Thai chiles", "amounts": [{"unit": "whole", "value": 3.0, "upper_value": 4.0}], "modifier": "broken in half"}
 {"input": "1 (14-gram) piece peeled ginger, thinly sliced against the grain", "name": "peeled ginger", "amounts": [{"unit": "piece", "value": 1.0}, {"unit": "g", "value": 14.0}], "modifier": "thinly sliced against the grain"}
-{"input": "Pinch of cayenne pepper, or more to taste", "name": "cayenne pepper", "amounts": [{"unit": "pinch", "value": 1.0}], "modifier": "or more to taste"}
+{"input": "Pinch of cayenne pepper, or more to taste", "name": "cayenne pepper", "amounts": [{"unit": "pinch", "value": 1.0}], "modifier": "or more to taste", "usage": "seasoning"}
 {"input": "12 ounces (340g) fresh or frozen pitted sweet cherries (about 2½ cups)", "name": "fresh pitted sweet cherries", "amounts": [{"unit": "oz", "value": 12.0}, {"unit": "g", "value": 340.0}, {"unit": "cup", "value": 2.5}], "modifier": "or frozen pitted sweet cherries"}
 {"input": "5 to 10 dried Thai chiles, fried", "name": "dried Thai chiles", "amounts": [{"unit": "whole", "value": 5.0, "upper_value": 10.0}], "modifier": "fried"}
 {"input": "¼ teaspoon plus ⅛ teaspoon ground turmeric", "name": "ground turmeric", "amounts": [{"unit": "tsp", "value": 0.375}]}
@@ -406,3 +407,22 @@
 {"input": "1 cup basil or chopped parsley", "name": "basil", "amounts": [{"unit": "cup", "value": 1}], "modifier": "or chopped parsley"}
 {"input": "1 and ½ cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.5}]}
 {"input": "1 cup parsley, chopped (about 2 cups) plus more for garnish", "name": "parsley", "amounts": [{"unit": "cup", "value": 1}, {"unit": "cup", "value": 2}], "modifier": "chopped plus more for garnish"}
+
+// ---- Usage classification: exemplars per role (measured + unmeasured) and
+// ---- phrase-anchoring traps (bare "fried"/"fry" in a name must stay normal).
+{"input": "neutral oil, for frying", "name": "neutral oil", "modifier": "for frying", "usage": "frying_medium"}
+{"input": "Canola oil for frying", "name": "Canola oil", "modifier": "for frying", "usage": "frying_medium"}
+{"input": "4 cups vegetable oil, for deep-frying", "name": "vegetable oil", "amounts": [{"unit": "cup", "value": 4}], "modifier": "for deep-frying", "usage": "frying_medium"}
+{"input": "butter, for greasing", "name": "butter", "modifier": "for greasing", "usage": "pan_grease"}
+{"input": "1 tablespoon butter, for the pan", "name": "butter", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "for the pan", "usage": "pan_grease"}
+{"input": "salt, to taste", "name": "salt", "modifier": "to taste", "usage": "seasoning"}
+{"input": "flaky salt, to taste", "name": "flaky salt", "modifier": "to taste", "usage": "seasoning"}
+{"input": "1 cup all-purpose flour, for dredging", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 1}], "modifier": "for dredging", "usage": "dredging"}
+{"input": "flour, for dusting the work surface", "name": "flour", "modifier": "for dusting the work surface", "usage": "dredging"}
+{"input": "fresh mint, for garnish", "name": "fresh mint", "modifier": "for garnish", "usage": "garnish"}
+{"input": "2 tablespoons soy sauce, for the marinade", "name": "soy sauce", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "for the marinade", "usage": "marinade"}
+{"input": "crispy fried shallots, for garnish", "name": "crispy fried shallots", "modifier": "for garnish", "usage": "garnish"}
+{"input": "1 can refried beans", "name": "refried beans", "amounts": [{"unit": "can", "value": 1}]}
+{"input": "2 tablespoons stir-fry sauce", "name": "stir-fry sauce", "amounts": [{"unit": "tbsp", "value": 2}]}
+{"input": "1 cup fried onions", "name": "fried onions", "amounts": [{"unit": "cup", "value": 1}]}
+{"input": "2 tablespoons unsalted butter, plus more for greasing", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "plus more for greasing"}

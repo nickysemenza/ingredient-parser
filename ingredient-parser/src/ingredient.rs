@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::usage::{classify_usage, IngredientUsage};
 use crate::{from_str, unit::Measure};
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +16,7 @@ use serde::{Deserialize, Serialize};
 /// * `amounts` - Vector of measurements with units (e.g., 2 cups, 150g)
 /// * `modifier` - Optional preparation instructions (e.g., "sifted", "chopped", "room temperature")
 /// * `optional` - Whether this ingredient is optional (wrapped in parentheses)
+/// * `usage` - The role the line declares (e.g., "oil, for frying" → `FryingMedium`)
 ///
 /// # Examples
 ///
@@ -50,6 +52,10 @@ pub struct Ingredient {
     /// Whether this ingredient is optional (e.g., wrapped in parentheses)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub optional: bool,
+    /// The role this line plays in the recipe (frying medium, garnish, …).
+    /// Required on purpose — no serde default — so stale serialized data fails
+    /// loudly instead of silently reading as `Normal`.
+    pub usage: IngredientUsage,
 }
 
 impl Ingredient {
@@ -77,6 +83,10 @@ impl Ingredient {
             amounts,
             modifier: modifier.map(String::from),
             optional: false,
+            // Classify here so a hand-built ingredient equals the parse of the
+            // equivalent line (`Ingredient::new("oil", …, Some("for frying"))`
+            // == `from_str("oil, for frying")`).
+            usage: classify_usage(name, modifier, None, None),
         }
     }
 
@@ -99,6 +109,7 @@ impl Ingredient {
             amounts,
             modifier: modifier.map(String::from),
             optional: true,
+            usage: classify_usage(name, modifier, None, None),
         }
     }
 }
@@ -164,6 +175,7 @@ mod tests {
             amounts: vec![Measure::new("cups", 2.0)],
             modifier: None,
             optional: false,
+            usage: IngredientUsage::Normal,
         };
         assert_eq!(ingredient.to_string(), "2 cups flour");
 
@@ -173,6 +185,7 @@ mod tests {
             amounts: vec![Measure::new("cups", 2.0)],
             modifier: Some("sifted".to_string()),
             optional: false,
+            usage: IngredientUsage::Normal,
         };
         assert_eq!(ingredient.to_string(), "2 cups flour, sifted");
 
@@ -182,6 +195,7 @@ mod tests {
             amounts: vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)],
             modifier: None,
             optional: false,
+            usage: IngredientUsage::Normal,
         };
         assert_eq!(ingredient.to_string(), "1 cup / 240 ml water");
 
@@ -191,6 +205,7 @@ mod tests {
             amounts: vec![],
             modifier: Some("to taste".to_string()),
             optional: false,
+            usage: IngredientUsage::Normal,
         };
         assert_eq!(ingredient.to_string(), "n/a salt, to taste");
 
@@ -200,6 +215,7 @@ mod tests {
             amounts: vec![Measure::new("cup", 0.5)],
             modifier: Some("chopped".to_string()),
             optional: true,
+            usage: IngredientUsage::Normal,
         };
         assert_eq!(ingredient.to_string(), "½ cup walnuts, chopped (optional)");
     }

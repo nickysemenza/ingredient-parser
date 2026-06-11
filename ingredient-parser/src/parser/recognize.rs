@@ -8,6 +8,7 @@
 
 use crate::parser::MeasurementParser;
 use crate::unit;
+use crate::usage::classify_usage;
 use crate::{Ingredient, IngredientParser};
 
 impl IngredientParser {
@@ -87,6 +88,7 @@ impl IngredientParser {
                 amounts,
                 modifier: None,
                 optional: false,
+                usage: classify_usage(name_part.trim(), None, Some(input), None),
             });
         }
 
