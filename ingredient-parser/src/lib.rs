@@ -228,6 +228,18 @@ pub fn from_str(input: &str) -> Ingredient {
     DEFAULT_PARSER.from_str(input)
 }
 
+/// Decompose a line into grammar-stage field spans, using the shared default
+/// parser. See [`IngredientParser::decompose`].
+///
+/// ```
+/// use ingredient::{decompose, Field};
+/// let d = decompose("2 cups flour");
+/// assert_eq!(d.spans.iter().map(|s| s.field).collect::<Vec<_>>(), vec![Field::Amount, Field::Name]);
+/// ```
+pub fn decompose(input: &str) -> Decomposition {
+    DEFAULT_PARSER.decompose(input)
+}
+
 /// Shared default parser used by the free [`from_str`]. Building an
 /// [`IngredientParser`] allocates two `HashSet<String>` of default vocab, so we
 /// construct it once and borrow it for every call. `IngredientParser` is

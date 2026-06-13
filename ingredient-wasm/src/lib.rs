@@ -1,12 +1,13 @@
 use std::{collections::HashSet, str::FromStr};
 
 use ingredient::{
-    from_str as parse_ingredient_str,
+    decompose as decompose_str, from_str as parse_ingredient_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
     unit::{convert_measure_with_graph, is_valid, make_graph, print_graph, Measure, MeasureKind},
     unit_mapping::{parse_unit_mapping as parse_unit_mapping_internal, ParsedUnitMapping},
     util::truncate_3_decimals,
+    Decomposition, Field,
 };
 use recipe_scraper::{RecipeSection, RecipeTimes, ScrapedRecipe};
 use serde::{Deserialize, Serialize};
@@ -250,6 +251,80 @@ impl From<Chunk> for RichItem {
 #[serde(transparent)]
 pub struct RichItems(pub Vec<RichItem>);
 
+/// Which output field a decomposition segment became (mirrors `Field`). Renders
+/// as the TS string union `"amount" | "name" | "modifier"`.
+#[derive(Tsify, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WField {
+    Amount,
+    Name,
+    Modifier,
+}
+
+impl From<Field> for WField {
+    fn from(f: Field) -> Self {
+        match f {
+            Field::Amount => WField::Amount,
+            Field::Name => WField::Name,
+            Field::Modifier => WField::Modifier,
+        }
+    }
+}
+
+/// One contiguous chunk of the decomposed line: either a labeled field span or
+/// unlabeled gap text. The segments concatenate back to the whole source, so JS
+/// renders them in order with no byte-offset math (the Rust spans are UTF-8 byte
+/// ranges, which don't map to JS UTF-16 indices). Into-only.
+#[derive(Tsify, Serialize)]
+pub struct WSegment {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<WField>,
+}
+
+/// How the grammar carved a line into fields (mirrors `Decomposition`), as an
+/// ordered list of segments covering the whole source. `segments` carries no
+/// labeled entries when a recognizer or name-only fallback produced the result.
+/// Into-only.
+#[derive(Tsify, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct WDecomposition {
+    pub source: String,
+    pub segments: Vec<WSegment>,
+}
+
+impl From<Decomposition> for WDecomposition {
+    fn from(d: Decomposition) -> Self {
+        // Walk the sorted, non-overlapping spans, emitting any gap text before
+        // each labeled span, then the span itself, then the trailing gap.
+        let mut segments = Vec::new();
+        let mut prev_end = 0usize;
+        for span in &d.spans {
+            if span.range.start > prev_end {
+                segments.push(WSegment {
+                    text: d.source[prev_end..span.range.start].to_string(),
+                    field: None,
+                });
+            }
+            segments.push(WSegment {
+                text: span.text.clone(),
+                field: Some(span.field.into()),
+            });
+            prev_end = span.range.end;
+        }
+        if prev_end < d.source.len() {
+            segments.push(WSegment {
+                text: d.source[prev_end..].to_string(),
+                field: None,
+            });
+        }
+        WDecomposition {
+            source: d.source,
+            segments,
+        }
+    }
+}
+
 // Hand-authored boundary types that can't be derived: `AmountKind` (a
 // template-literal union) and the nutrient-conversion result record.
 #[wasm_bindgen]
@@ -282,6 +357,14 @@ fn to_js<T: Serialize>(v: &T, ctx: &str) -> Result<JsValue, String> {
 #[wasm_bindgen]
 pub fn parse_ingredient(input: &str) -> WIngredient {
     parse_ingredient_str(input).into()
+}
+
+/// Decompose a line into ordered `{text, field?}` segments showing how the
+/// grammar carved it into amount / name / modifier spans (for the demo's
+/// diagnostic-style annotation).
+#[wasm_bindgen]
+pub fn decompose_ingredient(input: &str) -> WDecomposition {
+    decompose_str(input).into()
 }
 
 #[wasm_bindgen]
@@ -437,5 +520,45 @@ mod tests {
         ] {
             assert_eq!(kind_str(unit), want, "unit: {unit}");
         }
+    }
+
+    /// The decomposition segments must concatenate back to the source exactly
+    /// (no dropped/duplicated text) and carry the right field labels — this is
+    /// what lets the JS side render without any byte-offset math.
+    #[test]
+    fn decomposition_segments_cover_source() {
+        let w: WDecomposition = decompose_str("2¼ cups all-purpose flour, sifted").into();
+        let joined: String = w.segments.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(joined, w.source, "segments must reconstruct the source");
+
+        // Labeled segments, in order, are the grammar fields.
+        let labeled: Vec<(&str, &str)> = w
+            .segments
+            .iter()
+            .filter_map(|s| match &s.field {
+                Some(WField::Amount) => Some(("amount", s.text.as_str())),
+                Some(WField::Name) => Some(("name", s.text.as_str())),
+                Some(WField::Modifier) => Some(("modifier", s.text.as_str())),
+                None => None,
+            })
+            .collect();
+        assert_eq!(
+            labeled,
+            vec![
+                ("amount", "2¼ cups"),
+                ("name", "all-purpose flour"),
+                ("modifier", "sifted"),
+            ]
+        );
+    }
+
+    /// A recognizer-handled line has no grammar carve → all segments unlabeled,
+    /// still reconstructing the source.
+    #[test]
+    fn recognizer_line_has_no_labeled_segments() {
+        let w: WDecomposition = decompose_str("Juice of 1 lemon").into();
+        let joined: String = w.segments.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(joined, w.source);
+        assert!(w.segments.iter().all(|s| s.field.is_none()));
     }
 }

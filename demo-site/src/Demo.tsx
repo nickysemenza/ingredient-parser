@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RichItem, wasm, ScrapedRecipe, Measure } from "./wasm";
 import { Spinner } from "./Spinner";
+import { DecompositionView } from "./DecompositionView";
 
 /* ── URL state helpers ─────────────────────────────────────────
    Inputs are persisted to the query string so demo links are
@@ -81,6 +82,10 @@ export const Demo: React.FC = () => {
     () => (text ? wasm.parse_ingredient(text) : undefined),
     [text]
   );
+  const decomp = useMemo(
+    () => (text ? wasm.decompose_ingredient(text) : undefined),
+    [text]
+  );
   const parsedRich = useMemo(
     () =>
       richText ? safeParseRichText(richText, ingredientNames) : undefined,
@@ -132,6 +137,7 @@ export const Demo: React.FC = () => {
             </div>
 
             <div className="mt-5 border-t border-zinc-100 pt-5">
+              <DecompositionView decomp={decomp} />
               <IngredientResult parsed={parsed} />
             </div>
           </div>
