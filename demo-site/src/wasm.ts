@@ -12,5 +12,8 @@ export const wasm = await import("./wasm/pkg/ingredient_wasm");
 export type {
   RichItem,
   WAmount as Measure,
+  WDecomposition,
+  WField,
   WScrapedRecipe as ScrapedRecipe,
+  WSegment,
 } from "./wasm/pkg/ingredient_wasm";

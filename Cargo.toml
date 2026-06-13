@@ -21,6 +21,8 @@ rstest = "0.26"
 thiserror = "2.0"
 futures = "0.3.32"
 dotenvy = "0.15"
+miette = { version = "7", features = ["fancy"] }
+tabled = "0.21"
 ingredient = { path = "ingredient-parser" }
 recipe-types = { path = "recipe-types" }
 recipe-scraper = { path = "recipe-scraper" }

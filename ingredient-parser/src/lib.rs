@@ -228,6 +228,18 @@ pub fn from_str(input: &str) -> Ingredient {
     DEFAULT_PARSER.from_str(input)
 }
 
+/// Decompose a line into grammar-stage field spans, using the shared default
+/// parser. See [`IngredientParser::decompose`].
+///
+/// ```
+/// use ingredient::{decompose, Field};
+/// let d = decompose("2 cups flour");
+/// assert_eq!(d.spans.iter().map(|s| s.field).collect::<Vec<_>>(), vec![Field::Amount, Field::Name]);
+/// ```
+pub fn decompose(input: &str) -> Decomposition {
+    DEFAULT_PARSER.decompose(input)
+}
+
 /// Shared default parser used by the free [`from_str`]. Building an
 /// [`IngredientParser`] allocates two `HashSet<String>` of default vocab, so we
 /// construct it once and borrow it for every call. `IngredientParser` is
@@ -257,6 +269,42 @@ pub struct Diagnostics {
     /// The input contained a digit but no amount was parsed — the corpus-harvest
     /// "likely miss" heuristic, computed natively by the parser.
     pub unparsed_digit: bool,
+}
+
+/// Which output field a source span became, for the `--explain` decomposition
+/// view (see [`decompose`](IngredientParser::decompose)).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Field {
+    /// A measurement region (a primary, bracketed, or parenthesized amount).
+    Amount,
+    /// The ingredient name, as the grammar carved it (before refine).
+    Name,
+    /// The trailing modifier text (after the first `", "`).
+    Modifier,
+}
+
+/// A grammar-stage byte span: which slice of the normalized input the grammar
+/// assigned to a given [`Field`]. `range` indexes into [`Decomposition::source`].
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FieldSpan {
+    /// Which output field this span became.
+    pub field: Field,
+    /// Byte range into [`Decomposition::source`].
+    pub range: std::ops::Range<usize>,
+    /// The text at `range` (a copy, for convenience).
+    pub text: String,
+}
+
+/// How the grammar carved a line into fields, for the `--explain` view. See
+/// [`decompose`](IngredientParser::decompose).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Decomposition {
+    /// The normalized string the spans index into (what the grammar parsed).
+    pub source: String,
+    /// Grammar-stage field spans, in input order. Empty when a whole-line
+    /// recognizer or the name-only fallback produced the result (no grammar
+    /// carving to show).
+    pub spans: Vec<FieldSpan>,
 }
 
 /// Customizable ingredient parser with configurable units and adjectives
