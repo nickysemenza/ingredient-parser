@@ -192,6 +192,45 @@ const SectionHeader: React.FC<{
   </div>
 );
 
+// Parse-fidelity chip. `confidence` is the rollup; the "needs review" pill is
+// keyed off the discrete `fell_back` / `unparsed_digit` booleans — not a
+// confidence threshold — so a name-only fallback (which can still be Medium)
+// is flagged for review just like a missed quantity.
+const CONFIDENCE_STYLES: Record<"high" | "medium" | "low", string> = {
+  high: "bg-emerald-50 text-emerald-700",
+  medium: "bg-zinc-100 text-zinc-600",
+  low: "bg-red-50 text-red-700",
+};
+
+const ParseNotesBadges: React.FC<{
+  notes: ReturnType<typeof wasm.parse_ingredient>["parse_notes"];
+}> = ({ notes }) => {
+  const reviewReasons = [
+    notes.fell_back && "Fell back to a name-only ingredient",
+    notes.unparsed_digit &&
+      "Contains a digit that produced no amount (likely missed quantity)",
+  ].filter(Boolean) as string[];
+
+  return (
+    <div className="mt-0.5 flex shrink-0 items-center gap-1.5">
+      <span
+        className={`rounded-md px-2 py-0.5 text-xs font-medium capitalize ${CONFIDENCE_STYLES[notes.confidence]}`}
+        title={`Parse confidence: ${notes.confidence}`}
+      >
+        {notes.confidence}
+      </span>
+      {reviewReasons.length > 0 && (
+        <span
+          className="cursor-help rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+          title={reviewReasons.join("\n")}
+        >
+          ⚠ review
+        </span>
+      )}
+    </div>
+  );
+};
+
 const IngredientResult: React.FC<{
   parsed: ReturnType<typeof wasm.parse_ingredient> | undefined;
 }> = ({ parsed }) => {
@@ -205,9 +244,12 @@ const IngredientResult: React.FC<{
   const amounts = parsed.amounts ?? [];
   return (
     <div>
-      <h4 className="text-lg font-semibold text-zinc-900">
-        {parsed.name || <span className="italic text-zinc-400">no name</span>}
-      </h4>
+      <div className="flex items-start justify-between gap-3">
+        <h4 className="text-lg font-semibold text-zinc-900">
+          {parsed.name || <span className="italic text-zinc-400">no name</span>}
+        </h4>
+        <ParseNotesBadges notes={parsed.parse_notes} />
+      </div>
 
       {amounts.length > 0 && (
         <div className="mt-2.5 flex flex-wrap gap-1.5">
