@@ -1,0 +1,11 @@
+// Rich-text accuracy corpus — instruction-prose counterpart to corpus.jsonl.
+// Each row: { input, [ingredients], chunks: [ {text}|{measure:[..]}|{ing} ], [xfail] }.
+// Committed rows must match RichParser output exactly; `xfail` rows are tolerated.
+// Seeded by hand; harvest instruction lines via `scan-cookbooks` later.
+{"input": "hello 1 cups foo bar", "chunks": [{"text": "hello "}, {"measure": [{"unit": "cup", "value": 1.0}]}, {"text": " foo bar"}]}
+{"input": "makes 12 cookies", "chunks": [{"text": "makes "}, {"measure": [{"unit": "whole", "value": 12.0}]}, {"text": " cookies"}]}
+{"input": "cut into 2-inch pieces", "chunks": [{"text": "cut into "}, {"measure": [{"unit": "inch", "value": 2.0}]}, {"text": " pieces"}]}
+{"input": "at least 2 hours", "chunks": [{"text": "at least "}, {"measure": [{"unit": "hour", "value": 2.0}]}]}
+{"input": "9\" x 13\"", "chunks": [{"measure": [{"unit": "\"", "value": 9.0}]}, {"text": " x "}, {"measure": [{"unit": "\"", "value": 13.0}]}]}
+{"input": "bake at 350-375°F", "chunks": [{"text": "bake at "}, {"measure": [{"unit": "°f", "value": 350.0, "upper_value": 375.0}]}]}
+{"input": "mix 2 cups flour and 1 tsp salt", "ingredients": ["flour", "salt"], "chunks": [{"text": "mix "}, {"measure": [{"unit": "cup", "value": 2.0}]}, {"text": " "}, {"ing": "flour"}, {"text": " and "}, {"measure": [{"unit": "tsp", "value": 1.0}]}, {"text": " "}, {"ing": "salt"}]}
