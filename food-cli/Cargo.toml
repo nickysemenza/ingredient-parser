@@ -16,6 +16,11 @@ ingredient.workspace = true
 dotenvy.workspace = true
 open = "5"
 maud = "0.27"  # compile-time, auto-escaping HTML for the corpus table
+miette.workspace = true # rich --explain diagnostics with source carets
+tabled.workspace = true # pretty CLI tables
+
+[dev-dependencies]
+rstest.workspace = true
 
 [lints]
 workspace = true

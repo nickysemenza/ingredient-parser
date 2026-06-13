@@ -4,6 +4,9 @@
 use clap::{Parser, Subcommand};
 use recipe_epub::CookbookRecipeExt; // .parse() / .low_confidence_lines() on CookbookRecipe
 
+mod explain;
+mod tables;
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
@@ -501,6 +504,7 @@ async fn main() {
                 "\ntop {} parser-miss lines (corpus candidates):",
                 (*bottom).min(ranked.len())
             );
+            // Tab-separated stays grep/copy-friendly for piping into the corpus.
             for (line, n) in ranked.into_iter().take(*bottom) {
                 println!("{n}\t{line}");
             }
@@ -527,8 +531,15 @@ async fn main() {
                     eprintln!("Wrote Jaeger trace to: {output_path}");
                 }
 
-                // Compact stage report — the routing view.
+                // Compact stage report — the routing view. The miette header
+                // labels how the grammar carved the line (amount/name/modifier),
+                // or falls back to a caret on a digit that produced no amount;
+                // the stage view below shows which pipeline stage shaped the line.
                 if *explain {
+                    let (_ingredient, diag) = parser.parse_with_diagnostics(name);
+                    let decomp = parser.decompose(name);
+                    print!("{}", explain::render(&decomp, &diag, use_color));
+                    println!();
                     println!("{}", result.trace.format_stages(use_color));
                 }
 
@@ -606,9 +617,7 @@ async fn main() {
                     if *json {
                         println!("{}", serde_json::to_string_pretty(&amounts).unwrap());
                     } else {
-                        for amount in amounts {
-                            println!("{amount}");
-                        }
+                        println!("{}", tables::amount_table(&amounts));
                     }
                 }
                 Err(e) => {
