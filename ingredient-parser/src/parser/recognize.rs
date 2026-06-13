@@ -169,6 +169,15 @@ type Recognizer = fn(&IngredientParser, &str) -> Option<Ingredient>;
 /// The ordered recognizer list, tried first-match before the core parse. Order
 /// matters: the optional-wrapped check must precede the others (it strips the
 /// outer parens), and x-of-construction is last (most permissive).
+//
+// TODO(parse_multi): an "X and Y" line with two distinct heads ("Kosher salt
+// and freshly ground black pepper") — and a no-quantity "X or Y" contrast
+// ("fresh or frozen blueberries") — is really TWO ingredients. There is no
+// multi-ingredient splitter yet, so `from_str` returns a single Ingredient:
+// refine's " and " guard keeps the and-line as one clean name (rather than
+// doing mid-seam adjective surgery), and the or-line keeps its reconstructed
+// primary + alternative. A future `parse_multi` recognizer would split these
+// into a `Vec<Ingredient>`. Corpus rows for these carry a matching TODO.
 const RECOGNIZERS: &[(&str, Recognizer)] = &[
     (
         "optional_wrapped",

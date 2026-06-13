@@ -52,10 +52,12 @@ impl ParsedIngredient {
     /// grammar's old `raw_modifier` did inline, relocated here now that prep
     /// extraction is a single owner producing separate parts.
     pub(crate) fn modifier_string(&self) -> Option<String> {
+        // Parts are joined with ", " below, so a leading comma on any individual
+        // part is always a stray grammar artifact — strip it defensively.
         let parts: Vec<&str> = self
             .modifier
             .iter()
-            .map(|part| part.text().trim())
+            .map(|part| part.text().trim().trim_start_matches(',').trim())
             .filter(|text| !text.is_empty())
             .collect();
         if parts.is_empty() {

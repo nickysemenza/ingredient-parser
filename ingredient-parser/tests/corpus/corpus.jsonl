@@ -59,7 +59,7 @@
 //
 // --- descriptors that stay in the name ---
 {"input": "1 cup frozen peas", "name": "frozen peas", "amounts": [{"unit": "cup", "value": 1}]}
-{"input": "2 tablespoons fresh lemon juice", "name": "fresh lemon juice", "amounts": [{"unit": "tbsp", "value": 2}]}
+{"input": "2 tablespoons fresh lemon juice", "name": "lemon juice", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "fresh"}
 {"input": "1 teaspoon vanilla extract", "name": "vanilla extract", "amounts": [{"unit": "tsp", "value": 1}]}
 {"input": "1 tablespoon soy sauce", "name": "soy sauce", "amounts": [{"unit": "tbsp", "value": 1}]}
 {"input": "1/2 teaspoon kosher salt", "name": "kosher salt", "amounts": [{"unit": "tsp", "value": 0.5}]}
@@ -136,12 +136,14 @@
 {"input": "2 cups chopped onion", "name": "onion", "amounts": [{"unit": "cup", "value": 2.0}], "modifier": "chopped"}
 {"input": "1 cup minced garlic", "name": "garlic", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "minced"}
 {"input": "1 cup chopped parsley (about 2 bunches)", "name": "parsley", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "bunch", "value": 2.0}], "modifier": "chopped"}
-{"input": "3 tbsp fresh lemon juice (from approximately 1 lemon)", "name": "fresh lemon juice", "amounts": [{"unit": "tbsp", "value": 3.0}, {"unit": "whole", "value": 1.0}]}
+// FIX 6: "fresh" is the implied default → extracted to modifier (see lib.rs Design Decisions).
+{"input": "½ cup roughly chopped fresh cilantro leaves (from about ½ bunch)", "name": "cilantro leaves", "amounts": [{"unit": "cup", "value": 0.5}, {"unit": "bunch", "value": 0.5}], "modifier": "roughly chopped, fresh"}
+{"input": "3 tbsp fresh lemon juice (from approximately 1 lemon)", "name": "lemon juice", "amounts": [{"unit": "tbsp", "value": 3.0}, {"unit": "whole", "value": 1.0}], "modifier": "fresh"}
 {"input": "1 cup diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "diced"}
 {"input": "60 cilantro leaves (from about 15 sprigs)", "name": "cilantro leaves", "amounts": [{"unit": "whole", "value": 60.0}, {"unit": "sprig", "value": 15.0}]}
 {"input": "salt to taste", "name": "salt", "modifier": "to taste", "usage": "seasoning"}
 {"input": "Confectioners' sugar for dusting", "name": "Confectioners' sugar", "modifier": "for dusting", "usage": "dredging"}
-{"input": "Fresh parsley for garnish", "name": "Fresh parsley", "modifier": "for garnish", "usage": "garnish"}
+{"input": "Fresh parsley for garnish", "name": "parsley", "modifier": "fresh, for garnish", "usage": "garnish"}
 {"input": "2 cups all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 2.0}]}
 {"input": "1 tsp five-spice powder", "name": "five-spice powder", "amounts": [{"unit": "tsp", "value": 1.0}]}
 {"input": "about 2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}]}
@@ -278,28 +280,30 @@
 {"input": "1 (7 oz / 198g) tube almond paste", "name": "almond paste", "amounts": [{"unit": "tube", "value": 1.0}, {"unit": "oz", "value": 7.0}, {"unit": "g", "value": 198.0}]}
 {"input": "1 (0.25 oz / 7g) envelope active dry yeast", "name": "active dry yeast", "amounts": [{"unit": "envelope", "value": 1.0}, {"unit": "oz", "value": 0.25}, {"unit": "g", "value": 7.0}]}
 {"input": "Seeds scraped from 1 vanilla bean", "name": "vanilla bean", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "seeds scraped from"}
-{"input": "Leaves from 3 sprigs fresh thyme", "name": "fresh thyme", "amounts": [{"unit": "sprig", "value": 3.0}], "modifier": "leaves from"}
+{"input": "Leaves from 3 sprigs fresh thyme", "name": "thyme", "amounts": [{"unit": "sprig", "value": 3.0}], "modifier": "leaves from, fresh"}
 // negative guards: 'of' inside a name must NOT trigger the of-construction
 {"input": "1 cup cream of tartar", "name": "cream of tartar", "amounts": [{"unit": "cup", "value": 1.0}]}
 {"input": "2 cups heart of palm", "name": "heart of palm", "amounts": [{"unit": "cup", "value": 2.0}]}
 //
 // --- harvested (parsed-review of 8 EPUB cookbooks, 2026-06-01): committed guards ---
 {"input": "½ cup crème fraîche or sour cream (4.2 oz / 120g)", "name": "crème fraîche", "amounts": [{"unit": "cup", "value": 0.5}, {"unit": "oz", "value": 4.2}, {"unit": "g", "value": 120.0}], "modifier": "or sour cream"}
-{"input": "1¼ cups grated Monterey Jack (or other mild melting cheese)", "name": "grated Monterey Jack", "amounts": [{"unit": "cup", "value": 1.25}], "modifier": "or other mild melting cheese"}
-{"input": "10 ounces (283g) fresh cranberries (about 2½ cups), plus 20 or so for garnish ①", "name": "fresh cranberries", "amounts": [{"unit": "oz", "value": 10.0}, {"unit": "g", "value": 283.0}, {"unit": "cup", "value": 2.5}], "modifier": "plus 20 or so for garnish"}
+{"input": "1¼ cups grated Monterey Jack (or other mild melting cheese)", "name": "Monterey Jack", "amounts": [{"unit": "cup", "value": 1.25}], "modifier": "grated (or other mild melting cheese)"}
+{"input": "10 ounces (283g) fresh cranberries (about 2½ cups), plus 20 or so for garnish ①", "name": "cranberries", "amounts": [{"unit": "oz", "value": 10.0}, {"unit": "g", "value": 283.0}, {"unit": "cup", "value": 2.5}], "modifier": "fresh, plus 20 or so for garnish"}
 {"input": "1 tablespoon plus 1 cup neutral oil, such as vegetable or grapeseed (8.4 oz / 238g) ①", "name": "neutral oil", "amounts": [{"unit": "tsp", "value": 51.0}, {"unit": "oz", "value": 8.4}, {"unit": "g", "value": 238.0}], "modifier": "such as vegetable or grapeseed"}
 {"input": "1 recipe Flaky All-Butter Pie Dough (this page) or ½ recipe Rough Puff Pastry (this page)", "name": "Flaky All-Butter Pie Dough", "amounts": [{"unit": "recipe", "value": 1.0}], "modifier": "or ½ recipe Rough Puff Pastry"}
 {"input": "3 or 4 dried Thai chiles, broken in half", "name": "dried Thai chiles", "amounts": [{"unit": "whole", "value": 3.0, "upper_value": 4.0}], "modifier": "broken in half"}
 {"input": "1 (14-gram) piece peeled ginger, thinly sliced against the grain", "name": "peeled ginger", "amounts": [{"unit": "piece", "value": 1.0}, {"unit": "g", "value": 14.0}], "modifier": "thinly sliced against the grain"}
 {"input": "Pinch of cayenne pepper, or more to taste", "name": "cayenne pepper", "amounts": [{"unit": "pinch", "value": 1.0}], "modifier": "or more to taste", "usage": "seasoning"}
+// TODO(parse_multi): really two ingredients — "pitted sweet cherries" (fresh implied)
+// + "frozen pitted sweet cherries". Kept as one (fresh-or contrast guard) until parse_multi.
 {"input": "12 ounces (340g) fresh or frozen pitted sweet cherries (about 2½ cups)", "name": "fresh pitted sweet cherries", "amounts": [{"unit": "oz", "value": 12.0}, {"unit": "g", "value": 340.0}, {"unit": "cup", "value": 2.5}], "modifier": "or frozen pitted sweet cherries"}
 {"input": "5 to 10 dried Thai chiles, fried", "name": "dried Thai chiles", "amounts": [{"unit": "whole", "value": 5.0, "upper_value": 10.0}], "modifier": "fried"}
 {"input": "¼ teaspoon plus ⅛ teaspoon ground turmeric", "name": "ground turmeric", "amounts": [{"unit": "tsp", "value": 0.375}]}
 //
 // --- harvested (parsed-review, 2026-06-01): xfail = real parse gaps, fix backlog ---
 {"input": "1 pint raspberries", "name": "raspberries", "amounts": [{"unit": "pint", "value": 1.0, "upper_value": null}]}
-{"input": "6 sprigs fresh thyme", "name": "fresh thyme", "amounts": [{"unit": "sprig", "upper_value": null, "value": 6.0}]}
-{"input": "4 sprigs fresh thyme", "name": "fresh thyme", "amounts": [{"unit": "sprig", "value": 4.0}]}
+{"input": "6 sprigs fresh thyme", "name": "thyme", "amounts": [{"unit": "sprig", "upper_value": null, "value": 6.0}], "modifier": "fresh"}
+{"input": "4 sprigs fresh thyme", "name": "thyme", "amounts": [{"unit": "sprig", "value": 4.0}], "modifier": "fresh"}
 {"input": "2 tablespoons dried minced onion", "name": "dried onion", "amounts": [{"unit": "tbsp", "value": 2.0}], "modifier": "minced"}
 {"input": "2 tablespoons toasted sliced almonds", "name": "toasted almonds", "amounts": [{"unit": "tbsp", "value": 2.0}], "modifier": "sliced"}
 {"input": "1 teaspoon grated or finely chopped lemon zest", "name": "lemon zest", "amounts": [{"unit": "tsp", "value": 1.0, "upper_value": null}], "modifier": "grated or finely chopped"}
@@ -314,7 +318,7 @@
 {"input": "1 cinnamon stick or ¼ teaspoon ground cinnamon", "name": "cinnamon stick", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "or ¼ teaspoon ground cinnamon"}
 {"input": "2 teaspoons coriander seed or ½ teaspoon ground", "name": "coriander seed", "amounts": [{"unit": "tsp", "value": 2.0}], "modifier": "or ½ teaspoon ground"}
 {"input": "Two 18-ounce arctic char fillets, skin on", "name": "arctic char fillets", "amounts": [{"unit": "whole", "value": 2.0}, {"unit": "oz", "value": 18.0}], "modifier": "skin on"}
-{"input": "One 3-ounce celery stalk, coarsely chopped", "name": "celery stalk", "amounts": [{"unit": "whole", "value": 1.0}, {"unit": "oz", "value": 3.0}], "modifier": "coarsely chopped"}
+{"input": "One 3-ounce celery stalk, coarsely chopped", "name": "celery", "amounts": [{"unit": "stalk", "value": 1.0}, {"unit": "oz", "value": 3.0}], "modifier": "coarsely chopped"}
 {"input": "One 10-ounce yellow onion, halved and thickly sliced", "name": "yellow onion", "amounts": [{"unit": "whole", "value": 1.0}, {"unit": "oz", "value": 10.0}], "modifier": "halved and thickly sliced"}
 {"input": "1 (3½- to 4-pound) chicken", "name": "chicken", "amounts": [{"unit": "whole", "value": 1}, {"unit": "lb", "value": 3.5, "upper_value": 4}]}
 {"input": "1 whole 3-pound fish, or two 1½-pound fishes", "name": "fish", "amounts": [{"unit": "whole", "value": 1.0}, {"unit": "lb", "value": 3.0}], "modifier": "or two 1½-pound fishes"}
@@ -399,6 +403,8 @@
 // trailing noun ("amaretto or dark rum" must be "amaretto", not "amaretto rum").
 {"input": "2 tablespoons amaretto or dark rum", "name": "amaretto", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "or dark rum"}
 {"input": "1 cup walnuts or macadamia nuts", "name": "walnuts", "amounts": [{"unit": "cup", "value": 1}], "modifier": "or macadamia nuts"}
+// TODO(parse_multi): really two ingredients — "blueberries" (fresh implied) +
+// "frozen blueberries". Kept as one (fresh-or contrast guard) until parse_multi.
 {"input": "1 cup fresh or frozen blueberries", "name": "fresh blueberries", "amounts": [{"unit": "cup", "value": 1}], "modifier": "or frozen blueberries"}
 {"input": "2 tsp to 3 teaspoons sugar", "name": "sugar", "amounts": [{"unit": "tsp", "value": 2, "upper_value": 3}]}
 {"input": "1g-2G salt", "name": "salt", "amounts": [{"unit": "g", "value": 1, "upper_value": 2}]}
@@ -419,10 +425,22 @@
 {"input": "flaky salt, to taste", "name": "flaky salt", "modifier": "to taste", "usage": "seasoning"}
 {"input": "1 cup all-purpose flour, for dredging", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 1}], "modifier": "for dredging", "usage": "dredging"}
 {"input": "flour, for dusting the work surface", "name": "flour", "modifier": "for dusting the work surface", "usage": "dredging"}
-{"input": "fresh mint, for garnish", "name": "fresh mint", "modifier": "for garnish", "usage": "garnish"}
+{"input": "fresh mint, for garnish", "name": "mint", "modifier": "fresh, for garnish", "usage": "garnish"}
 {"input": "2 tablespoons soy sauce, for the marinade", "name": "soy sauce", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "for the marinade", "usage": "marinade"}
 {"input": "crispy fried shallots, for garnish", "name": "crispy fried shallots", "modifier": "for garnish", "usage": "garnish"}
 {"input": "1 can refried beans", "name": "refried beans", "amounts": [{"unit": "can", "value": 1}]}
 {"input": "2 tablespoons stir-fry sauce", "name": "stir-fry sauce", "amounts": [{"unit": "tbsp", "value": 2}]}
 {"input": "1 cup fried onions", "name": "fried onions", "amounts": [{"unit": "cup", "value": 1}]}
 {"input": "2 tablespoons unsalted butter, plus more for greasing", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "plus more for greasing"}
+
+// --- cubby cookbook-import fixes (2026-06-12): postfix produce units, bare
+// --- grated, for-<gerund> purpose clause, mid-"and" guard, fresh-as-implied ---
+// FIX 1: postfix produce count-unit (garlic clove → {clove:1} garlic), size range to modifier.
+{"input": "1 medium or large garlic clove, peeled", "name": "garlic", "amounts": [{"unit": "clove", "value": 1}], "modifier": "medium or large, peeled"}
+// FIX 4: bare "grated" extracts (multiword "freshly/finely grated" still win).
+{"input": "½ teaspoon grated lemon zest", "name": "lemon zest", "amounts": [{"unit": "tsp", "value": 0.5}], "modifier": "grated"}
+// FIX 5: "for <gerund> …" purpose clause → modifier (object "the bread" not stranded).
+{"input": "Extra-virgin olive oil for brushing the bread", "name": "Extra-virgin olive oil", "modifier": "for brushing the bread"}
+// FIX 3 + TODO(parse_multi): two ingredients ("Kosher salt" + "freshly ground black
+// pepper"). Until parse_multi, from_str keeps one clean name (no mid-"and" surgery).
+{"input": "Kosher salt and freshly ground black pepper", "name": "Kosher salt and freshly ground black pepper"}

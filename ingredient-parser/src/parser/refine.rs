@@ -112,6 +112,52 @@ impl IngredientParser {
         parsed.modifier.insert(0, ModifierPart::Raw(clause));
     }
 
+    /// Postfix produce count-units: "1 medium garlic clove" -> name "garlic",
+    /// amount `{clove:1}`, with leading descriptors ("medium") moved to the
+    /// modifier. Only fires for the curated [`vocab::POSTFIX_PRODUCE_UNITS`]
+    /// pairs and only when the count is a plain whole number (or absent), so
+    /// weights/volumes and idioms like "cinnamon stick" / "wood ear mushroom"
+    /// are untouched.
+    ///
+    /// [`vocab::POSTFIX_PRODUCE_UNITS`]: crate::parser::vocab::POSTFIX_PRODUCE_UNITS
+    fn extract_postfix_produce_unit(&self, parsed: &mut ParsedIngredient) {
+        // The count must be a plain whole number (the default count unit) or
+        // there must be no amount at all; a real volume/weight lead means the
+        // trailing word isn't acting as the count unit.
+        let whole_idx = parsed
+            .amounts
+            .iter()
+            .position(|m| matches!(m.unit(), unit::Unit::Whole));
+        if whole_idx.is_none() && !parsed.amounts.is_empty() {
+            return;
+        }
+
+        let name_lower = parsed.name.to_lowercase();
+        for (food, units) in crate::parser::vocab::POSTFIX_PRODUCE_UNITS {
+            for unit_word in *units {
+                let suffix = format!("{food} {unit_word}");
+                if name_lower != suffix && !name_lower.ends_with(&format!(" {suffix}")) {
+                    continue;
+                }
+                // `suffix` is ASCII produce, so lowercasing preserved byte
+                // lengths and this offset is a valid char boundary in `name`.
+                let food_start = parsed.name.len() - suffix.len();
+                let count = whole_idx.map(|i| parsed.amounts[i].value()).unwrap_or(1.0);
+                let measure = Measure::new(unit_word, count);
+                match whole_idx {
+                    Some(i) => parsed.amounts[i] = measure,
+                    None => parsed.amounts.push(measure),
+                }
+                let prefix = parsed.name[..food_start].trim().to_string();
+                parsed.name = (*food).to_string();
+                if !prefix.is_empty() {
+                    parsed.modifier.insert(0, ModifierPart::Prep(prefix));
+                }
+                return;
+            }
+        }
+    }
+
     fn extract_adjectives_from_name(&self, parsed: &mut ParsedIngredient) {
         let mut name = parsed.name.clone();
         let mut name_lower = name.to_lowercase();
@@ -141,6 +187,27 @@ impl IngredientParser {
             }
 
             let end = pos + adjective.len();
+
+            // An adjective after a word-boundary " and " usually belongs to the
+            // second conjunct of an "X and Y" line ("Kosher salt and freshly
+            // ground black pepper" — "freshly ground" modifies the pepper, not
+            // the whole line), so leave it in the name. The `end < len` clause
+            // keeps a *trailing* phrase like "to taste" ("Salt and pepper to
+            // taste") extractable: only a mid-seam adjective with a head noun
+            // still after it is skipped. (Two ingredients on one line is really
+            // a parse_multi concern — see the TODO in recognize.rs.)
+            if let Some(and_pos) = name_lower.find(" and ") {
+                if pos > and_pos && end < name_lower.len() {
+                    continue;
+                }
+            }
+
+            // "fresh" immediately before " or " is a genuine contrast
+            // ("fresh or frozen …"), not the implied default — leave it in the
+            // name for the alternative pass to reconstruct ("fresh blueberries").
+            if adjective.as_str() == "fresh" && name_lower[end..].starts_with(" or ") {
+                continue;
+            }
             // `pos`/`end` are byte offsets into the lowercased name. Lowercasing
             // can change byte lengths for some Unicode (e.g. 'İ' -> "i̇"), so these
             // offsets may not fall on char boundaries in the original `name`.
@@ -222,6 +289,40 @@ impl IngredientParser {
         }
 
         parsed.name = name;
+    }
+
+    /// Move a trailing "for `<gerund>` …" purpose clause out of the name into
+    /// the modifier ("Extra-virgin olive oil for brushing the bread" -> name
+    /// "Extra-virgin olive oil", modifier "for brushing the bread"). Runs AFTER
+    /// `extract_adjectives_from_name`, so fixed purpose phrases already in the
+    /// vocab ("for dusting", "for garnish") are gone and aren't double-handled.
+    /// The gerund guard (next word ends in "ing", ≥5 chars) keeps a plain
+    /// "<name> for <noun>" intact.
+    fn extract_purpose_gerund(&self, parsed: &mut ParsedIngredient) {
+        use regex::Regex;
+        use std::sync::LazyLock;
+
+        // Match the first word-boundary " for " on the original string so the
+        // byte offsets stay valid for slicing.
+        static FOR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+            #[allow(clippy::expect_used)]
+            Regex::new(r"(?i)\s+for\s+").expect("invalid for-clause regex")
+        });
+
+        let name = parsed.name.clone();
+        let Some(m) = FOR_PATTERN.find(&name) else {
+            return;
+        };
+        let next_word = name[m.end()..].split_whitespace().next().unwrap_or("");
+        if next_word.len() < 5
+            || !next_word.ends_with("ing")
+            || !next_word.chars().all(char::is_alphabetic)
+        {
+            return;
+        }
+        let clause = name[m.start()..].trim().to_string();
+        parsed.name = name[..m.start()].trim().to_string();
+        parsed.push_modifier(ModifierPart::Prep(clause));
     }
 
     /// Recover a leading preparation *alternative* that displaced the name, e.g.
@@ -329,6 +430,10 @@ const POST_PASSES: &[(&str, Pass)] = &[
         IngredientParser::fix_leading_minus_clause,
     ),
     (
+        "extract_postfix_produce_unit",
+        IngredientParser::extract_postfix_produce_unit,
+    ),
+    (
         "extract_leading_prep_alternative",
         IngredientParser::extract_leading_prep_alternative,
     ),
@@ -337,6 +442,10 @@ const POST_PASSES: &[(&str, Pass)] = &[
         IngredientParser::extract_adjectives_from_name,
     ),
     ("collapse_name", IngredientParser::collapse_name),
+    (
+        "extract_purpose_gerund",
+        IngredientParser::extract_purpose_gerund,
+    ),
     (
         "extract_alternative_from_name",
         IngredientParser::extract_alternative_from_name,
@@ -455,6 +564,13 @@ fn split_word_alternative(
 
     let left_tokens: Vec<&str> = left.split_whitespace().collect();
     let right_tokens: Vec<&str> = right.split_whitespace().collect();
+
+    // A size-word OR size-word pair ("medium or large") is a size *range* of one
+    // ingredient, never a two-ingredient alternative — leave the name whole.
+    let is_size = |w: &str| crate::parser::vocab::SIZE_WORDS.contains(&w.to_lowercase().as_str());
+    if left_tokens.len() == 1 && is_size(left) && is_size(right_tokens[0]) {
+        return (name.to_string(), None);
+    }
 
     // Stopwords/prepositions signal `right` is a noun + trailing phrase
     // ("pepper to taste"), not "adjective + shared head" ("white onion").
@@ -675,6 +791,20 @@ mod tests {
     // still extracted.
     #[case::after_or_left_alone("basil or chopped parsley", "basil or chopped parsley", None)]
     #[case::before_or_extracted("chopped basil or parsley", "basil or parsley", Some("chopped"))]
+    // " and " guard: a mid-seam adjective belongs to the second conjunct and is
+    // left in the name (it's really two ingredients — a parse_multi concern)…
+    #[case::and_guard_keeps_conjunct(
+        "Kosher salt and freshly ground black pepper",
+        "Kosher salt and freshly ground black pepper",
+        None
+    )]
+    // …but a TRAILING phrase after "and" (end-of-string) is still extracted.
+    #[case::and_trailing_extracted("Salt and pepper to taste", "Salt and pepper", Some("to taste"))]
+    // bare "grated" extracts; "fresh" (implied default) extracts…
+    #[case::grated_extracts("grated lemon zest", "lemon zest", Some("grated"))]
+    #[case::fresh_extracts("fresh mint", "mint", Some("fresh"))]
+    // …except "fresh or frozen" — a genuine contrast — keeps "fresh" in the name.
+    #[case::fresh_or_kept("fresh or frozen blueberries", "fresh or frozen blueberries", None)]
     fn test_extract_adjectives_from_name(
         #[case] name: &str,
         #[case] want_name: &str,
@@ -766,6 +896,9 @@ mod tests {
     #[case::prep_adj_after_or("basil or chopped parsley", "basil", Some("or chopped parsley"))]
     #[case::stopword_after_or("salt or pepper to taste", "salt", Some("or pepper to taste"))]
     #[case::no_or("onion", "onion", None)]
+    // A size-word OR size-word pair is a size range of one ingredient, not a
+    // two-ingredient alternative — leave the name whole.
+    #[case::size_range("medium or large garlic clove", "medium or large garlic clove", None)]
     fn test_split_word_alternative(
         #[case] name: &str,
         #[case] want_name: &str,
@@ -799,6 +932,67 @@ mod tests {
         );
     }
 
+    /// Postfix produce units: the trailing count noun becomes the unit and the
+    /// food becomes the name; leading descriptors move to the modifier. Idioms
+    /// (food not on the allowlist) and non-count leads are left untouched.
+    #[test]
+    fn test_extract_postfix_produce_unit() {
+        let parser = IngredientParser::new();
+
+        let mut i = ParsedIngredient {
+            name: "medium garlic clove".into(),
+            amounts: vec![Measure::new("whole", 1.0)],
+            modifier: vec![],
+            optional: false,
+        };
+        parser.extract_postfix_produce_unit(&mut i);
+        assert_eq!(i.name, "garlic");
+        assert_eq!(i.amounts, vec![Measure::new("clove", 1.0)]);
+        assert_eq!(i.modifier_string().as_deref(), Some("medium"));
+
+        // Idiom guard: cinnamon isn't a produce food, so "cinnamon stick" stays.
+        let mut i = ParsedIngredient {
+            name: "cinnamon stick".into(),
+            amounts: vec![Measure::new("whole", 1.0)],
+            modifier: vec![],
+            optional: false,
+        };
+        parser.extract_postfix_produce_unit(&mut i);
+        assert_eq!(i.name, "cinnamon stick");
+        assert_eq!(i.amounts, vec![Measure::new("whole", 1.0)]);
+
+        // A real volume/weight lead (not a plain count) → don't fire.
+        let mut i = ParsedIngredient {
+            name: "garlic clove".into(),
+            amounts: vec![Measure::new("cup", 1.0)],
+            modifier: vec![],
+            optional: false,
+        };
+        parser.extract_postfix_produce_unit(&mut i);
+        assert_eq!(i.name, "garlic clove");
+    }
+
+    /// A trailing "for `<gerund>` …" clause (object included) moves to the
+    /// modifier; a plain "<name> for <noun>" is left intact.
+    #[rstest]
+    #[case::gerund(
+        "Extra-virgin olive oil for brushing the bread",
+        "Extra-virgin olive oil",
+        Some("for brushing the bread")
+    )]
+    #[case::non_gerund("flour for bread", "flour for bread", None)]
+    fn test_extract_purpose_gerund(
+        #[case] name: &str,
+        #[case] want_name: &str,
+        #[case] want_modifier: Option<&str>,
+    ) {
+        let parser = IngredientParser::new();
+        let mut i = ing(name, None);
+        parser.extract_purpose_gerund(&mut i);
+        assert_eq!(i.name, want_name);
+        assert_eq!(i.modifier_string().as_deref(), want_modifier);
+    }
+
     /// The ordered `POST_PASSES` pipeline must be idempotent: running it a second
     /// time on its own output must change nothing. This is the invariant the
     /// load-bearing pass order depends on — a pass that isn't a fixpoint (e.g. it
@@ -813,6 +1007,10 @@ mod tests {
     #[case::secondary_amount("1 stick butter (8 tablespoons)")]
     #[case::leading_prep_phrase("grated zest of 1 lemon")]
     #[case::plain_name("kosher salt")]
+    #[case::postfix_produce("1 medium or large garlic clove, peeled")]
+    #[case::purpose_gerund("Extra-virgin olive oil for brushing the bread")]
+    #[case::fresh_extracted("fresh mint")]
+    #[case::and_guard("Kosher salt and freshly ground black pepper")]
     fn refine_pipeline_is_idempotent(#[case] line: &str) {
         let parser = IngredientParser::new();
         let (_, parsed) = parser.parse_ingredient(line).unwrap();

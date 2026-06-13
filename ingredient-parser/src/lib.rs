@@ -55,6 +55,32 @@
 //! This keeps the ingredient name clean for matching/normalization while preserving
 //! preparation instructions.
 //!
+//! `"fresh"` is treated as a preparation/state word and extracted too — it is the
+//! *implied default* of herbs/produce/juice ("fresh cilantro" is just cilantro),
+//! whereas the marked forms (`"dried"`, `"frozen"`) are named explicitly and stay
+//! in the name. The one exception is a genuine contrast (`"fresh or frozen
+//! blueberries"`), where `"fresh"` is kept so the alternative reconstructs.
+//!
+//! ```text
+//! "grated lemon zest" → name="lemon zest", modifier="grated"
+//! "fresh mint" → name="mint", modifier="fresh"
+//! ```
+//!
+//! ### Postfix produce count-units: "1 garlic clove" → {clove:1} garlic
+//!
+//! For a curated set of produce (garlic, celery, corn, lettuce, cabbage), a
+//! trailing count noun is read as the unit and the food becomes the name, so the
+//! name maps to a canonical ingredient:
+//!
+//! ```text
+//! "1 medium or large garlic clove, peeled" → name="garlic", {clove:1}, modifier="medium or large, peeled"
+//! "One 3-ounce celery stalk" → name="celery", {stalk:1, oz:3}
+//! ```
+//!
+//! The food allowlist is deliberately narrow — it is what keeps idioms where the
+//! trailing word is part of the *name* (`"cinnamon stick"`, `"wood ear
+//! mushroom"`, `"short rib"`) from being mis-parsed.
+//!
 //! ### "X or Y" alternatives are split into a primary name + an "or ..." modifier
 //!
 //! A name-internal "or" alternative is peeled off the name and stored in the

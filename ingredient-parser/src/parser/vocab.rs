@@ -18,8 +18,18 @@ pub(crate) const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     "finely grated",
     "finely chopped",
     "coarsely chopped",
+    "roughly chopped",
     "thinly sliced",
     "sliced",
+    // Bare participle: "grated lemon zest" -> "lemon zest" / "grated". The
+    // multiword "freshly grated"/"finely grated" win via longest-match-first.
+    "grated",
+    // "fresh" is the *implied default* state of herbs/produce/juice — "fresh
+    // cilantro" is just cilantro. The marked forms ("dried"/"frozen") are named
+    // explicitly and stay in the name. So extract "fresh" to the modifier.
+    // Guarded in `extract_adjectives_from_name` against "fresh or frozen …",
+    // where it is a genuine contrast, not an implied default.
+    "fresh",
     "plain",
     "to taste",
     // State/prep words that describe how an ingredient is brought to the recipe
@@ -108,8 +118,28 @@ pub(crate) const NON_STANDARD_UNITS: &[&str] = &[
     "bunches", "head", "heads", "pinch", "pinches", "package", "packages", "slice", "slices",
     "standard", "can", "cans", "leaf", "leaves", "strand", "strands", "tin", "tins", "rib", "ribs",
     "sprig", "sprigs", "pint", "pints", "piece", "pieces", "disk", "disks", "stalk", "stalks",
-    "loaf", "loaves",
+    "loaf", "loaves", "ear", "ears",
 ];
+
+/// Curated `<food>` -> allowed trailing count units for the POSTFIX produce form
+/// ("1 garlic clove" = `{clove:1} garlic`, not `{whole:1} "garlic clove"`). The
+/// food allowlist is deliberately narrow: it is what keeps idioms where the
+/// trailing word is part of the *name* — "cinnamon stick", "wood ear mushroom",
+/// "short rib" — from being mis-parsed (cinnamon/wood/short aren't foods here).
+/// Consumed by `refine::extract_postfix_produce_unit`. Add a produce row to
+/// extend; a general postfix rule is intentionally avoided.
+pub(crate) const POSTFIX_PRODUCE_UNITS: &[(&str, &[&str])] = &[
+    ("garlic", &["clove", "cloves", "head", "heads"]),
+    ("celery", &["stalk", "stalks", "rib", "ribs"]),
+    ("corn", &["ear", "ears"]),
+    ("lettuce", &["head", "heads"]),
+    ("cabbage", &["head", "heads"]),
+];
+
+/// Size descriptors. A "size-word OR size-word" pair ("medium or large") is a
+/// range of one ingredient, never a two-ingredient alternative, so
+/// `refine::split_word_alternative` must not split/reconstruct it.
+pub(crate) const SIZE_WORDS: &[&str] = &["small", "medium", "large", "jumbo", "baby"];
 
 /// Premodifier words used to gate the "A or B C" alternative reconstruction in
 /// `refine::split_word_alternative`. Only when the left side is one of these — a
