@@ -218,6 +218,94 @@ impl IngredientParser {
             "parse failed"
         )
     }
+
+    /// Decompose a line into grammar-stage field spans for the `--explain`
+    /// decomposition view.
+    ///
+    /// Returns the normalized string the spans index into, plus one
+    /// [`FieldSpan`](crate::FieldSpan) per amount region / name / modifier the
+    /// grammar carved. `spans` is empty when a whole-line recognizer or the
+    /// name-only fallback produced the result (no core-grammar carving to show).
+    pub fn decompose(&self, raw: &str) -> crate::Decomposition {
+        let normalized = normalize_input(raw);
+        let (cleaned, _optional) = strip_optional_note(normalized.as_ref());
+        // Only the core grammar carves fields into spans; a whole-line
+        // recognizer produces the result without the field grammar running.
+        let spans = if self.run_recognizers(cleaned.as_ref()).is_some() {
+            Vec::new()
+        } else {
+            self.grammar_field_spans(cleaned.as_ref())
+        };
+        crate::Decomposition {
+            source: cleaned.into_owned(),
+            spans,
+        }
+    }
+
+    /// Grammar-stage field spans: re-run the [`parse_ingredient`](Self::parse_ingredient)
+    /// grammar with each value field wrapped in `consumed`, then recover each
+    /// matched slice's byte range via pointer arithmetic (the slices are always
+    /// subslices of `input`). Empty vec if the grammar doesn't parse.
+    ///
+    /// NOTE: keep the field order/shape in sync with `parse_ingredient` above.
+    fn grammar_field_spans(&self, input: &str) -> Vec<crate::FieldSpan> {
+        use crate::{Field, FieldSpan};
+        use nom::combinator::consumed;
+
+        let mp = MeasurementParser::new(&self.units, false);
+        let base = input.as_ptr() as usize;
+        // Tighten a matched slice to its non-whitespace extent and turn it into a
+        // FieldSpan; None when the slice is empty/all-whitespace.
+        let span_of = |slice: &str, field: Field| -> Option<FieldSpan> {
+            let trimmed = slice.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let start = trimmed.as_ptr() as usize - base;
+            Some(FieldSpan {
+                field,
+                range: start..start + trimmed.len(),
+                text: trimmed.to_string(),
+            })
+        };
+
+        let grammar = (
+            opt(consumed(|a| mp.parse_measurement_list(a))),
+            space0,
+            opt(consumed(|a| mp.parse_bracketed_amounts(a))),
+            space0,
+            opt(consumed(many1(parse_ingredient_text))),
+            opt(consumed(|a| mp.parse_parenthesized_amounts(a))),
+            opt(tag(", ")),
+            consumed(not_line_ending),
+        );
+
+        let Ok((_, (primary, _, bracketed, _, name, paren, _, modifier))) =
+            context("ingredient", grammar).parse(input)
+        else {
+            return Vec::new();
+        };
+
+        let mut spans = Vec::new();
+        // Each amount region is a separate `consumed` slice; collect the slices
+        // (their inner Measure values differ in shape, so keep only the &str).
+        for slice in [
+            primary.map(|(s, _)| s),
+            bracketed.map(|(s, _)| s),
+            paren.map(|(s, _)| s),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            spans.extend(span_of(slice, Field::Amount));
+        }
+        if let Some((slice, _chunks)) = name {
+            spans.extend(span_of(slice, Field::Name));
+        }
+        spans.extend(span_of(modifier.0, Field::Modifier));
+        spans.sort_by_key(|s| s.range.start);
+        spans
+    }
 }
 
 fn fallback_ingredient(input: &str) -> Ingredient {
@@ -252,4 +340,69 @@ fn merge_amounts(
         .flatten()
         .flatten()
         .collect()
+}
+
+#[cfg(test)]
+mod decompose_tests {
+    use crate::{Field, IngredientParser};
+    use rstest::rstest;
+
+    /// (field, text) pairs expected from `decompose`, in span order.
+    type Expected = &'static [(Field, &'static str)];
+
+    #[rstest]
+    #[case("2 cups flour", &[(Field::Amount, "2 cups"), (Field::Name, "flour")])]
+    #[case(
+        "1 cup / 240ml water",
+        &[(Field::Amount, "1 cup / 240ml"), (Field::Name, "water")]
+    )]
+    #[case(
+        "2¼ cups all-purpose flour, sifted",
+        &[
+            (Field::Amount, "2¼ cups"),
+            (Field::Name, "all-purpose flour"),
+            (Field::Modifier, "sifted"),
+        ]
+    )]
+    // Grammar-stage carve: prep adjectives stay in the name span here; refine
+    // moves them later (the --explain stage view shows that separately).
+    #[case(
+        "2 chopped fresh basil",
+        &[(Field::Amount, "2"), (Field::Name, "chopped fresh basil")]
+    )]
+    #[case("salt", &[(Field::Name, "salt")])]
+    fn decompose_carves_fields(#[case] input: &str, #[case] expected: Expected) {
+        let parser = IngredientParser::new();
+        let decomp = parser.decompose(input);
+
+        let got: Vec<(Field, &str)> = decomp
+            .spans
+            .iter()
+            .map(|s| (s.field, s.text.as_str()))
+            .collect();
+        let want: Vec<(Field, &str)> = expected.to_vec();
+        assert_eq!(got, want, "decompose({input:?})");
+
+        // Every span must index back into `source` and match its `text`, and
+        // spans must not overlap.
+        let mut prev_end = 0;
+        for s in &decomp.spans {
+            assert_eq!(&decomp.source[s.range.clone()], s.text, "span text/range");
+            assert!(s.range.start >= prev_end, "spans overlap in {input:?}");
+            prev_end = s.range.end;
+        }
+    }
+
+    #[test]
+    fn recognizer_handled_line_has_no_grammar_spans() {
+        // "Juice of 1 lemon" is produced by the x_of_construction recognizer,
+        // not the field grammar — so there are no grammar-stage spans to show.
+        let parser = IngredientParser::new();
+        let decomp = parser.decompose("Juice of 1 lemon");
+        assert!(
+            decomp.spans.is_empty(),
+            "recognizer result should yield no spans, got {:?}",
+            decomp.spans
+        );
+    }
 }
