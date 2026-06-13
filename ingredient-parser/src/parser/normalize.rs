@@ -87,6 +87,26 @@ fn strip_cross_reference(input: &str) -> Cow<'_, str> {
     CROSS_REF.replace_all(input, "")
 }
 
+/// Reduce a parenthetical that mixes a cross-reference with an "optional" note —
+/// "(this page; optional)", "(see page 12, optional)" — down to just
+/// "(optional)". The page ref is navigation cruft `strip_cross_reference` would
+/// drop on its own, but it only fires on a paren that is *entirely* page refs, so
+/// the mixed form would otherwise stall there and leak "this page; optional" into
+/// the modifier. Running before `strip_cross_reference`, this peels off the ref
+/// and leaves the bare "(optional)" for `strip_optional_note` to flag.
+fn split_crossref_optional(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static CROSS_REF_OPTIONAL: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(
+            r"(?i)\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*[\s,;]+optional\s*\)",
+        )
+        .expect("invalid cross-reference+optional regex")
+    });
+    CROSS_REF_OPTIONAL.replace_all(input, "(optional)")
+}
+
 /// Strip a leading determiner ("the") sitting in front of a quantity, e.g.
 /// "the ¼ cup of garlic chives" → "¼ cup of garlic chives". Scoped to "the"
 /// immediately followed by a number so ordinary names ("the works seasoning")
@@ -271,6 +291,7 @@ const REWRITES: &[(&str, Rewrite)] = &[
     ("strip_nbsp", strip_nbsp),
     ("strip_leading_bullet", strip_leading_bullet),
     ("strip_footnote_markers", strip_footnote_markers),
+    ("split_crossref_optional", split_crossref_optional),
     ("strip_cross_reference", strip_cross_reference),
     ("strip_leading_determiner", strip_leading_determiner),
     ("strip_minus_equivalence", strip_minus_equivalence),
@@ -592,7 +613,8 @@ mod tests {
         "8 cups broth (from Lamb Soup, this page)",
         "8 cups broth (from Lamb Soup, this page)"
     )]
-    // A page ref with a trailing non-nav word ("optional") is left for other passes.
+    // A page ref mixed with "optional" is left by strip_cross_reference itself —
+    // split_crossref_optional (which runs first) reduces it to "(optional)".
     #[case::with_optional(
         "XFF Chili Oil (this page; optional)",
         "XFF Chili Oil (this page; optional)"
@@ -600,6 +622,21 @@ mod tests {
     fn test_strip_cross_reference(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(
             strip_cross_reference(input).as_ref(),
+            expected,
+            "input: {input}"
+        );
+    }
+
+    #[rstest]
+    #[case::semicolon("XFF Chili Oil (this page; optional)", "XFF Chili Oil (optional)")]
+    #[case::comma_see_page("flour (see page 12, optional)", "flour (optional)")]
+    // No "optional" → untouched (strip_cross_reference handles the pure ref).
+    #[case::pure_ref("walnuts (this page)", "walnuts (this page)")]
+    // No page ref → untouched (a bare "(optional)" is strip_optional_note's job).
+    #[case::pure_optional("walnuts (optional)", "walnuts (optional)")]
+    fn test_split_crossref_optional(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(
+            split_crossref_optional(input).as_ref(),
             expected,
             "input: {input}"
         );

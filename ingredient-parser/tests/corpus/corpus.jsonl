@@ -389,7 +389,7 @@
 {"input": "⅓ cup (about 70 g) dried lily flowers", "name": "dried lily flowers", "amounts": [{"unit": "cup", "value": 0.3333333333333333}, {"unit": "g", "value": 70.0}]}
 {"input": "2 tablespoons XFF Chili Oil", "name": "XFF Chili Oil", "amounts": [{"unit": "tbsp", "value": 2.0}]}
 {"input": "8 cups (2 L) lamb broth", "name": "lamb broth", "amounts": [{"unit": "cup", "value": 8.0}, {"unit": "l", "value": 2.0}]}
-{"input": "1 teaspoon XFF Chili Oil (this page; optional)", "name": "XFF Chili Oil", "amounts": [{"unit": "tsp", "value": 1.0}], "optional": true, "xfail": "cross-ref+optional combo '(this page; optional)' not split: should strip the page ref and set optional"}
+{"input": "1 teaspoon XFF Chili Oil (this page; optional)", "name": "XFF Chili Oil", "amounts": [{"unit": "tsp", "value": 1.0}], "optional": true}
 // Real cubby cookbook-import lines that older parses mangled (parser-audit): a
 // stranded intensifier ("very") before a prep phrase, and non-standard quantity
 // units "recipes"/"loaf" that must be hoisted out of the name into the amounts.
