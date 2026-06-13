@@ -186,6 +186,23 @@ pub fn convert_measure_with_graph_explained(
     let unit_a = input.unit().clone();
     let unit_b = target.unit();
 
+    // Identity: once normalized, the measure may already sit in the target kind's
+    // base unit (every mass unit normalizes to grams, and Weight targets grams).
+    // That equivalence is a fixed, density-independent fact, so resolve it directly
+    // instead of requiring both units to appear in the mapping graph. Without this,
+    // a bare "8½ oz" with no product mapping can't reach Weight even though oz→g is
+    // constant, and an empty graph fails even g→Weight.
+    if unit_a == unit_b {
+        // Round like the graph path below (the result is integer-rounded there),
+        // so identity and multi-hop conversions agree to the unit.
+        let resolved = Measure::new_with_upper(
+            unit_b,
+            input.value().round(),
+            input.upper_value().map(f64::round),
+        );
+        return Some((resolved.denormalize(), Vec::new()));
+    }
+
     let n_a = graph.node_indices().find(|i| graph[*i] == unit_a)?;
     let n_b = graph.node_indices().find(|i| graph[*i] == unit_b)?;
 
@@ -357,6 +374,26 @@ mod tests {
         assert!(result.is_some());
         let converted = result.unwrap();
         assert_eq!(converted.value(), 240.0);
+    }
+
+    #[test]
+    fn mass_amount_converts_to_weight_without_mappings() {
+        // oz and g are both mass — convertible by a fixed constant, with no
+        // density mapping. 8.5 oz * 28.3495 ≈ 240.97 g.
+        let oz = convert_measure_via_mappings(&Measure::new("oz", 8.5), MeasureKind::Weight, &[]);
+        assert_eq!(oz.map(|m| m.value().round()), Some(241.0));
+
+        // An already-gram measure resolves trivially even on an empty graph.
+        let g = convert_measure_via_mappings(&Measure::new("g", 100.0), MeasureKind::Weight, &[]);
+        assert_eq!(g.map(|m| m.value()), Some(100.0));
+
+        // lb too: 1 lb = 16 oz = 453.59 g.
+        let lb = convert_measure_via_mappings(&Measure::new("lb", 1.0), MeasureKind::Weight, &[]);
+        assert_eq!(lb.map(|m| m.value().round()), Some(454.0));
+
+        // Volume still needs a density — no identity, no mapping → not convertible.
+        let cup = convert_measure_via_mappings(&Measure::new("cup", 1.0), MeasureKind::Weight, &[]);
+        assert!(cup.is_none());
     }
 
     #[test]
