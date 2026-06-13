@@ -220,6 +220,15 @@ impl<'a> MeasurementParser<'a> {
         if let Ok((rest, _)) = fluid_ounce_text(input) {
             return Ok((rest, "fl oz".to_string()));
         }
+        // Single-letter spoon abbreviations are case-sensitive: lowercase "t" =
+        // teaspoon, uppercase "T" = tablespoon (standard cooking shorthand). They
+        // differ only by case, so they must be resolved to canonical "tsp"/"tbsp"
+        // HERE, while case is intact — both `resolve_single_measurement_unit` and
+        // `Measure::from_parts` lowercase the unit downstream, which would collapse
+        // t/T. Mirrors the `fl oz` special-case above.
+        if let Some((rest, canon)) = single_letter_spoon(input) {
+            return Ok((rest, canon.to_string()));
+        }
         self.parse_unit_with(
             input,
             |s| unit::is_valid(self.units, s),
@@ -254,6 +263,32 @@ fn fluid_ounce_text(input: &str) -> Res<&str, &str> {
         tag_no_case("fl oz"),
     ))
     .parse(input)
+}
+
+/// Match a standalone single-letter spoon abbreviation: lowercase "t" ->
+/// teaspoon ("tsp"), uppercase "T" -> tablespoon ("tbsp"). Case-sensitive by
+/// design. Matches only when the letter is a whole token — the following
+/// character must be end-of-input, whitespace, or a period — so it never grabs
+/// the leading "t" of "tsp"/"tbsp"/"teaspoon"/"tomato", and a hyphen boundary
+/// ("t-bone") is deliberately excluded. The trailing period (e.g. "t.") is left
+/// in `rest` for the grammar's `optional_period_or_of` to consume.
+///
+/// Resolved here rather than via `UNIT_MAPPINGS`/`Unit::from_str` precisely
+/// because those are case-insensitive (and the unit string is lowercased twice
+/// downstream), which cannot express the t≠T distinction — do not "simplify"
+/// this into the unit table.
+fn single_letter_spoon(input: &str) -> Option<(&str, &'static str)> {
+    let mut it = input.char_indices();
+    let canon = match it.next()? {
+        (_, 't') => "tsp",
+        (_, 'T') => "tbsp",
+        _ => return None,
+    };
+    match it.next() {
+        None => Some(("", canon)),
+        Some((idx, c)) if c.is_whitespace() || c == '.' => Some((&input[idx..], canon)),
+        Some(_) => None,
+    }
 }
 
 fn reject_measurement(input: &str) -> nom::Err<VerboseError<&str>> {
@@ -422,6 +457,41 @@ mod tests {
         let parser = MeasurementParser::new(&units_fx, false);
         let (_, measure) = parser.parse_single_measurement(input).unwrap();
         assert_eq!(measure.unit_as_string(), "fl oz", "input: {input}");
+    }
+
+    /// Single-letter spoon abbreviations are case-sensitive: lowercase "t" =
+    /// teaspoon, uppercase "T" = tablespoon, resolved from the *same* letter.
+    /// Guards against a refactor reintroducing a lowercasing step before the
+    /// t/T disambiguation. The trailing-period form ("t.") also works.
+    #[rstest]
+    #[case::lower_t("1 t salt", "tsp")]
+    #[case::upper_t("1 T butter", "tbsp")]
+    #[case::lower_t_period("2 t. vanilla", "tsp")]
+    #[case::upper_t_period("1 T. cream", "tbsp")]
+    fn test_single_letter_spoon(
+        units_fx: HashSet<String>,
+        #[case] input: &str,
+        #[case] unit: &str,
+    ) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        assert_eq!(measure.unit_as_string(), unit, "input: {input}");
+    }
+
+    /// A single "t"/"T" that is the *start of a longer word* (not a standalone
+    /// token) must not be mistaken for a spoon — it falls through to the normal
+    /// unit path, which finds no real unit and defaults to a bare count.
+    #[rstest]
+    #[case::tsp_word("1 tsp salt")]
+    #[case::tomato("1 Tomato")]
+    fn test_single_letter_spoon_no_false_match(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, false);
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        // Never canonicalized to a spoon from a longer word.
+        assert!(
+            measure.unit_as_string() != "tbsp",
+            "input {input} wrongly matched tablespoon"
+        );
     }
 
     #[rstest]

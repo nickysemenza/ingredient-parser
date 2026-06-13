@@ -444,3 +444,7 @@
 // FIX 3 + TODO(parse_multi): two ingredients ("Kosher salt" + "freshly ground black
 // pepper"). Until parse_multi, from_str keeps one clean name (no mid-"and" surgery).
 {"input": "Kosher salt and freshly ground black pepper", "name": "Kosher salt and freshly ground black pepper"}
+{"input": "1 t salt", "name": "salt", "amounts": [{"unit": "tsp", "value": 1.0}]}
+{"input": "1 T butter", "name": "butter", "amounts": [{"unit": "tbsp", "value": 1.0}]}
+{"input": "2 t. vanilla", "name": "vanilla", "amounts": [{"unit": "tsp", "value": 2.0}]}
+{"input": "1 T. heavy cream", "name": "heavy cream", "amounts": [{"unit": "tbsp", "value": 1.0}]}
