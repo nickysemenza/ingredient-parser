@@ -20,13 +20,12 @@ use crate::{Ingredient, IngredientParser};
 impl IngredientParser {
     pub(crate) fn parse_ingredient_line(&self, input: &str) -> Ingredient {
         let normalized = normalize_input(input);
-        self.parse_normalized_ingredient(normalized.as_ref())
-    }
-
-    /// Parse a line and report whether it fell back to a name-only ingredient.
-    pub(crate) fn parse_ingredient_line_with_provenance(&self, input: &str) -> (Ingredient, bool) {
-        let normalized = normalize_input(input);
-        self.parse_normalized_ingredient_with_provenance(normalized.as_ref())
+        let (mut ingredient, fell_back) =
+            self.parse_normalized_ingredient_with_provenance(normalized.as_ref());
+        // Attach parse-fidelity notes here at the single funnel, computed from
+        // the *raw* input (so the digit scan sees what the author wrote).
+        ingredient.parse_notes = crate::ParseNotes::derive(input, &ingredient, fell_back);
+        ingredient
     }
 
     pub(crate) fn parse_ingredient_line_with_trace(
@@ -51,13 +50,9 @@ impl IngredientParser {
         }
     }
 
-    fn parse_normalized_ingredient(&self, input: &str) -> Ingredient {
-        self.parse_normalized_ingredient_with_provenance(input).0
-    }
-
-    /// Like `parse_normalized_ingredient`, but also reports whether the parse
-    /// fell back to a name-only ingredient (no structured recognizer/core parse
-    /// succeeded). Used to derive parse diagnostics.
+    /// Parse a normalized line, also reporting whether the parse fell back to a
+    /// name-only ingredient (no structured recognizer/core parse succeeded).
+    /// Used to derive parse notes.
     pub(crate) fn parse_normalized_ingredient_with_provenance(
         &self,
         input: &str,
@@ -315,6 +310,8 @@ fn fallback_ingredient(input: &str) -> Ingredient {
         modifier: None,
         optional: false,
         usage: classify_usage(input.trim(), None, None, None),
+        // Overwritten at the parse funnel (`parse_ingredient_line`).
+        parse_notes: Default::default(),
     }
 }
 

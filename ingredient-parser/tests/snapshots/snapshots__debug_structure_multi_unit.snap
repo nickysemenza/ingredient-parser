@@ -26,4 +26,9 @@ Ingredient {
     modifier: None,
     optional: false,
     usage: Normal,
+    parse_notes: ParseNotes {
+        confidence: High,
+        fell_back: false,
+        unparsed_digit: false,
+    },
 }

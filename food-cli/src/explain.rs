@@ -15,7 +15,7 @@
 
 use std::ops::Range;
 
-use ingredient::{Confidence, Decomposition, Diagnostics, Field};
+use ingredient::{Confidence, Decomposition, Field, ParseNotes};
 use miette::{
     GraphicalReportHandler, GraphicalTheme, LabeledSpan, MietteDiagnostic, Report, Severity,
 };
@@ -66,7 +66,7 @@ fn field_label(field: Field) -> &'static str {
     }
 }
 
-fn message_for(diag: &Diagnostics) -> &'static str {
+fn message_for(diag: &ParseNotes) -> &'static str {
     match diag.confidence {
         Confidence::Low if diag.unparsed_digit => "quantity not parsed into an amount",
         Confidence::Low => "low-confidence parse",
@@ -75,7 +75,7 @@ fn message_for(diag: &Diagnostics) -> &'static str {
     }
 }
 
-fn help_for(diag: &Diagnostics) -> String {
+fn help_for(diag: &ParseNotes) -> String {
     let mut parts = vec![format!("confidence: {:?}", diag.confidence)];
     if diag.fell_back {
         parts.push("fell back to a name-only ingredient".to_string());
@@ -85,7 +85,7 @@ fn help_for(diag: &Diagnostics) -> String {
 }
 
 /// The decomposition diagnostic: one label per grammar field span.
-fn decomposition_diagnostic(decomp: &Decomposition, diag: &Diagnostics) -> MietteDiagnostic {
+fn decomposition_diagnostic(decomp: &Decomposition, diag: &ParseNotes) -> MietteDiagnostic {
     // A digit that produced no amount is informative here, not alarming: the
     // labels already show it landed in the name/modifier, not a missed quantity.
     let (message, severity) = if diag.unparsed_digit {
@@ -114,7 +114,7 @@ fn decomposition_diagnostic(decomp: &Decomposition, diag: &Diagnostics) -> Miett
 
 /// The fallback diagnostic when the grammar didn't carve the line: a digit caret
 /// when a number produced no amount, otherwise just the confidence header.
-fn fallback_diagnostic(decomp: &Decomposition, diag: &Diagnostics) -> MietteDiagnostic {
+fn fallback_diagnostic(decomp: &Decomposition, diag: &ParseNotes) -> MietteDiagnostic {
     let mut d = MietteDiagnostic::new(message_for(diag))
         .with_severity(severity_of(diag.confidence))
         .with_help(help_for(diag));
@@ -133,7 +133,7 @@ fn fallback_diagnostic(decomp: &Decomposition, diag: &Diagnostics) -> MietteDiag
 /// line, labels each amount/name/modifier span; otherwise falls back to a digit
 /// caret. Rendered over `decomp.source` (the normalized line the grammar saw).
 /// `use_color` mirrors the caller's `IsTerminal` gate.
-pub fn render(decomp: &Decomposition, diag: &Diagnostics, use_color: bool) -> String {
+pub fn render(decomp: &Decomposition, diag: &ParseNotes, use_color: bool) -> String {
     let d = if decomp.spans.is_empty() {
         fallback_diagnostic(decomp, diag)
     } else {
@@ -189,7 +189,7 @@ mod tests {
     fn render_underlines_unparsed_digit_when_no_grammar_spans() {
         // Empty spans (recognizer/fallback path) + a digit that produced no
         // amount → the digit-caret fallback fires.
-        let diag = Diagnostics {
+        let diag = ParseNotes {
             confidence: Confidence::Low,
             fell_back: false,
             unparsed_digit: true,
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn render_labels_grammar_decomposition() {
         // Spans present → each field is labeled, no digit-miss caret.
-        let diag = Diagnostics {
+        let diag = ParseNotes {
             confidence: Confidence::High,
             fell_back: false,
             unparsed_digit: false,
@@ -223,7 +223,7 @@ mod tests {
         // "Pierre Ferrand 1840 Cognac": grammar carves a Name span covering the
         // whole line; the digit is part of the name, so we say so rather than
         // warning about a missed quantity.
-        let diag = Diagnostics {
+        let diag = ParseNotes {
             confidence: Confidence::Low,
             fell_back: false,
             unparsed_digit: true,

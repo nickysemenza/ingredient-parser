@@ -89,6 +89,8 @@ impl IngredientParser {
                 modifier: None,
                 optional: false,
                 usage: classify_usage(name_part.trim(), None, Some(input), None),
+                // Overwritten at the parse funnel (`parse_ingredient_line`).
+                parse_notes: Default::default(),
             });
         }
 

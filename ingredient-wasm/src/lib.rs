@@ -70,6 +70,33 @@ impl From<Measure> for WAmount {
     }
 }
 
+/// Parse-fidelity notes (mirrors `ParseNotes`). Into-only. Always present on a
+/// `WIngredient`; review-queue consumers should key off the discrete
+/// `fell_back` / `unparsed_digit` booleans rather than a `confidence` threshold.
+#[derive(Tsify, Serialize)]
+pub struct WParseNotes {
+    /// Convenience rollup of the booleans below.
+    #[tsify(type = "\"high\" | \"medium\" | \"low\"")]
+    pub confidence: ingredient::Confidence,
+    /// The parse fell back to a name-only ingredient (no recognizer/core parse).
+    /// Always emitted (no `skip_serializing_if`) so the TS `boolean` type matches
+    /// runtime exactly — a review-queue consumer reads concrete booleans, never
+    /// `undefined`.
+    pub fell_back: bool,
+    /// A digit was present but no amount was parsed — a likely missed quantity.
+    pub unparsed_digit: bool,
+}
+
+impl From<&ingredient::ParseNotes> for WParseNotes {
+    fn from(n: &ingredient::ParseNotes) -> Self {
+        Self {
+            confidence: n.confidence,
+            fell_back: n.fell_back,
+            unparsed_digit: n.unparsed_digit,
+        }
+    }
+}
+
 /// A parsed ingredient (mirrors `Ingredient`). Into-only: never deserialized
 /// back from JS, so no `Deserialize`/`default` ceremony.
 #[derive(Tsify, Serialize)]
@@ -88,6 +115,8 @@ pub struct WIngredient {
         type = "\"normal\" | \"frying_medium\" | \"pan_grease\" | \"seasoning\" | \"dredging\" | \"garnish\" | \"marinade\""
     )]
     pub usage: ingredient::IngredientUsage,
+    /// Non-failing metadata about how this line parsed (confidence + flags).
+    pub parse_notes: WParseNotes,
 }
 
 impl From<Ingredient> for WIngredient {
@@ -98,6 +127,7 @@ impl From<Ingredient> for WIngredient {
             modifier: i.modifier,
             optional: i.optional,
             usage: i.usage,
+            parse_notes: WParseNotes::from(&i.parse_notes),
         }
     }
 }

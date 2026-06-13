@@ -126,6 +126,11 @@ fn strip_leading_determiner(input: &str) -> Cow<'_, str> {
 /// "(2 sticks minus 1 tablespoon)" in "15 tablespoons (2 sticks minus 1
 /// tablespoon) unsalted butter". The primary amount before it already states the
 /// quantity; the aside is an equivalence note the structured parse can't use.
+///
+/// Guarded: the aside is only dropped when an amount is stated *elsewhere* on the
+/// line (the redundant-restatement case). If the minus-paren is the line's only
+/// quantity, it's kept — dropping it would silently zero the amount, whereas
+/// leaving the digit lets the parse surface `unparsed_digit` for review instead.
 fn strip_minus_equivalence(input: &str) -> Cow<'_, str> {
     use regex::Regex;
     use std::sync::LazyLock;
@@ -133,7 +138,19 @@ fn strip_minus_equivalence(input: &str) -> Cow<'_, str> {
         #[allow(clippy::expect_used)]
         Regex::new(r"\s*\([^)]*\bminus\b[^)]*\)").expect("invalid minus-equivalence regex")
     });
-    MINUS_PAREN.replace_all(input, "")
+    let stripped = MINUS_PAREN.replace_all(input, "");
+    // `replace_all` borrows unchanged when nothing matched.
+    if matches!(stripped, Cow::Borrowed(_)) {
+        return stripped;
+    }
+    let amount_remains = stripped
+        .chars()
+        .any(|c| c.is_ascii_digit() || crate::fraction::VULGAR_FRACTIONS.contains(c));
+    if amount_remains {
+        stripped
+    } else {
+        Cow::Borrowed(input)
+    }
 }
 
 /// Drop a trailing "total" qualifier from inside a measurement parenthetical,

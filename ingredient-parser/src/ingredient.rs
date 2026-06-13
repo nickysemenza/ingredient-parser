@@ -1,10 +1,12 @@
 use std::fmt;
 
 use crate::usage::{classify_usage, IngredientUsage};
-use crate::{from_str, unit::Measure};
+use crate::{from_str, unit::Measure, ParseNotes};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, PartialOrd, Debug, Default, Serialize, Deserialize)]
+// `PartialEq`/`PartialOrd` are hand-written below (excluding `parse_notes`), so
+// they're intentionally absent from this derive list.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 /// A parsed ingredient with structured components
 ///
 /// This struct represents an ingredient that has been parsed from a text string
@@ -56,6 +58,61 @@ pub struct Ingredient {
     /// Required on purpose — no serde default — so stale serialized data fails
     /// loudly instead of silently reading as `Normal`.
     pub usage: IngredientUsage,
+    /// Non-failing metadata about *how* this line parsed (confidence, fallback,
+    /// unparsed-digit). Runtime-only: `#[serde(skip)]` because it's derived on
+    /// every parse and crosses to TypeScript via `WIngredient`, not the core
+    /// JSON; and it's excluded from `PartialEq`/`PartialOrd` because it
+    /// describes how we parsed, not what — two ingredients with identical data
+    /// are equal regardless of their notes.
+    #[serde(skip)]
+    pub parse_notes: ParseNotes,
+}
+
+// Identity is the parsed *data* only; `parse_notes` (parse metadata) is excluded
+// so a hand-built `Ingredient::new(...)` equals the parse of the same line and
+// the corpus/test `assert_eq!`s compare data, not provenance.
+//
+// Both impls **exhaustively destructure** `Self` with no `..`: adding a field to
+// `Ingredient` is then a compile error here until the author consciously decides
+// whether it's part of identity (compare it) or metadata (`field: _`). This is
+// the guard against the classic hand-written-`eq` footgun where a new field is
+// silently ignored and unequal values compare equal.
+impl PartialEq for Ingredient {
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            name,
+            amounts,
+            modifier,
+            optional,
+            usage,
+            parse_notes: _,
+        } = self;
+        *name == other.name
+            && *amounts == other.amounts
+            && *modifier == other.modifier
+            && *optional == other.optional
+            && *usage == other.usage
+    }
+}
+
+impl PartialOrd for Ingredient {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let Self {
+            name,
+            amounts,
+            modifier,
+            optional,
+            usage,
+            parse_notes: _,
+        } = self;
+        (name, amounts, modifier, optional, usage).partial_cmp(&(
+            &other.name,
+            &other.amounts,
+            &other.modifier,
+            &other.optional,
+            &other.usage,
+        ))
+    }
 }
 
 impl Ingredient {
@@ -87,6 +144,7 @@ impl Ingredient {
             // equivalent line (`Ingredient::new("oil", …, Some("for frying"))`
             // == `from_str("oil, for frying")`).
             usage: classify_usage(name, modifier, None, None),
+            parse_notes: ParseNotes::default(),
         }
     }
 
@@ -110,6 +168,7 @@ impl Ingredient {
             modifier: modifier.map(String::from),
             optional: true,
             usage: classify_usage(name, modifier, None, None),
+            parse_notes: ParseNotes::default(),
         }
     }
 }
@@ -176,6 +235,7 @@ mod tests {
             modifier: None,
             optional: false,
             usage: IngredientUsage::Normal,
+            parse_notes: Default::default(),
         };
         assert_eq!(ingredient.to_string(), "2 cups flour");
 
@@ -186,6 +246,7 @@ mod tests {
             modifier: Some("sifted".to_string()),
             optional: false,
             usage: IngredientUsage::Normal,
+            parse_notes: Default::default(),
         };
         assert_eq!(ingredient.to_string(), "2 cups flour, sifted");
 
@@ -196,6 +257,7 @@ mod tests {
             modifier: None,
             optional: false,
             usage: IngredientUsage::Normal,
+            parse_notes: Default::default(),
         };
         assert_eq!(ingredient.to_string(), "1 cup / 240 ml water");
 
@@ -206,6 +268,7 @@ mod tests {
             modifier: Some("to taste".to_string()),
             optional: false,
             usage: IngredientUsage::Normal,
+            parse_notes: Default::default(),
         };
         assert_eq!(ingredient.to_string(), "n/a salt, to taste");
 
@@ -216,7 +279,34 @@ mod tests {
             modifier: Some("chopped".to_string()),
             optional: true,
             usage: IngredientUsage::Normal,
+            parse_notes: Default::default(),
         };
         assert_eq!(ingredient.to_string(), "½ cup walnuts, chopped (optional)");
+    }
+
+    #[test]
+    fn parse_notes_excluded_from_identity() {
+        use crate::Confidence;
+        // Two ingredients with identical parsed data but different parse notes
+        // are equal — identity is the data, not how it was reached. (The
+        // exhaustive destructure in `PartialEq` is the compile-time guard; this
+        // locks the runtime behavior.)
+        let mut a = Ingredient::new("flour", vec![Measure::new("cup", 1.0)], None);
+        let mut b = a.clone();
+        a.parse_notes = ParseNotes {
+            confidence: Confidence::High,
+            fell_back: false,
+            unparsed_digit: false,
+        };
+        b.parse_notes = ParseNotes {
+            confidence: Confidence::Low,
+            fell_back: true,
+            unparsed_digit: true,
+        };
+        assert_eq!(a, b, "differing only in parse_notes must stay equal");
+
+        // But a genuine data difference is not equal.
+        let c = Ingredient::new("sugar", vec![Measure::new("cup", 1.0)], None);
+        assert_ne!(a, c, "a real name difference must be unequal");
     }
 }

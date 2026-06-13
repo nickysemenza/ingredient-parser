@@ -528,19 +528,31 @@ fn test_trailing_temp_only_not_used(parser: IngredientParser, #[case] input: &st
 }
 
 // ============================================================================
-// Parse Diagnostics
+// Parse Notes (Ingredient::parse_notes)
 // ============================================================================
 
-/// `parse_with_diagnostics` surfaces parse confidence and the corpus-harvest
-/// "digit but no amount" signal without changing the infallible result.
+/// `Ingredient::parse_notes` carries parse confidence and the corpus-harvest
+/// "digit but no amount" signal on every parse, without changing the infallible
+/// result. `parse_with_diagnostics` is now a thin accessor for the same notes.
 #[rstest]
 // Clean structured parse with an amount → High, no signals.
 #[case::clean("2 cups flour", ingredient::Confidence::High, false, false)]
 // Plausible name-only ingredient (no digit) → Medium, did not fall back.
 #[case::name_only("Chocolate Chip Cookies", ingredient::Confidence::Medium, false, false)]
+// "to taste" with no digit is a clean name-only parse → Medium (not a miss).
+#[case::to_taste("salt to taste", ingredient::Confidence::Medium, false, false)]
 // A digit that produced no amount → likely missed quantity → Low.
 #[case::unparsed_digit("1+1 multivitamins", ingredient::Confidence::Low, true, true)]
-fn test_parse_diagnostics(
+// Regression guard for the minus-equivalence fix: when the "(… minus …)" aside
+// is the line's ONLY quantity, it's kept (not silently stripped), so the parse
+// yields no amount and surfaces `unparsed_digit` instead of zeroing it.
+#[case::minus_sole_quantity(
+    "butter (2 sticks minus 1 tablespoon)",
+    ingredient::Confidence::Low,
+    false,
+    true
+)]
+fn test_parse_notes(
     parser: IngredientParser,
     #[case] input: &str,
     #[case] confidence: ingredient::Confidence,
@@ -548,8 +560,15 @@ fn test_parse_diagnostics(
     #[case] unparsed_digit: bool,
 ) {
     let (ingredient, diag) = parser.parse_with_diagnostics(input);
-    // The ingredient matches plain from_str (diagnostics never change the result).
+    // The ingredient matches plain from_str (notes never change the result).
     assert_eq!(ingredient, parser.from_str(input), "input: {input}");
+    // The notes are populated on the first-class field by plain from_str, and the
+    // accessor returns the same value.
+    assert_eq!(
+        parser.from_str(input).parse_notes,
+        diag,
+        "from_str parse_notes for: {input}"
+    );
     assert_eq!(diag.confidence, confidence, "confidence for: {input}");
     assert_eq!(diag.fell_back, fell_back, "fell_back for: {input}");
     assert_eq!(

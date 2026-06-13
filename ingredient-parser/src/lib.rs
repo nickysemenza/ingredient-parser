@@ -247,28 +247,65 @@ pub fn decompose(input: &str) -> Decomposition {
 static DEFAULT_PARSER: LazyLock<IngredientParser> = LazyLock::new(IngredientParser::new);
 
 /// How confident the parser is in a result, derived from how it was reached.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Confidence {
     /// A structured parse with at least one amount.
     High,
     /// A clean name-only parse with no digit present (e.g. "salt to taste").
+    #[default]
     Medium,
     /// A digit was present but produced no amount — a likely missed quantity,
     /// or a hard fallback to a name-only ingredient.
     Low,
 }
 
-/// Non-failing diagnostics about a parse. See
-/// [`parse_with_diagnostics`](IngredientParser::parse_with_diagnostics).
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Diagnostics {
-    /// Overall confidence in the parse.
+/// Structured, non-failing metadata about *how* a line parsed — surfaced as
+/// [`Ingredient::parse_notes`] and across the wasm boundary as `WParseNotes`.
+///
+/// It reports **parse fidelity** (did the parse fall back, or leave a digit
+/// unparsed), *not* costability: "a pinch of salt" is a clean parse whose
+/// uncostable quantity a consumer derives from the unit, not from here.
+///
+/// Review-queue consumers should key off the discrete [`fell_back`] /
+/// [`unparsed_digit`] booleans rather than a [`confidence`] threshold.
+///
+/// [`fell_back`]: ParseNotes::fell_back
+/// [`unparsed_digit`]: ParseNotes::unparsed_digit
+/// [`confidence`]: ParseNotes::confidence
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct ParseNotes {
+    /// Overall confidence in the parse (a convenience rollup of the booleans).
     pub confidence: Confidence,
     /// The parse fell back to a name-only ingredient (no recognizer/core parse).
     pub fell_back: bool,
     /// The input contained a digit but no amount was parsed — the corpus-harvest
     /// "likely miss" heuristic, computed natively by the parser.
     pub unparsed_digit: bool,
+}
+
+impl ParseNotes {
+    /// Derive notes from the raw input line, the parsed result, and whether the
+    /// parse fell back to name-only. Pure bookkeeping — no reparsing.
+    pub(crate) fn derive(input: &str, ingredient: &Ingredient, fell_back: bool) -> Self {
+        let had_digit = input.chars().any(|c| c.is_ascii_digit());
+        let unparsed_digit = had_digit && ingredient.amounts.is_empty();
+        let confidence = if !ingredient.amounts.is_empty() {
+            // A structured parse with at least one amount.
+            Confidence::High
+        } else if unparsed_digit {
+            // A digit produced no amount — a likely missed quantity.
+            Confidence::Low
+        } else {
+            // A plausible name-only ingredient (no digit, e.g. "salt to taste").
+            Confidence::Medium
+        };
+        ParseNotes {
+            confidence,
+            fell_back,
+            unparsed_digit,
+        }
+    }
 }
 
 /// Which output field a source span became, for the `--explain` decomposition
@@ -433,28 +470,12 @@ impl IngredientParser {
     /// assert!(diag.unparsed_digit);
     /// assert_eq!(diag.confidence, Confidence::Low);
     /// ```
-    pub fn parse_with_diagnostics(&self, input: &str) -> (Ingredient, Diagnostics) {
-        let (ingredient, fell_back) = self.parse_ingredient_line_with_provenance(input);
-        let had_digit = input.chars().any(|c| c.is_ascii_digit());
-        let unparsed_digit = had_digit && ingredient.amounts.is_empty();
-        let confidence = if !ingredient.amounts.is_empty() {
-            // A structured parse with at least one amount.
-            Confidence::High
-        } else if unparsed_digit {
-            // A digit produced no amount — a likely missed quantity.
-            Confidence::Low
-        } else {
-            // A plausible name-only ingredient (no digit, e.g. "salt to taste").
-            Confidence::Medium
-        };
-        (
-            ingredient,
-            Diagnostics {
-                confidence,
-                fell_back,
-                unparsed_digit,
-            },
-        )
+    pub fn parse_with_diagnostics(&self, input: &str) -> (Ingredient, ParseNotes) {
+        // `parse_notes` is now populated on every parse, so this is a thin
+        // accessor kept for callers that want the notes alongside the result.
+        let ingredient = self.parse_ingredient_line(input);
+        let notes = ingredient.parse_notes.clone();
+        (ingredient, notes)
     }
 
     /// Parse an ingredient string with debug tracing enabled

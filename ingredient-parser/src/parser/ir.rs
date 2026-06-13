@@ -118,6 +118,8 @@ impl From<ParsedIngredient> for Ingredient {
             modifier,
             optional: parsed.optional,
             usage,
+            // Overwritten at the parse funnel (`parse_ingredient_line`).
+            parse_notes: Default::default(),
         }
     }
 }

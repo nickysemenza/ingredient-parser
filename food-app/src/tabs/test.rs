@@ -7,7 +7,7 @@ use egui_extras::{Column, TableBuilder};
 use ingredient::ingredient::Ingredient;
 use ingredient::trace::{GrammarOutcome, ParseTrace, StageReport};
 use ingredient::util::truncate_str;
-use ingredient::{Confidence, Diagnostics};
+use ingredient::{Confidence, ParseNotes};
 
 use super::debug::{show_trace_tree, TraceTreeContext};
 
@@ -15,7 +15,7 @@ use super::debug::{show_trace_tree, TraceTreeContext};
 struct LineResult {
     input: String,
     ingredient: Option<Ingredient>,
-    diagnostics: Diagnostics,
+    diagnostics: ParseNotes,
     stages: StageReport,
     trace: ParseTrace,
 }
@@ -311,7 +311,7 @@ fn sort_header(
 }
 
 /// Colored confidence label; hover explains the diagnostic flags.
-fn confidence_badge(ui: &mut egui::Ui, diagnostics: &Diagnostics) {
+fn confidence_badge(ui: &mut egui::Ui, diagnostics: &ParseNotes) {
     let (text, color) = match diagnostics.confidence {
         Confidence::High => ("High", theme::palette().trace_ok()),
         Confidence::Medium => ("Medium", theme::palette().trace_incomplete()),
