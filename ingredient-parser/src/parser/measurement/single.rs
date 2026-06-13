@@ -15,7 +15,7 @@ use crate::unit::{self, Measure};
 
 use super::guards::{
     find_matching_paren, is_distance_unit, looks_like_step_number, optional_article,
-    optional_dash_separator, optional_period_or_of, starts_with_dimension_suffix,
+    optional_dash_separator, optional_period_or_of,
 };
 use super::{MeasurementParser, DEFAULT_UNIT};
 
@@ -74,17 +74,20 @@ impl<'a> MeasurementParser<'a> {
     }
 
     /// In rich-text (prose) mode, reject a bare number whose continuation is not
-    /// actually a quantity. Two cases (no-op outside rich-text mode):
+    /// actually a quantity:
     /// - a **step number**: "1. Bring a pot…" — a numbered instruction, not "1 of X".
     ///   (Only when no measurement-ending period was consumed.)
-    /// - a **dimension suffix**: "1-inch piece ginger" — "1-inch" is descriptive in
-    ///   prose, whereas in ingredient-list mode the dimension IS the amount (→ 1").
+    ///
+    /// A dimension suffix ("2-inch pieces") is NOT rejected: it surfaces as an
+    /// `Inch` measure for highlighting, consistent with how `parse_hyphenated_unit`
+    /// already surfaces "5-minute"/"3-pound" in prose. `Inch` is
+    /// `MeasureKind::Length`, which is non-scalable, so a scaled recipe leaves the
+    /// dimension untouched. No-op outside rich-text mode.
     fn rejected_in_rich_text(&self, next_input: &str, period_consumed: Option<&str>) -> bool {
         if !self.is_rich_text {
             return false;
         }
-        (period_consumed.is_none() && looks_like_step_number(next_input))
-            || starts_with_dimension_suffix(next_input)
+        period_consumed.is_none() && looks_like_step_number(next_input)
     }
 
     fn resolve_single_measurement_unit<'b>(
@@ -437,12 +440,23 @@ mod tests {
         assert!(measure_str.contains("whole") || measure.value() == 2.0);
     }
 
+    /// In prose a dimension is highlighted as a measure (describing shape, not
+    /// quantity) rather than rejected — consistent with how hyphenated weight/time
+    /// units surface. `Inch` is `MeasureKind::Length` (non-scalable); other
+    /// distance units surface as `Other`.
     #[rstest]
-    #[case::inch_piece("1-inch piece ginger")]
-    #[case::cm_piece("2-cm knob ginger")]
-    fn test_dimension_suffix_rejected(units_fx: HashSet<String>, #[case] input: &str) {
+    #[case::inch_piece("1-inch piece ginger", 1.0, "\"")]
+    #[case::cm_piece("2-cm knob ginger", 2.0, "cm")]
+    fn test_dimension_suffix_surfaces_in_rich_text(
+        units_fx: HashSet<String>,
+        #[case] input: &str,
+        #[case] value: f64,
+        #[case] unit: &str,
+    ) {
         let parser = MeasurementParser::new(&units_fx, true);
-        assert!(parser.parse_single_measurement(input).is_err());
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        assert_eq!(measure.value(), value, "input: {input}");
+        assert_eq!(measure.unit_as_string(), unit, "input: {input}");
     }
 
     /// The multi-word fluid-ounce unit is recognized across the space the generic

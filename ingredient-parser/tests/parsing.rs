@@ -6,7 +6,7 @@ use ingredient::{
     from_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
-    unit::Measure,
+    unit::{Measure, MeasureKind},
     IngredientParser,
 };
 use rstest::{fixture, rstest};
@@ -289,7 +289,7 @@ fn test_rich_text_dimensions() {
 #[case::punctuation("add 1 cup, then stir", vec![text("add "), measure("cup", 1.0), text(", then stir")])]
 // Numbered instructions should NOT parse step numbers as measurements
 #[case::numbered_step("1 Bring a large pot of water to a boil.", vec![text("1 Bring a large pot of water to a boil.")])]
-#[case::numbered_step_2("2 Set out 4 ramen bowls.", vec![text("2 Set out "), measure("whole", 4.0), text("ramen bowls.")])]
+#[case::numbered_step_2("2 Set out 4 ramen bowls.", vec![text("2 Set out "), measure("whole", 4.0), text(" ramen bowls.")])]
 fn test_rich_text_edge_cases(#[case] input: &str, #[case] expected: Vec<Chunk>) {
     assert_eq!(parse_rich(input, &[]), expected);
 }
@@ -481,46 +481,30 @@ fn test_unit_to_str_fallback() {
 }
 
 // ============================================================================
-// Known Quirks / Future Improvements (skipped tests)
+// Rich-text dimension measures are non-scalable
 // ============================================================================
 
+/// A dimension surfaced in prose ("cut into 2-inch pieces") is highlighted as an
+/// `Inch` measure, but `Inch` is `MeasureKind::Length`, which is non-scalable —
+/// so doubling a recipe never turns "2-inch pieces" into "4-inch pieces". The
+/// chunk-sequence accuracy lives in `tests/corpus/rich_text.jsonl`; this guards
+/// the behavioral property that corpus schema can't express.
 #[test]
-#[ignore = "hyphen interpreted as range separator, not compound unit"]
-fn test_rich_text_hyphenated_units() {
+fn test_rich_text_dimension_is_non_scalable() {
     let result = parse_rich("cut into 2-inch pieces", &[]);
-    let has_inch = result
+    // Inch stringifies to `"`, so match on the measure kind, not the unit string.
+    let inch = result
         .iter()
-        .any(|c| matches!(c, Chunk::Measure(m) if m[0].unit_as_string() == "inch"));
-    assert!(has_inch, "Should parse '2-inch' as 2 inches: {result:?}");
-}
-
-#[test]
-#[ignore = "space consumed before non-unit words after numbers"]
-fn test_rich_text_number_followed_by_non_unit() {
-    let result = parse_rich("makes 12 cookies", &[]);
-    let text_chunks: Vec<_> = result
-        .iter()
-        .filter_map(|c| {
-            if let Chunk::Text(s) = c {
-                Some(s.as_str())
-            } else {
-                None
-            }
+        .find_map(|c| match c {
+            Chunk::Measure(m) if m[0].kind().ok() == Some(MeasureKind::Length) => Some(&m[0]),
+            _ => None,
         })
-        .collect();
+        .unwrap();
+    assert_eq!(inch.value(), 2.0);
     assert!(
-        text_chunks.iter().any(|s| s.starts_with(" cookies")),
-        "Space before 'cookies' should be preserved: {result:?}"
+        !inch.kind().unwrap().is_scalable(),
+        "dimensions must not scale with the recipe"
     );
-}
-
-#[test]
-#[ignore = "at least does not create a lower-bound range"]
-fn test_rich_text_at_least_as_lower_bound() {
-    let result = parse_rich("at least 2 hours", &[]);
-    assert_eq!(result.len(), 2);
-    assert_eq!(result[0], text("at least "));
-    assert_eq!(result[1], measure("hours", 2.0));
 }
 
 // ============================================================================

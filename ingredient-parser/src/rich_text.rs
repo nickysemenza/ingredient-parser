@@ -95,6 +95,14 @@ fn amounts_chunk<'a>(units: &HashSet<String>, input: &'a str) -> Res<&'a str, Ve
     let trailing = trailing_boundary(consumed);
     if !trailing.is_empty() {
         chunks.push(Chunk::Text(trailing.to_string()));
+    } else {
+        // A unitless bare count ("12 cookies") consumes the trailing space via
+        // `space0` but never uses it; re-emit it so the next word keeps its
+        // leading space (otherwise "12 cookies" → measure + "cookies").
+        let stripped = consumed.trim_end_matches(char::is_whitespace);
+        if stripped.len() < consumed.len() {
+            chunks.push(Chunk::Text(consumed[stripped.len()..].to_string()));
+        }
     }
     Ok((next_input, chunks))
 }

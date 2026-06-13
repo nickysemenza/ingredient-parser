@@ -70,25 +70,6 @@ pub(super) fn looks_like_step_number(input: &str) -> bool {
     first_word.len() >= 2
 }
 
-/// Check if text starts with a dimension suffix (e.g., "-inch", "-cm", "-inches").
-///
-/// A dimension suffix is a hyphen followed by a distance unit.
-/// For example, "1-inch" in "1-inch piece ginger" should not be parsed as quantity=1.
-pub(super) fn starts_with_dimension_suffix(text: &str) -> bool {
-    // No allocation: `is_distance_unit` is already case-insensitive, so slice
-    // the unit token directly instead of lowercasing + collecting.
-    let Some(after_hyphen) = text.strip_prefix('-') else {
-        return false;
-    };
-    let end = after_hyphen
-        .find(|c: char| !c.is_alphabetic())
-        .unwrap_or(after_hyphen.len());
-    if end == 0 {
-        return false;
-    }
-    is_distance_unit(&after_hyphen[..end])
-}
-
 use crate::parser::vocab::DISTANCE_UNIT_BASES;
 
 /// Check if a string is a distance unit (used for dimension detection).
@@ -137,35 +118,6 @@ mod tests {
     fn test_optional_period_or_of(#[case] input: &str) {
         let result = optional_period_or_of(input);
         assert!(result.is_ok());
-    }
-
-    #[rstest]
-    #[case::inch("-inch", true, "basic inch")]
-    #[case::inches("-inches", true, "plural inches")]
-    #[case::cm("-cm", true, "basic cm")]
-    #[case::centimeter("-centimeter", true, "full centimeter")]
-    #[case::centimeters("-centimeters", true, "plural centimeters")]
-    #[case::mm("-mm", true, "basic mm")]
-    #[case::foot("-foot", true, "basic foot")]
-    #[case::feet("-feet", false, "irregular plural feet (not detected)")] // feet is irregular, not handled
-    #[case::meter("-meter", true, "basic meter")]
-    #[case::meters("-meters", true, "plural meters")]
-    #[case::inch_piece("-inch piece", true, "inch with trailing text")]
-    #[case::not_dimension("-ish", false, "not a dimension")]
-    #[case::empty("-", false, "just hyphen")]
-    #[case::no_hyphen("inch", false, "no leading hyphen")]
-    #[case::yard("-yard", true, "basic yard")]
-    #[case::yards("-yards", true, "plural yards")]
-    fn test_dimension_suffix_detection(
-        #[case] input: &str,
-        #[case] expected: bool,
-        #[case] _desc: &str,
-    ) {
-        assert_eq!(
-            starts_with_dimension_suffix(input),
-            expected,
-            "Failed for input: {input}"
-        );
     }
 
     #[rstest]
