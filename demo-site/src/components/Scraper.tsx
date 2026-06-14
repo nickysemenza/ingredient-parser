@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useQueryState, parseAsFloat } from "nuqs";
 import { wasm, ScrapedRecipe } from "../wasm";
 import { Spinner } from "../Spinner";
 import { CORS_PROXY, DEFAULT_SCRAPE_URL, SCALE_OPTIONS } from "../config";
-import { getUrlParam, useUrlParamSync, useUrlState } from "../hooks/url";
 import {
   fmtAmount,
   formatRichText,
@@ -13,13 +13,13 @@ import {
 import { FOCUS_RING } from "./ui";
 
 export const Scraper: React.FC = () => {
-  const [url, setUrl] = useUrlState("url", DEFAULT_SCRAPE_URL);
-  const [scaleFactor, setScaleFactor] = useState(() => {
-    const fromUrl = parseFloat(getUrlParam("scale") ?? "");
-    return Number.isFinite(fromUrl) && fromUrl > 0 ? fromUrl : 1.0;
-  });
-
-  useUrlParamSync("scale", scaleFactor === 1 ? null : String(scaleFactor));
+  const [url, setUrl] = useQueryState("url", { defaultValue: DEFAULT_SCRAPE_URL });
+  // parseAsFloat coerces invalid `?scale=` values to the default; clearOnDefault
+  // (nuqs v2 default) drops `scale=1` from the URL, matching the old null write.
+  const [scaleFactor, setScaleFactor] = useQueryState(
+    "scale",
+    parseAsFloat.withDefault(1)
+  );
 
   // Debounce the URL so typing doesn't key a fetch per keystroke; the
   // debounced value drives the query, which handles abort + caching.

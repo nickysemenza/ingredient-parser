@@ -3,7 +3,7 @@ import { wasm } from "./wasm";
 import { DecompositionView } from "./DecompositionView";
 import { Scraper } from "./components/Scraper";
 import { TextInput } from "./components/ui";
-import { useUrlState } from "./hooks/url";
+import { useQueryState } from "nuqs";
 import { fmtAmount, formatRichText, safeParseRichText } from "./lib/format";
 import {
   DEFAULT_INGREDIENT,
@@ -14,8 +14,10 @@ import {
 import { IconGitHub, IconGlobe, IconLink, IconText } from "./icons";
 
 export const Demo: React.FC = () => {
-  const [text, setText] = useUrlState("i", DEFAULT_INGREDIENT);
-  const [richText, setRichText] = useUrlState("rt", DEFAULT_RICH_TEXT);
+  const [text, setText] = useQueryState("i", { defaultValue: DEFAULT_INGREDIENT });
+  const [richText, setRichText] = useQueryState("rt", {
+    defaultValue: DEFAULT_RICH_TEXT,
+  });
 
   const parsed = useMemo(
     () => (text ? wasm.parse_ingredient(text) : undefined),
