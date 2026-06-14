@@ -1,0 +1,33 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    # Review on open and on every push to the PR.
+    types: [opened, synchronize]
+
+# If a new commit is pushed while a review is still running, cancel the
+# stale review — only the latest commit gets reviewed (saves usage budget).
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Claude review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Review this PR following the conventions in CLAUDE.md. Post concise,
+            actionable inline comments anchored to the diff. Skip nitpicks, style
+            preferences, and praise. If the PR is clean, say so in one line.
