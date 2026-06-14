@@ -11,7 +11,44 @@ use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use tracing::debug;
 
-pub type MeasureGraph = Graph<Unit, f64>;
+pub type MeasureGraph = Graph<Unit, EdgeFactor>;
+
+/// A directed edge's conversion factor as a closed interval `[lower, upper]`.
+///
+/// For an ordinary point mapping (the common case — "1 cup = 120 g", a price, a
+/// USDA nutrient) `lower == upper`. A *ranged* mapping carries a genuine
+/// interval: the only producer today is a sub-recipe yield expressed as a range
+/// ("1 batch = $6–8" when the batch contains a ranged ingredient). Conversions
+/// multiply the interval along the path, so the range propagates to the result.
+///
+/// Inversion (the reverse edge) and a ranged *source* measure both use positive
+/// interval division `[a,b] / [c,d] = [a/d, b/c]` — note the bound flip — so a
+/// conversion that traverses a ranged edge backward stays correct.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EdgeFactor {
+    pub lower: f64,
+    pub upper: f64,
+}
+
+impl EdgeFactor {
+    /// A degenerate (point) factor where both bounds coincide — every
+    /// non-ranged mapping and the synthesized volume bridge.
+    pub fn point(f: f64) -> Self {
+        Self { lower: f, upper: f }
+    }
+}
+
+impl std::fmt::Display for EdgeFactor {
+    /// Point factors render as a bare number; ranged factors as `lo–hi`. Keeps
+    /// the DOT graph viz (`print_graph`) readable.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.lower == self.upper {
+            write!(f, "{}", self.lower)
+        } else {
+            write!(f, "{}–{}", self.lower, self.upper)
+        }
+    }
+}
 
 /// Build a conversion graph from a list of measurement mappings.
 ///
@@ -25,7 +62,7 @@ pub type MeasureGraph = Graph<Unit, f64>;
 /// # Returns
 /// A directed graph where nodes are units and edges are conversion factors
 pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
-    let mut g = Graph::<Unit, f64>::new();
+    let mut g = Graph::<Unit, EdgeFactor>::new();
     let mut unit_index: HashMap<Unit, NodeIndex> = HashMap::new();
 
     for (m_a, m_b) in mappings.iter() {
@@ -42,13 +79,29 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
             .entry(unit_b.clone())
             .or_insert_with(|| g.add_node(unit_b));
 
-        let a_val = m_a.value();
-        let b_val = m_b.value();
-        // Full-precision factors. The conversion result is integer-rounded at
-        // the end, so truncating to 3 decimals here only compounded drift over
-        // multi-hop paths without changing the rounded output.
-        let a_to_b_weight = b_val / a_val;
-        let b_to_a_weight = a_val / b_val;
+        // Full-precision interval factors. Point mappings collapse to
+        // lower == upper; a ranged mapping yields a genuine interval. Interval
+        // division [b]/[a] with all-positive bounds: lower = b_lo/a_hi,
+        // upper = b_hi/a_lo (the inverse flips the bounds). The conversion
+        // result is integer-rounded at the end, so full precision here only
+        // avoids compounding drift over multi-hop paths.
+        //
+        // Assumes strictly-positive bounds (the prior scalar code did too): a 0
+        // mapping value yields inf/NaN factors. Not asserted because a legitimate
+        // $0 mapping shouldn't panic; ranged mappings (sub-recipe yields) always
+        // carry a positive lower bound, so the reciprocal stays finite.
+        let a_lo = m_a.value();
+        let a_hi = m_a.upper_value().unwrap_or(a_lo);
+        let b_lo = m_b.value();
+        let b_hi = m_b.upper_value().unwrap_or(b_lo);
+        let a_to_b_weight = EdgeFactor {
+            lower: b_lo / a_hi,
+            upper: b_hi / a_lo,
+        };
+        let b_to_a_weight = EdgeFactor {
+            lower: a_lo / b_hi,
+            upper: a_hi / b_lo,
+        };
 
         match g.find_edge(n_a, n_b) {
             // Edge already present. If the weight conflicts (e.g. both
@@ -58,7 +111,7 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
             Some(e) => {
                 if g.edge_weight(e).is_some_and(|w| *w != a_to_b_weight) {
                     debug!(
-                        "conflicting mapping {:?}->{:?}, using latest weight {}",
+                        "conflicting mapping {:?}->{:?}, using latest weight {:?}",
                         m_a.unit(),
                         m_b.unit(),
                         a_to_b_weight
@@ -95,8 +148,8 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
             .entry(Unit::Milliliter)
             .or_insert_with(|| g.add_node(Unit::Milliliter));
         if g.find_edge(n_tsp, n_ml).is_none() {
-            g.add_edge(n_tsp, n_ml, TSP_TO_ML);
-            g.add_edge(n_ml, n_tsp, 1.0 / TSP_TO_ML);
+            g.add_edge(n_tsp, n_ml, EdgeFactor::point(TSP_TO_ML));
+            g.add_edge(n_ml, n_tsp, EdgeFactor::point(1.0 / TSP_TO_ML));
         }
     }
 
@@ -194,12 +247,13 @@ pub fn convert_measure_with_graph_explained(
     // constant, and an empty graph fails even g→Weight.
     if unit_a == unit_b {
         // Round like the graph path below (the result is integer-rounded there),
-        // so identity and multi-hop conversions agree to the unit.
-        let resolved = Measure::new_with_upper(
-            unit_b,
-            input.value().round(),
-            input.upper_value().map(f64::round),
-        );
+        // so identity and multi-hop conversions agree to the unit. Apply the same
+        // `upper > lower` suppression as the graph path so a ranged input whose
+        // bounds round equal doesn't return a degenerate range here while the
+        // graph path returns a point.
+        let lo = input.value().round();
+        let hi = input.upper_value().map(f64::round).filter(|&u| u > lo);
+        let resolved = Measure::new_with_upper(unit_b, lo, hi);
         return Some((resolved.denormalize(), Vec::new()));
     }
 
@@ -220,7 +274,8 @@ pub fn convert_measure_with_graph_explained(
         debug!("convert failed for {:?}", input);
         return None;
     };
-    let mut factor: f64 = 1.0;
+    let mut factor_lo: f64 = 1.0;
+    let mut factor_hi: f64 = 1.0;
     let mut steps = Vec::with_capacity(path.len().saturating_sub(1));
     for x in 0..path.len() - 1 {
         let (n_from, n_to) = (*path.get(x)?, *path.get(x + 1)?);
@@ -229,18 +284,24 @@ pub fn convert_measure_with_graph_explained(
         steps.push(ConversionStep {
             from_unit: graph[n_from].clone(),
             to_unit: graph[n_to].clone(),
-            factor: weight,
+            // Report the lower bound: point edges have lower == upper, and the
+            // only ranged edges (sub-recipe yields) never appear in ingredient
+            // explain paths, so a single display factor stays faithful.
+            factor: weight.lower,
         });
-        factor *= weight;
+        factor_lo *= weight.lower;
+        factor_hi *= weight.upper;
     }
 
+    // Result range = input range × factor interval (all bounds positive):
+    // lower = input_lo × factor_lo, upper = input_hi × factor_hi. Suppress an
+    // upper that rounds equal to the lower so a point conversion of a point
+    // amount never fabricates a range.
     let input_val = input.value();
     let input_upper = input.upper_value();
-    let result = Measure::new_with_upper(
-        unit_b,
-        (input_val * factor).round(),
-        input_upper.map(|x| (x * factor).round()),
-    );
+    let lower = (input_val * factor_lo).round();
+    let upper = (input_upper.unwrap_or(input_val) * factor_hi).round();
+    let result = Measure::new_with_upper(unit_b, lower, (upper > lower).then_some(upper));
     debug!("{:?} -> {:?} ({} hops)", input, result, path.len());
     Some((result.denormalize(), steps))
 }
@@ -440,6 +501,70 @@ mod tests {
         let converted = result.unwrap();
         assert_eq!(converted.value(), 120.0);
         assert_eq!(converted.upper_value(), Some(240.0));
+    }
+
+    #[test]
+    fn test_ranged_edge_propagates_to_result() {
+        // A sub-recipe yield mapping "1 batch = $6–8" (the batch holds a ranged
+        // ingredient). Converting 2 batches to Money must produce $12–16 — both
+        // bounds ride the interval factor, even though the input amount is a point.
+        let mappings = vec![(
+            Measure::new("batch", 1.0),
+            Measure::with_range("dollar", 6.0, 8.0),
+        )];
+        let graph = make_graph(&mappings);
+        let r = convert_measure_with_graph(&Measure::new("batch", 2.0), MeasureKind::Money, &graph)
+            .unwrap();
+        assert_eq!(r.value(), 12.0);
+        assert_eq!(r.upper_value(), Some(16.0));
+    }
+
+    #[test]
+    fn test_ranged_edge_and_ranged_input_compose() {
+        // "1 batch = $6–8", convert "2–3 batches" → [2×6, 3×8] = $12–24.
+        let mappings = vec![(
+            Measure::new("batch", 1.0),
+            Measure::with_range("dollar", 6.0, 8.0),
+        )];
+        let graph = make_graph(&mappings);
+        let r = convert_measure_with_graph(
+            &Measure::with_range("batch", 2.0, 3.0),
+            MeasureKind::Money,
+            &graph,
+        )
+        .unwrap();
+        assert_eq!(r.value(), 12.0);
+        assert_eq!(r.upper_value(), Some(24.0));
+    }
+
+    #[test]
+    fn test_ranged_edge_inverts_correctly() {
+        // Traversing a ranged edge backward uses interval reciprocal with a bound
+        // flip: 24 g back through "1 widget = 6–8 g" → [24/8, 24/6] = 3–4 widgets.
+        let mappings = vec![(
+            Measure::new("widget", 1.0),
+            Measure::with_range("g", 6.0, 8.0),
+        )];
+        let graph = make_graph(&mappings);
+        let r = convert_measure_with_graph(
+            &Measure::new("g", 24.0),
+            MeasureKind::Other("widget".to_string()),
+            &graph,
+        )
+        .unwrap();
+        assert_eq!(r.value(), 3.0);
+        assert_eq!(r.upper_value(), Some(4.0));
+    }
+
+    #[test]
+    fn test_point_conversion_never_fabricates_range() {
+        // A point amount through a point mapping stays a point — no spurious upper.
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+        let graph = make_graph(&mappings);
+        let r = convert_measure_with_graph(&Measure::new("cup", 2.0), MeasureKind::Weight, &graph)
+            .unwrap();
+        assert_eq!(r.value(), 240.0);
+        assert_eq!(r.upper_value(), None);
     }
 
     #[test]
