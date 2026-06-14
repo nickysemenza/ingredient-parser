@@ -8,6 +8,7 @@ license = "MIT"
 
 [dependencies]
 scraper = "0.27.0"
+html-escape = "0.2"
 serde_json.workspace = true
 serde.workspace = true
 thiserror.workspace = true

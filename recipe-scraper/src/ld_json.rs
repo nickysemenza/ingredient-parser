@@ -365,7 +365,13 @@ fn parse_ld_json(json: &str) -> Result<ld_schema::Root, ScrapeError> {
 
 pub fn scrape_from_ld_json(json: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     let ld_schema = parse_ld_json(json)?;
-    normalize_ld_json(ld_schema, url)
+    let mut recipe = normalize_ld_json(ld_schema, url)?;
+    // Decode HTML entities (incl. the double-encoding JSON-LD round-trips
+    // produce) across all text fields. `scrape()` also calls this in its
+    // post-pass; it's idempotent, and this covers callers (and tests) that hit
+    // the ld+json path directly.
+    recipe.clean_text();
+    Ok(recipe)
 }
 
 #[cfg(test)]
@@ -776,6 +782,56 @@ mod tests {
         let instructions: Vec<&str> = recipe.instructions().collect();
         assert_eq!(instructions, vec!["Mix everything"]);
         assert_eq!(recipe.notes, vec!["Store airtight"]);
+    }
+
+    /// HTML entities in JSON-LD text are decoded — including the *double*-encoding
+    /// that round-trips through `inner_html()` + store (a page's `&#39;` becomes
+    /// the literal `&amp;#39;`). Regression for recipe titles stored as
+    /// "The Food Lab&amp;#39;s Chocolate Chip Cookies".
+    #[test]
+    fn test_scrape_decodes_html_entities() {
+        let json = r#"{
+            "name": "The Food Lab&amp;#39;s Chocolate Chip Cookies",
+            "description": "Salt &amp; pepper, the chef&#39;s way — cr&eacute;me too",
+            "recipeIngredient": ["2 cups flour &amp;amp; salt"],
+            "recipeInstructions": [{ "@type": "HowToStep", "text": "Mix at 350&#176;." }]
+        }"#;
+
+        let recipe = scrape_from_ld_json(json, "https://example.com").unwrap();
+        // Double-encoded apostrophe -> single char.
+        assert_eq!(recipe.name, "The Food Lab's Chocolate Chip Cookies");
+        // Single-encoded `&amp;`/`&#39;` and named accent `&eacute;` decode too.
+        assert_eq!(
+            recipe.description.as_deref(),
+            Some("Salt & pepper, the chef's way — créme too")
+        );
+        // Section lines decode (double-encoded `&amp;amp;` -> `&`).
+        assert_eq!(
+            recipe.ingredients().collect::<Vec<_>>(),
+            vec!["2 cups flour & salt"]
+        );
+        assert_eq!(
+            recipe.instructions().collect::<Vec<_>>(),
+            vec!["Mix at 350°."]
+        );
+    }
+
+    /// Already-clean text is unchanged — decoding is idempotent and doesn't
+    /// mangle a bare `&` that isn't part of an entity.
+    #[test]
+    fn test_scrape_decode_is_idempotent_on_clean_text() {
+        let json = r#"{
+            "name": "Mac & Cheese",
+            "recipeIngredient": ["1 cup elbow macaroni"],
+            "recipeInstructions": []
+        }"#;
+
+        let recipe = scrape_from_ld_json(json, "https://example.com").unwrap();
+        assert_eq!(recipe.name, "Mac & Cheese");
+        assert_eq!(
+            recipe.ingredients().collect::<Vec<_>>(),
+            vec!["1 cup elbow macaroni"]
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use chefsteps::parse_chefsteps;
 use html::scrape_from_html;
+use html_escape::decode_html_entities;
 use ingredient::{
     ingredient::Ingredient,
     rich_text::{Rich, RichParser},
@@ -144,6 +145,43 @@ impl ScrapedRecipe {
             .iter()
             .flat_map(|s| s.instructions.iter().map(String::as_str))
     }
+
+    /// Normalize scraped text in place: decode HTML entities across every
+    /// user-facing field, and collapse the non-breaking spaces / newlines in the
+    /// ingredient & instruction lines the line parser consumes.
+    ///
+    /// JSON-LD extracted via `inner_html()` preserves entities literally and can
+    /// be single- OR double-encoded — a page's `&#39;` round-trips through
+    /// scrape/store as the literal `&amp;#39;` — so entities are decoded
+    /// repeatedly until stable (see [`decode_entities`]). Idempotent on
+    /// already-clean text, so running it twice (the ld+json path and the
+    /// `scrape` post-pass both call it) or on hand-clean pages is a no-op.
+    pub(crate) fn clean_text(&mut self) {
+        self.name = decode_entities(&self.name);
+        if let Some(d) = self.description.take() {
+            self.description = Some(decode_entities(&d));
+        }
+        if let Some(c) = self.category.take() {
+            self.category = Some(decode_entities(&c));
+        }
+        for note in &mut self.notes {
+            *note = decode_entities(note);
+        }
+        for item in &mut self.equipment {
+            *item = decode_entities(item);
+        }
+        for section in &mut self.sections {
+            if let Some(name) = section.name.take() {
+                section.name = Some(decode_entities(&name));
+            }
+            for line in &mut section.ingredients {
+                *line = clean_line(line);
+            }
+            for line in &mut section.instructions {
+                *line = clean_line(line);
+            }
+        }
+    }
 }
 // inspiration
 // https://github.com/pombadev/sunny/blob/main/src/lib/spider.rs
@@ -153,7 +191,10 @@ pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     info!("scraping {} bytes from {url}", body.len());
     if url.contains("chefsteps.com") {
         info!("scraping chefsteps");
-        return parse_chefsteps(body);
+        return parse_chefsteps(body).map(|mut r| {
+            r.clean_text();
+            r
+        });
     }
     let dom = Html::parse_document(body);
 
@@ -177,21 +218,32 @@ pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     });
 
     res.map(|mut r| {
-        for s in &mut r.sections {
-            s.ingredients = std::mem::take(&mut s.ingredients)
-                .into_iter()
-                .map(clean_string)
-                .collect();
-            s.instructions = std::mem::take(&mut s.instructions)
-                .into_iter()
-                .map(clean_string)
-                .collect();
-        }
+        r.clean_text();
         r
     })
 }
-fn clean_string(i: String) -> String {
-    i.replace("&nbsp;", " ").replace('\n', " ")
+
+/// Decode HTML entities repeatedly until the string stops changing. Scraped
+/// JSON-LD can be single- or double-encoded (e.g. `&amp;#39;` -> `&#39;` -> `'`),
+/// so a single pass isn't enough. The cap bounds pathological input; clean text
+/// stabilizes on the first pass.
+fn decode_entities(s: &str) -> String {
+    let mut current = s.to_owned();
+    for _ in 0..3 {
+        let next = decode_html_entities(&current).into_owned();
+        if next == current {
+            break;
+        }
+        current = next;
+    }
+    current
+}
+
+/// An ingredient/instruction line: decode entities, then collapse the
+/// non-breaking spaces (decoded from `&nbsp;`) and newlines that would otherwise
+/// break the line parser.
+fn clean_line(s: &str) -> String {
+    decode_entities(s).replace(['\u{a0}', '\n'], " ")
 }
 
 #[cfg(test)]

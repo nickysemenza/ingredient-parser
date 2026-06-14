@@ -121,6 +121,13 @@ fn json() {
         ld_json::scrape_from_ld_json(include_testdata!("seriouseats_pan_pizza.json"), "a").unwrap();
     assert_eq!(r.instructions().count(), 7);
     assert_eq!(r.ingredients().count(), 10);
+    // This fixture's description carries HTML entities (`&#…;`) in the source
+    // JSON-LD; they must be decoded out, not stored verbatim.
+    let description = r.description.as_deref().unwrap();
+    assert!(
+        !description.contains("&#"),
+        "description should be entity-decoded, got: {description}"
+    );
 
     let r = ld_json::scrape_from_ld_json(
         include_testdata!("justonecookbook_chicken-katsu-don.json"),
