@@ -409,9 +409,7 @@ pub fn format_amount_value(amount: WAmount) -> f64 {
 
 #[wasm_bindgen]
 pub fn amount_kind(amount: WAmount) -> Result<WAmountKind, String> {
-    // `Measure::kind` is infallible for every unit; the error path only exists
-    // to satisfy its Result signature.
-    let kind = amount.to_measure().kind().map_err(|e| e.to_string())?;
+    let kind = amount.to_measure().kind();
     to_js(&kind.to_str(), "amount kind").map(Into::into)
 }
 
@@ -531,7 +529,6 @@ mod tests {
             }
             .to_measure()
             .kind()
-            .unwrap()
             .to_str()
             .into_owned()
         };

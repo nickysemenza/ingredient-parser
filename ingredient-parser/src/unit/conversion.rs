@@ -69,8 +69,8 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
         let m_a = m_a.normalize();
         let m_b = m_b.normalize();
 
-        let unit_a = m_a.unit().clone().normalize();
-        let unit_b = m_b.unit().clone().normalize();
+        let unit_a = m_a.unit().normalize();
+        let unit_b = m_b.unit().normalize();
 
         let n_a = *unit_index
             .entry(unit_a.clone())
@@ -236,7 +236,7 @@ pub fn convert_measure_with_graph_explained(
     graph: &MeasureGraph,
 ) -> Option<(Measure, Vec<ConversionStep>)> {
     let input = measure.normalize();
-    let unit_a = input.unit().clone();
+    let unit_a = input.unit();
     let unit_b = target.unit();
 
     // Identity: once normalized, the measure may already sit in the target kind's
@@ -245,7 +245,7 @@ pub fn convert_measure_with_graph_explained(
     // instead of requiring both units to appear in the mapping graph. Without this,
     // a bare "8½ oz" with no product mapping can't reach Weight even though oz→g is
     // constant, and an empty graph fails even g→Weight.
-    if unit_a == unit_b {
+    if *unit_a == unit_b {
         // Round like the graph path below (the result is integer-rounded there),
         // so identity and multi-hop conversions agree to the unit. Apply the same
         // `upper > lower` suppression as the graph path so a ranged input whose
@@ -257,7 +257,7 @@ pub fn convert_measure_with_graph_explained(
         return Some((resolved.denormalize(), Vec::new()));
     }
 
-    let n_a = graph.node_indices().find(|i| graph[*i] == unit_a)?;
+    let n_a = graph.node_indices().find(|i| graph[*i] == *unit_a)?;
     let n_b = graph.node_indices().find(|i| graph[*i] == unit_b)?;
 
     debug!("calculating {:?} to {:?}", n_a, n_b);

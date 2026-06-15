@@ -199,7 +199,7 @@ impl<'a> MeasurementParser<'a> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::super::test_support::units;
-    use super::super::MeasurementParser;
+    use super::super::{MeasurementMode, MeasurementParser};
     use rstest::{fixture, rstest};
     use std::collections::HashSet;
 
@@ -214,7 +214,7 @@ mod tests {
     /// tokens so neither leaks into the name.
     #[rstest]
     fn test_cross_unit_range(units_fx: HashSet<String>) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measures) = parser
             .parse_cross_unit_range("2 teaspoons to 2 tablespoons")
             .unwrap();
@@ -239,7 +239,7 @@ mod tests {
     #[case::alias("1g-2grams")]
     #[case::case_mixed("1g-2G")]
     fn test_range_same_canonical_unit(units_fx: HashSet<String>, #[case] input: &str) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measure) = parser.parse_range_with_units(input).unwrap();
         let measure = measure.unwrap(); // same canonical unit must parse as a range
         assert_eq!(measure.unit_as_string(), "g");
@@ -252,7 +252,7 @@ mod tests {
     #[rstest]
     #[case::dash_mismatch("1g-2tbsp")]
     fn test_range_unit_mismatch(units_fx: HashSet<String>, #[case] input: &str) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_range_with_units(input);
         assert!(result.is_ok(), "Failed to parse: {input}");
         let (remaining, opt_measure) = result.unwrap();
@@ -279,7 +279,7 @@ mod tests {
         #[case] expected_upper: f64,
         #[case] expected_remaining: &str,
     ) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (remaining, upper) = parser.parse_range_end(input).unwrap();
         assert_eq!(upper, expected_upper, "upper bound for {input:?}");
         assert_eq!(remaining, expected_remaining, "remaining for {input:?}");

@@ -162,17 +162,17 @@ fn test_measure_kind_from_str(#[case] input: &str, #[case] expected: MeasureKind
 #[case::kcal("kcal", MeasureKind::Calories)]
 #[case::inch("inch", MeasureKind::Length)]
 fn test_measure_kind_from_unit(#[case] unit_str: &str, #[case] expected: MeasureKind) {
-    assert_eq!(Measure::new(unit_str, 1.0).kind().unwrap(), expected);
+    assert_eq!(Measure::new(unit_str, 1.0).kind(), expected);
 }
 
 #[test]
 fn test_measure_kind_other_units() {
     assert!(matches!(
-        Measure::new("whole", 1.0).kind().unwrap(),
+        Measure::new("whole", 1.0).kind(),
         MeasureKind::Other(_)
     ));
     assert!(matches!(
-        Measure::new("custom", 1.0).kind().unwrap(),
+        Measure::new("custom", 1.0).kind(),
         MeasureKind::Other(_)
     ));
 }

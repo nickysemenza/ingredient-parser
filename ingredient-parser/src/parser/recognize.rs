@@ -6,7 +6,7 @@
 //! recognizer returns `Some(Ingredient)` when it matches and `None` to fall
 //! through to the next recognizer / the core parse.
 
-use crate::parser::MeasurementParser;
+use crate::parser::{MeasurementMode, MeasurementParser};
 use crate::unit;
 use crate::usage::classify_usage;
 use crate::{Ingredient, IngredientParser};
@@ -62,7 +62,7 @@ impl IngredientParser {
     /// comes at the end after an em-dash, en-dash, or double hyphen.
     pub(super) fn try_parse_trailing_amount_format(&self, input: &str) -> Option<Ingredient> {
         let separators = [" — ", " – ", " -- "];
-        let mp = MeasurementParser::new(&self.units, false);
+        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
 
         for sep in separators {
             let Some(pos) = input.rfind(sep) else {

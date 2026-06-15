@@ -9,7 +9,7 @@ use std::cmp::Reverse;
 
 use super::ir::{ModifierPart, ParsedIngredient};
 use super::normalize::collapse_whitespace;
-use crate::parser::MeasurementParser;
+use crate::parser::{MeasurementMode, MeasurementParser};
 use crate::unit::{self, Measure};
 use crate::{Ingredient, IngredientParser};
 
@@ -98,7 +98,7 @@ impl IngredientParser {
         else {
             return;
         };
-        let mp = MeasurementParser::new(&self.units, false);
+        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
         let Ok((remaining, measures)) = mp.parse_measurement_list(rest) else {
             return;
         };
@@ -340,23 +340,30 @@ impl IngredientParser {
     fn extract_leading_prep_alternative(&self, parsed: &mut ParsedIngredient) {
         let name = parsed.name.trim().to_string();
         let words: Vec<&str> = name.split_whitespace().collect();
-        if words.len() < 4 || words[1].to_lowercase() != "or" {
+        if words.len() < 4 {
             return;
         }
-        let first = words[0].to_lowercase();
-        let first_is_prep = first.ends_with("ed") || self.adjectives.contains(&first);
+        // Every guard below matches tokens against lowercase vocab ("or", known
+        // adjectives), so lowercase each token once up front instead of repeating
+        // `words[i].to_lowercase()` per check.
+        let words_lower: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
+        if words_lower[1] != "or" {
+            return;
+        }
+        let first = &words_lower[0];
+        let first_is_prep = first.ends_with("ed") || self.adjectives.contains(first);
         if !first.chars().all(char::is_alphabetic) || !first_is_prep {
             return;
         }
         // A known adjective phrase (two words then one) immediately after "or".
         let two = format!(
             "{} {}",
-            words[2].to_lowercase(),
-            words.get(3).map(|w| w.to_lowercase()).unwrap_or_default()
+            words_lower[2],
+            words_lower.get(3).map(String::as_str).unwrap_or_default()
         );
         let adj_len = if words.len() >= 5 && self.adjectives.contains(&two) {
             2
-        } else if self.adjectives.contains(&words[2].to_lowercase()) {
+        } else if self.adjectives.contains(&words_lower[2]) {
             1
         } else {
             return;
@@ -652,7 +659,7 @@ fn extract_secondary_amounts(
     };
     let amount_text = amount_match.as_str().trim();
 
-    let mp = MeasurementParser::new(units, false);
+    let mp = MeasurementParser::new(units, MeasurementMode::IngredientList);
     let Ok((remaining, measures)) = mp.parse_measurement_list(amount_text) else {
         return (vec![], modifier.to_string());
     };

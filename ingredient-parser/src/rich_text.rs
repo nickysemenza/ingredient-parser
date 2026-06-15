@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 
 use crate::{
-    parser::measurement::single::leading_qualifier, parser::MeasurementParser, unit::Measure,
+    parser::measurement::single::leading_qualifier,
+    parser::{MeasurementMode, MeasurementParser},
+    unit::Measure,
     IngredientParser, Res,
 };
 use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0, Parser};
@@ -71,7 +73,7 @@ fn extract_ingredients(r: Rich, ingredient_names: &[String]) -> Rich {
 
 fn amounts_chunk<'a>(units: &HashSet<String>, input: &'a str) -> Res<&'a str, Vec<Chunk>> {
     // Always use rich text mode (true) for instruction parsing
-    let mp = MeasurementParser::new(units, true);
+    let mp = MeasurementParser::new(units, MeasurementMode::RichText);
     let (next_input, measures) =
         context("amounts_chunk", |a| mp.parse_measurement_list(a)).parse(input)?;
 

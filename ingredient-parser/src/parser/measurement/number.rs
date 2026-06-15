@@ -9,7 +9,7 @@ use crate::fraction::{finite_double, fraction_number};
 use crate::parser::{text_number, thousands_number, Res};
 use crate::traced_parser;
 
-use super::MeasurementParser;
+use super::{MeasurementMode, MeasurementParser};
 
 /// Parse a double but don't consume trailing periods that aren't part of decimals.
 ///
@@ -44,7 +44,7 @@ impl<'a> MeasurementParser<'a> {
         traced_parser!(
             "parse_number",
             input,
-            if self.is_rich_text {
+            if self.mode == MeasurementMode::RichText {
                 // Rich text mode: try fraction or decimal number
                 // Use double_no_trailing_period to avoid consuming sentence-ending periods
                 context(
@@ -174,7 +174,7 @@ impl<'a> MeasurementParser<'a> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::super::test_support::units;
-    use super::super::MeasurementParser;
+    use super::super::{MeasurementMode, MeasurementParser};
     use rstest::{fixture, rstest};
     use std::collections::HashSet;
 
@@ -191,7 +191,7 @@ mod tests {
         #[case] input: &str,
         #[case] expected: f64,
     ) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_upper_bound_only(input);
         assert!(result.is_ok());
         let (_, (lower, upper)) = result.unwrap();
@@ -204,7 +204,7 @@ mod tests {
     #[case::fraction("1/2", 0.5)]
     #[case::unicode_fraction("½", 0.5)]
     fn test_rich_text_mode(units_fx: HashSet<String>, #[case] input: &str, #[case] expected: f64) {
-        let parser = MeasurementParser::new(&units_fx, true);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::RichText);
         let result = parser.parse_number(input);
         assert!(result.is_ok());
         let (_, val) = result.unwrap();
@@ -213,7 +213,7 @@ mod tests {
 
     #[rstest]
     fn test_multiplier(units_fx: HashSet<String>) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_multiplier("2 x ");
         assert!(result.is_ok());
         let (_, mult) = result.unwrap();

@@ -195,7 +195,7 @@ impl<'a> MeasurementParser<'a> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::super::test_support::units;
-    use super::super::MeasurementParser;
+    use super::super::{MeasurementMode, MeasurementParser};
     use rstest::{fixture, rstest};
     use std::collections::HashSet;
 
@@ -212,7 +212,7 @@ mod tests {
         #[case] input: &str,
         #[case] expected_count: usize,
     ) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_parenthesized_amounts(input);
         assert!(result.is_ok());
         let (_, measures) = result.unwrap();
@@ -230,7 +230,7 @@ mod tests {
         #[case] input: &str,
         #[case] expected_len: usize,
     ) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measures) = parser.parse_plus_expression(input).unwrap();
         assert_eq!(measures.len(), expected_len, "input: {input}");
     }
@@ -248,7 +248,7 @@ mod tests {
         #[case] expected_len: usize,
         #[case] first_unit: &str,
     ) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measures) = parser.parse_count_with_parenthetical_size(input).unwrap();
         assert_eq!(measures.len(), expected_len, "input: {input}");
         assert_eq!(measures[0].unit_as_string(), first_unit);
@@ -263,7 +263,7 @@ mod tests {
     #[case::paren("1 (3 ounce) chicken")]
     #[case::hyphen("One 6-ounce carrot")]
     fn test_count_with_size_no_container(units_fx: HashSet<String>, #[case] input: &str) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measures) = parser.parse_count_with_parenthetical_size(input).unwrap();
         assert_eq!(measures.len(), 2, "input: {input}");
         assert_eq!(measures[0].unit_as_string(), "whole");
@@ -274,7 +274,7 @@ mod tests {
     /// rejected even when a container noun follows.
     #[rstest]
     fn test_parenthetical_size_rejects_non_size(units_fx: HashSet<String>) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         assert!(parser
             .parse_count_with_parenthetical_size("1 (not defrosted) can tomatoes")
             .is_err());

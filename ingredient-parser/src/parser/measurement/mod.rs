@@ -3,9 +3,9 @@
 //! This module contains all the parsers for extracting measurements from ingredient
 //! strings, including single measurements, ranges, and combined expressions.
 //!
-//! ## Rich-text mode (`is_rich_text`)
+//! ## Rich-text mode ([`MeasurementMode`])
 //!
-//! The same parsers serve two modes, selected by the `is_rich_text` flag on
+//! The same parsers serve two modes, selected by the [`MeasurementMode`] on
 //! [`MeasurementParser`]: **ingredient-list** mode (the default — "2 cups flour")
 //! and **rich-text/prose** mode (measurements embedded in instructions — "cook for
 //! 30 minutes"). The modes share ~90% of the logic; prose mode only adds a few
@@ -78,22 +78,30 @@ pub(crate) mod test_support {
 /// Default unit for amounts without a specified unit (e.g., "2 eggs")
 pub(super) const DEFAULT_UNIT: &str = "whole";
 
+/// Which input the measurement parsers are reading, selecting the mode-specific
+/// rejections described in the module docs. Replaces a bare `bool` so call sites
+/// read as `MeasurementMode::RichText` rather than an unlabeled `true`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum MeasurementMode {
+    /// Ingredient-list lines ("2 cups flour") — the default, most permissive mode.
+    IngredientList,
+    /// Measurements embedded in prose/instructions ("cook for 30 minutes").
+    RichText,
+}
+
 /// Parser for extracting measurements from ingredient strings
 ///
 /// This struct holds configuration for parsing measurements, including
-/// the set of recognized units and whether rich text mode is enabled.
+/// the set of recognized units and which [`MeasurementMode`] is active.
 pub(crate) struct MeasurementParser<'a> {
     pub units: &'a HashSet<String>,
-    pub is_rich_text: bool,
+    pub mode: MeasurementMode,
 }
 
 impl<'a> MeasurementParser<'a> {
     /// Create a new measurement parser with the given configuration
-    pub fn new(units: &'a HashSet<String>, is_rich_text: bool) -> Self {
-        Self {
-            units,
-            is_rich_text,
-        }
+    pub fn new(units: &'a HashSet<String>, mode: MeasurementMode) -> Self {
+        Self { units, mode }
     }
 
     /// Parse a list of measurements with different separators
@@ -194,7 +202,7 @@ mod tests {
 
     #[rstest]
     fn test_measurement_parser(units_fx: HashSet<String>) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_measurement_list("2 cups");
         assert!(result.is_ok());
         let (remaining, measures) = result.unwrap();
@@ -208,7 +216,7 @@ mod tests {
     #[case::through("2 through 3 cups")]
     #[case::or("2 or 3 cups")]
     fn test_range_formats(units_fx: HashSet<String>, #[case] input: &str) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_measurement_list(input);
         assert!(result.is_ok(), "Failed to parse: {input}");
         let (_, measures) = result.unwrap();
@@ -226,7 +234,7 @@ mod tests {
         #[case] input: &str,
         #[case] expected_count: usize,
     ) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_measurement_list(input);
         assert!(result.is_ok());
         let (_, measures) = result.unwrap();
@@ -240,7 +248,7 @@ mod tests {
         units_fx: HashSet<String>,
         #[case] input: &str,
     ) {
-        let parser = MeasurementParser::new(&units_fx, true);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::RichText);
         assert!(parser.parse_measurement_list(input).is_err());
     }
 }

@@ -244,12 +244,12 @@ static NUTRIENT_NAMES: &[&str] = &[
 
 /// Check if a unit string represents a nutrient (e.g., "g protein", "mg sodium")
 fn is_nutrient_unit(s: &str) -> bool {
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    if parts.len() != 2 {
-        return false;
-    }
-    let prefix = parts[0].to_lowercase();
-    let name = parts[1].to_lowercase();
+    let mut parts = s.split_whitespace();
+    let (Some(prefix), Some(name), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false; // require exactly two whitespace-separated tokens
+    };
+    let prefix = prefix.to_lowercase();
+    let name = name.to_lowercase();
     NUTRIENT_UNIT_PREFIXES.contains(&prefix.as_str()) && NUTRIENT_NAMES.contains(&name.as_str())
 }
 
@@ -302,9 +302,8 @@ impl Measure {
     pub fn add(&self, b: Measure) -> IngredientResult<Measure> {
         debug!("adding {:?} to {:?}", self, b);
 
-        // Get kinds with proper error handling
-        let b_kind = b.kind()?;
-        let self_kind = self.kind()?;
+        let b_kind = b.kind();
+        let self_kind = self.kind();
 
         if self_kind != b_kind {
             // A custom-unit rhs that doesn't match keeps self: unknown units must not
@@ -393,8 +392,8 @@ impl Measure {
     ///
     /// This uses direct mapping without recursion for better performance
     /// and to avoid potential stack overflow on malformed data.
-    pub fn kind(&self) -> IngredientResult<MeasureKind> {
-        Ok(match &self.unit {
+    pub fn kind(&self) -> MeasureKind {
+        match &self.unit {
             // Weight units
             Unit::Gram | Unit::Kilogram | Unit::Ounce | Unit::Pound => MeasureKind::Weight,
 
@@ -432,7 +431,7 @@ impl Measure {
                     MeasureKind::Other(s.clone())
                 }
             }
-        })
+        }
     }
 
     pub fn denormalize(&self) -> Measure {
@@ -698,7 +697,7 @@ mod tests {
     ) {
         let m = Measure::new(unit, value);
         assert_eq!(
-            m.kind().unwrap(),
+            m.kind(),
             MeasureKind::Nutrient(expected_nutrient.to_string())
         );
     }
@@ -706,13 +705,10 @@ mod tests {
     #[test]
     fn test_measure_kind_other_units() {
         let m_whole = Measure::new("whole", 1.0);
-        assert!(matches!(m_whole.kind().unwrap(), MeasureKind::Other(_)));
+        assert!(matches!(m_whole.kind(), MeasureKind::Other(_)));
 
         let m_slice = Measure::new("slice", 2.0);
-        assert_eq!(
-            m_slice.kind().unwrap(),
-            MeasureKind::Other("slice".to_string())
-        );
+        assert_eq!(m_slice.kind(), MeasureKind::Other("slice".to_string()));
     }
 
     // ============================================================================

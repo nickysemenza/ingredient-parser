@@ -496,13 +496,13 @@ fn test_rich_text_dimension_is_non_scalable() {
     let inch = result
         .iter()
         .find_map(|c| match c {
-            Chunk::Measure(m) if m[0].kind().ok() == Some(MeasureKind::Length) => Some(&m[0]),
+            Chunk::Measure(m) if m[0].kind() == MeasureKind::Length => Some(&m[0]),
             _ => None,
         })
         .unwrap();
     assert_eq!(inch.value(), 2.0);
     assert!(
-        !inch.kind().unwrap().is_scalable(),
+        !inch.kind().is_scalable(),
         "dimensions must not scale with the recipe"
     );
 }

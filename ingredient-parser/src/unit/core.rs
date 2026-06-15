@@ -67,16 +67,18 @@ impl Unit {
     /// public), e.g. `Unit::Other("cup".into())`; such values are promoted to
     /// their built-in (`Unit::Cup`). A genuinely-unknown unit is normalized to
     /// its lowercase, singular form (e.g. `Other("Cloves")` -> `Other("clove")`).
-    pub fn normalize(self) -> Unit {
+    pub fn normalize(&self) -> Unit {
         match self {
             // `from_str` lower-cases/singularizes for lookup and promotes known
             // aliases; it only ever returns `Other` for truly-unknown units (and
             // never `Err`), in which case we canonicalize the stored text.
-            Unit::Other(x) => match Unit::from_str(&x) {
-                Ok(Unit::Other(_)) | Err(()) => Unit::Other(singular(&x).into_owned()),
+            Unit::Other(x) => match Unit::from_str(x) {
+                Ok(Unit::Other(_)) | Err(()) => Unit::Other(singular(x).into_owned()),
                 Ok(known) => known,
             },
-            canonical => canonical,
+            // Built-in variants hold no heap data, so this clone is a cheap copy;
+            // taking `&self` lets callers normalize a borrow without cloning first.
+            canonical => canonical.clone(),
         }
     }
     /// The unit's canonical string form. Built-in variants borrow a `&'static
@@ -177,8 +179,10 @@ impl FromStr for Unit {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lowered = s.to_lowercase();
-        let s_norm = singular(&lowered);
+        // `singular` lowercases internally, borrowing without allocation when the
+        // input is already lowercase ASCII (the common case off a recipe line),
+        // so there's no need for an unconditional `to_lowercase()` here.
+        let s_norm = singular(s);
         // O(1) lookup using HashMap
         if let Some(unit) = UNIT_MAP.get(&*s_norm) {
             return Ok(unit.clone());

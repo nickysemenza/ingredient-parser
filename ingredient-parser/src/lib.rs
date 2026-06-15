@@ -174,7 +174,7 @@ use std::sync::LazyLock;
 pub use crate::error::{IngredientError, IngredientResult};
 pub use crate::ingredient::Ingredient;
 pub use crate::usage::{classify_usage, IngredientUsage};
-use parser::MeasurementParser;
+use parser::{MeasurementMode, MeasurementParser};
 use unit::Measure;
 
 pub mod error;
@@ -537,7 +537,7 @@ impl IngredientParser {
     /// ```
     #[tracing::instrument(name = "parse_amount")]
     pub fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
-        let mp = MeasurementParser::new(&self.units, false);
+        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
         match mp.parse_measurement_list(input) {
             Ok((_, measurements)) => Ok(measurements),
             Err(e) => Err(IngredientError::AmountParseError {

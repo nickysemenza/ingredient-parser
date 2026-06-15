@@ -53,4 +53,4 @@ pub(crate) use helpers::{
     parse_ingredient_text, parse_unit_text, text_number, thousands_number, Res,
 };
 pub(crate) use measurement::guards::is_distance_unit;
-pub(crate) use measurement::MeasurementParser;
+pub(crate) use measurement::{MeasurementMode, MeasurementParser};

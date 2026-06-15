@@ -10,7 +10,7 @@ use nom::{
 use super::ir::{ModifierPart, ParsedIngredient};
 use super::normalize::{lift_inline_descriptive_paren, normalize_input, strip_optional_note};
 use super::refine::clean_modifier;
-use crate::parser::{parse_ingredient_text, MeasurementParser, Res};
+use crate::parser::{parse_ingredient_text, MeasurementMode, MeasurementParser, Res};
 use crate::trace;
 use crate::traced_parser;
 use crate::unit::Measure;
@@ -156,7 +156,7 @@ impl IngredientParser {
     /// in the higher-level ingredient pipeline.
     #[tracing::instrument(name = "parse_ingredient")]
     pub(crate) fn parse_ingredient<'a>(&self, input: &'a str) -> Res<&'a str, ParsedIngredient> {
-        let mp = MeasurementParser::new(&self.units, false);
+        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
 
         // NOTE: a leading preparation adjective ("1 cup chopped onion") is NOT
         // consumed here — it stays in the name chunks and is extracted into the
@@ -247,7 +247,7 @@ impl IngredientParser {
         use crate::{Field, FieldSpan};
         use nom::combinator::consumed;
 
-        let mp = MeasurementParser::new(&self.units, false);
+        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
         let base = input.as_ptr() as usize;
         // Tighten a matched slice to its non-whitespace extent and turn it into a
         // FieldSpan; None when the slice is empty/all-whitespace.

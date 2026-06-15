@@ -17,7 +17,7 @@ use super::guards::{
     find_matching_paren, is_distance_unit, looks_like_step_number, optional_article,
     optional_dash_separator, optional_period_or_of,
 };
-use super::{MeasurementParser, DEFAULT_UNIT};
+use super::{MeasurementMode, MeasurementParser, DEFAULT_UNIT};
 
 impl<'a> MeasurementParser<'a> {
     /// Parse a single measurement like "2 cups" or "about 3 tablespoons".
@@ -84,7 +84,7 @@ impl<'a> MeasurementParser<'a> {
     /// `MeasureKind::Length`, which is non-scalable, so a scaled recipe leaves the
     /// dimension untouched. No-op outside rich-text mode.
     fn rejected_in_rich_text(&self, next_input: &str, period_consumed: Option<&str>) -> bool {
-        if !self.is_rich_text {
+        if self.mode != MeasurementMode::RichText {
             return false;
         }
         period_consumed.is_none() && looks_like_step_number(next_input)
@@ -166,7 +166,7 @@ impl<'a> MeasurementParser<'a> {
     /// "bullet-proof recipe" being parsed as "1 recipe". In prose, measurements
     /// should always have explicit numbers.
     pub(super) fn parse_unit_only<'b>(&self, input: &'b str) -> Res<&'b str, Measure> {
-        if self.is_rich_text {
+        if self.mode == MeasurementMode::RichText {
             return Err(reject_measurement(input));
         }
 
@@ -383,7 +383,7 @@ pub(crate) fn leading_qualifier(input: &str) -> Res<&str, ()> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::super::test_support::units;
-    use super::super::MeasurementParser;
+    use super::super::{MeasurementMode, MeasurementParser};
     use rstest::{fixture, rstest};
     use std::collections::HashSet;
 
@@ -394,7 +394,7 @@ mod tests {
 
     #[rstest]
     fn test_measurement_with_about(units_fx: HashSet<String>) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_single_measurement("about 2 cups");
         assert!(result.is_ok());
     }
@@ -409,7 +409,7 @@ mod tests {
     #[case::heaping("Heaping 1 tablespoon")]
     #[case::article("A generous 1 cup")]
     fn test_leading_qualifiers(units_fx: HashSet<String>, #[case] input: &str) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measure) = parser.parse_single_measurement(input).unwrap();
         // The qualifier is discarded; the numeric value survives.
         assert!(measure.value() >= 1.0, "input: {input}");
@@ -417,7 +417,7 @@ mod tests {
 
     #[rstest]
     fn test_unit_only(units_fx: HashSet<String>) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_unit_only(" cup ");
         assert!(result.is_ok());
         let (_, measure) = result.unwrap();
@@ -426,13 +426,13 @@ mod tests {
 
     #[rstest]
     fn test_unit_only_rejected_in_rich_text_mode(units_fx: HashSet<String>) {
-        let parser = MeasurementParser::new(&units_fx, true);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::RichText);
         assert!(parser.parse_unit_only(" cup ").is_err());
     }
 
     #[rstest]
     fn test_no_unit_defaults_to_whole(units_fx: HashSet<String>) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_single_measurement("2 ");
         assert!(result.is_ok());
         let (_, measure) = result.unwrap();
@@ -453,7 +453,7 @@ mod tests {
         #[case] value: f64,
         #[case] unit: &str,
     ) {
-        let parser = MeasurementParser::new(&units_fx, true);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::RichText);
         let (_, measure) = parser.parse_single_measurement(input).unwrap();
         assert_eq!(measure.value(), value, "input: {input}");
         assert_eq!(measure.unit_as_string(), unit, "input: {input}");
@@ -468,7 +468,7 @@ mod tests {
     #[case::periods("18 fl. oz. water")]
     #[case::spelled("2 fluid ounces cream")]
     fn test_fluid_ounce_unit(units_fx: HashSet<String>, #[case] input: &str) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measure) = parser.parse_single_measurement(input).unwrap();
         assert_eq!(measure.unit_as_string(), "fl oz", "input: {input}");
     }
@@ -487,7 +487,7 @@ mod tests {
         #[case] input: &str,
         #[case] unit: &str,
     ) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measure) = parser.parse_single_measurement(input).unwrap();
         assert_eq!(measure.unit_as_string(), unit, "input: {input}");
     }
@@ -499,7 +499,7 @@ mod tests {
     #[case::tsp_word("1 tsp salt")]
     #[case::tomato("1 Tomato")]
     fn test_single_letter_spoon_no_false_match(units_fx: HashSet<String>, #[case] input: &str) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measure) = parser.parse_single_measurement(input).unwrap();
         // Never canonicalized to a spoon from a longer word.
         assert!(
@@ -510,7 +510,7 @@ mod tests {
 
     #[rstest]
     fn test_unit_after_parenthesized_description(units_fx: HashSet<String>) {
-        let parser = MeasurementParser::new(&units_fx, false);
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let result = parser.parse_single_measurement("4 (13-millimeter/½-inch) slices CHASHU");
         assert!(result.is_ok());
         let (remaining, measure) = result.unwrap();
