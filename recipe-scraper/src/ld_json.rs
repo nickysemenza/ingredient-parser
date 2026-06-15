@@ -33,7 +33,9 @@ fn humanize_iso8601_duration(input: &str) -> Option<String> {
     // else (years/months/weeks) isn't a recipe duration.
     if !date_part.is_empty() {
         let days: u64 = date_part.strip_suffix('D')?.parse().ok()?;
-        hours += days * 24;
+        // Adversarial HTML can carry an absurd day count; saturate-then-reject via
+        // checked arithmetic rather than overflow-panic (debug) or wrap (release).
+        hours = hours.checked_add(days.checked_mul(24)?)?;
         saw_component = true;
     }
     for c in time_part.chars() {
@@ -102,6 +104,14 @@ fn extract_tool_names(value: &Value) -> Vec<String> {
     }
 }
 
+/// Clamp a raw yield number to a plausible servings count. Adversarial or
+/// malformed JSON can carry NaN, infinity, negatives, or absurd magnitudes;
+/// `value as u32` would silently coerce those to 0 or `u32::MAX`. Reject anything
+/// outside a sane range instead.
+fn servings_from_f64(value: f64) -> Option<u32> {
+    (value.is_finite() && (0.0..100_000.0).contains(&value)).then_some(value as u32)
+}
+
 /// Parse a yield string into RecipeYield, returning servings as an integer when
 /// it represents servings.
 ///
@@ -130,7 +140,7 @@ pub fn parse_yield_string(input: &str) -> (Option<RecipeYield>, Option<u32>) {
             let value = first.value();
 
             let servings = if unit == "serving" || unit == "servings" || implies_servings {
-                Some(value as u32)
+                servings_from_f64(value)
             } else {
                 None
             };
@@ -167,7 +177,7 @@ fn extract_yield_from_wrapper(
                 value: *n,
                 unit: "serving".to_string(),
             }),
-            Some(*n as u32),
+            servings_from_f64(*n),
         ),
         ld_schema::RecipeYieldWrapper::StringArray(arr) => {
             // Try each string until we get a successful parse
@@ -187,7 +197,7 @@ fn extract_yield_from_wrapper(
                         value: *n,
                         unit: "serving".to_string(),
                     }),
-                    Some(*n as u32),
+                    servings_from_f64(*n),
                 )
             })
         }
@@ -353,7 +363,10 @@ fn parse_ld_json(json: &str) -> Result<ld_schema::Root, ScrapeError> {
             // Try to log the raw JSON for debugging if possible
             if let Ok(raw) = serde_json::from_str::<Value>(json) {
                 if let Ok(pretty) = serde_json::to_string_pretty(&raw) {
-                    error!("failed to find ld json root: {}", pretty);
+                    // Cap the logged body: an adversarial page can carry megabytes
+                    // of JSON, and this fires on every deserialize failure.
+                    let preview: String = pretty.chars().take(2_000).collect();
+                    error!("failed to find ld json root: {}", preview);
                 }
             }
             return Err(ScrapeError::Deserialize(e));
@@ -663,6 +676,13 @@ mod tests {
         None,
         None
     )]
+    // Adversarial/garbage magnitude: the raw yield value is preserved (f64), but
+    // the servings count is rejected rather than saturating to u32::MAX.
+    #[case::number_absurd_servings(
+        RecipeYieldWrapper::Number(1e30),
+        Some(RecipeYield { value: 1e30, unit: "serving".to_string() }),
+        None
+    )]
     fn test_extract_yield_from_wrapper(
         #[case] wrapper: RecipeYieldWrapper,
         #[case] expected_yield: Option<RecipeYield>,
@@ -697,6 +717,9 @@ mod tests {
     #[case::days_and_hours("P1DT2H", Some("26 hours"))]
     #[case::days_only("P1D", Some("24 hours"))]
     #[case::months_rejected("P1M", None)]
+    // Regression: an absurd day count from adversarial HTML must not panic
+    // (debug) or wrap (release) on `days * 24`; checked arithmetic rejects it.
+    #[case::days_overflow("P1000000000000000000D", None)]
     fn test_humanize_iso8601_duration(#[case] input: &str, #[case] expected: Option<&str>) {
         assert_eq!(
             humanize_iso8601_duration(input),

@@ -91,10 +91,11 @@ impl IngredientParser {
     /// modifier and restore the real name ("flour"). The primary amount is left
     /// as stated (the subtraction isn't applied numerically).
     fn fix_leading_minus_clause(&self, parsed: &mut ParsedIngredient) {
-        let name = parsed.name.clone();
-        let Some(rest) = name
+        // Borrow for the prefix guard; only allocate once we've confirmed a match.
+        let Some(rest) = parsed
+            .name
             .strip_prefix("minus ")
-            .or_else(|| name.strip_prefix("Minus "))
+            .or_else(|| parsed.name.strip_prefix("Minus "))
         else {
             return;
         };
@@ -107,7 +108,9 @@ impl IngredientParser {
         }
         let consumed = rest[..rest.len() - remaining.len()].trim();
         let clause = format!("minus {consumed}");
-        parsed.name = remaining.trim().to_string();
+        let new_name = remaining.trim().to_string();
+        // The `parsed.name` borrows (rest/remaining/consumed) all end above.
+        parsed.name = new_name;
         // Prepend the subtractive clause so it leads the modifier ("minus …, …").
         parsed.modifier.insert(0, ModifierPart::Raw(clause));
     }
@@ -159,14 +162,20 @@ impl IngredientParser {
     }
 
     fn extract_adjectives_from_name(&self, parsed: &mut ParsedIngredient) {
-        let mut name = parsed.name.clone();
-        let mut name_lower = name.to_lowercase();
+        let mut name_lower = parsed.name.to_lowercase();
         let mut found_adjectives: Vec<&String> = self
             .adjectives
             .iter()
             .filter(|adj| name_lower.contains(adj.as_str()))
             .collect();
+        // Common case: a clean name carries no known adjective. Bail before the
+        // `parsed.name.clone()` (and the per-adjective work) rather than cloning,
+        // looping zero times, and writing the name back unchanged.
+        if found_adjectives.is_empty() {
+            return;
+        }
         found_adjectives.sort_by_key(|adj| Reverse(adj.len()));
+        let mut name = parsed.name.clone();
 
         // Count of leading prep adjectives already moved to the front, so several
         // ("chopped minced onion") keep their source order instead of reversing.
@@ -309,19 +318,24 @@ impl IngredientParser {
             Regex::new(r"(?i)\s+for\s+").expect("invalid for-clause regex")
         });
 
-        let name = parsed.name.clone();
-        let Some(m) = FOR_PATTERN.find(&name) else {
+        // Borrow `parsed.name` for the match/guards; only the two owned result
+        // strings are built before the name is reassigned, so no upfront clone.
+        let Some(m) = FOR_PATTERN.find(&parsed.name) else {
             return;
         };
-        let next_word = name[m.end()..].split_whitespace().next().unwrap_or("");
+        let next_word = parsed.name[m.end()..]
+            .split_whitespace()
+            .next()
+            .unwrap_or("");
         if next_word.len() < 5
             || !next_word.ends_with("ing")
             || !next_word.chars().all(char::is_alphabetic)
         {
             return;
         }
-        let clause = name[m.start()..].trim().to_string();
-        parsed.name = name[..m.start()].trim().to_string();
+        let clause = parsed.name[m.start()..].trim().to_string();
+        let new_name = parsed.name[..m.start()].trim().to_string();
+        parsed.name = new_name;
         parsed.push_modifier(ModifierPart::Prep(clause));
     }
 
@@ -338,8 +352,8 @@ impl IngredientParser {
     /// (`-ed`) or be a known adjective, the word after "or" must be a known
     /// adjective phrase, and a head noun must remain.
     fn extract_leading_prep_alternative(&self, parsed: &mut ParsedIngredient) {
-        let name = parsed.name.trim().to_string();
-        let words: Vec<&str> = name.split_whitespace().collect();
+        let trimmed = parsed.name.trim();
+        let words: Vec<&str> = trimmed.split_whitespace().collect();
         if words.len() < 4 {
             return;
         }
@@ -373,7 +387,9 @@ impl IngredientParser {
             return;
         }
         let prefix = words[..name_start].join(" ");
-        parsed.name = words[name_start..].join(" ");
+        let new_name = words[name_start..].join(" ");
+        // `words` (borrowing parsed.name) is no longer read past this point.
+        parsed.name = new_name;
         parsed.push_modifier(ModifierPart::Prep(prefix));
     }
 

@@ -198,3 +198,96 @@ const RECOGNIZERS: &[(&str, Recognizer)] = &[
 fn is_temperature_unit(unit: &unit::Unit) -> bool {
     matches!(unit, unit::Unit::Fahrenheit | unit::Unit::Celsius)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    // ── try_parse_optional_ingredient ───────────────────────────────────────
+    #[rstest]
+    // A fully parenthesized line is the optional form.
+    #[case::wrapped("(1 cup walnuts)", true)]
+    // No surrounding parens → fall through.
+    #[case::not_wrapped("1 cup walnuts", false)]
+    // Empty / whitespace-only parens carry no ingredient (the empty-name &
+    // empty-amounts guard).
+    #[case::empty_parens("()", false)]
+    #[case::blank_parens("(   )", false)]
+    fn optional_recognizer_matches(#[case] input: &str, #[case] matches: bool) {
+        let got = IngredientParser::new().try_parse_optional_ingredient(input);
+        assert_eq!(got.is_some(), matches, "input: {input}");
+        if let Some(ing) = got {
+            assert!(
+                ing.optional,
+                "matched optional form must set optional: {input}"
+            );
+        }
+    }
+
+    // ── try_parse_trailing_amount_format ────────────────────────────────────
+    #[test]
+    fn trailing_amount_basic() {
+        let ing = IngredientParser::new()
+            .try_parse_trailing_amount_format("Butter — 2 tablespoons")
+            .expect("trailing em-dash amount should match");
+        assert_eq!(ing.name, "Butter");
+        assert_eq!(ing.amounts.len(), 1);
+    }
+
+    #[rstest]
+    // No trailing-amount separator at all.
+    #[case::no_separator("2 tablespoons butter")]
+    // A trailing *temperature* describes a property, not a quantity, so the
+    // recognizer must decline (the all-temperature guard) and let the line fall
+    // through to the core parse.
+    #[case::temp_only_f("Water — 100°F")]
+    #[case::temp_only_c("Milk — 37°C")]
+    fn trailing_amount_declines(#[case] input: &str) {
+        assert!(
+            IngredientParser::new()
+                .try_parse_trailing_amount_format(input)
+                .is_none(),
+            "should not match: {input}"
+        );
+    }
+
+    // ── try_parse_x_of_construction ─────────────────────────────────────────
+    #[test]
+    fn x_of_construction_basic() {
+        let ing = IngredientParser::new()
+            .try_parse_x_of_construction("Juice of 1 lemon")
+            .expect("'X of N item' should match");
+        assert_eq!(ing.name, "lemon");
+        assert_eq!(ing.amounts.len(), 1);
+        assert_eq!(ing.modifier.as_deref(), Some("juice of"));
+    }
+
+    #[test]
+    fn x_of_construction_prepends_to_existing_modifier() {
+        // The remainder carries its own modifier ("halved"); the leading phrase is
+        // prepended, pinning the "<phrase>, <existing>" join format.
+        let ing = IngredientParser::new()
+            .try_parse_x_of_construction("Juice of 1 lemon, halved")
+            .expect("should match");
+        assert_eq!(ing.name, "lemon");
+        assert_eq!(ing.modifier.as_deref(), Some("juice of, halved"));
+    }
+
+    #[rstest]
+    // "of" not followed by a number is a normal name, not the construction.
+    #[case::cream_of_tartar("cream of tartar")]
+    // Bare leading pivot with no descriptor before "of".
+    #[case::bare_pivot("of 1 lemon")]
+    // No count/item after the pivot → not the construction ("zest of lemon").
+    #[case::no_count("zest of lemon")]
+    fn x_of_construction_declines(#[case] input: &str) {
+        assert!(
+            IngredientParser::new()
+                .try_parse_x_of_construction(input)
+                .is_none(),
+            "should not match: {input}"
+        );
+    }
+}

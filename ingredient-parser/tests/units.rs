@@ -498,20 +498,20 @@ fn test_graph_creation_and_printing() {
         (Measure::new("tsp", 1.0), Measure::new("gram", 1.0)),
     ]);
     // The `ml` node and tsp<->ml edges are seeded by the volume bridge (a volume unit,
-    // tsp, is present in the graph).
+    // tsp, is present in the graph). The readable DOT format (commit e03eae8):
+    // nodes carry a `class` = MeasureKind, opposing edges collapse into one
+    // `dir = "both"` edge, factors round to 3 sig figs, and the synthesized
+    // volume bridge is `dashed`.
     assert_eq!(
         print_graph(g),
         r#"digraph {
-    0 [ label = "tsp" ]
-    1 [ label = "cent" ]
-    2 [ label = "g" ]
-    3 [ label = "ml" ]
-    0 -> 1 [ label = "1000" ]
-    1 -> 0 [ label = "0.001" ]
-    0 -> 2 [ label = "1" ]
-    2 -> 0 [ label = "1" ]
-    0 -> 3 [ label = "4.92892" ]
-    3 -> 0 [ label = "0.20288420181297323" ]
+    0 [ label = "tsp", class = "volume" ]
+    1 [ label = "cent", class = "money" ]
+    2 [ label = "g", class = "weight" ]
+    3 [ label = "ml", class = "volume" ]
+    0 -> 1 [ label = "1000", dir = "both" ]
+    0 -> 2 [ label = "1", dir = "both" ]
+    0 -> 3 [ label = "4.93", dir = "both", style = "dashed" ]
 }
 "#
     );

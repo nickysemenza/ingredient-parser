@@ -41,18 +41,19 @@ impl MeasureKind {
     /// prefix (both previously collapsed to a lossy bare `"other"`). Static
     /// variants borrow; the two parameterized ones allocate.
     pub fn to_str(&self) -> Cow<'_, str> {
-        match self {
-            MeasureKind::Other(s) => Cow::Owned(format!("other:{s}")),
-            MeasureKind::Nutrient(s) => Cow::Owned(format!("nutrient:{s}")),
-            _ => {
-                for (s, kind) in MEASURE_KIND_MAPPINGS {
-                    if self == kind {
-                        return Cow::Borrowed(s);
-                    }
-                }
-                Cow::Borrowed("other")
-            }
-        }
+        // Exhaustive match (not a scan over MEASURE_KIND_MAPPINGS): a new variant
+        // becomes a compile error here instead of silently falling back to "other".
+        Cow::Borrowed(match self {
+            MeasureKind::Other(s) => return Cow::Owned(format!("other:{s}")),
+            MeasureKind::Nutrient(s) => return Cow::Owned(format!("nutrient:{s}")),
+            MeasureKind::Weight => "weight",
+            MeasureKind::Volume => "volume",
+            MeasureKind::Money => "money",
+            MeasureKind::Calories => "calories",
+            MeasureKind::Time => "time",
+            MeasureKind::Temperature => "temperature",
+            MeasureKind::Length => "length",
+        })
     }
 
     /// Returns whether this measure kind should scale when adjusting recipe quantities.

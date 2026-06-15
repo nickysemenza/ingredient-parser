@@ -31,39 +31,9 @@ fn test_ingredient_struct() {
     assert_ne!(ingredient1, ingredient3);
 }
 
-#[test]
-fn test_ingredient_display() {
-    let test_cases: Vec<(Ingredient, &str)> = vec![
-        // With amounts
-        (
-            Ingredient::new("flour", vec![Measure::new("cups", 2.0)], None),
-            "2 cups flour",
-        ),
-        // With modifier
-        (
-            Ingredient::new("flour", vec![Measure::new("cups", 2.0)], Some("sifted")),
-            "2 cups flour, sifted",
-        ),
-        // Multiple amounts
-        (
-            Ingredient::new(
-                "water",
-                vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)],
-                None,
-            ),
-            "1 cup / 240 ml water",
-        ),
-        // No amounts
-        (
-            Ingredient::new("salt", vec![], Some("to taste")),
-            "n/a salt, to taste",
-        ),
-    ];
-
-    for (ingredient, expected) in test_cases {
-        assert_eq!(ingredient.to_string(), expected);
-    }
-}
+// `Display` is covered exhaustively by the inline `src/ingredient.rs` test (a
+// superset of the cases that used to live here), so this file keeps only the
+// integration-level struct/error checks.
 
 // ============================================================================
 // Error Type Tests
@@ -71,8 +41,7 @@ fn test_ingredient_display() {
 
 #[test]
 fn test_ingredient_error() {
-    // Display for each variant the library actually produces
-    // (ParseError/Generic are deprecated and never constructed).
+    // Display for each variant the library actually produces.
     let error_cases: Vec<(IngredientError, &str)> = vec![
         (
             IngredientError::AmountParseError {

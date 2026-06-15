@@ -1,8 +1,11 @@
 /// Format a float without trailing zeros (e.g., "2.50" → "2.5")
 pub fn num_without_zeroes(val: f64) -> String {
-    let mut val = format!("{val:.2}");
-    val = val.trim_end_matches('0').trim_end_matches('.').to_string();
-    val
+    // Trailing zeros/'.' are only ever stripped from the end, so truncate the
+    // owned buffer in place rather than allocating a second String for the slice.
+    let mut s = format!("{val:.2}");
+    let keep = s.trim_end_matches('0').trim_end_matches('.').len();
+    s.truncate(keep);
+    s
 }
 
 /// Map a fractional part (0..1) to a Unicode vulgar fraction glyph, if it is one

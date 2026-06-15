@@ -480,7 +480,17 @@ pub(super) fn lift_inline_descriptive_paren(input: &str) -> Option<(String, Stri
 /// Collapse runs of whitespace to single spaces and trim. Shared with the
 /// post-parse name cleanup in the refine phase.
 pub(super) fn collapse_whitespace(input: &str) -> String {
-    input.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Write words straight into a pre-sized buffer; the old
+    // `split_whitespace().collect::<Vec<_>>().join(" ")` allocated a throwaway Vec
+    // on every parse (this runs in both normalize and the refine name cleanup).
+    let mut out = String::with_capacity(input.len());
+    for word in input.split_whitespace() {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -523,6 +533,71 @@ mod tests {
             expected.map(|(c, a)| (c.to_string(), a.to_string())),
             "input: {input}"
         );
+    }
+
+    #[rstest]
+    #[case::nbsp("1\u{a0}cup\u{a0}flour", "1 cup flour")]
+    #[case::no_nbsp("1 cup flour", "1 cup flour")]
+    fn test_strip_nbsp(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(strip_nbsp(input), expected);
+    }
+
+    #[rstest]
+    // Circled-number footnote markers are dropped.
+    #[case::circled("rye flour \u{2460}", "rye flour ")]
+    #[case::dingbat("salt \u{2776}", "salt ")]
+    // No marker → passes through unchanged.
+    #[case::clean("rye flour", "rye flour")]
+    fn test_strip_footnote_markers(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(strip_footnote_markers(input), expected);
+    }
+
+    #[rstest]
+    // "the" directly before a quantity is a determiner → dropped.
+    #[case::the_fraction("the ¼ cup of garlic chives", "¼ cup of garlic chives")]
+    #[case::the_digit("the 2 cups flour", "2 cups flour")]
+    // "the" before a word is part of the name → left alone.
+    #[case::the_word("the works seasoning", "the works seasoning")]
+    fn test_strip_leading_determiner(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(strip_leading_determiner(input), expected);
+    }
+
+    #[rstest]
+    // An amount stated elsewhere → the redundant minus-paren is dropped.
+    #[case::redundant(
+        "15 tablespoons (2 sticks minus 1 tablespoon) unsalted butter",
+        "15 tablespoons unsalted butter"
+    )]
+    // Sole-quantity guard: when the minus-paren is the line's ONLY quantity it is
+    // KEPT, so the parse can surface `unparsed_digit` rather than silently zeroing
+    // the amount. (Regression for the minus-equivalence guard.)
+    #[case::sole_quantity(
+        "butter (2 sticks minus 1 tablespoon)",
+        "butter (2 sticks minus 1 tablespoon)"
+    )]
+    // No minus-paren at all → unchanged.
+    #[case::no_paren("2 sticks butter", "2 sticks butter")]
+    fn test_strip_minus_equivalence(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(strip_minus_equivalence(input), expected);
+    }
+
+    #[rstest]
+    // Parenthetical "(optional)" mid/end of a line → stripped, flagged optional.
+    #[case::paren("flour (optional)", "flour", true)]
+    // Trailing ", optional" word form → stripped, flagged.
+    #[case::trailing_word("toasted sesame seeds, optional", "toasted sesame seeds", true)]
+    // Whole-line "(optional)" is left for try_parse_optional_ingredient.
+    #[case::whole_line("(optional)", "(optional)", false)]
+    // No optional marker → unchanged, not flagged.
+    #[case::none("flour", "flour", false)]
+    fn test_strip_optional_note(
+        #[case] input: &str,
+        #[case] expected_text: &str,
+        #[case] expected_flag: bool,
+    ) {
+        let (text, flag) = strip_optional_note(input);
+        assert_eq!(text, expected_text, "text for: {input}");
+        assert_eq!(flag, expected_flag, "flag for: {input}");
     }
 
     #[rstest]

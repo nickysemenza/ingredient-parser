@@ -536,7 +536,7 @@ async fn main() {
                 // or falls back to a caret on a digit that produced no amount;
                 // the stage view below shows which pipeline stage shaped the line.
                 if *explain {
-                    let (_ingredient, diag) = parser.parse_with_diagnostics(name);
+                    let diag = parser.from_str(name).parse_notes;
                     let decomp = parser.decompose(name);
                     print!("{}", explain::render(&decomp, &diag, use_color));
                     println!();

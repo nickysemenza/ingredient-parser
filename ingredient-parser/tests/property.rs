@@ -17,12 +17,34 @@ prop_compose! {
     }
 }
 
+// Broad-Unicode generator covering the byte-boundary danger zones that ASCII
+// fuzzing misses: Latin-1/Extended-A (incl. 'İ' U+0130, whose lowercase is
+// *longer* than the original), combining diacritics, the full vulgar-fraction
+// set, and a slice of CJK. Regression cover for the multibyte panics fixed in
+// adjective extraction and length-changing lowercase.
+prop_compose! {
+    fn arb_unicode_input()(
+        input in r"[a-zA-Z0-9 .,;/\-\(\)½¼¾⅓⅔⅛⅜⅝⅞İı\u{00C0}-\u{017F}\u{0300}-\u{0303}\u{4E00}-\u{4E0F}]*"
+    ) -> String {
+        input
+    }
+}
+
 proptest! {
     /// Test that parser never panics on arbitrary input
     #[test]
     fn parser_never_panics(input in arb_text_input()) {
         let _ = from_str(&input);
         // If we get here, no panic occurred
+    }
+
+    /// Parser never panics on arbitrary *multibyte* input, and the result still
+    /// round-trips through Display. Guards the UTF-8 byte-boundary handling in
+    /// adjective extraction / length-changing lowercase.
+    #[test]
+    fn parser_never_panics_unicode(input in arb_unicode_input()) {
+        let ingredient = from_str(&input);
+        let _display = format!("{ingredient}");
     }
 
     /// Test that parser produces valid ingredient structures

@@ -378,38 +378,48 @@ fn test_rich_text_multiple_ingredients() {
 // Measurement Edge Cases
 // ============================================================================
 
+/// How multi-measure and unit-defaulting inputs map to (name, rendered amounts).
+/// One row per behavior so a regression names the exact case that broke.
 #[rstest]
-fn test_measurement_edge_cases(parser: IngredientParser) {
-    // A cross-unit range can't fold into one ranged measure; both endpoints
-    // become separate amounts and the name survives.
-    let ingredient = parser.from_str("1 cup to 2 tbsp flour");
-    assert_eq!(ingredient.name, "flour");
+// A cross-unit range can't fold into one ranged measure; both endpoints become
+// separate amounts and the name survives.
+#[case::cross_unit_range("1 cup to 2 tbsp flour", "flour", &["1 cup", "2 tbsp"])]
+// "plus" across INCOMPATIBLE units keeps both endpoints as separate amounts
+// (it can't sum cup + gram), rather than dropping one.
+#[case::incompatible_plus("1 cup plus 2 grams flour", "flour", &["1 cup", "2 g"])]
+// "plus" across COMPATIBLE units folds into one combined measure (1 cup + 2 tbsp
+// → 1⅛ cups).
+#[case::compatible_plus("1 cup plus 2 tbsp flour", "flour", &["1⅛ cups"])]
+// A bare count defaults to the `whole` unit, which renders as just the quantity.
+#[case::implicit_whole("2 eggs", "eggs", &["2"])]
+fn test_measurement_amount_shapes(
+    parser: IngredientParser,
+    #[case] input: &str,
+    #[case] name: &str,
+    #[case] amounts: &[&str],
+) {
+    let ingredient = parser.from_str(input);
+    assert_eq!(ingredient.name, name, "name for: {input}");
     assert_eq!(
         ingredient
             .amounts
             .iter()
             .map(|m| m.to_string())
             .collect::<Vec<_>>(),
-        vec!["1 cup", "2 tbsp"]
+        amounts,
+        "amounts for: {input}"
     );
+}
 
-    // Plus expression with incompatible units - should still parse something
-    let ingredient = parser.from_str("1 cup plus 2 grams flour");
-    assert!(!ingredient.name.is_empty());
-
-    // Implicit unit defaults to "whole"
-    let ingredient = parser.from_str("2 eggs");
-    assert_eq!(ingredient.amounts[0].unit_as_string(), "whole");
-
-    // Standard plus expression combines measurements
-    let ingredient = parser.from_str("1 cup plus 2 tbsp flour");
-    assert_eq!(ingredient.name, "flour");
-    assert_eq!(ingredient.amounts.len(), 1);
-
-    // parse_amount error on invalid input
+#[rstest]
+fn test_parse_amount_rejects_garbage(parser: IngredientParser) {
     assert!(parser.parse_amount("not a valid amount").is_err());
+}
 
-    // Rich text mode shouldn't parse text numbers like "one"
+#[test]
+fn test_rich_text_ignores_spelled_numbers() {
+    // Rich (instruction-prose) mode must not read text numbers like "one" as a
+    // quantity, so the prose passes through as a single text span.
     let rich_parser = RichParser::new(Vec::<String>::new());
     let result = rich_parser.parse("add one cup of flour").unwrap();
     assert!(!result.is_empty());
@@ -533,7 +543,7 @@ fn test_trailing_temp_only_not_used(parser: IngredientParser, #[case] input: &st
 
 /// `Ingredient::parse_notes` carries parse confidence and the corpus-harvest
 /// "digit but no amount" signal on every parse, without changing the infallible
-/// result. `parse_with_diagnostics` is now a thin accessor for the same notes.
+/// result.
 #[rstest]
 // Clean structured parse with an amount → High, no signals.
 #[case::clean("2 cups flour", ingredient::Confidence::High, false, false)]
@@ -559,16 +569,9 @@ fn test_parse_notes(
     #[case] fell_back: bool,
     #[case] unparsed_digit: bool,
 ) {
-    let (ingredient, diag) = parser.parse_with_diagnostics(input);
-    // The ingredient matches plain from_str (notes never change the result).
-    assert_eq!(ingredient, parser.from_str(input), "input: {input}");
-    // The notes are populated on the first-class field by plain from_str, and the
-    // accessor returns the same value.
-    assert_eq!(
-        parser.from_str(input).parse_notes,
-        diag,
-        "from_str parse_notes for: {input}"
-    );
+    // The notes are populated on the first-class field by plain from_str without
+    // changing the infallible result.
+    let diag = parser.from_str(input).parse_notes;
     assert_eq!(diag.confidence, confidence, "confidence for: {input}");
     assert_eq!(diag.fell_back, fell_back, "fell_back for: {input}");
     assert_eq!(

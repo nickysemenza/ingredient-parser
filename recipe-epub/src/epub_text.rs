@@ -412,6 +412,11 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                 Node::Element(e) => {
                     let name = e.name();
                     if is_skip(name) {
+                        // An <a> whose text flows into a skipped region can't be
+                        // captured reliably, and its matching </a> may be swallowed
+                        // inside the skip. Abandon the open anchor so a later stray
+                        // </a> can't claim its stale start offset.
+                        open_anchor = None;
                         skip_depth += 1;
                     } else if skip_depth == 0 {
                         if is_block(name) {

@@ -273,7 +273,7 @@ pub enum Confidence {
 /// [`fell_back`]: ParseNotes::fell_back
 /// [`unparsed_digit`]: ParseNotes::unparsed_digit
 /// [`confidence`]: ParseNotes::confidence
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ParseNotes {
     /// Overall confidence in the parse (a convenience rollup of the booleans).
     pub confidence: Confidence,
@@ -443,39 +443,6 @@ impl IngredientParser {
     /// ```
     pub fn from_str(&self, input: &str) -> Ingredient {
         self.parse_ingredient_line(input)
-    }
-
-    /// Parse an ingredient string and return non-failing parse diagnostics
-    /// alongside the result.
-    ///
-    /// `from_str` is intentionally infallible, which hides whether a line was
-    /// parsed cleanly or quietly fell back to a name-only ingredient. This method
-    /// surfaces that signal — useful for quality monitoring and for the
-    /// corpus-harvest loop, which looks for lines the parser likely mishandled
-    /// (e.g. a digit present but no amount parsed).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ingredient::{IngredientParser, Confidence};
-    ///
-    /// let parser = IngredientParser::new();
-    ///
-    /// let (ing, diag) = parser.parse_with_diagnostics("2 cups flour");
-    /// assert_eq!(ing.name, "flour");
-    /// assert_eq!(diag.confidence, Confidence::High);
-    ///
-    /// // A digit with no parseable amount is a likely miss → Low confidence.
-    /// let (_, diag) = parser.parse_with_diagnostics("1+1 vitamins");
-    /// assert!(diag.unparsed_digit);
-    /// assert_eq!(diag.confidence, Confidence::Low);
-    /// ```
-    pub fn parse_with_diagnostics(&self, input: &str) -> (Ingredient, ParseNotes) {
-        // `parse_notes` is now populated on every parse, so this is a thin
-        // accessor kept for callers that want the notes alongside the result.
-        let ingredient = self.parse_ingredient_line(input);
-        let notes = ingredient.parse_notes.clone();
-        (ingredient, notes)
     }
 
     /// Parse an ingredient string with debug tracing enabled

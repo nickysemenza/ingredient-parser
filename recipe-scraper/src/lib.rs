@@ -187,9 +187,19 @@ impl ScrapedRecipe {
 // https://github.com/pombadev/sunny/blob/main/src/lib/spider.rs
 // https://github.com/megametres/recettes-api/blob/dev/src/html_parser/mod.rs
 
+/// Whether `raw_url`'s host is `domain` or a subdomain of it. Parses the URL
+/// properly (via the `url` crate) so a substring `contains` check can't misroute
+/// `?ref=chefsteps.com` or `chefsteps.com.evil.test`.
+fn is_host(raw_url: &str, domain: &str) -> bool {
+    url::Url::parse(raw_url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| host == domain || host.ends_with(&format!(".{domain}")))
+}
+
 pub fn scrape(body: &str, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     info!("scraping {} bytes from {url}", body.len());
-    if url.contains("chefsteps.com") {
+    if is_host(url, "chefsteps.com") {
         info!("scraping chefsteps");
         return parse_chefsteps(body).map(|mut r| {
             r.clean_text();

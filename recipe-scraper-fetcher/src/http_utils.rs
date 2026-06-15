@@ -37,9 +37,16 @@ pub fn http_client() -> ClientWithMiddleware {
         .timeout(std::time::Duration::from_secs(30))
         .connect_timeout(std::time::Duration::from_secs(10))
         .build()
-        // Builder only fails on TLS/resolver misconfiguration; fall back to the
-        // default client (no timeout) rather than panicking.
-        .unwrap_or_default();
+        .unwrap_or_else(|e| {
+            // Builder only fails on TLS/resolver misconfiguration. The fallback
+            // default client has NO timeouts, defeating the slow-loris protection
+            // this function exists to provide — so make the degradation loud
+            // rather than swallowing it.
+            tracing::error!(
+                "http_client builder failed; falling back to un-timed default client: {e}"
+            );
+            reqwest::Client::new()
+        });
     ClientBuilder::new(client)
         .with(reqwest_tracing::TracingMiddleware::<TimeTrace>::new())
         .build()

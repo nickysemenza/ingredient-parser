@@ -169,7 +169,7 @@ impl CookbookRecipeExt for CookbookRecipe {
             .flat_map(|s| &s.ingredients)
             // Use the parser's native "has a digit but no parsed amount" signal
             // (the single source of truth) rather than re-deriving it here.
-            .filter(|line| ip.parse_with_diagnostics(line).1.unparsed_digit)
+            .filter(|line| ip.from_str(line).parse_notes.unparsed_digit)
             .cloned()
             .collect()
     }
@@ -249,9 +249,14 @@ fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
         ("gemini-2.0-flash-lite", (0.075, 0.30)),
         ("gemini-2.0-flash", (0.10, 0.40)),
     ];
+    // Longest matching key wins, so the most specific id resolves regardless of
+    // table order: "gemini-2.5-flash-lite" must not match the shorter
+    // "gemini-2.5-flash" prefix. This removes the order-dependence that a plain
+    // first-match `find` would silently rely on.
     table
         .iter()
-        .find(|(key, _)| m.contains(key))
+        .filter(|(key, _)| m.contains(key))
+        .max_by_key(|(key, _)| key.len())
         .map(|(_, rate)| *rate)
 }
 
@@ -442,7 +447,12 @@ fn contains_whole_tokens(haystack: &str, needle: &str) -> bool {
         if before_ok && after_ok {
             return true;
         }
-        start = abs + 1;
+        // Advance by one whole char, not one byte: `abs + 1` can land mid-char
+        // when `needle` begins with a multi-byte glyph (accented Latin, CJK, …),
+        // panicking on the next `haystack[start..]` slice. Stepping a full char
+        // stays on a UTF-8 boundary and preserves overlapping-match semantics.
+        let step = haystack[abs..].chars().next().map_or(1, char::len_utf8);
+        start = abs + step;
     }
     false
 }
@@ -702,6 +712,26 @@ mod tests {
         assert!(unknown.cost_usd().is_none());
     }
 
+    #[test]
+    fn price_per_mtok_prefers_most_specific_key() {
+        // "...flash-lite" must resolve to the lite rate, not the shorter "flash"
+        // prefix it also contains — longest-match-wins, independent of table order.
+        assert_eq!(
+            price_per_mtok("gemini-2.5-flash-lite-preview"),
+            Some((0.10, 0.40))
+        );
+        assert_eq!(price_per_mtok("gemini-2.5-flash-002"), Some((0.30, 2.50)));
+        assert_eq!(price_per_mtok("gemini-2.0-flash-lite"), Some((0.075, 0.30)));
+        assert_eq!(price_per_mtok("gemini-2.0-flash"), Some((0.10, 0.40)));
+        // Dated Anthropic ids still resolve by substring.
+        assert_eq!(
+            price_per_mtok("claude-haiku-4-5-20251001"),
+            Some((1.0, 5.0))
+        );
+        // Unmapped → None.
+        assert_eq!(price_per_mtok("opus-4-1"), None);
+    }
+
     fn er(title: &str, ings: &[&str]) -> ExtractedRecipe {
         ExtractedRecipe {
             meta: RecipeMeta {
@@ -919,6 +949,12 @@ mod tests {
             "1 recipe 麻婆豆腐 this page",
             "麻婆豆腐"
         ));
+        // Regression: the needle's leading multi-byte char first appears *glued*
+        // inside a larger word ("ôti" inside "rôti"), so the boundary check fails
+        // and the scan must advance past it. The old `start = abs + 1` landed on
+        // the second byte of 'ô' and panicked on the next slice; stepping a whole
+        // char must instead skip cleanly and report no whole-token match.
+        assert!(!contains_whole_tokens("rôti chicken", "ôti"));
     }
 
     /// Build an assembled recipe directly (post-`assemble` shape) for ref tests.

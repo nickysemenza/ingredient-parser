@@ -9,3 +9,10 @@
 {"input": "9\" x 13\"", "chunks": [{"measure": [{"unit": "\"", "value": 9.0}]}, {"text": " x "}, {"measure": [{"unit": "\"", "value": 13.0}]}]}
 {"input": "bake at 350-375°F", "chunks": [{"text": "bake at "}, {"measure": [{"unit": "°f", "value": 350.0, "upper_value": 375.0}]}]}
 {"input": "mix 2 cups flour and 1 tsp salt", "ingredients": ["flour", "salt"], "chunks": [{"text": "mix "}, {"measure": [{"unit": "cup", "value": 2.0}]}, {"text": " "}, {"ing": "flour"}, {"text": " and "}, {"measure": [{"unit": "tsp", "value": 1.0}]}, {"text": " "}, {"ing": "salt"}]}
+{"input": "rest for 10 minutes", "chunks": [{"text": "rest for "}, {"measure": [{"unit": "minute", "value": 10.0}]}]}
+{"input": "cook 2-3 hours", "chunks": [{"text": "cook "}, {"measure": [{"unit": "hour", "value": 2.0, "upper_value": 3.0}]}]}
+{"input": "preheat oven to 350°F", "chunks": [{"text": "preheat oven to "}, {"measure": [{"unit": "°f", "value": 350.0}]}]}
+{"input": "2 hours and up to 3 days", "chunks": [{"measure": [{"unit": "hour", "value": 2.0}]}, {"text": " and "}, {"measure": [{"unit": "day", "value": 0.0, "upper_value": 3.0}]}]}
+{"input": "add 1 cup water and store for at most 2 days", "ingredients": ["water"], "chunks": [{"text": "add "}, {"measure": [{"unit": "cup", "value": 1.0}]}, {"text": " "}, {"ing": "water"}, {"text": " and store for "}, {"measure": [{"unit": "day", "value": 0.0, "upper_value": 2.0}]}]}
+{"input": "1 Bring a large pot of water to a boil.", "chunks": [{"text": "1 Bring a large pot of water to a boil."}]}
+{"input": "2 Set out 4 ramen bowls.", "chunks": [{"text": "2 Set out "}, {"measure": [{"unit": "whole", "value": 4.0}]}, {"text": " ramen bowls."}]}

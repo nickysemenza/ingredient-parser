@@ -469,7 +469,10 @@ pub fn conv_amount_to_nutrients(
 
     let result = js_sys::Object::new();
     for target in nutrient_targets {
-        let kind = MeasureKind::Nutrient(target.clone());
+        // Build the JS key before moving `target` into the Nutrient kind, so the
+        // owned string is used once rather than cloned per target.
+        let key = JsValue::from_str(&target);
+        let kind = MeasureKind::Nutrient(target);
         let converted = convert_measure_with_graph(&measure, kind, &graph);
 
         let js_value = match converted {
@@ -477,7 +480,7 @@ pub fn conv_amount_to_nutrients(
             None => JsValue::NULL,
         };
 
-        js_sys::Reflect::set(&result, &JsValue::from_str(&target), &js_value)
+        js_sys::Reflect::set(&result, &key, &js_value)
             .map_err(|_| "Failed to set property on result object")?;
     }
 

@@ -13,7 +13,9 @@ pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeErr
         Some(x) => x.inner_html(),
         None => "".to_string(),
     };
-    // smitten kitchen
+    // NOTE: this "fallback" only understands Jetpack Recipe markup (Smitten
+    // Kitchen and other Jetpack-powered WordPress sites). It is not a general HTML
+    // scraper — sites without these classes hit the error below.
     let ingredient_selector = parse_selector("li.jetpack-recipe-ingredient")?;
     let ingredients = dom
         .select(&ingredient_selector)
@@ -24,7 +26,11 @@ pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeErr
 
     let instruction_list_item_elem = match dom.select(&ul_selector).next() {
         Some(x) => x,
-        None => return Err(ScrapeError::Parse("no ld json or parsed html".to_string())),
+        None => {
+            return Err(ScrapeError::Parse(
+                "no ld+json, and no Jetpack Recipe markup to fall back on".to_string(),
+            ))
+        }
     };
 
     let instructions = instruction_list_item_elem
@@ -49,5 +55,4 @@ pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeErr
         // HTML fallback doesn't have yield/metadata data.
         ..Default::default()
     })
-    // Err(ScrapeError::Parse("foo".to_string()))
 }

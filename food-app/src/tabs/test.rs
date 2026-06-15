@@ -190,7 +190,7 @@ impl TestTab {
             .filter(|l| !l.is_empty())
             .map(|line| {
                 let traced = parser.parse_with_trace(line);
-                let (_, diagnostics) = parser.parse_with_diagnostics(line);
+                let diagnostics = parser.from_str(line).parse_notes;
                 LineResult {
                     input: line.to_string(),
                     stages: traced.trace.stages(),
