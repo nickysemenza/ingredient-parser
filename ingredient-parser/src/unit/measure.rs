@@ -243,7 +243,7 @@ static NUTRIENT_NAMES: &[&str] = &[
 ];
 
 /// Check if a unit string represents a nutrient (e.g., "g protein", "mg sodium")
-fn is_nutrient_unit(s: &str) -> bool {
+pub(crate) fn is_nutrient_unit(s: &str) -> bool {
     let mut parts = s.split_whitespace();
     let (Some(prefix), Some(name), None) = (parts.next(), parts.next(), parts.next()) else {
         return false; // require exactly two whitespace-separated tokens
@@ -388,50 +388,11 @@ impl Measure {
             upper_value: upper_value.map(to_rational),
         }
     }
-    /// Get the kind/category of this measurement (weight, volume, time, etc.)
-    ///
-    /// This uses direct mapping without recursion for better performance
-    /// and to avoid potential stack overflow on malformed data.
+    /// Get the kind/category of this measurement (weight, volume, time, etc.).
+    /// The category depends only on the unit, so this delegates to
+    /// [`Unit::kind`] (which graph/unit-only callers can use without a value).
     pub fn kind(&self) -> MeasureKind {
-        match &self.unit {
-            // Weight units
-            Unit::Gram | Unit::Kilogram | Unit::Ounce | Unit::Pound => MeasureKind::Weight,
-
-            // Volume units
-            Unit::Milliliter
-            | Unit::Liter
-            | Unit::Teaspoon
-            | Unit::Tablespoon
-            | Unit::Cup
-            | Unit::Quart
-            | Unit::FluidOunce => MeasureKind::Volume,
-
-            // Money units
-            Unit::Cent | Unit::Dollar => MeasureKind::Money,
-
-            // Time units
-            Unit::Second | Unit::Minute | Unit::Hour | Unit::Day => MeasureKind::Time,
-
-            // Temperature units
-            Unit::Fahrenheit | Unit::Celsius => MeasureKind::Temperature,
-
-            // Energy units
-            Unit::KCal => MeasureKind::Calories,
-
-            // Length units
-            Unit::Inch => MeasureKind::Length,
-
-            // Other/custom units
-            Unit::Whole => MeasureKind::Other("whole".to_string()),
-            Unit::Other(s) => {
-                // Check if this is a nutrient unit pattern like "g protein", "mg sodium", "ug vitamin_b12"
-                if is_nutrient_unit(s) {
-                    MeasureKind::Nutrient(s.clone())
-                } else {
-                    MeasureKind::Other(s.clone())
-                }
-            }
-        }
+        self.unit.kind()
     }
 
     pub fn denormalize(&self) -> Measure {

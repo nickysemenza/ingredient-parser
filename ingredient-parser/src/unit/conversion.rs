@@ -156,11 +156,96 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
     g
 }
 
-/// Format the conversion graph as a DOT diagram for debugging.
+/// Round `x` to `sig` significant figures, for display only — the graph keeps
+/// full-precision factors. Zero and non-finite values pass through unchanged.
+fn round_sig(x: f64, sig: i32) -> f64 {
+    if x == 0.0 || !x.is_finite() {
+        return x;
+    }
+    let d = (sig - 1) - x.abs().log10().floor() as i32;
+    let p = 10f64.powi(d);
+    (x * p).round() / p
+}
+
+/// A conversion factor formatted for a graph label: a bare number for a point
+/// factor, `lo–hi` for a range. Rounded to 3 significant figures so the viz
+/// isn't buried in full-precision noise like "0.0083333333333".
+fn factor_label(f: &EdgeFactor) -> String {
+    let lo = round_sig(f.lower, 3);
+    if f.lower == f.upper {
+        format!("{lo}")
+    } else {
+        format!("{lo}–{}", round_sig(f.upper, 3))
+    }
+}
+
+/// Render the conversion graph as a DOT diagram. Used both for ad-hoc debugging
+/// and as the source for the unit-mapping graph visualization, so it makes a few
+/// readability choices over a raw petgraph dump:
 ///
-/// This can be visualized with Graphviz or other DOT rendering tools.
+/// - The two opposing edges of each mapping (`make_graph` adds A→B and B→A)
+///   collapse into one `dir=both` edge, so reciprocal labels don't overlap. The
+///   label is the canonical low→high node-index direction's factor.
+/// - Factors are rounded to 3 significant figures (see [`factor_label`]).
+/// - Each node carries a `class` of its [`MeasureKind`] ("weight", "volume",
+///   "nutrient", …) so a host can theme nodes by category.
+/// - The synthesized teaspoon↔milliliter volume bridge is dashed, to read as
+///   derived rather than user-provided.
 pub fn print_graph(g: MeasureGraph) -> String {
-    format!("{}", petgraph::dot::Dot::new(&g))
+    use petgraph::visit::EdgeRef;
+    use std::collections::HashSet;
+    use std::fmt::Write as _;
+
+    let mut out = String::from("digraph {\n");
+
+    for idx in g.node_indices() {
+        let unit = &g[idx];
+        let class = match unit.kind() {
+            MeasureKind::Weight => "weight",
+            MeasureKind::Volume => "volume",
+            MeasureKind::Money => "money",
+            MeasureKind::Calories => "calories",
+            MeasureKind::Time => "time",
+            MeasureKind::Temperature => "temperature",
+            MeasureKind::Length => "length",
+            MeasureKind::Nutrient(_) => "nutrient",
+            MeasureKind::Other(_) => "other",
+        };
+        let _ = writeln!(
+            out,
+            "    {} [ label = \"{unit}\", class = \"{class}\" ]",
+            idx.index()
+        );
+    }
+
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for e in g.edge_references() {
+        let (a, b) = (e.source().index(), e.target().index());
+        let (lo, hi) = (a.min(b), a.max(b));
+        if !seen.insert((lo, hi)) {
+            continue;
+        }
+        // Label with the low→high direction's factor for determinism (iteration
+        // order over the two opposing edges isn't guaranteed).
+        let weight = g
+            .find_edge(NodeIndex::new(lo), NodeIndex::new(hi))
+            .and_then(|edge| g.edge_weight(edge))
+            .copied()
+            .unwrap_or_else(|| *e.weight());
+        let bridge = matches!(
+            (&g[NodeIndex::new(lo)], &g[NodeIndex::new(hi)]),
+            (Unit::Teaspoon, Unit::Milliliter) | (Unit::Milliliter, Unit::Teaspoon)
+        );
+        let style = if bridge { ", style = \"dashed\"" } else { "" };
+        let _ = writeln!(
+            out,
+            "    {lo} -> {hi} [ label = \"{}\", dir = \"both\"{style} ]",
+            factor_label(&weight)
+        );
+    }
+
+    out.push_str("}\n");
+    out
 }
 
 /// Detect disconnected components (islands) in the unit conversion graph.
@@ -423,6 +508,52 @@ mod tests {
         let dot = print_graph(graph);
 
         assert!(dot.contains("digraph"));
+    }
+
+    #[test]
+    fn test_print_graph_readability() {
+        // 1 cup = 120 g. A cup normalizes to tsp (48 tsp/cup), so the graph holds
+        // tsp, g, and the synthesized ml bridge.
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+        let dot = print_graph(make_graph(&mappings));
+
+        // Nodes are tagged with their MeasureKind so the host can theme them.
+        assert!(
+            dot.contains("class = \"volume\""),
+            "tsp/ml should be volume: {dot}"
+        );
+        assert!(
+            dot.contains("class = \"weight\""),
+            "g should be weight: {dot}"
+        );
+
+        // Opposing edges collapse into one bidirectional edge per pair...
+        assert!(
+            dot.contains("dir = \"both\""),
+            "edges should be bidirectional: {dot}"
+        );
+        assert_eq!(
+            dot.matches("->").count(),
+            2,
+            "two pairs (tsp↔g, tsp↔ml) → exactly two edges, not four: {dot}"
+        );
+
+        // ...the synthesized tsp↔ml bridge is dashed...
+        assert!(
+            dot.contains("style = \"dashed\""),
+            "bridge should be dashed: {dot}"
+        );
+
+        // ...and factors are rounded to 3 sig figs: the tsp↔ml bridge constant
+        // (4.92892159375) renders as "4.93", not its full-precision tail.
+        assert!(
+            dot.contains("4.93"),
+            "bridge factor should round to 4.93: {dot}"
+        );
+        assert!(
+            !dot.contains("4.928921"),
+            "factors should be rounded, not full-precision: {dot}"
+        );
     }
 
     #[test]

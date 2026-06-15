@@ -1,3 +1,5 @@
+use super::kind::MeasureKind;
+use super::measure::is_nutrient_unit;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -109,6 +111,52 @@ impl Unit {
             Unit::Inch => Cow::Borrowed("\""),
             Unit::Whole => Cow::Borrowed("whole"),
             Unit::Other(s) => Cow::Owned(singular(s).into_owned()),
+        }
+    }
+
+    /// The measurement category this unit belongs to. A pure function of the
+    /// unit (no value needed), so the graph viz and other unit-only callers can
+    /// classify a node without constructing a `Measure`. `Measure::kind`
+    /// delegates here.
+    pub fn kind(&self) -> MeasureKind {
+        match self {
+            // Weight units
+            Unit::Gram | Unit::Kilogram | Unit::Ounce | Unit::Pound => MeasureKind::Weight,
+
+            // Volume units
+            Unit::Milliliter
+            | Unit::Liter
+            | Unit::Teaspoon
+            | Unit::Tablespoon
+            | Unit::Cup
+            | Unit::Quart
+            | Unit::FluidOunce => MeasureKind::Volume,
+
+            // Money units
+            Unit::Cent | Unit::Dollar => MeasureKind::Money,
+
+            // Time units
+            Unit::Second | Unit::Minute | Unit::Hour | Unit::Day => MeasureKind::Time,
+
+            // Temperature units
+            Unit::Fahrenheit | Unit::Celsius => MeasureKind::Temperature,
+
+            // Energy units
+            Unit::KCal => MeasureKind::Calories,
+
+            // Length units
+            Unit::Inch => MeasureKind::Length,
+
+            // Other/custom units
+            Unit::Whole => MeasureKind::Other("whole".to_string()),
+            Unit::Other(s) => {
+                // Nutrient unit pattern like "g protein", "mg sodium", "ug vitamin_b12"
+                if is_nutrient_unit(s) {
+                    MeasureKind::Nutrient(s.clone())
+                } else {
+                    MeasureKind::Other(s.clone())
+                }
+            }
         }
     }
 }
