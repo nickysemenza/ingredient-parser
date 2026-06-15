@@ -421,6 +421,10 @@
 {"input": "4 cups vegetable oil, for deep-frying", "name": "vegetable oil", "amounts": [{"unit": "cup", "value": 4}], "modifier": "for deep-frying", "usage": "frying_medium"}
 {"input": "butter, for greasing", "name": "butter", "modifier": "for greasing", "usage": "pan_grease"}
 {"input": "1 tablespoon butter, for the pan", "name": "butter", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "for the pan", "usage": "pan_grease"}
+{"input": "Neutral oil for the pan", "name": "Neutral oil", "modifier": "for the pan", "usage": "pan_grease"}
+{"input": "Olive oil for the topping", "name": "Olive oil", "modifier": "for the topping"}
+{"input": "Olive oil as needed", "name": "Olive oil", "modifier": "as needed"}
+{"input": "Salt and pepper as needed", "name": "Salt and pepper", "modifier": "as needed"}
 {"input": "salt, to taste", "name": "salt", "modifier": "to taste", "usage": "seasoning"}
 {"input": "flaky salt, to taste", "name": "flaky salt", "modifier": "to taste", "usage": "seasoning"}
 {"input": "1 cup all-purpose flour, for dredging", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 1}], "modifier": "for dredging", "usage": "dredging"}

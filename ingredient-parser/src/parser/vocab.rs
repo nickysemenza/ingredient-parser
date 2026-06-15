@@ -31,7 +31,10 @@ pub(crate) const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     // where it is a genuine contrast, not an implied default.
     "fresh",
     "plain",
+    // Quantity-is-unmeasured qualifiers (no fixed amount): kept here so they are
+    // stripped from the name into the modifier, like "to taste".
     "to taste",
+    "as needed",
     // State/prep words that describe how an ingredient is brought to the recipe
     // (e.g. "melted butter", "softened butter").
     "melted",
@@ -58,6 +61,11 @@ pub(crate) const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
     "for serving",
     "for decoration",
     "for topping",
+    "for the topping",
+    // "for the pan" also lives in PAN_GREASE_PHRASES for usage classification;
+    // listed here too so the extractor strips it from the name (the two tables
+    // deliberately overlap — see the doc comment below).
+    "for the pan",
     "for dipping",
     "for drizzling",
     "for sprinkling",
