@@ -191,6 +191,14 @@ fn factor_label(f: &EdgeFactor) -> String {
 ///   "nutrient", …) so a host can theme nodes by category.
 /// - The synthesized teaspoon↔milliliter volume bridge is dashed, to read as
 ///   derived rather than user-provided.
+// Escape `"` and `\` (and fold newlines) so a unit name like `1" cubes` can't
+// terminate a DOT label early and yield invalid DOT the renderer rejects.
+fn dot_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace(['\n', '\r'], " ")
+}
+
 pub fn print_graph(g: MeasureGraph) -> String {
     use petgraph::visit::EdgeRef;
     use std::collections::HashSet;
@@ -213,8 +221,9 @@ pub fn print_graph(g: MeasureGraph) -> String {
         };
         let _ = writeln!(
             out,
-            "    {} [ label = \"{unit}\", class = \"{class}\" ]",
-            idx.index()
+            "    {} [ label = \"{}\", class = \"{class}\" ]",
+            idx.index(),
+            dot_escape(&unit.to_string())
         );
     }
 
@@ -240,7 +249,7 @@ pub fn print_graph(g: MeasureGraph) -> String {
         let _ = writeln!(
             out,
             "    {lo} -> {hi} [ label = \"{}\", dir = \"both\"{style} ]",
-            factor_label(&weight)
+            dot_escape(&factor_label(&weight))
         );
     }
 
@@ -508,6 +517,25 @@ mod tests {
         let dot = print_graph(graph);
 
         assert!(dot.contains("digraph"));
+    }
+
+    #[test]
+    fn test_print_graph_escapes_quotes_in_labels() {
+        // A unit can contain a double quote (the inch symbol, e.g. `1" cubes`).
+        // Unescaped, it would terminate the DOT label early and yield invalid
+        // DOT that the renderer rejects. It must be emitted as `\"`.
+        let mappings = vec![(Measure::new("1\" cube", 1.0), Measure::new("g", 30.0))];
+        let dot = print_graph(make_graph(&mappings));
+
+        assert!(
+            dot.contains("label = \"1\\\" cube\""),
+            "the inch-quote must be backslash-escaped in the label: {dot}"
+        );
+        // And the raw, unescaped `1" cube"` sequence must not appear.
+        assert!(
+            !dot.contains("\"1\" cube\""),
+            "must not emit an unescaped quote: {dot}"
+        );
     }
 
     #[test]
