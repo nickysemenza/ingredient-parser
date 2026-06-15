@@ -5,7 +5,7 @@ use std::hint::black_box;
 
 fn benchmark_ingredient_parsing(c: &mut Criterion) {
     // Test cases with different complexity levels
-    let test_cases = vec![
+    let test_cases = [
         ("simple", "2 cups flour"),
         ("fraction", "1½ cups milk"),
         ("range", "2-3 tablespoons olive oil"),
@@ -21,24 +21,26 @@ fn benchmark_ingredient_parsing(c: &mut Criterion) {
         ("unicode_fraction", "⅓ cup brown sugar"),
     ];
 
+    // Construct parsers once; both expose `&self` methods, so reusing them
+    // across cases keeps construction cost out of the measured loop.
+    let parser = IngredientParser::new();
+    let rich_parser = RichParser::new(Vec::<String>::new());
+
     let mut group = c.benchmark_group("ingredient_parsing");
 
     for (name, input) in &test_cases {
         // Benchmark ingredient parsing
         group.bench_with_input(BenchmarkId::new("from_str", name), input, |b, input| {
-            let parser = IngredientParser::new();
             b.iter(|| parser.from_str(black_box(input)))
         });
 
         // Benchmark rich text parsing (for instructions)
         group.bench_with_input(BenchmarkId::new("rich_parse", name), input, |b, input| {
-            let rich_parser = RichParser::new(Vec::<String>::new());
             b.iter(|| rich_parser.parse(black_box(input)))
         });
 
         // Benchmark standalone amount parsing over the same inputs
         group.bench_with_input(BenchmarkId::new("parse_amount", name), input, |b, input| {
-            let parser = IngredientParser::new();
             b.iter(|| parser.parse_amount(black_box(input)))
         });
     }
@@ -47,7 +49,7 @@ fn benchmark_ingredient_parsing(c: &mut Criterion) {
 }
 
 fn benchmark_amount_parsing(c: &mut Criterion) {
-    let amount_cases = vec![
+    let amount_cases = [
         ("single", "2 cups"),
         ("fraction", "1½ tablespoons"),
         ("range", "2-3 ounces"),
@@ -88,7 +90,7 @@ fn benchmark_parsing_vs_creation(c: &mut Criterion) {
 
 fn benchmark_batch_parsing(c: &mut Criterion) {
     // Simulate parsing a recipe with multiple ingredients
-    let recipe_ingredients = vec![
+    let recipe_ingredients = [
         "2 cups all-purpose flour",
         "1 teaspoon baking powder",
         "½ teaspoon salt",
@@ -105,7 +107,7 @@ fn benchmark_batch_parsing(c: &mut Criterion) {
         let parser = IngredientParser::new();
         b.iter(|| {
             for ingredient in &recipe_ingredients {
-                parser.from_str(black_box(ingredient));
+                black_box(parser.from_str(black_box(ingredient)));
             }
         })
     });
@@ -114,7 +116,7 @@ fn benchmark_batch_parsing(c: &mut Criterion) {
         b.iter(|| {
             for ingredient in &recipe_ingredients {
                 let parser = IngredientParser::new();
-                parser.from_str(black_box(ingredient));
+                black_box(parser.from_str(black_box(ingredient)));
             }
         })
     });
