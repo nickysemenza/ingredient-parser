@@ -258,20 +258,17 @@ fn normalize_root_recipe(
         total: ld_schema
             .total_time
             .as_ref()
-            .and_then(|t| t.first_string())
-            .as_deref()
+            .and_then(|t| t.first_str())
             .and_then(humanize_iso8601_duration),
         prep: ld_schema
             .prep_time
             .as_ref()
-            .and_then(|t| t.first_string())
-            .as_deref()
+            .and_then(|t| t.first_str())
             .and_then(humanize_iso8601_duration),
         cook: ld_schema
             .cook_time
             .as_ref()
-            .and_then(|t| t.first_string())
-            .as_deref()
+            .and_then(|t| t.first_str())
             .and_then(humanize_iso8601_duration),
     };
 
@@ -324,17 +321,20 @@ fn normalize_ld_json(
         ld_schema::Root::Recipe(ld_schema) => normalize_root_recipe(*ld_schema, url),
         ld_schema::Root::Graph(g) => {
             let items = g.graph.len();
-            let recipe = g.graph.iter().find_map(|d| match d {
-                ld_schema::Graph::Recipe(a) => Some(a.clone()),
-                _ => None,
-            });
-            match recipe {
-                Some(r) => normalize_root_recipe(*r, url),
-                None => Err(ScrapeError::LDJSONMissingRecipe(
-                    "failed to find recipe in ld json graph".to_string(),
-                    items,
-                )),
-            }
+            // Consume the graph rather than `.iter()` + `a.clone()`, which deep-
+            // cloned the entire boxed recipe only to drop the rest.
+            g.graph
+                .into_iter()
+                .find_map(|d| match d {
+                    ld_schema::Graph::Recipe(a) => Some(normalize_root_recipe(*a, url)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| {
+                    Err(ScrapeError::LDJSONMissingRecipe(
+                        "failed to find recipe in ld json graph".to_string(),
+                        items,
+                    ))
+                })
         }
     }
 }

@@ -492,21 +492,21 @@ pub fn graph_unit_mappings(mappings: WUnitMappings) -> String {
 }
 
 #[wasm_bindgen]
-pub fn parse_unit_mapping(input: String) -> Result<WUnitMapping, String> {
-    Ok(parse_unit_mapping_internal(&input)?.into())
+pub fn parse_unit_mapping(input: &str) -> Result<WUnitMapping, String> {
+    Ok(parse_unit_mapping_internal(input)?.into())
 }
 
 #[wasm_bindgen]
-pub fn scrape(body: String, url: String) -> Result<WScrapedRecipe, String> {
-    recipe_scraper::scrape(body.as_str(), &url)
+pub fn scrape(body: &str, url: &str) -> Result<WScrapedRecipe, String> {
+    recipe_scraper::scrape(body, url)
         .map_err(|e| format!("Failed to scrape recipe: {e}"))
         .map(WScrapedRecipe::from)
 }
 
 #[wasm_bindgen]
-pub fn parse_rich_text(text: String, ingredient_names: Vec<String>) -> Result<RichItems, String> {
+pub fn parse_rich_text(text: &str, ingredient_names: Vec<String>) -> Result<RichItems, String> {
     RichParser::new(ingredient_names)
-        .parse(&text)
+        .parse(text)
         .map_err(|e| e.to_string())
         .map(|chunks| RichItems(chunks.into_iter().map(RichItem::from).collect()))
 }

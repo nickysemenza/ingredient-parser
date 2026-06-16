@@ -8,12 +8,11 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 
 pub fn is_valid(units: &HashSet<String>, s: &str) -> bool {
-    // Unit::from_str always returns Ok - check if it's a known unit (not Other)
-    if !matches!(Unit::from_str(&singular(s)), Ok(Unit::Other(_))) {
-        // anything other than `other`
-        return true;
-    }
-    is_addon_unit(units, s)
+    // A built-in unit, or a registered addon unit. Checked via `Unit::is_known`
+    // rather than `from_str(..) != Other`, which allocated a throwaway
+    // `Unit::Other(String)` on every miss — this runs for every unit token on
+    // every parse.
+    Unit::is_known(&singular(s)) || is_addon_unit(units, s)
 }
 
 /// Check if a string matches an addon unit (from the custom units set)
@@ -228,6 +227,15 @@ static UNIT_MAP: LazyLock<HashMap<&'static str, Unit>> = LazyLock::new(|| {
         .collect()
 });
 
+impl Unit {
+    /// True if `s` (expected already singularized) maps to a built-in unit.
+    /// Pure lookup — unlike `from_str`, it never allocates an `Other(String)`
+    /// for the miss case, so it's safe to call on the parser hot path.
+    pub(crate) fn is_known(s: &str) -> bool {
+        UNIT_MAP.contains_key(s)
+    }
+}
+
 impl FromStr for Unit {
     type Err = ();
 
@@ -311,5 +319,32 @@ mod tests {
         assert!(is_addon_unit(&custom_units, "PACKET")); // Case insensitive
         assert!(!is_addon_unit(&custom_units, "cup"));
         assert!(!is_addon_unit(&custom_units, "unknown"));
+    }
+
+    // `is_known` replaced `from_str(..) != Other` in the `is_valid` hot path to
+    // avoid allocating a throwaway `Other(String)`. Guard that the two agree so
+    // the refactor can't silently drift from the old semantics.
+    #[test]
+    fn test_is_known_matches_from_str() {
+        for s in [
+            "gram",
+            "grams",
+            "cup",
+            "cups",
+            "tablespoon",
+            "°",
+            "",
+            "flour",
+            "1",
+            "xyzzy",
+        ] {
+            let norm = singular(s);
+            let known_via_from_str = !matches!(Unit::from_str(&norm), Ok(Unit::Other(_)));
+            assert_eq!(
+                Unit::is_known(&norm),
+                known_via_from_str,
+                "is_known disagreed with from_str for {s:?}"
+            );
+        }
     }
 }

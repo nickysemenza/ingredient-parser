@@ -76,12 +76,12 @@ fn message_for(diag: &ParseNotes) -> &'static str {
 }
 
 fn help_for(diag: &ParseNotes) -> String {
-    let mut parts = vec![format!("confidence: {:?}", diag.confidence)];
+    let mut s = format!("confidence: {:?}", diag.confidence);
     if diag.fell_back {
-        parts.push("fell back to a name-only ingredient".to_string());
+        s.push_str(" · fell back to a name-only ingredient");
     }
-    parts.push("see the stage view below; route the fix via parser/mod.rs".to_string());
-    parts.join(" · ")
+    s.push_str(" · see the stage view below; route the fix via parser/mod.rs");
+    s
 }
 
 /// The decomposition diagnostic: one label per grammar field span.

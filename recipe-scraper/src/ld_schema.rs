@@ -31,9 +31,15 @@ pub enum StringOrList {
 impl StringOrList {
     /// The first usable string: the value itself, or the first list element.
     pub fn first_string(&self) -> Option<String> {
+        self.first_str().map(str::to_owned)
+    }
+
+    /// Borrowing variant of [`first_string`](Self::first_string) for callers
+    /// that only need to read the value (e.g. parse it) without owning it.
+    pub fn first_str(&self) -> Option<&str> {
         match self {
-            StringOrList::String(s) => Some(s.clone()),
-            StringOrList::List(l) => l.first().cloned(),
+            StringOrList::String(s) => Some(s.as_str()),
+            StringOrList::List(l) => l.first().map(String::as_str),
             StringOrList::Other(_) => None,
         }
     }
