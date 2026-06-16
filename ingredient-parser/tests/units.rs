@@ -31,6 +31,8 @@ use rstest::rstest;
 #[case::cup_c("c", Unit::Cup)]
 #[case::quart("quart", Unit::Quart)]
 #[case::quart_q("q", Unit::Quart)]
+#[case::gallon("gallon", Unit::Gallon)]
+#[case::gallon_gal("gal", Unit::Gallon)]
 #[case::fl_oz("fl oz", Unit::FluidOunce)]
 #[case::fluid_oz("fluid oz", Unit::FluidOunce)]
 #[case::oz("oz", Unit::Ounce)]
@@ -77,6 +79,7 @@ fn test_unit_from_str_unknown() {
 #[case::teaspoon(Unit::Teaspoon, "tsp")]
 #[case::tablespoon(Unit::Tablespoon, "tbsp")]
 #[case::cup(Unit::Cup, "cup")]
+#[case::gallon(Unit::Gallon, "gallon")]
 #[case::fluid_ounce(Unit::FluidOunce, "fl oz")]
 #[case::ounce(Unit::Ounce, "oz")]
 #[case::pound(Unit::Pound, "lb")]
@@ -150,6 +153,7 @@ fn test_measure_kind_from_str(#[case] input: &str, #[case] expected: MeasureKind
 #[case::tbsp("tbsp", MeasureKind::Volume)]
 #[case::cup("cup", MeasureKind::Volume)]
 #[case::quart("quart", MeasureKind::Volume)]
+#[case::gallon("gallon", MeasureKind::Volume)]
 #[case::fl_oz("fl oz", MeasureKind::Volume)]
 #[case::cent("cent", MeasureKind::Money)]
 #[case::dollar("dollar", MeasureKind::Money)]
@@ -219,6 +223,7 @@ fn test_second_denormalize(#[case] sec_value: f64, #[case] expected_unit: &str) 
 #[case("tablespoon")]
 #[case("cup")]
 #[case("quart")]
+#[case("gallon")]
 #[case("fl oz")]
 #[case("oz")]
 #[case("lb")]
@@ -345,6 +350,20 @@ fn test_measure_conversions() {
     assert!(m
         .convert_measure_via_mappings(MeasureKind::Length, &[tbsp_dollars])
         .is_none());
+}
+
+/// A gallon is a first-class volume unit: it converts to ml (~3785.4 ml/gal)
+/// through the standard volume graph instead of islanding as an `Other` unit.
+/// The mapping seeds a volume node (gallon normalizes to tsp), which in turn
+/// seeds the tsp<->ml bridge so `MeasureKind::Volume` (ml) is reachable.
+#[test]
+fn test_gallon_converts_to_volume_ml() {
+    let gallon_dollars = (Measure::new("gallon", 1.0), Measure::new("dollar", 5.0));
+    let vol = Measure::new("gallon", 1.0)
+        .convert_measure_via_mappings(MeasureKind::Volume, std::slice::from_ref(&gallon_dollars))
+        .unwrap();
+    assert_eq!(*vol.unit(), Unit::Milliliter);
+    assert!((vol.value() - 3785.4).abs() < 1.0, "got {}", vol.value());
 }
 
 #[rstest]

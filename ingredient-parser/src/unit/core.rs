@@ -39,6 +39,7 @@ pub enum Unit {
     Tablespoon,
     Cup,
     Quart,
+    Gallon,
     FluidOunce,
     Ounce,
     Pound,
@@ -96,6 +97,7 @@ impl Unit {
             Unit::Tablespoon => Cow::Borrowed("tbsp"),
             Unit::Cup => Cow::Borrowed("cup"),
             Unit::Quart => Cow::Borrowed("quart"),
+            Unit::Gallon => Cow::Borrowed("gallon"),
             Unit::FluidOunce => Cow::Borrowed("fl oz"),
             Unit::Ounce => Cow::Borrowed("oz"),
             Unit::Pound => Cow::Borrowed("lb"),
@@ -130,6 +132,7 @@ impl Unit {
             | Unit::Tablespoon
             | Unit::Cup
             | Unit::Quart
+            | Unit::Gallon
             | Unit::FluidOunce => MeasureKind::Volume,
 
             // Money units
@@ -178,6 +181,8 @@ static UNIT_MAPPINGS: &[(&str, Unit)] = &[
     ("c", Unit::Cup),
     ("quart", Unit::Quart),
     ("q", Unit::Quart),
+    ("gallon", Unit::Gallon),
+    ("gal", Unit::Gallon),
     ("fl oz", Unit::FluidOunce),
     ("fluid oz", Unit::FluidOunce),
     ("oz", Unit::Ounce),

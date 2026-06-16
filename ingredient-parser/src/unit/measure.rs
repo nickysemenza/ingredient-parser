@@ -126,6 +126,7 @@ const TSP_TO_FL_OZ: f64 = TSP_TO_TBSP * 2.0;
 pub(crate) const TSP_TO_ML: f64 = 4.92892;
 const G_TO_K: f64 = 1000.0;
 const CUP_TO_QUART: f64 = 4.0;
+const QUART_TO_GALLON: f64 = 4.0;
 const TSP_TO_CUP: f64 = 48.0;
 const GRAM_TO_OZ: f64 = 28.3495;
 const OZ_TO_LB: f64 = 16.0;
@@ -179,6 +180,11 @@ static NORMALIZATION_RULES: &[NormalizationRule] = &[
         from: Unit::Quart,
         to_base: Unit::Teaspoon,
         factor: CUP_TO_QUART * TSP_TO_CUP,
+    },
+    NormalizationRule {
+        from: Unit::Gallon,
+        to_base: Unit::Teaspoon,
+        factor: QUART_TO_GALLON * CUP_TO_QUART * TSP_TO_CUP, // 4 * 4 * 48 = 768 tsp/gal
     },
     NormalizationRule {
         from: Unit::FluidOunce,
@@ -422,6 +428,7 @@ impl Measure {
             | Unit::Tablespoon
             | Unit::Cup
             | Unit::Quart
+            | Unit::Gallon
             | Unit::FluidOunce
             | Unit::Ounce
             | Unit::Pound
@@ -572,6 +579,20 @@ mod tests {
             Measure::new_with_upper(Unit::Teaspoon, 48.0, None)
         );
         assert_eq!(m1.normalize(), Measure::new("cup", 1.0).normalize());
+    }
+
+    /// 1 gallon == 4 quarts: both normalize to 768 tsp, so a gallon-priced
+    /// product reaches the standard volume graph instead of islanding.
+    #[test]
+    fn test_gallon_quart_roundtrip() {
+        assert_eq!(
+            Measure::new("gallon", 1.0).normalize(),
+            Measure::new("quart", 4.0).normalize()
+        );
+        assert_eq!(
+            Measure::new("gallon", 1.0).normalize(),
+            Measure::new_with_upper(Unit::Teaspoon, 768.0, None)
+        );
     }
 
     #[rstest]
