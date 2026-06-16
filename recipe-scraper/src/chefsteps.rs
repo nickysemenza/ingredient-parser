@@ -7,17 +7,11 @@ pub(crate) fn parse_chefsteps(json: &str) -> Result<ScrapedRecipe, ScrapeError> 
         .ingredients
         .iter()
         .map(|i| {
-            format!(
-                "{} {} {}{}",
-                i.quantity,
-                i.unit,
-                i.title,
-                if i.note.is_empty() {
-                    "".to_string()
-                } else {
-                    format!(", {}", i.note)
-                }
-            )
+            if i.note.is_empty() {
+                format!("{} {} {}", i.quantity, i.unit, i.title)
+            } else {
+                format!("{} {} {}, {}", i.quantity, i.unit, i.title, i.note)
+            }
         })
         .collect();
     let instructions = v.steps.iter().map(|i| i.directions.clone()).collect();

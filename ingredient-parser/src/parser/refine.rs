@@ -290,7 +290,9 @@ impl IngredientParser {
                 if !after.is_empty() {
                     out.push_str(after);
                 }
-                out.trim().to_string()
+                // `before`/`after` are pre-trimmed and the guards above never
+                // emit a leading/trailing space, so `out` needs no final trim.
+                out
             };
 
             name = join(&name, cut, end);
@@ -370,12 +372,14 @@ impl IngredientParser {
             return;
         }
         // A known adjective phrase (two words then one) immediately after "or".
-        let two = format!(
-            "{} {}",
-            words_lower[2],
-            words_lower.get(3).map(String::as_str).unwrap_or_default()
-        );
-        let adj_len = if words.len() >= 5 && self.adjectives.contains(&two) {
+        // Only build the two-word key when there's room for it — the common
+        // short-name case never allocates the `format!`.
+        let adj_len = if words.len() >= 5
+            && let Some(w3) = words_lower.get(3)
+            && self
+                .adjectives
+                .contains(&format!("{} {}", words_lower[2], w3))
+        {
             2
         } else if self.adjectives.contains(&words_lower[2]) {
             1

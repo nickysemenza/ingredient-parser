@@ -660,7 +660,7 @@ impl CallTool for OpenAiExtractor {
         let finish_reason = choice.as_ref().and_then(|c| c.finish_reason.clone());
         let args = choice
             .and_then(|c| c.message.tool_calls)
-            .and_then(|mut calls| calls.drain(..).next())
+            .and_then(|calls| calls.into_iter().next())
             .map(|call| call.function.arguments);
         let input = match args {
             Some(a) => Some(serde_json::from_str::<serde_json::Value>(&a)?),
@@ -1057,7 +1057,7 @@ mod tests {
             .into_iter()
             .next()
             .and_then(|c| c.message.tool_calls)
-            .and_then(|mut calls| calls.drain(..).next())
+            .and_then(|calls| calls.into_iter().next())
             .map(|call| call.function.arguments)
             .unwrap();
         let payload: RecipesPayload = serde_json::from_str(&args).unwrap();

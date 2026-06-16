@@ -87,16 +87,12 @@ fn humanize_iso8601_duration(input: &str) -> Option<String> {
 fn extract_tool_names(value: &Value) -> Vec<String> {
     fn one(value: &Value) -> Option<String> {
         let name = match value {
-            Value::String(s) => s.clone(),
-            Value::Object(o) => o.get("name")?.as_str()?.to_string(),
+            Value::String(s) => s.as_str(),
+            Value::Object(o) => o.get("name")?.as_str()?,
             _ => return None,
-        };
-        let name = name.trim();
-        if name.is_empty() || name.eq_ignore_ascii_case("n/a") {
-            None
-        } else {
-            Some(name.to_string())
         }
+        .trim();
+        (!name.is_empty() && !name.eq_ignore_ascii_case("n/a")).then(|| name.to_string())
     }
     match value {
         Value::Array(items) => items.iter().filter_map(one).collect(),

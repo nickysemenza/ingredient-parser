@@ -9,10 +9,11 @@ fn parse_selector(selector: &str) -> Result<Selector, ScrapeError> {
 
 pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeError> {
     let title_selector = parse_selector("title")?;
-    let title = match dom.select(&title_selector).next() {
-        Some(x) => x.inner_html(),
-        None => "".to_string(),
-    };
+    let title = dom
+        .select(&title_selector)
+        .next()
+        .map(|x| x.inner_html())
+        .unwrap_or_default();
     // NOTE: this "fallback" only understands Jetpack Recipe markup (Smitten
     // Kitchen and other Jetpack-powered WordPress sites). It is not a general HTML
     // scraper — sites without these classes hit the error below.

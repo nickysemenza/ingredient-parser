@@ -286,9 +286,9 @@ fn render_corpus_html(corpus: &str) -> (String, usize) {
                                 @let g = |k: &str| e.row.get(k).and_then(|v| v.as_str()).unwrap_or("");
                                 @let amounts = e.row.get("amounts").map(fmt_amounts).unwrap_or_default();
                                 @let optional = e.row.get("optional").and_then(|v| v.as_bool()) == Some(true);
-                                @let note = match &e.error {
-                                    Some(err) => format!("malformed: {err}"),
-                                    None => g("xfail").to_string(),
+                                @let note: std::borrow::Cow<'_, str> = match &e.error {
+                                    Some(err) => format!("malformed: {err}").into(),
+                                    None => g("xfail").into(),
                                 };
                                 @let row_class = if e.error.is_some() {
                                     Some("err")
@@ -600,11 +600,10 @@ async fn main() {
                 None => {
                     let path = std::env::temp_dir().join("ingredient-corpus.html");
                     std::fs::write(&path, &html).unwrap();
-                    let path = path.display();
-                    eprintln!("wrote {path} ({rows} rows)");
+                    eprintln!("wrote {} ({rows} rows)", path.display());
                     // Best-effort: open in the default browser. Headless/SSH
                     // environments have no opener — just leave the path printed.
-                    if let Err(e) = open::that(path.to_string()) {
+                    if let Err(e) = open::that(&path) {
                         eprintln!("(couldn't open a browser: {e} — open the file above manually)");
                     }
                 }

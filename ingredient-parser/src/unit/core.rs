@@ -220,12 +220,8 @@ static UNIT_MAPPINGS: &[(&str, Unit)] = &[
 ];
 
 /// O(1) lookup from string to Unit
-static UNIT_MAP: LazyLock<HashMap<&'static str, Unit>> = LazyLock::new(|| {
-    UNIT_MAPPINGS
-        .iter()
-        .map(|&(s, ref u)| (s, u.clone()))
-        .collect()
-});
+static UNIT_MAP: LazyLock<HashMap<&'static str, Unit>> =
+    LazyLock::new(|| UNIT_MAPPINGS.iter().map(|(s, u)| (*s, u.clone())).collect());
 
 impl Unit {
     /// True if `s` (expected already singularized) maps to a built-in unit.

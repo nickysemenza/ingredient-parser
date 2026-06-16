@@ -394,14 +394,14 @@ impl IngredientParser {
         // (See vocab::NON_STANDARD_UNITS for why "whole" is excluded.)
         let units: HashSet<String> = parser::vocab::NON_STANDARD_UNITS
             .iter()
-            .map(|&s| s.into())
+            .map(|&s| s.to_string())
             .collect();
 
         // Combine preparation adjectives and purpose phrases
         let adjectives: HashSet<String> = parser::vocab::DEFAULT_PREPARATION_ADJECTIVES
             .iter()
             .chain(parser::vocab::DEFAULT_PURPOSE_PHRASES.iter())
-            .map(|&s| s.into())
+            .map(|&s| s.to_string())
             .collect();
 
         IngredientParser { units, adjectives }
@@ -422,9 +422,7 @@ impl IngredientParser {
     /// assert_eq!(ingredient.name, "thyme");
     /// ```
     pub fn with_units(mut self, units: &[&str]) -> Self {
-        for unit in units {
-            self.units.insert((*unit).to_string());
-        }
+        self.units.extend(units.iter().map(|&s| s.to_string()));
         self
     }
 

@@ -305,10 +305,11 @@ pub(crate) fn assemble(
             // The hero photo is whichever image in this chunk sits nearest the
             // recipe's title line (see `hero_for`); `None` for most recipes.
             let hero = hero_for(&chunk, &title);
-            match index.get(&title.to_lowercase()) {
+            let title_lower = title.to_lowercase();
+            match index.get(&title_lower) {
                 Some(&i) => merge_recipe(&mut out[i], r, hero),
                 None => {
-                    index.insert(title.to_lowercase(), out.len());
+                    index.insert(title_lower, out.len());
                     let mut meta = r.meta;
                     meta.title = title;
                     out.push(CookbookRecipe {

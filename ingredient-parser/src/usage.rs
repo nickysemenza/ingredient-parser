@@ -163,12 +163,14 @@ fn find_phrase(haystack: &str, phrase: &str) -> Option<usize> {
 /// directly before is "more"/"extra", or "plus" appears within the four
 /// preceding words ("plus 2 tablespoons for the pan").
 fn is_surplus_mention(haystack: &str, pos: usize) -> bool {
-    let preceding: Vec<&str> = haystack[..pos]
-        .split(|c: char| !c.is_alphanumeric())
+    // Last up-to-four alphanumeric words before `pos`, nearest first — `rsplit`
+    // walks back from `pos` so we never scan the whole preceding text.
+    let recent: Vec<&str> = haystack[..pos]
+        .rsplit(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
+        .take(4)
         .collect();
-    let last_four = &preceding[preceding.len().saturating_sub(4)..];
-    matches!(last_four.last(), Some(&"more") | Some(&"extra")) || last_four.contains(&"plus")
+    matches!(recent.first(), Some(&"more") | Some(&"extra")) || recent.contains(&"plus")
 }
 
 #[cfg(test)]
