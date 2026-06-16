@@ -152,7 +152,15 @@
           },
           {
             "kind": "Text",
-            "value": ". Combine flour, "
+            "value": ". Combine "
+          },
+          {
+            "kind": "Ing",
+            "value": "flour"
+          },
+          {
+            "kind": "Text",
+            "value": ", "
           },
           {
             "kind": "Ing",
@@ -200,7 +208,31 @@
           },
           {
             "kind": "Text",
-            "value": " in large mixing bowl until creamy. Add eggs, one at a time, beating well after each addition. Gradually beat in flour mixture. Stir in chocolate chips and "
+            "value": " in large mixing bowl until creamy. Add "
+          },
+          {
+            "kind": "Ing",
+            "value": "eggs"
+          },
+          {
+            "kind": "Text",
+            "value": ", one at a time, beating well after each addition. Gradually beat in "
+          },
+          {
+            "kind": "Ing",
+            "value": "flour"
+          },
+          {
+            "kind": "Text",
+            "value": " mixture. Stir in "
+          },
+          {
+            "kind": "Ing",
+            "value": "chocolate chips"
+          },
+          {
+            "kind": "Text",
+            "value": " and "
           },
           {
             "kind": "Ing",
