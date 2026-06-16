@@ -29,6 +29,15 @@ fn condense_text(r: Rich) -> Rich {
     }
     result
 }
+/// Full name first (longest), then drop one leading word at a time, so the head
+/// noun is always the shortest variant. Generic — no vocab, no word lists.
+/// "extra virgin olive oil" -> ["extra virgin olive oil", "virgin olive oil",
+/// "olive oil", "oil"]; "red onion" -> ["red onion", "onion"].
+fn name_variants(name: &str) -> Vec<String> {
+    let toks: Vec<&str> = name.split_whitespace().collect();
+    (0..toks.len()).map(|i| toks[i..].join(" ")).collect()
+}
+
 // find any text chunks which have an ingredient name as a substring in them.
 // if so, split on the ingredient name, giving it it's own `Chunk::Ing`.
 //
@@ -36,19 +45,47 @@ fn condense_text(r: Rich) -> Rich {
 // independent of the order names are listed in and repeated names are all
 // found ("Add sugar and flour" highlights both for names ["flour", "sugar"]).
 fn extract_ingredients(r: Rich, ingredient_names: &[String]) -> Rich {
+    // Match the full name *and* every trailing sub-phrase, so prose that refers
+    // to an ingredient by its head noun ("red onion" -> "onion") still
+    // highlights. Built once; the longest variant still wins via the tie-break
+    // below, so the full phrase fires when prose spells it out.
+    let candidates: Vec<String> = ingredient_names
+        .iter()
+        .flat_map(|n| name_variants(n))
+        .collect();
+
     r.into_iter()
         .flat_map(|s| match s {
             Chunk::Text(text) => {
                 let mut text_or_ing_res = vec![];
                 let mut rest = text.as_str();
 
-                // Earliest match position across all candidate names; ties go
-                // to the longer name so "sea salt" wins over "salt".
+                // Earliest word-boundary match across all candidates; ties go
+                // to the longer candidate so "sea salt" wins over "salt" and the
+                // full name wins over its head-noun variant. The boundary guard
+                // (non-alphanumeric or string edge on both sides, mirroring
+                // `refine.rs`) stops a short candidate like "oil" matching inside
+                // "broil".
                 let earliest = |haystack: &str| {
-                    ingredient_names
+                    candidates
                         .iter()
-                        .filter(|x| !x.is_empty())
-                        .filter_map(|c| haystack.find(c.as_str()).map(|pos| (pos, c)))
+                        .filter(|c| !c.is_empty())
+                        .filter_map(|c| {
+                            haystack
+                                .match_indices(c.as_str())
+                                .find(|(pos, m)| {
+                                    let before = haystack[..*pos]
+                                        .chars()
+                                        .next_back()
+                                        .is_none_or(|ch| !ch.is_alphanumeric());
+                                    let after = haystack[pos + m.len()..]
+                                        .chars()
+                                        .next()
+                                        .is_none_or(|ch| !ch.is_alphanumeric());
+                                    before && after
+                                })
+                                .map(|(pos, _)| (pos, c))
+                        })
                         .min_by_key(|(pos, c)| (*pos, std::cmp::Reverse(c.len())))
                 };
 

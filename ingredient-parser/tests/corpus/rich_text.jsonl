@@ -16,3 +16,35 @@
 {"input": "add 1 cup water and store for at most 2 days", "ingredients": ["water"], "chunks": [{"text": "add "}, {"measure": [{"unit": "cup", "value": 1.0}]}, {"text": " "}, {"ing": "water"}, {"text": " and store for "}, {"measure": [{"unit": "day", "value": 0.0, "upper_value": 2.0}]}]}
 {"input": "1 Bring a large pot of water to a boil.", "chunks": [{"text": "1 Bring a large pot of water to a boil."}]}
 {"input": "2 Set out 4 ramen bowls.", "chunks": [{"text": "2 Set out "}, {"measure": [{"unit": "whole", "value": 4.0}]}, {"text": " ramen bowls."}]}
+{"input": "Toss with parsley.", "ingredients": ["flat-leaf parsley"], "chunks": [{"text": "Toss with "}, {"ing": "parsley"}, {"text": "."}]}
+{"input": "Soak the sliced onion in cold water", "ingredients": ["red onion"], "chunks": [{"text": "Soak the sliced "}, {"ing": "onion"}, {"text": " in cold water"}]}
+{"input": "dice the red onion", "ingredients": ["red onion"], "chunks": [{"text": "dice the "}, {"ing": "red onion"}]}
+{"input": "broil until charred", "ingredients": ["oil"], "chunks": [{"text": "broil until charred"}]}
+// Head-noun matching — more cases in the same vein.
+// Multi-word head noun: "olive oil" variant wins over bare "oil".
+{"input": "drizzle with olive oil", "ingredients": ["extra virgin olive oil"], "chunks": [{"text": "drizzle with "}, {"ing": "olive oil"}]}
+// Bare last-word variant DOES fire on a real standalone word (complement to the broil/oil guard).
+{"input": "brush with the oil", "ingredients": ["extra virgin olive oil"], "chunks": [{"text": "brush with the "}, {"ing": "oil"}]}
+// Head noun at string start — leading edge counts as a boundary.
+{"input": "parsley, chopped, for garnish", "ingredients": ["flat-leaf parsley"], "chunks": [{"ing": "parsley"}, {"text": ", chopped, for garnish"}]}
+// Singular head noun mid-phrase ("egg whites" -> only "egg" highlighted).
+{"input": "fold in the egg whites", "ingredients": ["egg"], "chunks": [{"text": "fold in the "}, {"ing": "egg"}, {"text": " whites"}]}
+// Boundary guard: "ice" must not match inside "slice".
+{"input": "slice the bread thinly", "ingredients": ["ice"], "chunks": [{"text": "slice the bread thinly"}]}
+// Two names sharing a head noun both reduce to "onion"; one Ing emitted, harmless.
+{"input": "dice the onion", "ingredients": ["red onion", "green onion"], "chunks": [{"text": "dice the "}, {"ing": "onion"}]}
+// Measure and a head-noun mention coexist in one line.
+{"input": "add 2 cups of the diced onion", "ingredients": ["red onion"], "chunks": [{"text": "add "}, {"measure": [{"unit": "cup", "value": 2.0}]}, {"text": " of the diced "}, {"ing": "onion"}]}
+// Apostrophe counts as a boundary on the trailing side.
+{"input": "trim the onion's root end", "ingredients": ["red onion"], "chunks": [{"text": "trim the "}, {"ing": "onion"}, {"text": "'s root end"}]}
+// Full two-word name spelled out wins over its head-noun variant.
+{"input": "combine the lemon juice and zest", "ingredients": ["lemon juice"], "chunks": [{"text": "combine the "}, {"ing": "lemon juice"}, {"text": " and zest"}]}
+// A leading (non-head) word alone does NOT match — we strip suffixes, not prefixes.
+{"input": "squeeze the lemon over top", "ingredients": ["lemon juice"], "chunks": [{"text": "squeeze the lemon over top"}]}
+// Hyphenated full name matches verbatim.
+{"input": "whisk the flat-leaf parsley in", "ingredients": ["flat-leaf parsley"], "chunks": [{"text": "whisk the "}, {"ing": "flat-leaf parsley"}, {"text": " in"}]}
+// Known gaps (xfail) — real misses in this same vein, documented for later.
+// Plural/stemmed mention: prose "eggs" vs name "egg" is not matched.
+{"input": "beat the eggs", "ingredients": ["egg"], "chunks": [{"text": "beat the "}, {"ing": "eggs"}], "xfail": "plural/stemmed mentions not matched; matching is exact-substring + word-boundary, no stemming"}
+// Case-insensitive mention: a capitalized ingredient noun in prose is not matched (matching is case-sensitive). Note: a naive case-fold would also wrongly highlight the verb "Butter" in "Butter a dish".
+{"input": "Parsley makes a nice garnish", "ingredients": ["flat-leaf parsley"], "chunks": [{"ing": "Parsley"}, {"text": " makes a nice garnish"}], "xfail": "case-sensitive match misses capitalized mentions; case-folding risks verb collisions"}
