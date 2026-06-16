@@ -2,9 +2,9 @@ use chefsteps::parse_chefsteps;
 use html::scrape_from_html;
 use html_escape::decode_html_entities;
 use ingredient::{
+    IngredientParser,
     ingredient::Ingredient,
     rich_text::{Rich, RichParser},
-    IngredientParser,
 };
 use ld_json::extract_ld;
 // Re-exported on purpose: cubby's recipebridge wasm crate (separate repo)

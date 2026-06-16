@@ -9,7 +9,7 @@ use ingredient::trace::{GrammarOutcome, ParseTrace, StageReport};
 use ingredient::util::truncate_str;
 use ingredient::{Confidence, ParseNotes};
 
-use super::debug::{show_trace_tree, TraceTreeContext};
+use super::debug::{TraceTreeContext, show_trace_tree};
 
 /// One parsed input line with everything the table and detail views need.
 struct LineResult {
@@ -140,39 +140,36 @@ impl TestTab {
 
         // Detail panel for the selected row — added before the table so the
         // table fills the remaining central space.
-        if let Some(idx) = self.selected {
-            if let Some(row) = self.results.get(idx) {
-                let detail = &mut self.detail;
-                egui::Panel::bottom("test_detail")
-                    .resizable(true)
-                    .default_size(280.0)
-                    .show_inside(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.selectable_value(detail, DetailView::Stages, "Stages");
-                            ui.selectable_value(detail, DetailView::Tree, "Trace tree");
-                            ui.selectable_value(detail, DetailView::Json, "JSON");
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui.button("📤 Copy Jaeger JSON").clicked() {
-                                        ui.ctx().copy_text(row.trace.to_jaeger_json());
-                                    }
-                                    ui.label(RichText::new(truncate_str(&row.input, 60)).weak());
-                                },
-                            );
+        if let Some(idx) = self.selected
+            && let Some(row) = self.results.get(idx)
+        {
+            let detail = &mut self.detail;
+            egui::Panel::bottom("test_detail")
+                .resizable(true)
+                .default_size(280.0)
+                .show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(detail, DetailView::Stages, "Stages");
+                        ui.selectable_value(detail, DetailView::Tree, "Trace tree");
+                        ui.selectable_value(detail, DetailView::Json, "JSON");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("📤 Copy Jaeger JSON").clicked() {
+                                ui.ctx().copy_text(row.trace.to_jaeger_json());
+                            }
+                            ui.label(RichText::new(truncate_str(&row.input, 60)).weak());
                         });
-                        ui.separator();
-                        egui::ScrollArea::both()
-                            .id_salt("test_detail_scroll")
-                            .show(ui, |ui| match detail {
-                                DetailView::Stages => show_stages(ui, &row.stages),
-                                DetailView::Tree => {
-                                    show_trace_tree(ui, &row.trace, TraceTreeContext::Test);
-                                }
-                                DetailView::Json => show_json(ui, row.ingredient.as_ref()),
-                            });
                     });
-            }
+                    ui.separator();
+                    egui::ScrollArea::both()
+                        .id_salt("test_detail_scroll")
+                        .show(ui, |ui| match detail {
+                            DetailView::Stages => show_stages(ui, &row.stages),
+                            DetailView::Tree => {
+                                show_trace_tree(ui, &row.trace, TraceTreeContext::Test);
+                            }
+                            DetailView::Json => show_json(ui, row.ingredient.as_ref()),
+                        });
+                });
         }
 
         self.show_table(ui);
@@ -209,11 +206,7 @@ impl TestTab {
         if let Some((col, ascending)) = self.sort {
             order.sort_by(|&a, &b| {
                 let ord = col.compare(&self.results[a], &self.results[b]);
-                if ascending {
-                    ord
-                } else {
-                    ord.reverse()
-                }
+                if ascending { ord } else { ord.reverse() }
             });
         }
         self.order = order;

@@ -1,10 +1,10 @@
 use crate::unit::singular;
-use crate::unit::{kind::MeasureKind, Unit};
+use crate::unit::{Unit, kind::MeasureKind};
 use crate::util::{format_quantity, num_without_zeroes};
 use crate::{IngredientError, IngredientResult};
 use num_rational::Rational64;
 use num_traits::{CheckedAdd, ToPrimitive};
-use serde::{de::Deserializer, ser::Serializer, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Deserializer, ser::Serializer};
 use std::fmt;
 use std::str::FromStr;
 use tracing::debug;
@@ -53,7 +53,7 @@ fn to_f64(value: Rational64) -> f64 {
 }
 
 // Re-export conversion types and functions for backward compatibility
-pub use super::conversion::{make_graph, print_graph, MeasureGraph};
+pub use super::conversion::{MeasureGraph, make_graph, print_graph};
 // Crate-internal: the public entry point is the `Measure::convert_measure_via_mappings` method.
 use super::conversion::convert_measure_via_mappings;
 

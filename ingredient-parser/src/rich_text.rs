@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
 use crate::{
+    IngredientParser, Res,
     parser::measurement::single::leading_qualifier,
     parser::{MeasurementMode, MeasurementParser},
     unit::Measure,
-    IngredientParser, Res,
 };
-use nom::{branch::alt, character::complete::satisfy, error::context, multi::many0, Parser};
+use nom::{Parser, branch::alt, character::complete::satisfy, error::context, multi::many0};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

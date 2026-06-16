@@ -8,7 +8,7 @@
 
 #![allow(clippy::unwrap_used)]
 
-use ingredient::{from_str, IngredientParser};
+use ingredient::{IngredientParser, from_str};
 
 /// Representative inputs spanning the parser's features (units, fractions,
 /// ranges, multiple units, optional, parenthesized secondary amounts, fallback).

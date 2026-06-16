@@ -2,8 +2,8 @@
 
 #![allow(clippy::unwrap_used)]
 
-use ingredient::trace::{GrammarOutcome, ParseTrace, TraceNode, TraceOutcome};
 use ingredient::IngredientParser;
+use ingredient::trace::{GrammarOutcome, ParseTrace, TraceNode, TraceOutcome};
 use rstest::{fixture, rstest};
 
 // ============================================================================

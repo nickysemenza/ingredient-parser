@@ -4,7 +4,7 @@ use reqwest_middleware::ClientBuilder;
 
 use reqwest_middleware::{ClientWithMiddleware, Result};
 
-use reqwest_tracing::{default_on_request_end, reqwest_otel_span, ReqwestOtelSpanBackend};
+use reqwest_tracing::{ReqwestOtelSpanBackend, default_on_request_end, reqwest_otel_span};
 
 use http::Extensions;
 use std::time::Instant;

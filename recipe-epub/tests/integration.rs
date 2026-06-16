@@ -4,8 +4,8 @@
 use std::io::{Cursor, Write};
 
 use recipe_epub::{
-    extract_cookbook_with, CookbookRecipeExt, EpubError, ExtractedRecipe, MockExtractor, Options,
-    RecipeMeta, RecipeSection,
+    CookbookRecipeExt, EpubError, ExtractedRecipe, MockExtractor, Options, RecipeMeta,
+    RecipeSection, extract_cookbook_with,
 };
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
@@ -125,7 +125,7 @@ fn er(title: &str, ings: &[&str], steps: &[&str]) -> ExtractedRecipe {
 
 #[test]
 fn reads_book_metadata_from_opf() {
-    use recipe_epub::{book_metadata, classify_by_tags, CookbookGuess};
+    use recipe_epub::{CookbookGuess, book_metadata, classify_by_tags};
 
     // book_metadata reads from a path, so stage the in-memory epub on disk.
     let bytes = build_epub();
@@ -237,9 +237,11 @@ async fn binds_hero_photos_and_reads_cover() {
     );
     // One open yields the cover + two distinct heroes = 3 image blobs.
     assert_eq!(items.len(), 3);
-    assert!(items
-        .iter()
-        .any(|(p, b)| p == "OEBPS/images/cover.jpg" && b == COVER_JPG));
+    assert!(
+        items
+            .iter()
+            .any(|(p, b)| p == "OEBPS/images/cover.jpg" && b == COVER_JPG)
+    );
 }
 
 #[tokio::test]
@@ -312,7 +314,9 @@ async fn progress_sink_reports_each_chunk() {
     // The final snapshot reports all chunks done; `done` never exceeds `total`.
     let last = snaps.last().unwrap();
     assert_eq!(last.done, total);
-    assert!(snaps
-        .iter()
-        .all(|s| s.done <= s.total && s.cached <= s.done));
+    assert!(
+        snaps
+            .iter()
+            .all(|s| s.done <= s.total && s.cached <= s.done)
+    );
 }

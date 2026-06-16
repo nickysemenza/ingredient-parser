@@ -1,11 +1,11 @@
 //! Range parsing for measurements
 
 use nom::{
+    Parser,
     branch::alt,
     bytes::complete::tag,
     character::complete::{space0, space1},
     error::context,
-    Parser,
 };
 use tracing::info;
 
@@ -13,7 +13,7 @@ use crate::parser::Res;
 use crate::traced_parser;
 use crate::unit::{Measure, Unit};
 
-use super::{optional_period_or_of, MeasurementParser, DEFAULT_UNIT};
+use super::{DEFAULT_UNIT, MeasurementParser, optional_period_or_of};
 
 /// Canonical [`Unit`] for a raw unit spelling, so range endpoints compare by
 /// unit identity rather than spelling ("tsp" == "teaspoons", "g" == "G").

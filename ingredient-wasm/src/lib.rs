@@ -1,13 +1,12 @@
 use std::{collections::HashSet, str::FromStr};
 
 use ingredient::{
-    decompose as decompose_str, from_str as parse_ingredient_str,
+    Decomposition, Field, decompose as decompose_str, from_str as parse_ingredient_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
-    unit::{convert_measure_with_graph, is_valid, make_graph, print_graph, Measure, MeasureKind},
-    unit_mapping::{parse_unit_mapping as parse_unit_mapping_internal, ParsedUnitMapping},
+    unit::{Measure, MeasureKind, convert_measure_with_graph, is_valid, make_graph, print_graph},
+    unit_mapping::{ParsedUnitMapping, parse_unit_mapping as parse_unit_mapping_internal},
     util::truncate_3_decimals,
-    Decomposition, Field,
 };
 use recipe_scraper::{RecipeSection, RecipeTimes, ScrapedRecipe};
 use serde::{Deserialize, Serialize};

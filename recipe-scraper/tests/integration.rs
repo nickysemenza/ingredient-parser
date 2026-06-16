@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use pretty_assertions::assert_eq;
 use recipe_scraper::ld_json;
-use recipe_scraper::{scrape, ParsedRecipe, ScrapeError, ScrapedRecipe};
+use recipe_scraper::{ParsedRecipe, ScrapeError, ScrapedRecipe, scrape};
 use std::collections::HashMap;
 macro_rules! include_testdata {
     ($x:expr) => {
@@ -89,7 +89,12 @@ fn scrape_from_cache() {
     let res =
         scrape_url("https://www.kingarthurbaking.com/recipes/pretzel-focaccia-recipe").unwrap();
     assert_eq!(res.ingredients().count(), 14);
-    assert_eq!(res.instructions().next(), Some("To make the starter: Mix the water and yeast. Weigh your flour; or measure it by gently spooning it into a cup, then sweeping off any excess. Add the flour, stirring until the flour is incorporated. The starter will be paste-like; it won't form a ball."));
+    assert_eq!(
+        res.instructions().next(),
+        Some(
+            "To make the starter: Mix the water and yeast. Weigh your flour; or measure it by gently spooning it into a cup, then sweeping off any excess. Add the flour, stirring until the flour is incorporated. The starter will be paste-like; it won't form a ball."
+        )
+    );
 }
 #[test]
 fn scrape_from_cache_html() {

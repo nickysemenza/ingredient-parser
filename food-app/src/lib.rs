@@ -10,8 +10,8 @@ use ingredient::trace::ParseTrace;
 use poll_promise::Promise;
 use rand::RngExt;
 use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
-use tabs::{show_debug_tab, show_parsed, show_raw};
 use tabs::{CookbookTab, TestTab};
+use tabs::{show_debug_tab, show_parsed, show_raw};
 
 #[derive(PartialEq, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 enum Tab {
@@ -82,12 +82,11 @@ impl MyApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::default();
-        if let Some(storage) = cc.storage {
-            if let Some(state) =
+        if let Some(storage) = cc.storage
+            && let Some(state) =
                 eframe::get_value::<persist::PersistedState>(storage, eframe::APP_KEY)
-            {
-                state.apply_to(&mut app);
-            }
+        {
+            state.apply_to(&mut app);
         }
         // After restoring state so the persisted flavor is the one applied.
         theme::apply(&cc.egui_ctx, app.theme);

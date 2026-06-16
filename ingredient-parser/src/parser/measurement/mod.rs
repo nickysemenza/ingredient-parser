@@ -29,7 +29,7 @@ pub(crate) mod single;
 
 use std::collections::HashSet;
 
-use nom::{branch::alt, bytes::complete::tag, error::context, multi::separated_list1, Parser};
+use nom::{Parser, branch::alt, bytes::complete::tag, error::context, multi::separated_list1};
 
 use crate::parser::Res;
 use crate::traced_parser;

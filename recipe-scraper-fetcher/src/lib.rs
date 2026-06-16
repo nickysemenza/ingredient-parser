@@ -34,10 +34,10 @@ impl Fetcher {
 
     #[tracing::instrument]
     async fn fetch_html(&self, url: &str) -> Result<String, ScrapeError> {
-        if let Some(cache) = &self.cache {
-            if let Some(cached) = cache.get(url) {
-                return Ok(cached.to_string());
-            }
+        if let Some(cache) = &self.cache
+            && let Some(cached) = cache.get(url)
+        {
+            return Ok(cached.to_string());
         }
 
         let r = match self
@@ -63,7 +63,7 @@ impl Fetcher {
                         ScrapeError::Http(format!("middleware error: {e}"))
                     }
                     reqwest_middleware::Error::Reqwest(e) => ScrapeError::Http(e.to_string()),
-                })
+                });
             }
         };
         if let Err(e) = r.error_for_status_ref() {

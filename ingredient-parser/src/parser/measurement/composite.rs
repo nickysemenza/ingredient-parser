@@ -1,12 +1,12 @@
 //! Composite measurement parsing (plus expressions, parenthesized amounts)
 
 use nom::{
+    Parser,
     branch::alt,
     bytes::complete::tag,
     character::complete::{char, space0},
-    error::{context, ParseError},
+    error::{ParseError, context},
     sequence::delimited,
-    Parser,
 };
 use nom_language::error::VerboseError;
 
@@ -15,7 +15,7 @@ use crate::traced_parser;
 use crate::unit::Measure;
 
 use super::guards::find_matching_paren;
-use super::{MeasurementParser, DEFAULT_UNIT};
+use super::{DEFAULT_UNIT, MeasurementParser};
 
 use crate::parser::vocab::CONTAINER_NOUNS;
 
@@ -275,8 +275,10 @@ mod tests {
     #[rstest]
     fn test_parenthetical_size_rejects_non_size(units_fx: HashSet<String>) {
         let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
-        assert!(parser
-            .parse_count_with_parenthetical_size("1 (not defrosted) can tomatoes")
-            .is_err());
+        assert!(
+            parser
+                .parse_count_with_parenthetical_size("1 (not defrosted) can tomatoes")
+                .is_err()
+        );
     }
 }

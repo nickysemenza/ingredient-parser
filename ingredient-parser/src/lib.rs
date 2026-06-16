@@ -173,7 +173,7 @@ use std::sync::LazyLock;
 
 pub use crate::error::{IngredientError, IngredientResult};
 pub use crate::ingredient::Ingredient;
-pub use crate::usage::{classify_usage, IngredientUsage};
+pub use crate::usage::{IngredientUsage, classify_usage};
 use parser::{MeasurementMode, MeasurementParser};
 use unit::Measure;
 

@@ -1,12 +1,12 @@
 //! Number parsing for measurements
 
 use nom::{
-    branch::alt, bytes::complete::tag, character::complete::space1, combinator::opt,
-    error::context, Parser,
+    Parser, branch::alt, bytes::complete::tag, character::complete::space1, combinator::opt,
+    error::context,
 };
 
 use crate::fraction::{finite_double, fraction_number};
-use crate::parser::{text_number, thousands_number, Res};
+use crate::parser::{Res, text_number, thousands_number};
 use crate::traced_parser;
 
 use super::{MeasurementMode, MeasurementParser};

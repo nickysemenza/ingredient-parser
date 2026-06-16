@@ -1,15 +1,15 @@
 use nom::error::ParseError;
 use nom::{
+    Parser,
     branch::alt,
     bytes::complete::tag_no_case,
     character::complete::{space0, space1},
     combinator::{opt, verify},
     error::context,
-    Parser,
 };
 use nom_language::error::VerboseError;
 
-use crate::parser::{parse_unit_text, Res};
+use crate::parser::{Res, parse_unit_text};
 use crate::traced_parser;
 use crate::unit::{self, Measure};
 
@@ -17,7 +17,7 @@ use super::guards::{
     find_matching_paren, is_distance_unit, looks_like_step_number, optional_article,
     optional_dash_separator, optional_period_or_of,
 };
-use super::{MeasurementMode, MeasurementParser, DEFAULT_UNIT};
+use super::{DEFAULT_UNIT, MeasurementMode, MeasurementParser};
 
 impl<'a> MeasurementParser<'a> {
     /// Parse a single measurement like "2 cups" or "about 3 tablespoons".

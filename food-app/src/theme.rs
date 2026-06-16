@@ -8,8 +8,8 @@
 //! ([`apply`]); the flavor can be switched at runtime ([`set_theme`]).
 
 use eframe::egui::{self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, Stroke};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// One Catppuccin flavor's colors. Semantic accessors (`amount()`, `name()`,
 /// …) map the app's render roles onto the flavor so call sites don't pick raw

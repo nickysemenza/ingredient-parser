@@ -9,9 +9,9 @@
 //! joined by ", "), so the flattening is faithful and the public type is
 //! unchanged.
 
+use crate::Ingredient;
 use crate::unit::Measure;
 use crate::usage::classify_usage;
-use crate::Ingredient;
 
 /// A single piece of an ingredient's modifier, tagged by what it represents.
 /// The tag gives a structured view (see [`ParsedIngredient::prep`] etc.); the

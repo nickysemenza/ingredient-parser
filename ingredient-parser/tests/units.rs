@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 use std::str::FromStr;
 
-use ingredient::unit::{is_valid, make_graph, print_graph, Measure, MeasureKind, Unit};
+use ingredient::unit::{Measure, MeasureKind, Unit, is_valid, make_graph, print_graph};
 use ingredient::util::num_without_zeroes;
 use rstest::rstest;
 
@@ -347,9 +347,10 @@ fn test_measure_conversions() {
     assert!((vol.value() - 15.0).abs() < 1.0, "got {}", vol.value());
 
     // Conversion to a genuinely incompatible kind still fails (no path to length).
-    assert!(m
-        .convert_measure_via_mappings(MeasureKind::Length, &[tbsp_dollars])
-        .is_none());
+    assert!(
+        m.convert_measure_via_mappings(MeasureKind::Length, &[tbsp_dollars])
+            .is_none()
+    );
 }
 
 /// A gallon is a first-class volume unit: it converts to ml (~3785.4 ml/gal)

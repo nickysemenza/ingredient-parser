@@ -1,4 +1,4 @@
-use nom::{branch::alt, bytes::complete::tag, combinator::opt, Parser};
+use nom::{Parser, branch::alt, bytes::complete::tag, combinator::opt};
 
 use crate::parser::Res;
 

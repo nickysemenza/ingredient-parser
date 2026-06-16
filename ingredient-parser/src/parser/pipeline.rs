@@ -1,16 +1,16 @@
 use nom::{
+    Parser,
     bytes::complete::tag,
     character::complete::{not_line_ending, space0},
     combinator::opt,
     error::context,
     multi::many1,
-    Parser,
 };
 
 use super::ir::{ModifierPart, ParsedIngredient};
 use super::normalize::{lift_inline_descriptive_paren, normalize_input, strip_optional_note};
 use super::refine::clean_modifier;
-use crate::parser::{parse_ingredient_text, MeasurementMode, MeasurementParser, Res};
+use crate::parser::{MeasurementMode, MeasurementParser, Res, parse_ingredient_text};
 use crate::trace;
 use crate::traced_parser;
 use crate::unit::Measure;

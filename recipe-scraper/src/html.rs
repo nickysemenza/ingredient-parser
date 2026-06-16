@@ -29,7 +29,7 @@ pub fn scrape_from_html(dom: Html, url: &str) -> Result<ScrapedRecipe, ScrapeErr
         None => {
             return Err(ScrapeError::Parse(
                 "no ld+json, and no Jetpack Recipe markup to fall back on".to_string(),
-            ))
+            ));
         }
     };
 

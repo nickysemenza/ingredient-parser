@@ -1,7 +1,7 @@
 use std::fmt;
 
-use crate::usage::{classify_usage, IngredientUsage};
-use crate::{from_str, unit::Measure, ParseNotes};
+use crate::usage::{IngredientUsage, classify_usage};
+use crate::{ParseNotes, from_str, unit::Measure};
 use serde::{Deserialize, Serialize};
 
 // `PartialEq`/`PartialOrd` are hand-written below (excluding `parse_notes`), so

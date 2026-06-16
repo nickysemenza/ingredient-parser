@@ -2,7 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-use ingredient::{ingredient::Ingredient, unit::Measure, IngredientError, IngredientResult};
+use ingredient::{IngredientError, IngredientResult, ingredient::Ingredient, unit::Measure};
 
 // ============================================================================
 // Ingredient Struct Tests

@@ -4,21 +4,21 @@
 use crate::theme;
 use eframe::egui::{self, RichText};
 use egui_graphs::{
-    get_layout_state, set_layout_state, FruchtermanReingoldWithCenterGravity,
-    FruchtermanReingoldWithCenterGravityState, Graph as EguiGraph, GraphView, LayoutForceDirected,
-    SettingsInteraction, SettingsNavigation, SettingsStyle,
+    FruchtermanReingoldWithCenterGravity, FruchtermanReingoldWithCenterGravityState,
+    Graph as EguiGraph, GraphView, LayoutForceDirected, SettingsInteraction, SettingsNavigation,
+    SettingsStyle, get_layout_state, set_layout_state,
 };
 
 use hub_shape::HubLabelNodeShape;
-use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use petgraph::Directed;
+use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use poll_promise::Promise;
 use recipe_epub::{
     BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionStats, ImageRef, Options,
 };
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A fully loaded book: its recipes + extraction stats, plus the materialized
 /// image bytes (the book cover and every recipe's hero photo) read once off the
@@ -192,20 +192,19 @@ impl CookbookTab {
 
         // Source controls: pick a single EPUB, pick a whole library, or type a path.
         ui.horizontal(|ui| {
-            if ui.button("📂 Pick EPUB…").clicked() {
-                if let Some(p) = self.file_dialog().add_filter("EPUB", &["epub"]).pick_file() {
-                    self.path = p.to_string_lossy().into_owned();
-                    self.start_load(ctx.clone());
-                }
+            if ui.button("📂 Pick EPUB…").clicked()
+                && let Some(p) = self.file_dialog().add_filter("EPUB", &["epub"]).pick_file()
+            {
+                self.path = p.to_string_lossy().into_owned();
+                self.start_load(ctx.clone());
             }
             if ui
                 .button("🗂 Pick library…")
                 .on_hover_text("Pick a Calibre root (or any folder); finds every .epub inside")
                 .clicked()
+                && let Some(dir) = self.file_dialog().pick_folder()
             {
-                if let Some(dir) = self.file_dialog().pick_folder() {
-                    self.start_scan(dir, ctx.clone());
-                }
+                self.start_scan(dir, ctx.clone());
             }
             ui.add(
                 egui::TextEdit::singleline(&mut self.path)
@@ -439,15 +438,14 @@ impl CookbookTab {
                             *graph_slot = Some(build_reference_graph(recipes));
                             *graph_prewarmed = false;
                         }
-                        if let Some(graph) = graph_slot {
-                            if let Some(open_idx) =
+                        if let Some(graph) = graph_slot
+                            && let Some(open_idx) =
                                 show_reference_graph(ui, graph, selected, graph_prewarmed)
-                            {
-                                // "Open" clicked on a node: jump to that recipe
-                                // in the Browse view.
-                                *selected = open_idx;
-                                *show_graph = false;
-                            }
+                        {
+                            // "Open" clicked on a node: jump to that recipe
+                            // in the Browse view.
+                            *selected = open_idx;
+                            *show_graph = false;
                         }
                     } else if let Some(nav) = show_recipe_detail(ui, recipes, *selected) {
                         // Clicked a "Uses recipes" link → navigate to it.
@@ -944,16 +942,14 @@ fn show_sections_with_links(
                                 .iter()
                                 .find(|x| &x.line == raw_line)
                                 .and_then(|x| recipes.iter().position(|o| o.meta.title == x.title))
-                            {
-                                if ui
+                                && ui
                                     .link(
                                         RichText::new(format!("{} open", theme::icon::OPEN))
                                             .small(),
                                     )
                                     .clicked()
-                                {
-                                    navigate_to = Some(idx);
-                                }
+                            {
+                                navigate_to = Some(idx);
                             }
                         });
                     });
@@ -986,12 +982,12 @@ fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
     let mut participates: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for (src, r) in recipes.iter().enumerate() {
         for reference in &r.references {
-            if let Some(&dst) = title_to_idx.get(reference.title.as_str()) {
-                if src != dst {
-                    edges.push((src, dst));
-                    participates.insert(src);
-                    participates.insert(dst);
-                }
+            if let Some(&dst) = title_to_idx.get(reference.title.as_str())
+                && src != dst
+            {
+                edges.push((src, dst));
+                participates.insert(src);
+                participates.insert(dst);
             }
         }
     }
@@ -1165,11 +1161,11 @@ fn show_reference_graph(
 /// default hover/select-only behavior.
 mod hub_shape {
     use eframe::egui::{
-        epaint::{CircleShape, TextShape},
         Color32, FontFamily, FontId, Pos2, Shape, Stroke, Vec2,
+        epaint::{CircleShape, TextShape},
     };
     use egui_graphs::{DisplayNode, DrawContext, NodeProps};
-    use petgraph::{stable_graph::IndexType, EdgeType};
+    use petgraph::{EdgeType, stable_graph::IndexType};
 
     /// Floor for the label font size (canvas units × zoom). Guards epaint's
     /// `FontId::new(0)` panic when an always-on label is drawn at a tiny zoom.
@@ -1220,13 +1216,15 @@ mod hub_shape {
             let center = ctx.meta.canvas_to_screen_pos(self.pos);
             let radius = ctx.meta.canvas_to_screen_size(self.radius);
             let color = self.effective_color(ctx);
-            let mut res = vec![CircleShape {
-                center,
-                radius,
-                fill: color,
-                stroke: Stroke::default(),
-            }
-            .into()];
+            let mut res = vec![
+                CircleShape {
+                    center,
+                    radius,
+                    fill: color,
+                    stroke: Stroke::default(),
+                }
+                .into(),
+            ];
 
             // Hubs (always_label) show their label every frame; every other
             // node shows it only while interacted. The view-level

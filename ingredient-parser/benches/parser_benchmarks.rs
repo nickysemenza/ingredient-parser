@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use ingredient::{rich_text::RichParser, IngredientParser};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use ingredient::{IngredientParser, rich_text::RichParser};
 use std::hint::black_box;
 
 fn benchmark_ingredient_parsing(c: &mut Criterion) {

@@ -3,7 +3,7 @@ use scraper::{Html, Selector};
 use serde_json::Value;
 use tracing::{error, info};
 
-use crate::{ld_schema, RecipeTimes, RecipeYield, ScrapeError, ScrapedRecipe};
+use crate::{RecipeTimes, RecipeYield, ScrapeError, ScrapedRecipe, ld_schema};
 
 /// Heading names that mark a trailing "notes"/"tips" section rather than steps.
 fn is_notes_heading(name: &str) -> bool {
@@ -361,13 +361,13 @@ fn parse_ld_json(json: &str) -> Result<ld_schema::Root, ScrapeError> {
         Ok(v) => v,
         Err(e) => {
             // Try to log the raw JSON for debugging if possible
-            if let Ok(raw) = serde_json::from_str::<Value>(json) {
-                if let Ok(pretty) = serde_json::to_string_pretty(&raw) {
-                    // Cap the logged body: an adversarial page can carry megabytes
-                    // of JSON, and this fires on every deserialize failure.
-                    let preview: String = pretty.chars().take(2_000).collect();
-                    error!("failed to find ld json root: {}", preview);
-                }
+            if let Ok(raw) = serde_json::from_str::<Value>(json)
+                && let Ok(pretty) = serde_json::to_string_pretty(&raw)
+            {
+                // Cap the logged body: an adversarial page can carry megabytes
+                // of JSON, and this fires on every deserialize failure.
+                let preview: String = pretty.chars().take(2_000).collect();
+                error!("failed to find ld json root: {}", preview);
             }
             return Err(ScrapeError::Deserialize(e));
         }
@@ -391,12 +391,12 @@ pub fn scrape_from_ld_json(json: &str, url: &str) -> Result<ScrapedRecipe, Scrap
 #[allow(clippy::unwrap_used)]
 mod tests {
     use crate::{
+        RecipeYield,
         ld_json::{
             extract_ld, extract_tool_names, extract_yield_from_wrapper, humanize_iso8601_duration,
             normalize_ld_json, parse_ld_json, parse_yield_string, scrape_from_ld_json,
         },
         ld_schema::{InstructionWrapper, RecipeYieldWrapper, Root, RootRecipe},
-        RecipeYield,
     };
     use rstest::rstest;
     use scraper::Html;

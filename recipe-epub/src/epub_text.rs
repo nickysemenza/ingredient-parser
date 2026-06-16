@@ -42,16 +42,16 @@ fn resolve_relative(doc_path: &str, src: &str) -> Option<String> {
     let mut stack: Vec<&str> = Vec::new();
     // A non-root-absolute src resolves against the doc's *directory* (everything
     // before the doc's last `/`); a leading `/` resets to the archive root.
-    if !src.starts_with('/') {
-        if let Some(idx) = doc_path.rfind('/') {
-            for seg in doc_path[..idx].split('/') {
-                match seg {
-                    "" | "." => {}
-                    ".." => {
-                        stack.pop();
-                    }
-                    s => stack.push(s),
+    if !src.starts_with('/')
+        && let Some(idx) = doc_path.rfind('/')
+    {
+        for seg in doc_path[..idx].split('/') {
+            match seg {
+                "" | "." => {}
+                ".." => {
+                    stack.pop();
                 }
+                s => stack.push(s),
             }
         }
     }
@@ -155,18 +155,18 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
         // (both common in Kobo EPUBs) silently drops the whole document, and a
         // book where every chapter has one yields zero text. Lossy decoding
         // recovers the text; clean UTF-8 is byte-for-byte unaffected.
-        if let Some((raw, mime)) = doc.get_current() {
-            if mime.contains("html") {
-                let doc_path = doc
-                    .get_current_path()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                let decoded = String::from_utf8_lossy(&raw);
-                // Strip a leading BOM so the html parser sees a clean root.
-                let content = decoded.strip_prefix('\u{feff}').unwrap_or(decoded.as_ref());
-                for line in clean_xhtml_to_lines(content, &doc_path) {
-                    tagged.push((doc_path.clone(), line));
-                }
+        if let Some((raw, mime)) = doc.get_current()
+            && mime.contains("html")
+        {
+            let doc_path = doc
+                .get_current_path()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let decoded = String::from_utf8_lossy(&raw);
+            // Strip a leading BOM so the html parser sees a clean root.
+            let content = decoded.strip_prefix('\u{feff}').unwrap_or(decoded.as_ref());
+            for line in clean_xhtml_to_lines(content, &doc_path) {
+                tagged.push((doc_path.clone(), line));
             }
         }
         if !doc.go_next() {
@@ -362,19 +362,19 @@ fn close_self_closing_rawtext(xhtml: &str) -> std::borrow::Cow<'_, str> {
         } else {
             None
         };
-        if let Some(tag) = tag {
-            if let Some(rel_end) = xhtml[i..].find('>') {
-                let end = i + rel_end; // index of '>'
-                let open = &xhtml[i..end]; // tag without the closing '>'
-                if open.trim_end().ends_with('/') {
-                    out.push_str(open.trim_end().trim_end_matches('/').trim_end());
-                    out.push('>');
-                    out.push_str("</");
-                    out.push_str(tag);
-                    out.push('>');
-                    i = end + 1;
-                    continue;
-                }
+        if let Some(tag) = tag
+            && let Some(rel_end) = xhtml[i..].find('>')
+        {
+            let end = i + rel_end; // index of '>'
+            let open = &xhtml[i..end]; // tag without the closing '>'
+            if open.trim_end().ends_with('/') {
+                out.push_str(open.trim_end().trim_end_matches('/').trim_end());
+                out.push('>');
+                out.push_str("</");
+                out.push_str(tag);
+                out.push('>');
+                i = end + 1;
+                continue;
             }
         }
         let ch = xhtml[i..].chars().next().unwrap_or('\u{fffd}');
@@ -422,27 +422,21 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                         if is_block(name) {
                             buf.push(SEP);
                         }
-                        if name == "a" {
-                            if let Some(href) = e.attr("href") {
-                                if is_internal_href(href) {
-                                    open_anchor = Some((buf.len(), href.to_string()));
-                                }
-                            }
+                        if name == "a"
+                            && let Some(href) = e.attr("href")
+                            && is_internal_href(href)
+                        {
+                            open_anchor = Some((buf.len(), href.to_string()));
                         }
                         // <img> is a void element (no Close edge), so capture it
                         // here. Its offset marks where it sits in the text flow.
-                        if name == "img" {
-                            if let Some(src) = e.attr("src") {
-                                if let Some(path) = resolve_relative(doc_path, src) {
-                                    if let Some(mime) = mime_from_ext(&path) {
-                                        let alt = e
-                                            .attr("alt")
-                                            .map(str::to_string)
-                                            .filter(|a| !a.is_empty());
-                                        images.push((buf.len(), ImageRef { path, mime, alt }));
-                                    }
-                                }
-                            }
+                        if name == "img"
+                            && let Some(src) = e.attr("src")
+                            && let Some(path) = resolve_relative(doc_path, src)
+                            && let Some(mime) = mime_from_ext(&path)
+                        {
+                            let alt = e.attr("alt").map(str::to_string).filter(|a| !a.is_empty());
+                            images.push((buf.len(), ImageRef { path, mime, alt }));
                         }
                     }
                 }
@@ -455,11 +449,11 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                     if is_skip(name) {
                         skip_depth = skip_depth.saturating_sub(1);
                     } else if skip_depth == 0 {
-                        if name == "a" {
-                            if let Some((start, href)) = open_anchor.take() {
-                                let text = buf[start..].to_string();
-                                links.push((start, href, text));
-                            }
+                        if name == "a"
+                            && let Some((start, href)) = open_anchor.take()
+                        {
+                            let text = buf[start..].to_string();
+                            links.push((start, href, text));
                         }
                         if is_block(name) {
                             buf.push(SEP);
@@ -623,9 +617,11 @@ mod tests {
         let chunks = window_chunks(tagged);
         assert!(chunks.len() >= 2, "expected a split, got {}", chunks.len());
         // No chunk wildly exceeds the budget+slack guard.
-        assert!(chunks
-            .iter()
-            .all(|c| c.text.len() <= CHUNK_BUDGET + CHUNK_SLACK + 200));
+        assert!(
+            chunks
+                .iter()
+                .all(|c| c.text.len() <= CHUNK_BUDGET + CHUNK_SLACK + 200)
+        );
         // The split starts a fresh chunk at the second recipe's title.
         assert!(chunks.iter().any(|c| c.text.starts_with("Vanilla Cake")));
 
@@ -707,9 +703,11 @@ mod tests {
         assert_eq!(title.images[0].mime, "image/jpeg");
         assert_eq!(title.images[0].alt.as_deref(), Some("A finished cake"));
         // data: and http(s) image sources are dropped (no archive entry).
-        assert!(lines
-            .iter()
-            .all(|l| l.images.is_empty() || l.text == "Chocolate Cake"));
+        assert!(
+            lines
+                .iter()
+                .all(|l| l.images.is_empty() || l.text == "Chocolate Cake")
+        );
     }
 
     #[rstest]

@@ -3,11 +3,10 @@
 #![allow(clippy::unwrap_used)]
 
 use ingredient::{
-    from_str,
+    IngredientParser, from_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
     unit::{Measure, MeasureKind},
-    IngredientParser,
 };
 use rstest::{fixture, rstest};
 

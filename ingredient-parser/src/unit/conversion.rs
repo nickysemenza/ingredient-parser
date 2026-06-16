@@ -6,9 +6,9 @@
 
 use std::collections::HashMap;
 
-use super::{kind::MeasureKind, measure::Measure, measure::TSP_TO_ML, Unit};
-use petgraph::graph::NodeIndex;
+use super::{Unit, kind::MeasureKind, measure::Measure, measure::TSP_TO_ML};
 use petgraph::Graph;
+use petgraph::graph::NodeIndex;
 use tracing::debug;
 
 pub type MeasureGraph = Graph<Unit, EdgeFactor>;

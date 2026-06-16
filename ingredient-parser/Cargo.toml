@@ -2,7 +2,7 @@
 name = "ingredient"
 version = "0.3.0"
 authors = ["nickysemenza"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.85"
 description = "recipe ingredient parser"
 license = "MIT"

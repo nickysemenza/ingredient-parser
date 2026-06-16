@@ -243,7 +243,7 @@ tr.err, tr.err:nth-child(even) { background: #fdecea; }
 /// per section. No JS. Returns `(html, row_count)`. `maud` auto-escapes every
 /// interpolated value, so no manual escaping is needed.
 fn render_corpus_html(corpus: &str) -> (String, usize) {
-    use maud::{html, PreEscaped, DOCTYPE};
+    use maud::{DOCTYPE, PreEscaped, html};
 
     let entries = extract_corpus_rows(corpus);
     let total = entries.len();

@@ -86,19 +86,11 @@ fn stage_label(label: &str, colored: bool) -> String {
 }
 
 fn ok_mark(colored: bool) -> &'static str {
-    if colored {
-        "\x1b[32m✓\x1b[0m"
-    } else {
-        "✓"
-    }
+    if colored { "\x1b[32m✓\x1b[0m" } else { "✓" }
 }
 
 fn fail_mark(colored: bool) -> &'static str {
-    if colored {
-        "\x1b[31m✗\x1b[0m"
-    } else {
-        "✗"
-    }
+    if colored { "\x1b[31m✗\x1b[0m" } else { "✗" }
 }
 
 /// Render a stage report as a compact, stage-level text view for `--explain`.

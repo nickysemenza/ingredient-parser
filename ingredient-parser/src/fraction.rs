@@ -1,11 +1,11 @@
 use nom::{
+    Parser,
     branch::alt,
     bytes::complete::{tag, tag_no_case},
     character::complete::{space0, space1},
     combinator::{opt, recognize},
-    error::{context, ParseError},
+    error::{ParseError, context},
     number::complete::double,
-    Parser,
 };
 
 use crate::Res;
@@ -152,8 +152,8 @@ pub fn fraction_number(input: &str) -> Res<&str, f64> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use nom::error::ErrorKind;
     use nom::Err as NomErr;
+    use nom::error::ErrorKind;
     use nom_language::error::{VerboseError, VerboseErrorKind};
     use rstest::rstest;
 
@@ -198,7 +198,7 @@ mod tests {
     /// range that holds them all) is missing from the const.
     #[test]
     fn vulgar_fractions_match_is_vulgar() {
-        use super::{is_vulgar, VULGAR_FRACTIONS};
+        use super::{VULGAR_FRACTIONS, is_vulgar};
         assert!(VULGAR_FRACTIONS.chars().all(is_vulgar));
         for c in '\u{0}'..='\u{2200}' {
             assert_eq!(

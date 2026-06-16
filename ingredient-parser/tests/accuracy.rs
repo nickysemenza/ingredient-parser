@@ -25,7 +25,7 @@
 // Test-harness code: a malformed corpus line should fail the test loudly.
 #![allow(clippy::panic)]
 
-use ingredient::{from_str, unit::Measure, IngredientParser, IngredientUsage};
+use ingredient::{IngredientParser, IngredientUsage, from_str, unit::Measure};
 use serde::Deserialize;
 
 #[derive(Deserialize)]

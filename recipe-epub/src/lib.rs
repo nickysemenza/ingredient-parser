@@ -25,22 +25,22 @@ mod library;
 // response parsing (`parse_recipes_payload`), and assembly (`assemble_recipes`).
 pub use epub_text::chunk_epub;
 pub use extractor::{
-    build_chunk_request, parse_recipes_payload, recipes_tool_schema, ChunkOutcome, ChunkRequest,
-    ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, Usage,
+    ChunkOutcome, ChunkRequest, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, Usage,
+    build_chunk_request, parse_recipes_payload, recipes_tool_schema,
 };
 // Library scanning: list + classify the cookbooks in a directory of epubs
 // (native: needs std::fs + the LLM classifier).
 #[cfg(feature = "native")]
 pub use library::{
-    book_cover, book_metadata, classify_by_tags, classify_cookbooks_ai, find_epubs, BookMeta,
-    CookbookGuess,
+    BookMeta, CookbookGuess, book_cover, book_metadata, classify_by_tags, classify_cookbooks_ai,
+    find_epubs,
 };
 // The native extraction orchestration (backends + cache + async) lives in
 // `backend`; re-export the public entry points so `recipe_epub::extract_cookbook`
 // (etc.) paths stay stable.
 #[cfg(feature = "native")]
 pub use backend::{
-    extract_cookbook, extract_cookbook_with, extract_cookbook_with_progress, Options,
+    Options, extract_cookbook, extract_cookbook_with, extract_cookbook_with_progress,
 };
 // Section + time types are shared with the web scraper — one shape workspace-wide.
 pub use recipe_scraper::{ParsedSection, RecipeSection, RecipeTimes};
@@ -66,7 +66,9 @@ pub enum EpubError {
     MissingApiKey,
     /// No gateway URL: `CLOUDFLARE_AI_GATEWAY_BASE_URL` was not set. All model
     /// traffic routes through the gateway by design — there is no direct-provider path.
-    #[error("no gateway URL: set CLOUDFLARE_AI_GATEWAY_BASE_URL to your Cloudflare AI Gateway root (…/v1/<account>/<gateway>)")]
+    #[error(
+        "no gateway URL: set CLOUDFLARE_AI_GATEWAY_BASE_URL to your Cloudflare AI Gateway root (…/v1/<account>/<gateway>)"
+    )]
     MissingBaseUrl,
     /// The HTTP request to the model API failed (connection, timeout, …).
     #[cfg(feature = "native")]

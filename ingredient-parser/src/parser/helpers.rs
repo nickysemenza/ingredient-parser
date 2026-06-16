@@ -3,13 +3,13 @@
 //! This module contains low-level parsing helpers used by the main ingredient parser.
 
 use nom::{
+    IResult, Parser,
     branch::alt,
-    bytes::complete::{tag, tag_no_case, take_while1, take_while_m_n},
+    bytes::complete::{tag, tag_no_case, take_while_m_n, take_while1},
     character::complete::{alpha1, char},
     combinator::{map_res, opt, recognize},
-    error::{context, ParseError},
+    error::{ParseError, context},
     multi::{many0, many1},
-    IResult, Parser,
 };
 use nom_language::error::VerboseError;
 
