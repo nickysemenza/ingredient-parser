@@ -38,6 +38,74 @@ fn name_variants(name: &str) -> Vec<String> {
     (0..toks.len()).map(|i| toks[i..].join(" ")).collect()
 }
 
+/// Is `c` an ASCII alphanumeric character? Word boundaries are defined by
+/// `char::is_alphanumeric` elsewhere; suffix/prefix folding only cares about the
+/// ASCII letter run, which is what cooking-prose plurals and casing live in.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric()
+}
+
+/// Whether the byte at `idx` (or the string edge) is a word boundary in `s`.
+fn boundary_at(s: &str, idx: usize) -> bool {
+    s[idx..].chars().next().is_none_or(|c| !is_word_char(c))
+}
+
+/// Whether the char *before* `idx` (or string start) is a word boundary.
+fn boundary_before(s: &str, idx: usize) -> bool {
+    s[..idx]
+        .chars()
+        .next_back()
+        .is_none_or(|c| !is_word_char(c))
+}
+
+/// Locate `candidate` in `haystack`, returning the matched **surface span**
+/// `(pos, end)` in `haystack` byte offsets, or `None`.
+///
+/// Generic — no vocab, no word lists. One extension over plain exact match,
+/// preserving the word-boundary guard (so "oil" never matches inside "broil"):
+///
+/// **Optional trailing plural suffix.** After the base candidate, an optional
+/// `"es"` (preferred) or `"s"` is consumed *iff* a word boundary holds after it
+/// — so name "egg" matches prose "eggs" but not "eggshell", and "lime" does not
+/// punch through "limestone". The returned span is sliced out of the original
+/// `haystack`, so the caller emits the prose's own suffix ("eggs", "tomatoes").
+///
+/// Matching stays **case-sensitive**. Case-folding was tried (to highlight a
+/// capitalized sentence-initial mention like "Parsley …") and rejected: recipe
+/// steps overwhelmingly open with an imperative verb spelled like an ingredient
+/// head noun ("Oil the pan", "Salt to taste", "Cream together…"), so folding
+/// case mis-highlights the *normal* form of an instruction. Telling noun from
+/// verb needs a POS tagger / word list, both of which this matcher avoids by
+/// design — so the capitalized-mention case stays a documented `xfail`.
+fn find_candidate(haystack: &str, candidate: &str) -> Option<(usize, usize)> {
+    let clen = candidate.len();
+    for (pos, m) in haystack.match_indices(candidate) {
+        let base_end = pos + m.len();
+        debug_assert_eq!(m.len(), clen);
+
+        // Leading boundary: char before `pos` must be a non-word char / edge.
+        if !boundary_before(haystack, pos) {
+            continue;
+        }
+
+        // Trailing boundary, with optional plural suffix. Check "es" before "s"
+        // so "tomato"->"tomatoes" consumes the pair as a unit.
+        let tail = &haystack[base_end..];
+        if tail.starts_with("es") && boundary_at(haystack, base_end + 2) {
+            return Some((pos, base_end + 2));
+        }
+        if tail.starts_with('s') && boundary_at(haystack, base_end + 1) {
+            return Some((pos, base_end + 1));
+        }
+        if boundary_at(haystack, base_end) {
+            return Some((pos, base_end));
+        }
+        // Otherwise this occurrence fails the trailing guard; `match_indices`
+        // keeps scanning for a later, boundary-valid one.
+    }
+    None
+}
+
 // find any text chunks which have an ingredient name as a substring in them.
 // if so, split on the ingredient name, giving it it's own `Chunk::Ing`.
 //
@@ -60,41 +128,36 @@ fn extract_ingredients(r: Rich, ingredient_names: &[String]) -> Rich {
                 let mut text_or_ing_res = vec![];
                 let mut rest = text.as_str();
 
-                // Earliest word-boundary match across all candidates; ties go
-                // to the longer candidate so "sea salt" wins over "salt" and the
-                // full name wins over its head-noun variant. The boundary guard
-                // (non-alphanumeric or string edge on both sides, mirroring
-                // `refine.rs`) stops a short candidate like "oil" matching inside
-                // "broil".
+                // Earliest word-boundary match across all candidates; ties go to
+                // the longer candidate so "sea salt" wins over "salt" and the
+                // full name wins over its head-noun variant. `find_candidate`
+                // returns the matched *surface span* `(pos, end)` in `haystack`
+                // (NOT the candidate string), so the emitted Ing carries the
+                // prose's own plural suffix ("eggs", "tomatoes"). The boundary
+                // guard (non-alphanumeric or string edge on both sides) stops a
+                // short candidate like "oil" matching inside "broil"; for
+                // plurals it is re-checked *past* the suffix.
                 let earliest = |haystack: &str| {
                     candidates
                         .iter()
                         .filter(|c| !c.is_empty())
                         .filter_map(|c| {
-                            haystack
-                                .match_indices(c.as_str())
-                                .find(|(pos, m)| {
-                                    let before = haystack[..*pos]
-                                        .chars()
-                                        .next_back()
-                                        .is_none_or(|ch| !ch.is_alphanumeric());
-                                    let after = haystack[pos + m.len()..]
-                                        .chars()
-                                        .next()
-                                        .is_none_or(|ch| !ch.is_alphanumeric());
-                                    before && after
-                                })
-                                .map(|(pos, _)| (pos, c))
+                            find_candidate(haystack, c).map(|(pos, end)| (pos, end, c.len()))
                         })
-                        .min_by_key(|(pos, c)| (*pos, std::cmp::Reverse(c.len())))
+                        // Tie-break on *candidate* length (not span length) so the
+                        // longest name wins regardless of any plural suffix the
+                        // prose happens to add.
+                        .min_by_key(|(pos, _end, clen)| (*pos, std::cmp::Reverse(*clen)))
                 };
 
-                while let Some((pos, candidate)) = earliest(rest) {
+                while let Some((pos, end, _clen)) = earliest(rest) {
                     if pos > 0 {
                         text_or_ing_res.push(Chunk::Text(rest[..pos].to_string()));
                     }
-                    text_or_ing_res.push(Chunk::Ing(candidate.clone()));
-                    rest = &rest[pos + candidate.len()..];
+                    // Surface text actually matched in the prose, including any
+                    // plural suffix.
+                    text_or_ing_res.push(Chunk::Ing(rest[pos..end].to_string()));
+                    rest = &rest[end..];
                 }
                 if !rest.is_empty() {
                     // ignore empty
@@ -466,6 +529,20 @@ mod tests {
         assert!(!result.is_empty());
     }
 
+    /// Plural matching slices `haystack` by byte offsets (base match + optional
+    /// suffix); multibyte prose (Turkish dotted-İ, accents, emoji) must never
+    /// split a char or panic. Regression guard for the surface-slice fix.
+    #[rstest]
+    #[case("İstanbul eggs İ", "egg")]
+    #[case("naïve broil café", "oil")]
+    #[case("eggs😀more", "egg")]
+    #[case("café. Parsley", "parsley")]
+    #[case("İ", "i")]
+    fn test_extract_multibyte_no_panic(#[case] input: &str, #[case] name: &str) {
+        let chunks = vec![Chunk::Text(input.to_string())];
+        let _ = extract_ingredients(chunks, &[name.to_string()]);
+    }
+
     /// Extraction must be independent of the order names are listed: with
     /// names ["flour", "sugar"], "Add sugar and flour" must highlight BOTH
     /// (the old one-pass-per-name scan never revisited the prefix, leaving
@@ -497,6 +574,55 @@ mod tests {
             .filter(|c| matches!(c, Chunk::Ing(s) if s == "flour"))
             .count();
         assert_eq!(flour_count, 2);
+    }
+
+    /// Plural-suffix matching, with the boundary guard re-checked past the
+    /// suffix. Each case: (input, name, expected chunks). Surface text must
+    /// carry the prose's own plural, not the candidate. Matching is
+    /// case-sensitive (see `find_candidate` doc for why case-folding was
+    /// rejected): a capitalized mention stays plain text.
+    #[rstest]
+    // plural: name "egg" matches prose "eggs", surface keeps the plural.
+    #[case::plural_s("beat the eggs", "egg", vec![
+        Chunk::Text("beat the ".into()), Chunk::Ing("eggs".into())])]
+    // "es" plural form.
+    #[case::plural_es("dice the tomatoes", "tomato", vec![
+        Chunk::Text("dice the ".into()), Chunk::Ing("tomatoes".into())])]
+    // boundary re-checked past suffix: must NOT punch through "eggplant".
+    #[case::no_eggplant("slice the eggplant", "egg", vec![
+        Chunk::Text("slice the eggplant".into())])]
+    // "s" branch must not leak into "limestone".
+    #[case::no_limestone("set on limestone", "lime", vec![
+        Chunk::Text("set on limestone".into())])]
+    // apostrophe-s is a boundary, not a plural to absorb.
+    #[case::apostrophe_s("trim the egg's shell", "egg", vec![
+        Chunk::Text("trim the ".into()), Chunk::Ing("egg".into()), Chunk::Text("'s shell".into())])]
+    // case-sensitive guard: a capitalized sentence-initial mention does NOT
+    // match a lowercase name (the documented xfail) — folding case here would
+    // mis-highlight imperative verbs like "Oil"/"Salt" that open recipe steps.
+    #[case::cap_start_no_match("Parsley is nice", "parsley", vec![
+        Chunk::Text("Parsley is nice".into())])]
+    // same guard after a sentence terminator: still no case-fold.
+    #[case::cap_after_period_no_match("Stir well. Onion adds depth", "onion", vec![
+        Chunk::Text("Stir well. Onion adds depth".into())])]
+    // the imperative-verb false positive that case-folding would introduce:
+    // "Oil" opening a step must stay text, not highlight name "olive oil".
+    #[case::imperative_verb_guard("Oil the pan well", "olive oil", vec![
+        Chunk::Text("Oil the pan well".into())])]
+    // must-preserve: "oil" never matches inside "broil" (leading boundary).
+    #[case::broil_guard("broil until charred", "oil", vec![
+        Chunk::Text("broil until charred".into())])]
+    // lowercase exact still works unchanged.
+    #[case::lower_exact("add the onion", "onion", vec![
+        Chunk::Text("add the ".into()), Chunk::Ing("onion".into())])]
+    fn test_extract_plural_and_case(
+        #[case] input: &str,
+        #[case] name: &str,
+        #[case] expected: Vec<Chunk>,
+    ) {
+        let chunks = vec![Chunk::Text(input.to_string())];
+        let result = extract_ingredients(chunks, &[name.to_string()]);
+        assert_eq!(result, expected, "input={input:?} name={name:?}");
     }
 
     // ============================================================================

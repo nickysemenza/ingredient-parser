@@ -245,7 +245,7 @@
 {"input": "1 cup, 2 tablespoons flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "tbsp", "value": 2.0}]}
 {"input": "2 x 3 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 6.0}]}
 //
-// --- known gaps (xfail = desired parse the parser does not yet produce) ---
+// --- former gaps, now fixed and committed as regression guards (qualifiers, parenthetical piece/can) ---
 {"input": "About 2 cups vegetable oil", "name": "vegetable oil", "amounts": [{"unit": "cup", "value": 2.0}]}
 {"input": "Generous ¼ cup chopped cilantro", "name": "cilantro", "amounts": [{"unit": "cup", "value": 0.25}], "modifier": "chopped"}
 {"input": "Scant 1 cup flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}]}
@@ -253,7 +253,7 @@
 {"input": "1 (1-ounce) piece peeled ginger", "name": "peeled ginger", "amounts": [{"unit": "piece", "value": 1.0}, {"unit": "oz", "value": 1.0}]}
 {"input": "1 (28-ounce) can whole peeled tomatoes", "name": "whole peeled tomatoes", "amounts": [{"unit": "can", "value": 1.0}, {"unit": "oz", "value": 28.0}]}
 //
-// --- harvested from Calibre library fuzz pass (15 books, 2026-05-31); xfail = real parser gaps ---
+// --- harvested from Calibre library fuzz pass (15 books, 2026-05-31); gaps since fixed, now committed ---
 {"input": "175 grams /1¾ cups sifted almond flour", "name": "almond flour", "amounts": [{"unit": "g", "value": 175.0}, {"unit": "cup", "value": 1.75}], "modifier": "sifted"}
 {"input": "50 grams /¼ cup granulated sugar", "name": "granulated sugar", "amounts": [{"unit": "g", "value": 50.0}, {"unit": "cup", "value": 0.25}]}
 {"input": "85 grams /6 Tbsp unsalted butter", "name": "unsalted butter", "amounts": [{"unit": "g", "value": 85.0}, {"unit": "tbsp", "value": 6.0}]}
@@ -300,7 +300,7 @@
 {"input": "5 to 10 dried Thai chiles, fried", "name": "dried Thai chiles", "amounts": [{"unit": "whole", "value": 5.0, "upper_value": 10.0}], "modifier": "fried"}
 {"input": "¼ teaspoon plus ⅛ teaspoon ground turmeric", "name": "ground turmeric", "amounts": [{"unit": "tsp", "value": 0.375}]}
 //
-// --- harvested (parsed-review, 2026-06-01): xfail = real parse gaps, fix backlog ---
+// --- harvested (parsed-review, 2026-06-01): former parse gaps, since fixed and committed ---
 {"input": "1 pint raspberries", "name": "raspberries", "amounts": [{"unit": "pint", "value": 1.0, "upper_value": null}]}
 {"input": "6 sprigs fresh thyme", "name": "thyme", "amounts": [{"unit": "sprig", "upper_value": null, "value": 6.0}], "modifier": "fresh"}
 {"input": "4 sprigs fresh thyme", "name": "thyme", "amounts": [{"unit": "sprig", "value": 4.0}], "modifier": "fresh"}
