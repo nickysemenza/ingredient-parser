@@ -13,13 +13,14 @@ members = [
 ]
 
 # Shared package metadata, inherited via `edition.workspace = true` /
-# `rust-version.workspace = true`. Edition 2024 already makes 1.85 the hard
-# compiler floor for every crate, so the MSRV is declared once here rather than
-# duplicated per crate. (`version` stays per-crate: `ingredient` is published
-# at its own cadence, the rest are 0.1.0 internal members.)
+# `rust-version.workspace = true`. Workspace MSRV is 1.88: edition 2024 plus
+# clippy's `collapsible_if` (under CI's `-D warnings`) collapses nested `if let`
+# into let-chains, which stabilized in 1.88, so that's the real floor for every
+# crate including the published `ingredient`. (`version` stays per-crate:
+# `ingredient` is published at its own cadence, the rest are 0.1.0 internal.)
 [workspace.package]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }

@@ -119,10 +119,10 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
                     if let Some(w) = g.edge_weight_mut(e) {
                         *w = a_to_b_weight;
                     }
-                    if let Some(re) = g.find_edge(n_b, n_a) {
-                        if let Some(rw) = g.edge_weight_mut(re) {
-                            *rw = b_to_a_weight;
-                        }
+                    if let Some(re) = g.find_edge(n_b, n_a)
+                        && let Some(rw) = g.edge_weight_mut(re)
+                    {
+                        *rw = b_to_a_weight;
                     }
                 }
             }

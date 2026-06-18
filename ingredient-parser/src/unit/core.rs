@@ -257,15 +257,14 @@ impl fmt::Display for Unit {
 /// "-es" after a sibilant ("bunches", "boxes", "dishes") strips to the base;
 /// otherwise a bare trailing "s" is stripped ("cups", "slices", "recipes").
 fn strip_plural(s: &str) -> &str {
-    if let Some(base) = s.strip_suffix("es") {
-        if base.ends_with("ch")
+    if let Some(base) = s.strip_suffix("es")
+        && (base.ends_with("ch")
             || base.ends_with("sh")
             || base.ends_with("ss")
             || base.ends_with('x')
-            || base.ends_with('z')
-        {
-            return base;
-        }
+            || base.ends_with('z'))
+    {
+        return base;
     }
     s.strip_suffix('s').unwrap_or(s)
 }

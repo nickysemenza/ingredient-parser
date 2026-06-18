@@ -189,10 +189,10 @@ impl IngredientParser {
             // ALTERNATIVE, not the primary: leave it for the alternative passes
             // ("basil or chopped parsley" must keep "chopped" with parsley, not
             // read as prep for basil).
-            if let Some(or_pos) = name_lower.find(" or ") {
-                if pos > or_pos {
-                    continue;
-                }
+            if let Some(or_pos) = name_lower.find(" or ")
+                && pos > or_pos
+            {
+                continue;
             }
 
             let end = pos + adjective.len();
@@ -205,10 +205,11 @@ impl IngredientParser {
             // taste") extractable: only a mid-seam adjective with a head noun
             // still after it is skipped. (Two ingredients on one line is really
             // a parse_multi concern — see the TODO in recognize.rs.)
-            if let Some(and_pos) = name_lower.find(" and ") {
-                if pos > and_pos && end < name_lower.len() {
-                    continue;
-                }
+            if let Some(and_pos) = name_lower.find(" and ")
+                && pos > and_pos
+                && end < name_lower.len()
+            {
+                continue;
             }
 
             // "fresh" immediately before " or " is a genuine contrast
@@ -244,19 +245,18 @@ impl IngredientParser {
             // abutting the adjective is consumed.
             let mut prep = adjective.clone();
             let mut cut = pos;
-            if let Some(prev) = name_lower[..pos].split_whitespace().next_back() {
-                if crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&prev) {
-                    if let Some(wstart) = name_lower[..pos].rfind(prev) {
-                        let boundary_ok = name.is_char_boundary(wstart)
-                            && name[..wstart]
-                                .chars()
-                                .next_back()
-                                .is_none_or(char::is_whitespace);
-                        if boundary_ok {
-                            prep = format!("{prev} {adjective}");
-                            cut = wstart;
-                        }
-                    }
+            if let Some(prev) = name_lower[..pos].split_whitespace().next_back()
+                && crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&prev)
+                && let Some(wstart) = name_lower[..pos].rfind(prev)
+            {
+                let boundary_ok = name.is_char_boundary(wstart)
+                    && name[..wstart]
+                        .chars()
+                        .next_back()
+                        .is_none_or(char::is_whitespace);
+                if boundary_ok {
+                    prep = format!("{prev} {adjective}");
+                    cut = wstart;
                 }
             }
             // A prep adjective at the *start* of the name leads the modifier
@@ -374,12 +374,12 @@ impl IngredientParser {
         // A known adjective phrase (two words then one) immediately after "or".
         // Only build the two-word key when there's room for it — the common
         // short-name case never allocates the `format!`.
-        let adj_len = if words.len() >= 5
-            && let Some(w3) = words_lower.get(3)
-            && self
-                .adjectives
-                .contains(&format!("{} {}", words_lower[2], w3))
-        {
+        let two_word_adj = words.len() >= 5
+            && words_lower.get(3).is_some_and(|w3| {
+                self.adjectives
+                    .contains(&format!("{} {}", words_lower[2], w3))
+            });
+        let adj_len = if two_word_adj {
             2
         } else if self.adjectives.contains(&words_lower[2]) {
             1
@@ -493,11 +493,12 @@ const POST_PASSES: &[(&str, Pass)] = &[
 pub(super) fn strip_wrapping_parens(modifier: Option<String>) -> Option<String> {
     let modifier = modifier?;
     let trimmed = modifier.trim();
-    if let Some(inner) = trimmed.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
-        if !inner.contains('(') && !inner.contains(')') {
-            let inner = inner.trim();
-            return (!inner.is_empty()).then(|| inner.to_string());
-        }
+    if let Some(inner) = trimmed.strip_prefix('(').and_then(|s| s.strip_suffix(')'))
+        && !inner.contains('(')
+        && !inner.contains(')')
+    {
+        let inner = inner.trim();
+        return (!inner.is_empty()).then(|| inner.to_string());
     }
     Some(modifier)
 }

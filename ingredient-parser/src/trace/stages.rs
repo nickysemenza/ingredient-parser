@@ -91,10 +91,10 @@ fn find_grammar(core: &[TraceNode]) -> Option<&TraceNode> {
         if c.name == GRAMMAR_NAME {
             return Some(c);
         }
-        if RECOGNIZER_NAMES.contains(&c.name.as_str()) {
-            if let Some(g) = c.children.iter().find(|g| g.name == GRAMMAR_NAME) {
-                return Some(g);
-            }
+        if RECOGNIZER_NAMES.contains(&c.name.as_str())
+            && let Some(g) = c.children.iter().find(|g| g.name == GRAMMAR_NAME)
+        {
+            return Some(g);
         }
     }
     None

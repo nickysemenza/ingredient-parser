@@ -52,16 +52,17 @@ jobs:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
   msrv:
-    name: MSRV (1.85)
+    name: MSRV (1.88)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: "1.85"
+          toolchain: "1.88"
       - name: Check the published crate builds on its declared MSRV
-        # Default features only — the `bench` feature pulls criterion, which needs 1.86.
-        run: cargo +1.85 check -p ingredient
+        # 1.88 is the workspace floor: edition 2024 + let-chains (from clippy's
+        # collapsible_if) stabilized there. Default features only.
+        run: cargo +1.88 check -p ingredient
   fuzz:
     name: fuzz (smoke)
     runs-on: ubuntu-latest
