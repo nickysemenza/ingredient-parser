@@ -172,7 +172,13 @@ impl<'a> MeasurementParser<'a> {
 
         // (The early return above already rejected rich-text mode, so a plain
         // `space0` is correct here.)
+        //
+        // `opt(leading_qualifier)` lets a bare unit carry a discarded shape/approx
+        // qualifier ("Generous pinch of salt" -> 1 pinch, name "salt"), matching the
+        // numbered path in `parse_single_measurement`. It backtracks to nothing when
+        // the next word isn't a qualifier, so "pinch of salt" is unaffected.
         let unit_only_format = (
+            opt(leading_qualifier),
             space0,
             |a| self.unit_extra(a),
             optional_period_or_of,
@@ -183,7 +189,7 @@ impl<'a> MeasurementParser<'a> {
             "parse_unit_only",
             input,
             context("unit_only", unit_only_format).parse(input).map(
-                |(next_input, (_, unit, _, _))| {
+                |(next_input, (_, _, unit, _, _))| {
                     (
                         next_input,
                         Measure::from_parts(unit.to_lowercase().as_ref(), 1.0, None),

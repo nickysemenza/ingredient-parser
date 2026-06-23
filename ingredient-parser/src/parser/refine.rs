@@ -302,13 +302,77 @@ impl IngredientParser {
         parsed.name = name;
     }
 
-    /// Move a trailing "for `<gerund>` …" purpose clause out of the name into
-    /// the modifier ("Extra-virgin olive oil for brushing the bread" -> name
-    /// "Extra-virgin olive oil", modifier "for brushing the bread"). Runs AFTER
-    /// `extract_adjectives_from_name`, so fixed purpose phrases already in the
-    /// vocab ("for dusting", "for garnish") are gone and aren't double-handled.
-    /// The gerund guard (next word ends in "ing", ≥5 chars) keeps a plain
-    /// "<name> for <noun>" intact.
+    /// Move a trailing participial preparation clause out of the name into the
+    /// modifier: "anchovy fillets mashed with the flat side of a knife into a
+    /// paste" -> name "anchovy fillets", modifier "mashed with the flat side of a
+    /// knife into a paste". `extract_adjectives_from_name` only relocates the
+    /// adjective *word*, never its trailing prepositional tail, so this handles
+    /// the "<head noun> <participle> <preposition> …" shape as a whole and runs
+    /// *before* it so the full span moves intact.
+    ///
+    /// Tightly guarded: the trigger token must look like a participle (ends in
+    /// "ed", or is a known adjective) AND be immediately followed by a cooking
+    /// preposition ("with"/"into"), AND have at least one preceding word (the head
+    /// noun). That last guard keeps a *leading* participle in the name
+    /// ("mashed potatoes" — participle is the first word, no split), and the
+    /// preposition requirement leaves plain "<noun> with <noun>" ("chicken with
+    /// skin") alone since the noun isn't a participle.
+    fn extract_trailing_prep_clause(&self, parsed: &mut ParsedIngredient) {
+        // Find the byte offset to cut at while only borrowing the name; the borrow
+        // ends with this block so the owned-string rewrite below can reassign it.
+        let cut = {
+            let name = parsed.name.as_str();
+            // Byte offset of each whitespace-split token within `name` (the tokens
+            // are subslices of `name`, so pointer arithmetic gives their start).
+            let tokens: Vec<(usize, &str)> = name
+                .split_whitespace()
+                .map(|w| (w.as_ptr() as usize - name.as_ptr() as usize, w))
+                .collect();
+            let mut found = None;
+            // Start at 1: index 0 is the head noun and can never be the trigger.
+            for i in 1..tokens.len() {
+                let Some(&(_, next)) = tokens.get(i + 1) else {
+                    break;
+                };
+                let (start, word) = tokens[i];
+                let word_lower = word.to_lowercase();
+                let is_participle =
+                    word_lower.ends_with("ed") || self.adjectives.contains(word_lower.as_str());
+                let next_lower = next.to_lowercase();
+                let is_cooking_prep = next_lower == "with" || next_lower == "into";
+                if is_participle && is_cooking_prep && name.is_char_boundary(start) {
+                    found = Some(start);
+                    break;
+                }
+            }
+            found
+        };
+        let Some(start) = cut else {
+            return;
+        };
+        let clause = parsed.name[start..].trim().to_string();
+        let new_name = parsed.name[..start].trim().to_string();
+        if new_name.is_empty() || clause.is_empty() {
+            return;
+        }
+        parsed.name = new_name;
+        parsed.push_modifier(ModifierPart::Prep(clause));
+    }
+
+    /// Move a trailing "for …" purpose clause out of the name into the modifier.
+    /// Two shapes qualify:
+    /// - "for `<gerund>` …" ("Extra-virgin olive oil for brushing the bread" ->
+    ///   name "Extra-virgin olive oil", modifier "for brushing the bread"), and
+    /// - "for the `<noun>` …" ("Butter for the pans" -> name "Butter", modifier
+    ///   "for the pans"). The definite article is the signal here; the singular
+    ///   "for the pan" is a fixed vocab phrase handled by
+    ///   `extract_adjectives_from_name`, but plurals/other nouns leak past it.
+    ///
+    /// Runs AFTER `extract_adjectives_from_name`, so fixed purpose phrases already
+    /// in the vocab ("for dusting", "for garnish") are gone and aren't
+    /// double-handled. The guards (next word is an "ing" gerund ≥5 chars, or the
+    /// article "the") keep a plain "<name> for <noun>" like "flour for bread"
+    /// intact.
     fn extract_purpose_gerund(&self, parsed: &mut ParsedIngredient) {
         use regex::Regex;
         use std::sync::LazyLock;
@@ -329,10 +393,11 @@ impl IngredientParser {
             .split_whitespace()
             .next()
             .unwrap_or("");
-        if next_word.len() < 5
-            || !next_word.ends_with("ing")
-            || !next_word.chars().all(char::is_alphabetic)
-        {
+        let is_gerund = next_word.len() >= 5
+            && next_word.ends_with("ing")
+            && next_word.chars().all(char::is_alphabetic);
+        let is_for_the = next_word.eq_ignore_ascii_case("the");
+        if !is_gerund && !is_for_the {
             return;
         }
         let clause = parsed.name[m.start()..].trim().to_string();
@@ -463,6 +528,10 @@ const POST_PASSES: &[(&str, Pass)] = &[
     (
         "extract_leading_prep_alternative",
         IngredientParser::extract_leading_prep_alternative,
+    ),
+    (
+        "extract_trailing_prep_clause",
+        IngredientParser::extract_trailing_prep_clause,
     ),
     (
         "extract_adjectives_from_name",

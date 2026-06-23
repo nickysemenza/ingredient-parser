@@ -448,6 +448,17 @@
 // FIX 3 + TODO(parse_multi): two ingredients ("Kosher salt" + "freshly ground black
 // pepper"). Until parse_multi, from_str keeps one clean name (no mid-"and" surgery).
 {"input": "Kosher salt and freshly ground black pepper", "name": "Kosher salt and freshly ground black pepper"}
+// --- "for the <noun>" purpose clause (plural/other nouns past the "for the pan" vocab phrase) ---
+{"input": "Butter for the pans", "name": "Butter", "modifier": "for the pans"}
+{"input": "Butter and sugar for the muffin tins", "name": "Butter and sugar", "modifier": "for the muffin tins"}
+// guard: "for <noun>" with no article must stay in the name.
+{"input": "flour for bread", "name": "flour for bread"}
+// --- generous/scant/… qualifier before a bare unit (qualifier discarded, unit → 1) ---
+{"input": "Generous pinch of kosher salt", "name": "kosher salt", "amounts": [{"unit": "pinch", "value": 1.0}]}
+// --- trailing participial prep clause ("<head noun> <participle> with/into …" → modifier) ---
+{"input": "4 anchovy fillets mashed with the flat side of a knife into a paste", "name": "anchovy fillets", "amounts": [{"unit": "whole", "value": 4}], "modifier": "mashed with the flat side of a knife into a paste"}
+// guard: a leading participle is part of the name, not a trailing clause.
+{"input": "mashed potatoes", "name": "mashed potatoes"}
 {"input": "1 t salt", "name": "salt", "amounts": [{"unit": "tsp", "value": 1.0}]}
 {"input": "1 T butter", "name": "butter", "amounts": [{"unit": "tbsp", "value": 1.0}]}
 {"input": "2 t. vanilla", "name": "vanilla", "amounts": [{"unit": "tsp", "value": 2.0}]}
