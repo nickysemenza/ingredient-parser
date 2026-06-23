@@ -349,10 +349,11 @@ fn amount_qualifier_between(input: &str) -> Res<&str, ()> {
         tag_no_case("heaped"),
         tag_no_case("rounded"),
         tag_no_case("brimming"),
-        // A size word ("small handful", "large pinch") before a *vague* unit
-        // describes the measure, not the food, so it's discarded like the shape
-        // qualifiers above. Gated to vague units so "2 large eggs" keeps "large".
-        size_word_before_vague_unit,
+        // A size word ("small handful", "large pinch", "large bunch", "small
+        // head") before a vague/container measure describes the measure, not the
+        // food, so it's discarded like the shape qualifiers above. Gated to those
+        // unit sets so "2 large eggs" keeps "large".
+        size_word_before_discardable_unit,
     ))
     .parse(input)?;
     let (input, _) = space1(input)?;
@@ -360,12 +361,14 @@ fn amount_qualifier_between(input: &str) -> Res<&str, ()> {
 }
 
 /// Match a SIZE word ("small"/"large"/…) only when a vague unit
-/// ("handful"/"pinch"/"dash") immediately follows, so the size word can be
-/// discarded as a measure qualifier ("1 small handful basil" -> 1 handful basil).
-/// Consumes just the size word, leaving the space for the caller's `space1`; the
-/// `peek` look-ahead means a size word before any other unit (or a real food,
-/// "2 large eggs") backtracks via the caller's `opt(...)` and stays in the name.
-fn size_word_before_vague_unit(input: &str) -> Res<&str, &str> {
+/// ("handful"/"pinch"/"dash") or a size-qualifiable container ("bunch"/"head")
+/// immediately follows, so the size word can be discarded as a measure qualifier
+/// ("1 small handful basil" -> 1 handful basil; "1 large bunch kale" -> 1 bunch
+/// kale). Consumes just the size word, leaving the space for the caller's
+/// `space1`; the `peek` look-ahead means a size word before any other unit (or a
+/// real food, "2 large eggs") backtracks via the caller's `opt(...)` and stays in
+/// the name.
+fn size_word_before_discardable_unit(input: &str) -> Res<&str, &str> {
     let (rest, word) = verify(parse_unit_text, |s: &str| {
         crate::parser::vocab::SIZE_WORDS.contains(&s.to_lowercase().as_str())
     })
@@ -373,7 +376,9 @@ fn size_word_before_vague_unit(input: &str) -> Res<&str, &str> {
     peek((
         space1,
         verify(parse_unit_text, |s: &str| {
-            crate::parser::vocab::VAGUE_UNITS.contains(&s.to_lowercase().as_str())
+            let s = s.to_lowercase();
+            crate::parser::vocab::VAGUE_UNITS.contains(&s.as_str())
+                || crate::parser::vocab::SIZE_QUALIFIABLE_UNITS.contains(&s.as_str())
         }),
     ))
     .parse(rest)?;
@@ -457,10 +462,14 @@ mod tests {
     #[rstest]
     #[case::small_handful("1 small handful basil", 1.0, "handful")]
     #[case::large_pinch("2 large pinch salt", 2.0, "pinch")]
-    // Guard: "can" is not a vague unit, so the size word is NOT consumed and the
+    // Size-qualifiable containers: the size word qualifies the bunch/head, so it is
+    // discarded and the unit is consumed ("large bunch" -> bunch, "small head" -> head).
+    #[case::large_bunch("1 large bunch kale", 1.0, "bunch")]
+    #[case::small_head("1 small head cabbage", 1.0, "head")]
+    // Guard: "can" is not a discardable unit, so the size word is NOT consumed and the
     // measure falls back to a bare count (unit "whole"), leaving "small" for the name.
     #[case::small_can_not_consumed("1 small can tomatoes", 1.0, "whole")]
-    fn test_size_word_before_vague_unit(
+    fn test_size_word_before_discardable_unit(
         #[case] input: &str,
         #[case] value: f64,
         #[case] unit: &str,
@@ -469,6 +478,8 @@ mod tests {
         units.insert("handful".to_string());
         units.insert("pinch".to_string());
         units.insert("can".to_string());
+        units.insert("bunch".to_string());
+        units.insert("head".to_string());
         let parser = MeasurementParser::new(&units, MeasurementMode::IngredientList);
         let (_, measure) = parser.parse_single_measurement(input).unwrap();
         assert_eq!(measure.value(), value, "input: {input}");

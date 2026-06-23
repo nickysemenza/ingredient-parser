@@ -490,3 +490,32 @@
 // "shredded" is a prep word → modifier; "(see note)" + trailing "*" are stripped.
 {"input": "1 cup (130g) shredded zucchini (see note)*", "name": "zucchini", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "g", "value": 130.0}], "modifier": "shredded"}
 {"input": "1 cup shredded cheddar cheese", "name": "cheddar cheese", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "shredded"}
+
+// --- cubby cookbook-import fixes (2026-06-23) ---
+// Inline "A or B <head noun>" distributes the trailing head noun onto the primary
+// (vocab::DISTRIBUTABLE_HEAD_NOUNS), so the head is no longer dropped.
+{"input": "4 cups chicken or vegetable stock", "name": "chicken stock", "amounts": [{"unit": "cup", "value": 4}], "modifier": "or vegetable stock"}
+{"input": "1 tablespoon grainy or Dijon mustard", "name": "grainy mustard", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "or Dijon mustard"}
+{"input": "¼ teaspoon freshly ground pink or black pepper", "name": "pink pepper", "amounts": [{"unit": "tsp", "value": 0.25}], "modifier": "freshly ground, or black pepper"}
+{"input": "3 heads Little Gem or Bibb lettuce, leaves separated", "name": "Little Gem lettuce", "amounts": [{"unit": "head", "value": 3}], "modifier": "leaves separated, or Bibb lettuce"}
+// guard: head noun excluded from the list (oil/spirits) keeps name=left, not "butter oil".
+{"input": "2 tablespoons butter or olive oil", "name": "butter", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "or olive oil"}
+// guard: a single-token right (the head itself) never distributes — stays name=left.
+{"input": "1 teaspoon salt or pepper", "name": "salt", "amounts": [{"unit": "tsp", "value": 1}], "modifier": "or pepper"}
+// Leading hyphenated/-less adjective chain: the grammar's first-comma carve strands
+// the head noun in the modifier; recover_head_noun_from_modifier pulls it back.
+{"input": "4 bone-in, skin-on chicken legs", "name": "chicken legs", "amounts": [{"unit": "whole", "value": 4}], "modifier": "bone-in, skin-on"}
+{"input": "2 pounds boneless, skinless chicken thighs (8 to 12 thighs, depending on their size)", "name": "chicken thighs", "amounts": [{"unit": "lb", "value": 2}], "modifier": "boneless, skinless (8 to 12 thighs, depending on their size)"}
+// Manner adverb ("diagonally") folds into the extracted prep adjective ("sliced").
+{"input": "¾ cup diagonally sliced scallions (white and green parts, about 4 scallions)", "name": "scallions", "amounts": [{"unit": "cup", "value": 0.75}], "modifier": "diagonally sliced (white and green parts, about 4 scallions)"}
+// "freshly squeezed" is a prep adjective → modifier.
+{"input": "1 ounce freshly squeezed lime juice", "name": "lime juice", "amounts": [{"unit": "oz", "value": 1}], "modifier": "freshly squeezed"}
+// Size word before a bunch/head container is a measure qualifier (discarded), like
+// "small handful"; the produce variety stays as the name. (Size before a *produce*
+// item — "medium carrots" — still rides on the name, per the lib.rs design decision.)
+{"input": "1 large bunch Tuscan kale, leaves stripped and roughly torn (about 5 cups)", "name": "Tuscan kale", "amounts": [{"unit": "bunch", "value": 1}, {"unit": "cup", "value": 5}], "modifier": "leaves stripped and roughly torn"}
+{"input": "½ small head green cabbage, very finely shredded on a mandoline (about 2 cups)", "name": "green cabbage", "amounts": [{"unit": "head", "value": 0.5}, {"unit": "cup", "value": 2}], "modifier": "very finely shredded on a mandoline"}
+{"input": "3 medium carrots, peeled", "name": "medium carrots", "amounts": [{"unit": "whole", "value": 3}], "modifier": "peeled"}
+{"input": "1 medium red onion, peeled and quartered", "name": "medium red onion", "amounts": [{"unit": "whole", "value": 1}], "modifier": "peeled and quartered"}
+// "N batch(es) of <recipe>" → recipe unit sub-recipe reference.
+{"input": "1 batch of Marshmallow Meringue (this page)", "name": "Marshmallow Meringue", "amounts": [{"unit": "recipe", "value": 1}]}

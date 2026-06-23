@@ -238,15 +238,17 @@ impl IngredientParser {
                 continue;
             }
 
-            // Fold a stranded intensifier adverb ("very") sitting immediately
-            // before the adjective into the modifier too, and extend the cut so it
-            // doesn't get left behind in the name ("very thinly sliced chives" ->
-            // name "chives", modifier "very thinly sliced"). Only the word directly
+            // Fold a stranded intensifier ("very") or manner adverb ("diagonally")
+            // sitting immediately before the adjective into the modifier too, and
+            // extend the cut so it doesn't get left behind in the name ("very thinly
+            // sliced chives" -> name "chives"; "diagonally sliced scallions" -> name
+            // "scallions", modifier "diagonally sliced"). Only the word directly
             // abutting the adjective is consumed.
             let mut prep = adjective.clone();
             let mut cut = pos;
             if let Some(prev) = name_lower[..pos].split_whitespace().next_back()
-                && crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&prev)
+                && (crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&prev)
+                    || crate::parser::vocab::MANNER_ADVERBS.contains(&prev))
                 && let Some(wstart) = name_lower[..pos].rfind(prev)
             {
                 let boundary_ok = name.is_char_boundary(wstart)
@@ -366,10 +368,14 @@ impl IngredientParser {
     /// the `Raw` modifier. This is the mirror of [`Self::extract_trailing_prep_clause`]:
     /// it pulls the head noun *out of* the modifier *into* an all-participle name.
     ///
+    /// Also handles a leading hyphenated/-less adjective chain ("bone-in, skin-on
+    /// chicken legs" -> name "chicken legs", modifier "bone-in, skin-on").
+    ///
     /// Tightly guarded to avoid touching legitimate names:
-    /// - the name must be a *pure* prep chain (every token a participle "-ed"/"-ly"
-    ///   or an intensifier adverb) — any real noun in the name and it bails, so
-    ///   "chopped onion" / "peeled and diced potatoes" are untouched;
+    /// - the name must be a *pure* prep chain (every token a participle "-ed"/"-ly",
+    ///   a hyphenated/-less descriptor "bone-in"/"boneless", or an intensifier
+    ///   adverb) — any real noun in the name and it bails, so "chopped onion" /
+    ///   "peeled and diced potatoes" are untouched;
     /// - the modifier's first part must be `Raw` and yield a head noun whose first
     ///   word is not a stopword, so a prose modifier ("then served over ice") bails.
     ///
@@ -383,11 +389,21 @@ impl IngredientParser {
         // adjective set — a descriptive adjective like "fresh" must lead the head
         // noun, not be swallowed as prep.
         let is_prep = |w: &str| {
+            // `trim_matches` strips leading/trailing non-alphanumerics only, so an
+            // internal hyphen ("bone-in") survives for the suffix checks below.
             let wl = w
                 .trim_matches(|c: char| !c.is_alphanumeric())
                 .to_lowercase();
             wl.ends_with("ed")
                 || wl.ends_with("ly")
+                // Hyphenless adjectives ("boneless", "skinless", "seedless") and
+                // hyphenated meat/prep descriptors ("bone-in", "skin-on",
+                // "sugar-free") that the grammar's first-comma carve strands as a
+                // leading chain ("bone-in, skin-on chicken legs").
+                || wl.ends_with("less")
+                || wl
+                    .rsplit_once('-')
+                    .is_some_and(|(_, suf)| matches!(suf, "in" | "on" | "out" | "off" | "free" | "style"))
                 || crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&wl.as_str())
         };
         let is_connector = |w: &str| {
@@ -436,9 +452,11 @@ impl IngredientParser {
             return;
         }
 
-        // The head noun runs to the next clause boundary.
+        // The head noun runs to the next clause boundary. " (" ends it at a
+        // trailing parenthetical aside ("chicken thighs (8 to 12 thighs, …)"),
+        // before the comma *inside* that aside can truncate the noun.
         let mut end = rest.len();
-        for pat in [", ", " such as ", " or ", " to taste"] {
+        for pat in [", ", " such as ", " or ", " to taste", " ("] {
             if let Some(p) = rest.find(pat) {
                 end = end.min(p);
             }
@@ -792,9 +810,12 @@ fn extract_alternative(name: &str) -> (String, Option<String>) {
 ///
 /// When the word before "or" is a single token and the part after "or" begins
 /// with an adjective modifying a *shared head noun* ("red or **white onion**"),
-/// the head noun is reconstructed onto the primary ("red onion"). Reconstruction
-/// is gated to the cases a grammar can recognize without a food ontology; when
-/// unsure it falls back to `primary = left` and still captures the alternative.
+/// the head noun is reconstructed onto the primary ("red onion"). A second path
+/// gates on the trailing head noun itself ([`vocab::DISTRIBUTABLE_HEAD_NOUNS`]) so
+/// an open-ended left distributes too ("chicken or vegetable **stock**" -> "chicken
+/// stock"). Reconstruction is gated to the cases a grammar can recognize without a
+/// food ontology; when unsure it falls back to `primary = left` and still captures
+/// the alternative.
 /// Known limitation: a single-token *noun* on the left with a distinct
 /// multi-word alternative ("salt or chicken broth") over-reconstructs to "salt
 /// broth" — rare, not in the corpus, and the alternative stays correct.
@@ -871,18 +892,38 @@ fn split_word_alternative(
         .contains(&left_lower.as_str())
         || adjectives.contains(&left_lower);
 
-    let reconstruct = left_tokens.len() == 1
-        && right_tokens.len() >= 2
-        && left_is_premodifier
+    // Shared by both reconstruction paths: the right side must read as
+    // "<premodifier> <head noun>" — at least two tokens, not led by a prep
+    // adjective ("basil or chopped parsley" keeps "chopped" with parsley), and
+    // free of stopwords ("pepper to taste" isn't a shared head).
+    let right_is_modifier_plus_head = right_tokens.len() >= 2
         && !adjectives.contains(&right_tokens[0].to_lowercase())
         && !right_tokens
             .iter()
             .any(|t| STOPWORDS.contains(&t.to_lowercase().as_str()));
 
+    // Path A — a single known-premodifier left shares the right's head noun:
+    // "red or white onion" -> "red onion".
+    let reconstruct = left_tokens.len() == 1 && left_is_premodifier && right_is_modifier_plus_head;
+
+    // Path B — the right's *trailing head noun* is one that essentially always
+    // carries a variety/type premodifier, so an open-ended (even multi-word) left
+    // distributes onto it without needing a left-vocab match: "chicken or
+    // vegetable stock" -> "chicken stock", "Little Gem or Bibb lettuce" ->
+    // "Little Gem lettuce".
+    let right_head_noun = right_tokens.last().copied().unwrap_or_default();
+    let head_noun_distribute = right_is_modifier_plus_head
+        && crate::parser::vocab::DISTRIBUTABLE_HEAD_NOUNS
+            .contains(&right_head_noun.to_lowercase().as_str());
+
     let primary = if reconstruct {
         // The single left adjective replaces `right`'s leading adjective, sharing
         // the trailing head noun: "red" + "white onion" -> "red onion".
         format!("{} {}", left, right_tokens[1..].join(" "))
+    } else if head_noun_distribute {
+        // Graft just the trailing head noun onto the (possibly multi-word) left;
+        // the alternative's own premodifier stays in the "or …" modifier.
+        format!("{left} {right_head_noun}")
     } else {
         left.to_string()
     };
@@ -1183,6 +1224,30 @@ mod tests {
     // A size-word OR size-word pair is a size range of one ingredient, not a
     // two-ingredient alternative — leave the name whole.
     #[case::size_range("medium or large garlic clove", "medium or large garlic clove", None)]
+    // Path B: a trailing DISTRIBUTABLE_HEAD_NOUN distributes onto an open-ended
+    // left (no left-vocab match needed), including a multi-word left.
+    #[case::distribute_stock(
+        "chicken or vegetable stock",
+        "chicken stock",
+        Some("or vegetable stock")
+    )]
+    #[case::distribute_mustard(
+        "grainy or Dijon mustard",
+        "grainy mustard",
+        Some("or Dijon mustard")
+    )]
+    #[case::distribute_pepper("pink or black pepper", "pink pepper", Some("or black pepper"))]
+    #[case::distribute_multiword_left(
+        "Little Gem or Bibb lettuce",
+        "Little Gem lettuce",
+        Some("or Bibb lettuce")
+    )]
+    // Guard: a head noun *not* in the list (oil/spirits) must not distribute —
+    // "butter" is a distinct ingredient, not a kind of oil.
+    #[case::distribute_excludes_oil("butter or olive oil", "butter", Some("or olive oil"))]
+    #[case::distribute_excludes_spirit("amaretto or dark rum", "amaretto", Some("or dark rum"))]
+    // Guard: a single-token right (the head noun itself) never distributes.
+    #[case::distribute_single_token_right("salt or pepper", "salt", Some("or pepper"))]
     fn test_split_word_alternative(
         #[case] name: &str,
         #[case] want_name: &str,

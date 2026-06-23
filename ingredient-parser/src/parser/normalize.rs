@@ -116,6 +116,24 @@ fn strip_note_reference(input: &str) -> Cow<'_, str> {
     NOTE_REF.replace_all(input, "")
 }
 
+/// Rewrite a leading "N batch(es) of <recipe>" into "N recipe <recipe>" so the
+/// existing `recipe` unit parses it as a sub-recipe reference ("1 batch of
+/// Marshmallow Meringue" -> "1 recipe Marshmallow Meringue" -> name "Marshmallow
+/// Meringue", `{recipe:1}`). Anchored to a leading quantity so prose uses of
+/// "batch" elsewhere in a line are untouched; the quantity is preserved.
+fn rewrite_batch_of_to_recipe(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static BATCH_OF: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(
+            r"(?i)^(\s*[\d\x{00BC}-\x{00BE}\x{2150}-\x{215E}][\d\x{00BC}-\x{00BE}\x{2150}-\x{215E}\s./-]*\s+)batch(?:es)?\s+of\s+",
+        )
+        .expect("invalid batch-of regex")
+    });
+    BATCH_OF.replace(input, "${1}recipe ")
+}
+
 /// Reduce a parenthetical that mixes a cross-reference with an "optional" note —
 /// "(this page; optional)", "(see page 12, optional)" — down to just
 /// "(optional)". The page ref is navigation cruft `strip_cross_reference` would
@@ -344,6 +362,7 @@ const REWRITES: &[(&str, Rewrite)] = &[
     ("split_crossref_optional", split_crossref_optional),
     ("strip_cross_reference", strip_cross_reference),
     ("strip_note_reference", strip_note_reference),
+    ("rewrite_batch_of_to_recipe", rewrite_batch_of_to_recipe),
     ("strip_leading_determiner", strip_leading_determiner),
     ("strip_minus_equivalence", strip_minus_equivalence),
     ("strip_total_in_measure_paren", strip_total_in_measure_paren),

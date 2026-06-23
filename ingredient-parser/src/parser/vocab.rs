@@ -15,6 +15,7 @@ pub(crate) const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     "diced",
     "freshly ground",
     "freshly grated",
+    "freshly squeezed",
     "finely grated",
     "finely chopped",
     "coarsely chopped",
@@ -24,6 +25,9 @@ pub(crate) const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     // Bare participle: "grated lemon zest" -> "lemon zest" / "grated". The
     // multiword "freshly grated"/"finely grated" win via longest-match-first.
     "grated",
+    // "freshly squeezed lime juice" -> "lime juice" / "freshly squeezed". The
+    // multiword "freshly squeezed" wins over this bare participle via longest-match.
+    "squeezed",
     // "shredded zucchini" -> "zucchini" / "shredded", "shredded cheddar cheese"
     // -> "cheddar cheese" / "shredded". Multiword forms win via longest-match.
     "finely shredded",
@@ -139,11 +143,19 @@ pub(crate) const NON_STANDARD_UNITS: &[&str] = &[
 /// shape qualifiers ("generous"/"heaping"). Every entry MUST also be a recognized
 /// unit (see [`NON_STANDARD_UNITS`]) — the gate only fires when the unit parser
 /// will accept the following word, otherwise the size word would be dropped with
-/// no unit to show for it. Consumed by `single::amount_qualifier_between`.
-/// Container-ish units ("can", "head") are deliberately excluded so "1 small can
-/// tomatoes" / "1 large head garlic" keep their size word.
+/// no unit to show for it. Consumed by `single::amount_qualifier_between` (along
+/// with [`SIZE_QUALIFIABLE_UNITS`]). "can" stays excluded so "1 small can
+/// tomatoes" keeps its size word.
 pub(crate) const VAGUE_UNITS: &[&str] =
     &["pinch", "pinches", "handful", "handfuls", "dash", "dashes"];
+
+/// Bunch/head produce measures where a leading SIZE word ("large bunch", "small
+/// head") describes the *bunch/head*, not the produce variety, so it is discarded
+/// as a measure qualifier exactly like [`VAGUE_UNITS`] ("1 large bunch kale" -> 1
+/// bunch kale). Kept separate from `VAGUE_UNITS` because these are countable
+/// containers, not imprecise measures. Every entry MUST also be in
+/// [`NON_STANDARD_UNITS`]. Consumed by `single::amount_qualifier_between`.
+pub(crate) const SIZE_QUALIFIABLE_UNITS: &[&str] = &["bunch", "bunches", "head", "heads"];
 
 /// Curated `<food>` -> allowed trailing count units for the POSTFIX produce form
 /// ("1 garlic clove" = `{clove:1} garlic`, not `{whole:1} "garlic clove"`). The
@@ -267,12 +279,45 @@ pub(crate) const SHARED_HEAD_MODIFIERS: &[&str] = &[
 /// nouns that genuinely read as "<type> <noun>".
 pub(crate) const SHARED_HEAD_NOUNS: &[&str] = &["oil", "vinegar", "broth", "stock"];
 
+/// Head nouns that an inline "A or B <noun>" alternative distributes onto the
+/// primary: "chicken or vegetable stock" -> "chicken stock" (+ "or vegetable
+/// stock" modifier). Unlike the [`SHARED_HEAD_MODIFIERS`] path (which gates on the
+/// *left* being a known adjective), this gates on the *trailing head noun* — so an
+/// open-ended left ("chicken", "grainy", "Little Gem") still distributes when the
+/// noun reads as "<type> <noun>". Consumed by `refine::split_word_alternative`.
+///
+/// Deliberately excludes `oil`/`vinegar` and spirits: in "butter or olive oil" /
+/// "amaretto or dark rum" the left is a *distinct* ingredient, not a type of the
+/// head, so grafting ("butter oil") would be nonsense — those keep `name = left`.
+/// Curate toward nouns that essentially always carry a variety/type premodifier.
+pub(crate) const DISTRIBUTABLE_HEAD_NOUNS: &[&str] =
+    &["stock", "broth", "mustard", "pepper", "lettuce", "cabbage"];
+
 /// Intensifier adverbs that precede a preparation phrase ("very thinly sliced").
 /// They carry no ingredient meaning on their own, so when one is stranded
 /// immediately before an extracted prep adjective it is folded into the modifier
 /// too — otherwise "very thinly sliced chives" leaves "very chives" as the name.
 /// See `refine::extract_adjectives_from_name`.
 pub(crate) const INTENSIFIER_ADVERBS: &[&str] = &["very", "really"];
+
+/// Manner adverbs that precede a preparation adjective ("diagonally sliced",
+/// "roughly diced"). Like [`INTENSIFIER_ADVERBS`] they carry no ingredient meaning
+/// alone, so when one is stranded immediately before an extracted prep adjective it
+/// is folded into the modifier too — otherwise "diagonally sliced scallions" leaves
+/// "diagonally scallions" as the name. The common multiword forms ("thinly sliced",
+/// "roughly chopped") are already whole entries in [`DEFAULT_PREPARATION_ADJECTIVES`]
+/// and win via longest-match; this catches the bare-participle combinations that
+/// aren't. See `refine::extract_adjectives_from_name`.
+pub(crate) const MANNER_ADVERBS: &[&str] = &[
+    "diagonally",
+    "lengthwise",
+    "crosswise",
+    "thinly",
+    "thickly",
+    "roughly",
+    "finely",
+    "coarsely",
+];
 
 /// Container nouns that can follow a parenthesized size, e.g. the "piece" in
 /// "1 (1-ounce) piece ginger". Kept narrow so the size-hoisting parser doesn't
