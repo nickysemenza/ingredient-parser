@@ -15,6 +15,7 @@ use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use poll_promise::Promise;
 use recipe_epub::{
     BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionStats, ImageRef, Options,
+    ParsedCookbookRecipe,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -131,6 +132,13 @@ pub struct CookbookTab {
     /// the chunk count is known.
     load_started: Option<std::time::Instant>,
     selected: usize,
+    /// Memoized parse of the selected recipe, keyed by its index. `r.parse()`
+    /// rebuilds both nom parsers (`IngredientParser`/`RichParser`) and re-parses
+    /// every line — wasteful to redo on every immediate-mode repaint (scroll,
+    /// hover, cursor blink). Recomputed only when `selected` changes; cleared on
+    /// each load (a new book reuses the same indices). Mirrors the web app's
+    /// WASM-parse memoization.
+    parsed_cache: Option<(usize, ParsedCookbookRecipe)>,
     /// Whether the central panel shows the reference digraph vs the browser.
     show_graph: bool,
     /// The reference digraph, rebuilt only when the loaded book changes.
@@ -169,6 +177,7 @@ impl Default for CookbookTab {
             extract_progress: None,
             load_started: None,
             selected: 0,
+            parsed_cache: None,
             show_graph: false,
             graph: None,
             graph_prewarmed: false,
@@ -343,6 +352,7 @@ impl CookbookTab {
                 // the rest from distinct `self` fields. Bind each before any
                 // closure so no closure captures all of `self`.
                 let selected = &mut self.selected;
+                let parsed_cache = &mut self.parsed_cache;
                 let show_graph = &mut self.show_graph;
                 let graph_slot = &mut self.graph;
                 let graph_prewarmed = &mut self.graph_prewarmed;
@@ -447,9 +457,20 @@ impl CookbookTab {
                             *selected = open_idx;
                             *show_graph = false;
                         }
-                    } else if let Some(nav) = show_recipe_detail(ui, recipes, *selected) {
-                        // Clicked a "Uses recipes" link → navigate to it.
-                        *selected = nav;
+                    } else {
+                        // Parse the selected recipe once and reuse it across
+                        // repaints — recompute only when the selection changes.
+                        let sel = *selected;
+                        let stale = !matches!(parsed_cache.as_ref(), Some((idx, _)) if *idx == sel);
+                        if stale {
+                            *parsed_cache = Some((sel, recipes[sel].parse()));
+                        }
+                        if let Some((_, parsed)) = parsed_cache.as_ref()
+                            && let Some(nav) = show_recipe_detail(ui, recipes, sel, parsed)
+                        {
+                            // Clicked a "Uses recipes" link → navigate to it.
+                            *selected = nav;
+                        }
                     }
                 });
             }
@@ -510,6 +531,7 @@ impl CookbookTab {
         let path = self.path.trim().to_string();
         let no_cache = self.no_cache;
         self.selected = 0;
+        self.parsed_cache = None; // new book reuses indices — drop the stale parse
         self.load_started = Some(std::time::Instant::now());
         self.graph = None; // rebuilt for the newly loaded book
         self.graph_prewarmed = false;
@@ -792,10 +814,13 @@ fn book_card(ui: &mut egui::Ui, b: &ScannedBook) -> egui::Response {
 
 /// Render the selected recipe's detail view. Returns `Some(idx)` if the user
 /// clicked one of the "Uses recipes" links, so the caller can navigate there.
+/// `parsed` is the caller's memoized `recipes[selected].parse()` — passed in
+/// (not computed here) so the per-line nom parsing doesn't rerun every repaint.
 fn show_recipe_detail(
     ui: &mut egui::Ui,
     recipes: &[CookbookRecipe],
     selected: usize,
+    parsed: &ParsedCookbookRecipe,
 ) -> Option<usize> {
     let r = &recipes[selected];
     let mut navigate_to = None;
@@ -843,10 +868,9 @@ fn show_recipe_detail(
         }
 
         ui.separator();
-        // Parse this recipe's verbatim lines with the core nom parser for the
-        // color-coded view (cheap — one recipe per frame). Ingredient lines that
-        // reference another recipe get a clickable "→ <recipe>" link.
-        let parsed = r.parse();
+        // `parsed` (the caller's memoized `r.parse()`) drives the color-coded
+        // view. Ingredient lines that reference another recipe get a clickable
+        // "→ <recipe>" link.
         if let Some(nav) = show_sections_with_links(ui, &r.sections, &parsed.sections, r, recipes) {
             navigate_to = Some(nav);
         }
