@@ -3,6 +3,7 @@
 //! incremental and free after the first pass.
 #![cfg(feature = "native")]
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
@@ -35,7 +36,17 @@ pub(crate) fn key(model: &str, chunk_text: &str, title_hint: &str) -> String {
     h.update(chunk_text.as_bytes());
     h.update([0]);
     h.update(title_hint.as_bytes());
-    format!("{:x}", h.finalize())
+    // sha2 0.11's `finalize()` returns a `hybrid_array::Array`, which no longer
+    // implements `LowerHex` (unlike 0.10's `GenericArray`), so hex-encode the
+    // digest bytes by hand. Output is identical to the old `{:x}` formatting, so
+    // existing cache keys stay stable.
+    let digest = h.finalize();
+    let mut key = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        // Writing to a `String` is infallible; the `Result` can be ignored.
+        let _ = write!(key, "{byte:02x}");
+    }
+    key
 }
 
 /// Read a cached result, or `None` on miss / unreadable / stale-shaped entry.
@@ -64,6 +75,23 @@ mod tests {
         assert_ne!(key("haiku", "abc", ""), key("haiku", "abd", ""));
         assert_ne!(key("haiku", "abc", ""), key("sonnet", "abc", ""));
         assert_ne!(key("haiku", "abc", ""), key("haiku", "abc", "Hint"));
+    }
+
+    #[test]
+    fn key_is_lowercase_hex_sha256_of_the_known_vector() {
+        // Pins the exact hex encoding so the hand-rolled digest formatter can't
+        // silently drift (wrong case/padding) and invalidate every cache entry.
+        // Recompute if PROMPT_VERSION changes.
+        let k = key("haiku", "abc", "");
+        assert_eq!(k.len(), 64);
+        assert!(
+            k.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        );
+        assert_eq!(
+            k,
+            "a2c51fc09480ac5794a205b8b11d00d48a8be1f91884c6e38ee8c6530b3c877f"
+        );
     }
 
     #[test]
