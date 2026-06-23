@@ -524,3 +524,11 @@
 {"input": "1 medium red onion, peeled and quartered", "name": "red onion", "amounts": [{"unit": "medium", "value": 1}], "modifier": "peeled and quartered"}
 // "N batch(es) of <recipe>" → recipe unit sub-recipe reference.
 {"input": "1 batch of Marshmallow Meringue (this page)", "name": "Marshmallow Meringue", "amounts": [{"unit": "recipe", "value": 1}]}
+// Sealed retail containers (bottle/jar/tub/carton/box) as the implied-count unit, mirroring can/tin.
+{"input": "Bottle of quality red wine vinegar", "name": "quality red wine vinegar", "amounts": [{"unit": "bottle", "value": 1}]}
+{"input": "Bottle of finishing-quality extra-virgin olive oil", "name": "finishing-quality extra-virgin olive oil", "amounts": [{"unit": "bottle", "value": 1}]}
+{"input": "1 jar of salsa", "name": "salsa", "amounts": [{"unit": "jar", "value": 1}]}
+{"input": "tub of yogurt", "name": "yogurt", "amounts": [{"unit": "tub", "value": 1}]}
+{"input": "bag of all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "bag", "value": 1}]}
+{"input": "block of cream cheese", "name": "cream cheese", "amounts": [{"unit": "block", "value": 1}]}
+{"input": "tube of tomato paste", "name": "tomato paste", "amounts": [{"unit": "tube", "value": 1}]}
