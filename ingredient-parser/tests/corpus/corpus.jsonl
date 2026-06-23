@@ -22,7 +22,7 @@
 //
 // --- countable / whole unit ---
 {"input": "2 eggs", "name": "eggs", "amounts": [{"unit": "whole", "value": 2}]}
-{"input": "3 large eggs", "name": "large eggs", "amounts": [{"unit": "whole", "value": 3}]}
+{"input": "3 large eggs", "name": "eggs", "amounts": [{"unit": "large", "value": 3}]}
 {"input": "1 whole chicken", "name": "chicken", "amounts": [{"unit": "whole", "value": 1}]}
 //
 // --- custom/built-in special units ---
@@ -84,7 +84,7 @@
 // --- real-world lines (from recipe-scraper test_data) ---
 {"input": "2 cups/250 grams all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 2}, {"unit": "g", "value": 250}]}
 {"input": "1 1/2 cups (190 grams) all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 1.5}, {"unit": "g", "value": 190}]}
-{"input": "1 large egg, room temperature", "name": "large egg", "amounts": [{"unit": "whole", "value": 1}], "modifier": "room temperature"}
+{"input": "1 large egg, room temperature", "name": "egg", "amounts": [{"unit": "large", "value": 1}], "modifier": "room temperature"}
 //
 //
 // --- ported from parsing.rs (test_ingredient_parsing, optional, secondary, alternative) ---
@@ -152,9 +152,12 @@
 {"input": "1 bunch parsley", "name": "parsley", "amounts": [{"unit": "bunch", "value": 1.0}]}
 {"input": "1 head garlic", "name": "garlic", "amounts": [{"unit": "head", "value": 1.0}]}
 {"input": "2 leaves basil", "name": "basil", "amounts": [{"unit": "leave", "value": 2.0}]}
-{"input": "1 large egg", "name": "large egg", "amounts": [{"unit": "whole", "value": 1.0}]}
-{"input": "2 medium onions", "name": "medium onions", "amounts": [{"unit": "whole", "value": 2.0}]}
-{"input": "3 small potatoes", "name": "small potatoes", "amounts": [{"unit": "whole", "value": 3.0}]}
+{"input": "1 large egg", "name": "egg", "amounts": [{"unit": "large", "value": 1.0}]}
+{"input": "2 medium onions", "name": "onions", "amounts": [{"unit": "medium", "value": 2.0}]}
+{"input": "3 small potatoes", "name": "potatoes", "amounts": [{"unit": "small", "value": 3.0}]}
+// Multi-word USDA egg grade fires; "baby" is a variety, not a size, so it stays in the name.
+{"input": "2 extra large eggs", "name": "eggs", "amounts": [{"unit": "extra large", "value": 2}]}
+{"input": "2 baby carrots", "name": "baby carrots", "amounts": [{"unit": "whole", "value": 2}]}
 {"input": "butter (2 sticks), melted", "name": "butter", "amounts": [{"unit": "stick", "value": 2.0}], "modifier": "melted"}
 {"input": "sugar (1 cup / 200g)", "name": "sugar", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "g", "value": 200.0}]}
 {"input": "2 cups freshly grated parmesan", "name": "parmesan", "amounts": [{"unit": "cup", "value": 2.0}], "modifier": "freshly grated"}
@@ -205,7 +208,7 @@
 //
 // --- word numbers (spelled-out integers two..twelve) ---
 {"input": "two eggs", "name": "eggs", "amounts": [{"unit": "whole", "value": 2}]}
-{"input": "three large eggs", "name": "large eggs", "amounts": [{"unit": "whole", "value": 3}]}
+{"input": "three large eggs", "name": "eggs", "amounts": [{"unit": "large", "value": 3}]}
 //
 // --- "X of N item" constructions (juice/zest of a countable item) ---
 {"input": "Juice of 1 lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "juice of"}
@@ -350,7 +353,7 @@
 {"input": "3 pieces of star anise", "name": "star anise", "amounts": [{"unit": "piece", "value": 3.0}]}
 {"input": "⅓ cup strained apricot jam (optional), warmed, for glazing", "name": "strained apricot jam", "amounts": [{"unit": "cup", "value": 0.3333333333333333}], "modifier": "warmed, for glazing", "optional": true}
 {"input": "1 ripe medium Fuyu persimmon (optional), cut into about 8 very thin rounds", "name": "ripe medium Fuyu persimmon", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "cut into about 8 very thin rounds", "optional": true}
-{"input": "½ medium white onion, cut into ¼-inch-thick slices", "name": "medium white onion", "amounts": [{"unit": "whole", "value": 0.5}], "modifier": "cut into ¼-inch-thick slices"}
+{"input": "½ medium white onion, cut into ¼-inch-thick slices", "name": "white onion", "amounts": [{"unit": "medium", "value": 0.5}], "modifier": "cut into ¼-inch-thick slices"}
 {"input": "2 teaspoons finely grated lemon or orange zest", "name": "lemon zest", "amounts": [{"unit": "tsp", "value": 2.0}], "modifier": "finely grated, or orange zest"}
 // dimension-thick descriptors, equivalence parentheticals, trailing weight asides
 {"input": "1 (1½-inch-thick) bone-in pork chop (about 1¼ pounds)", "name": "bone-in pork chop", "amounts": [{"unit": "whole", "value": 1.0}, {"unit": "lb", "value": 1.25}], "modifier": "1½-inch-thick"}
@@ -476,8 +479,10 @@
 // --- vague units: a size/intensifier word before a vague unit is a measure qualifier ---
 {"input": "1 small handful basil leaves", "name": "basil leaves", "amounts": [{"unit": "handful", "value": 1.0}]}
 {"input": "Healthy pinch of mint leaves", "name": "mint leaves", "amounts": [{"unit": "pinch", "value": 1.0}]}
-// guard: a size word before a normal unit stays in the name.
-{"input": "2 large eggs", "name": "large eggs", "amounts": [{"unit": "whole", "value": 2.0}]}
+// a size word on an explicit count becomes the count unit (USDA portion key).
+{"input": "2 large eggs", "name": "eggs", "amounts": [{"unit": "large", "value": 2.0}]}
+// guard: another unit ("cup") already fills the slot, so the size stays in the name.
+{"input": "2 cups large onion", "name": "large onion", "amounts": [{"unit": "cup", "value": 2.0}]}
 // --- brand "X or Y" alternative sharing a head noun is kept whole ---
 {"input": "1 cup Hellmann's or Best Foods mayonnaise", "name": "Hellmann's or Best Foods mayonnaise", "amounts": [{"unit": "cup", "value": 1.0}]}
 // guard: a plain ingredient alternative still splits to name + "or …" modifier.
@@ -510,12 +515,12 @@
 {"input": "¾ cup diagonally sliced scallions (white and green parts, about 4 scallions)", "name": "scallions", "amounts": [{"unit": "cup", "value": 0.75}], "modifier": "diagonally sliced (white and green parts, about 4 scallions)"}
 // "freshly squeezed" is a prep adjective → modifier.
 {"input": "1 ounce freshly squeezed lime juice", "name": "lime juice", "amounts": [{"unit": "oz", "value": 1}], "modifier": "freshly squeezed"}
-// Size word before a bunch/head container is a measure qualifier (discarded), like
-// "small handful"; the produce variety stays as the name. (Size before a *produce*
-// item — "medium carrots" — still rides on the name, per the lib.rs design decision.)
+// Size word before a bunch/head container is discarded as a measure qualifier
+// (the container is the unit, like "small handful").
 {"input": "1 large bunch Tuscan kale, leaves stripped and roughly torn (about 5 cups)", "name": "Tuscan kale", "amounts": [{"unit": "bunch", "value": 1}, {"unit": "cup", "value": 5}], "modifier": "leaves stripped and roughly torn"}
 {"input": "½ small head green cabbage, very finely shredded on a mandoline (about 2 cups)", "name": "green cabbage", "amounts": [{"unit": "head", "value": 0.5}, {"unit": "cup", "value": 2}], "modifier": "very finely shredded on a mandoline"}
-{"input": "3 medium carrots, peeled", "name": "medium carrots", "amounts": [{"unit": "whole", "value": 3}], "modifier": "peeled"}
-{"input": "1 medium red onion, peeled and quartered", "name": "medium red onion", "amounts": [{"unit": "whole", "value": 1}], "modifier": "peeled and quartered"}
+// Size on a bare explicit count becomes the count unit (USDA portion key).
+{"input": "3 medium carrots, peeled", "name": "carrots", "amounts": [{"unit": "medium", "value": 3}], "modifier": "peeled"}
+{"input": "1 medium red onion, peeled and quartered", "name": "red onion", "amounts": [{"unit": "medium", "value": 1}], "modifier": "peeled and quartered"}
 // "N batch(es) of <recipe>" → recipe unit sub-recipe reference.
 {"input": "1 batch of Marshmallow Meringue (this page)", "name": "Marshmallow Meringue", "amounts": [{"unit": "recipe", "value": 1}]}

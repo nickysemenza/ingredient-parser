@@ -161,6 +161,75 @@ impl IngredientParser {
         }
     }
 
+    /// Consume a leading size descriptor as the count *unit* for an explicitly
+    /// counted item: "3 medium carrots" -> `{medium:3}` carrots, "2 extra large
+    /// eggs" -> `{extra large:2}` eggs. This lets the size map to USDA portion data
+    /// through the unit graph — a bare `{whole}` count is not a USDA portion key,
+    /// the size is (cubby already maps "1 each = 1 large" on its egg product).
+    ///
+    /// Fires only when a real `Unit::Whole` count is present (so "medium heat", a
+    /// no-count "medium onion", and "2 cups large onion" are all untouched), the
+    /// name begins with a [`vocab::SIZE_UNIT_WORDS`] token, and a head noun follows
+    /// that isn't a connector or another size word (so the "medium or large …"
+    /// range — kept whole by [`split_word_alternative`] — is left alone). Runs after
+    /// [`Self::extract_postfix_produce_unit`] so a produce count unit ("1 medium
+    /// garlic clove" -> `{clove:1}`) wins and this pass then skips it.
+    ///
+    /// [`vocab::SIZE_UNIT_WORDS`]: crate::parser::vocab::SIZE_UNIT_WORDS
+    fn extract_size_unit_from_name(&self, parsed: &mut ParsedIngredient) {
+        // Require an explicit whole count — the load-bearing gate. No count means
+        // there is no portion to size ("medium heat" has no amount).
+        let Some(idx) = parsed
+            .amounts
+            .iter()
+            .position(|m| matches!(m.unit(), unit::Unit::Whole))
+        else {
+            return;
+        };
+
+        let name = parsed.name.trim();
+        let name_lower = name.to_lowercase();
+        // SIZE_UNIT_WORDS is ordered longest-first, so "extra large"/"extra-large"
+        // win over "large"; the trailing-whitespace check rejects "larger"/"jumbos".
+        let mut matched: Option<&str> = None;
+        for w in crate::parser::vocab::SIZE_UNIT_WORDS {
+            if let Some(rest) = name_lower.strip_prefix(*w)
+                && rest.starts_with(char::is_whitespace)
+            {
+                matched = Some(*w);
+                break;
+            }
+        }
+        let Some(size) = matched else {
+            return;
+        };
+
+        // `size` is ASCII, so its byte length indexes `name` (original case) too.
+        let rest = name[size.len()..].trim();
+        if rest.is_empty() {
+            return;
+        }
+        // A connector or a second size word means this is a range ("medium or large
+        // carrots") or malformed — leave the whole phrase in the name.
+        let next = rest.split_whitespace().next().unwrap_or("").to_lowercase();
+        if next == "or"
+            || next == "and"
+            || crate::parser::vocab::SIZE_WORDS.contains(&next.as_str())
+        {
+            return;
+        }
+
+        // Both "extra large" and "extra-large" canonicalize to "extra large".
+        let unit_str = if size.starts_with("extra") {
+            "extra large"
+        } else {
+            size
+        };
+        let m = &parsed.amounts[idx];
+        parsed.amounts[idx] = Measure::from_parts(unit_str, m.value(), m.upper_value());
+        parsed.name = rest.to_string();
+    }
+
     fn extract_adjectives_from_name(&self, parsed: &mut ParsedIngredient) {
         let mut name_lower = parsed.name.to_lowercase();
         let mut found_adjectives: Vec<&String> = self
@@ -703,6 +772,10 @@ const POST_PASSES: &[(&str, Pass)] = &[
     (
         "extract_postfix_produce_unit",
         IngredientParser::extract_postfix_produce_unit,
+    ),
+    (
+        "extract_size_unit_from_name",
+        IngredientParser::extract_size_unit_from_name,
     ),
     (
         "extract_leading_prep_alternative",
@@ -1363,6 +1436,72 @@ mod tests {
         };
         parser.extract_postfix_produce_unit(&mut i);
         assert_eq!(i.name, "garlic clove");
+    }
+
+    /// Size-as-count-unit: a leading size descriptor on an explicit whole count
+    /// becomes the unit ("3 medium carrots" -> `{medium:3}` carrots), with guards
+    /// for ranges, no-count, another-unit, "baby", and the size-range "or".
+    #[test]
+    fn test_extract_size_unit_from_name() {
+        let parser = IngredientParser::new();
+        let fire = |name: &str, amounts: Vec<Measure>| {
+            let mut i = ParsedIngredient {
+                name: name.into(),
+                amounts,
+                modifier: vec![],
+                optional: false,
+            };
+            parser.extract_size_unit_from_name(&mut i);
+            (i.name, i.amounts)
+        };
+
+        // Fires: size becomes the unit, name is the bare produce.
+        let (n, a) = fire("medium carrots", vec![Measure::new("whole", 3.0)]);
+        assert_eq!(
+            (n.as_str(), a),
+            ("carrots", vec![Measure::new("medium", 3.0)])
+        );
+
+        // Multi-word grade canonicalizes; "extra-large" spelling too.
+        let (n, a) = fire("extra large eggs", vec![Measure::new("whole", 2.0)]);
+        assert_eq!(
+            (n.as_str(), a),
+            ("eggs", vec![Measure::new("extra large", 2.0)])
+        );
+        let (n, a) = fire("extra-large eggs", vec![Measure::new("whole", 1.0)]);
+        assert_eq!(
+            (n.as_str(), a),
+            ("eggs", vec![Measure::new("extra large", 1.0)])
+        );
+
+        // Range upper_value is preserved.
+        let (n, a) = fire(
+            "medium onions",
+            vec![Measure::with_range("whole", 1.0, 2.0)],
+        );
+        assert_eq!(
+            (n.as_str(), a),
+            ("onions", vec![Measure::with_range("medium", 1.0, 2.0)])
+        );
+
+        // Guards (name/amounts unchanged):
+        // no explicit whole count → nothing to size.
+        assert_eq!(fire("medium onion", vec![]).0, "medium onion");
+        // another unit already fills the slot.
+        let (n, _) = fire("large onion", vec![Measure::new("cup", 2.0)]);
+        assert_eq!(n, "large onion");
+        // "baby" is a variety, excluded from SIZE_UNIT_WORDS.
+        assert_eq!(
+            fire("baby carrots", vec![Measure::new("whole", 2.0)]).0,
+            "baby carrots"
+        );
+        // a size *range* ("medium or large") is left whole.
+        assert_eq!(
+            fire("medium or large carrots", vec![Measure::new("whole", 1.0)]).0,
+            "medium or large carrots"
+        );
+        // a bare size with no following noun does not fire.
+        assert_eq!(fire("medium", vec![Measure::new("whole", 1.0)]).0, "medium");
     }
 
     /// A trailing "for `<gerund>` …" clause (object included) moves to the

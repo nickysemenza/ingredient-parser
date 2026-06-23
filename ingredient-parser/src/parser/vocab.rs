@@ -177,6 +177,24 @@ pub(crate) const POSTFIX_PRODUCE_UNITS: &[(&str, &[&str])] = &[
 /// `refine::split_word_alternative` must not split/reconstruct it.
 pub(crate) const SIZE_WORDS: &[&str] = &["small", "medium", "large", "jumbo", "baby"];
 
+/// Size descriptors consumed as the *count unit* for an explicitly-counted produce
+/// item ("3 medium carrots" -> `{medium:3}` carrots), so the size maps to USDA
+/// portion data via the unit graph. Consumed by `refine::extract_size_unit_from_name`.
+///
+/// A separate list from [`SIZE_WORDS`] on purpose: "baby" is excluded because it
+/// reads as a *variety* ("baby spinach"/"baby kale"/"baby corn"), not a portion
+/// size; "extra large" / "extra-large" (a USDA egg grade) is added. Multi-word
+/// forms are matched longest-first by the pass; both spellings normalize to the
+/// canonical unit string "extra large".
+pub(crate) const SIZE_UNIT_WORDS: &[&str] = &[
+    "extra large",
+    "extra-large",
+    "small",
+    "medium",
+    "large",
+    "jumbo",
+];
+
 /// Premodifier words used to gate the "A or B C" alternative reconstruction in
 /// `refine::split_word_alternative`. Only when the left side is one of these — a
 /// word that commonly *premodifies* a head noun, i.e. a descriptor adjective or

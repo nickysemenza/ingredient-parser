@@ -14,21 +14,34 @@
 //!
 //! ## Design Decisions
 //!
-//! ### Size descriptors are part of the ingredient name, not units
+//! ### Size descriptors on an explicit count become the count unit
 //!
-//! Words like "large", "medium", "small" are treated as part of the ingredient name
-//! rather than as units of measurement:
+//! When a size word ("small"/"medium"/"large"/"jumbo"/"extra large") sits between
+//! an explicit count and the produce, it is consumed as the count *unit* so it can
+//! map to USDA portion data (which is keyed by size, e.g. "1 medium carrot = 61 g"):
 //!
 //! ```text
-//! "2 large eggs" → qty=2, unit=whole, name="large eggs"
-//! "3 small potatoes" → qty=3, unit=whole, name="small potatoes"
+//! "2 large eggs" → qty=2, unit=large, name="eggs"
+//! "3 medium carrots" → qty=3, unit=medium, name="carrots"
+//! ```
+//!
+//! Size stays in the *name* only when there is no count to attach it to, or another
+//! unit already occupies the slot:
+//!
+//! ```text
+//! "medium onion, diced" → unit=whole, name="medium onion" (no count)
+//! "2 cups large onion" → qty=2, unit=cup, name="large onion" (cup is the unit)
 //! ```
 //!
 //! **Rationale:**
-//! - Size describes *which* variant of an ingredient, not *how much* (like "red onion" vs "yellow onion")
-//! - "Large eggs" is a distinct product (different SKU, nutrition facts) from "medium eggs"
-//! - Avoids needing blocklists for phrases like "medium heat" or "large pot"
-//! - Normalization (e.g., "large eggs" → "eggs") is a separate concern for downstream consumers
+//! - USDA FoodData Central portions are keyed by size, so a bare `whole` count is
+//!   not a portion key but the size descriptor is — `{medium:3}` is directly
+//!   mappable, `{whole:3} "medium carrots"` is not.
+//! - The unit-conversion graph already treats arbitrary unit strings as nodes
+//!   ("1 each = 1 large"), so a size unit plugs in with no new machinery.
+//! - "baby" is excluded (it reads as a *variety*: "baby spinach", "baby corn").
+//! - Requiring an explicit count avoids blocklists for "medium heat" / "large pot".
+//! - See `refine::extract_size_unit_from_name`.
 //!
 //! ### The "whole" unit means individual countable items
 //!
