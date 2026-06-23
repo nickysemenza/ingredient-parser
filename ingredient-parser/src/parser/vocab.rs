@@ -126,8 +126,19 @@ pub(crate) const NON_STANDARD_UNITS: &[&str] = &[
     "bunches", "head", "heads", "pinch", "pinches", "package", "packages", "slice", "slices",
     "standard", "can", "cans", "leaf", "leaves", "strand", "strands", "tin", "tins", "rib", "ribs",
     "sprig", "sprigs", "pint", "pints", "piece", "pieces", "disk", "disks", "stalk", "stalks",
-    "loaf", "loaves", "ear", "ears",
+    "loaf", "loaves", "ear", "ears", "handful", "handfuls", "dash", "dashes",
 ];
+
+/// Informal/imprecise measures where a leading SIZE word ("small handful", "large
+/// pinch") describes the *measure*, not the food, so it is discarded like the
+/// shape qualifiers ("generous"/"heaping"). Every entry MUST also be a recognized
+/// unit (see [`NON_STANDARD_UNITS`]) — the gate only fires when the unit parser
+/// will accept the following word, otherwise the size word would be dropped with
+/// no unit to show for it. Consumed by `single::amount_qualifier_between`.
+/// Container-ish units ("can", "head") are deliberately excluded so "1 small can
+/// tomatoes" / "1 large head garlic" keep their size word.
+pub(crate) const VAGUE_UNITS: &[&str] =
+    &["pinch", "pinches", "handful", "handfuls", "dash", "dashes"];
 
 /// Curated `<food>` -> allowed trailing count units for the POSTFIX produce form
 /// ("1 garlic clove" = `{clove:1} garlic`, not `{whole:1} "garlic clove"`). The

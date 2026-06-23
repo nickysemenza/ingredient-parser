@@ -3,8 +3,9 @@
 use nom::{
     Parser,
     branch::alt,
-    bytes::complete::tag,
-    character::complete::{char, space0},
+    bytes::complete::{tag, take_till},
+    character::complete::{char, space0, space1},
+    combinator::verify,
     error::{ParseError, context},
     sequence::delimited,
 };
@@ -33,7 +34,33 @@ impl<'a> MeasurementParser<'a> {
             input,
             context(
                 name,
-                delimited(char(open), |a| self.parse_measurement_list(a), char(close),),
+                // The close arm tolerates a *space-separated, digit-free*
+                // descriptive tail before ')': "(8 ounces by weight)" parses
+                // "8 ounces" and discards " by weight" rather than failing the
+                // whole delimited parse (which would abort the entire line). Two
+                // load-bearing guards keep real content from being silently eaten:
+                //   - the space requirement keeps "(70% cacao)" failing here (the
+                //     "%" abuts the bare "70", which must stay a modifier, not
+                //     become a unitless amount);
+                //   - the digit-free requirement keeps a quantity clause like
+                //     "(2 sticks minus 1 tablespoon)" failing here so it stays a
+                //     modifier instead of collapsing to just "2 sticks".
+                // Only a wordy descriptor ("by weight"/"by volume"/"packed") drops.
+                delimited(
+                    char(open),
+                    |a| self.parse_measurement_list(a),
+                    alt((
+                        char(close).map(|_| ()),
+                        (
+                            space1,
+                            verify(take_till(|c: char| c == close), |s: &str| {
+                                !s.chars().any(|c| c.is_ascii_digit())
+                            }),
+                            char(close),
+                        )
+                            .map(|_| ()),
+                    )),
+                ),
             )
             .parse(input),
             |measures: &Vec<Measure>| measures
@@ -207,6 +234,8 @@ mod tests {
     #[rstest]
     #[case::single("(2 cups)", 1)]
     #[case::multiple("(1 cup / 240 ml)", 2)]
+    // A trailing descriptor inside the parens is dropped, not fatal.
+    #[case::by_weight("(8 ounces by weight)", 1)]
     fn test_parenthesized_amounts(
         units_fx: HashSet<String>,
         #[case] input: &str,

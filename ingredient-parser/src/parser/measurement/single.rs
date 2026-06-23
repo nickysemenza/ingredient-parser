@@ -4,7 +4,7 @@ use nom::{
     branch::alt,
     bytes::complete::tag_no_case,
     character::complete::{space0, space1},
-    combinator::{opt, verify},
+    combinator::{opt, peek, verify},
     error::context,
 };
 use nom_language::error::VerboseError;
@@ -349,10 +349,35 @@ fn amount_qualifier_between(input: &str) -> Res<&str, ()> {
         tag_no_case("heaped"),
         tag_no_case("rounded"),
         tag_no_case("brimming"),
+        // A size word ("small handful", "large pinch") before a *vague* unit
+        // describes the measure, not the food, so it's discarded like the shape
+        // qualifiers above. Gated to vague units so "2 large eggs" keeps "large".
+        size_word_before_vague_unit,
     ))
     .parse(input)?;
     let (input, _) = space1(input)?;
     Ok((input, ()))
+}
+
+/// Match a SIZE word ("small"/"large"/…) only when a vague unit
+/// ("handful"/"pinch"/"dash") immediately follows, so the size word can be
+/// discarded as a measure qualifier ("1 small handful basil" -> 1 handful basil).
+/// Consumes just the size word, leaving the space for the caller's `space1`; the
+/// `peek` look-ahead means a size word before any other unit (or a real food,
+/// "2 large eggs") backtracks via the caller's `opt(...)` and stays in the name.
+fn size_word_before_vague_unit(input: &str) -> Res<&str, &str> {
+    let (rest, word) = verify(parse_unit_text, |s: &str| {
+        crate::parser::vocab::SIZE_WORDS.contains(&s.to_lowercase().as_str())
+    })
+    .parse(input)?;
+    peek((
+        space1,
+        verify(parse_unit_text, |s: &str| {
+            crate::parser::vocab::VAGUE_UNITS.contains(&s.to_lowercase().as_str())
+        }),
+    ))
+    .parse(rest)?;
+    Ok((rest, word))
 }
 
 /// Consume a leading approximation/size qualifier ("about", "roughly",
@@ -379,6 +404,9 @@ pub(crate) fn leading_qualifier(input: &str) -> Res<&str, ()> {
         tag_no_case("heaped"),
         tag_no_case("rounded"),
         tag_no_case("brimming"),
+        // Vague-measure intensifiers, e.g. "Healthy pinch of salt", "good pinch".
+        tag_no_case("healthy"),
+        tag_no_case("good"),
     ))
     .parse(input)?;
     let (input, _) = space1(input)?;
@@ -414,11 +442,37 @@ mod tests {
     #[case::scant("Scant 1 cup")]
     #[case::heaping("Heaping 1 tablespoon")]
     #[case::article("A generous 1 cup")]
+    #[case::healthy("Healthy 1 cup")]
+    #[case::good("good 1 cup")]
     fn test_leading_qualifiers(units_fx: HashSet<String>, #[case] input: &str) {
         let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
         let (_, measure) = parser.parse_single_measurement(input).unwrap();
         // The qualifier is discarded; the numeric value survives.
         assert!(measure.value() >= 1.0, "input: {input}");
+    }
+
+    /// A SIZE word before a *vague* unit ("1 small handful") is a measure
+    /// qualifier — consumed and discarded — but only when a vague unit follows.
+    /// Before a normal unit it is left in place for the name ("1 small can").
+    #[rstest]
+    #[case::small_handful("1 small handful basil", 1.0, "handful")]
+    #[case::large_pinch("2 large pinch salt", 2.0, "pinch")]
+    // Guard: "can" is not a vague unit, so the size word is NOT consumed and the
+    // measure falls back to a bare count (unit "whole"), leaving "small" for the name.
+    #[case::small_can_not_consumed("1 small can tomatoes", 1.0, "whole")]
+    fn test_size_word_before_vague_unit(
+        #[case] input: &str,
+        #[case] value: f64,
+        #[case] unit: &str,
+    ) {
+        let mut units = units();
+        units.insert("handful".to_string());
+        units.insert("pinch".to_string());
+        units.insert("can".to_string());
+        let parser = MeasurementParser::new(&units, MeasurementMode::IngredientList);
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        assert_eq!(measure.value(), value, "input: {input}");
+        assert_eq!(measure.unit_as_string(), unit, "input: {input}");
     }
 
     #[rstest]

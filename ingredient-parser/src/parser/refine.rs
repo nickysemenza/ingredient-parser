@@ -359,6 +359,121 @@ impl IngredientParser {
         parsed.push_modifier(ModifierPart::Prep(clause));
     }
 
+    /// Recover a head noun stranded behind a leading participle chain. The grammar
+    /// carves the name at the first comma, so a line like "1/2 cup deribbed,
+    /// seeded, and roughly chopped fresh hot green chiles, such as serrano" leaves
+    /// name="deribbed" and the real ingredient ("fresh hot green chiles") buried in
+    /// the `Raw` modifier. This is the mirror of [`Self::extract_trailing_prep_clause`]:
+    /// it pulls the head noun *out of* the modifier *into* an all-participle name.
+    ///
+    /// Tightly guarded to avoid touching legitimate names:
+    /// - the name must be a *pure* prep chain (every token a participle "-ed"/"-ly"
+    ///   or an intensifier adverb) — any real noun in the name and it bails, so
+    ///   "chopped onion" / "peeled and diced potatoes" are untouched;
+    /// - the modifier's first part must be `Raw` and yield a head noun whose first
+    ///   word is not a stopword, so a prose modifier ("then served over ice") bails.
+    ///
+    /// Runs after [`Self::fix_leading_prep_phrase`] (so the vocab-adjective case
+    /// "chopped, toasted walnuts" is already resolved and never reaches here) and
+    /// before `extract_adjectives_from_name` (so the recovered name still gets the
+    /// normal adjective scan).
+    fn recover_head_noun_from_modifier(&self, parsed: &mut ParsedIngredient) {
+        // A "prep" token: a preparation participle ("-ed"), an "-ly" adverb
+        // ("roughly"/"finely"), or a known intensifier. Deliberately NOT the broad
+        // adjective set — a descriptive adjective like "fresh" must lead the head
+        // noun, not be swallowed as prep.
+        let is_prep = |w: &str| {
+            let wl = w
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase();
+            wl.ends_with("ed")
+                || wl.ends_with("ly")
+                || crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&wl.as_str())
+        };
+        let is_connector = |w: &str| {
+            let wl = w
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase();
+            wl == "and" || wl == "&"
+        };
+        // Stopwords that, as the would-be head noun's first word, mean the modifier
+        // is a prose clause, not "<preps> <head noun>".
+        const STOPWORDS: &[&str] = &[
+            "then", "to", "for", "with", "if", "until", "or", "such", "as", "plus", "about", "per",
+            "from", "into", "over", "on", "in", "at", "the", "a", "an", "of",
+        ];
+
+        // Precondition: the name is a pure leading prep chain.
+        let name_pure_prep =
+            !parsed.name.trim().is_empty() && parsed.name.split_whitespace().all(&is_prep);
+        if !name_pure_prep {
+            return;
+        }
+
+        // The first modifier part must be raw grammar text (the post-comma tail).
+        let Some(ModifierPart::Raw(modtext)) = parsed.modifier.first() else {
+            return;
+        };
+        let modtext = modtext.clone();
+
+        // Walk tokens, skipping leading preps/connectors, to find the head noun's
+        // byte offset within `modtext`.
+        let head_start = modtext
+            .split_whitespace()
+            .map(|w| (w.as_ptr() as usize - modtext.as_ptr() as usize, w))
+            .find(|(_, w)| !is_prep(w) && !is_connector(w))
+            .map(|(off, _)| off);
+        let Some(head_start) = head_start else {
+            return; // modifier was all prep — nothing to recover.
+        };
+
+        let rest = &modtext[head_start..];
+        let first_word = rest.split_whitespace().next().unwrap_or("");
+        let first_lower = first_word
+            .trim_matches(|c: char| !c.is_alphanumeric())
+            .to_lowercase();
+        if STOPWORDS.contains(&first_lower.as_str()) {
+            return;
+        }
+
+        // The head noun runs to the next clause boundary.
+        let mut end = rest.len();
+        for pat in [", ", " such as ", " or ", " to taste"] {
+            if let Some(p) = rest.find(pat) {
+                end = end.min(p);
+            }
+        }
+        let head_noun = rest[..end].trim();
+        if head_noun.is_empty() {
+            return;
+        }
+        let trailing = rest[end..]
+            .trim_start_matches(|c: char| c == ',' || c.is_whitespace())
+            .trim();
+
+        // The prep prefix is the original name plus everything consumed up to the
+        // head noun (preserving the "and"/commas), e.g.
+        // "deribbed" + "seeded, and roughly chopped".
+        let consumed = modtext[..head_start].trim().trim_end_matches(',').trim();
+        let prep = if consumed.is_empty() {
+            parsed.name.trim().to_string()
+        } else {
+            format!("{}, {}", parsed.name.trim(), consumed)
+        };
+
+        // Rebuild: head noun is the name; prep leads the modifier; the trailing
+        // clause follows; any later modifier parts are preserved.
+        let tail_parts = parsed.modifier.split_off(1);
+        parsed.name = head_noun.to_string();
+        parsed.modifier = vec![ModifierPart::Prep(prep)];
+        if !trailing.is_empty() {
+            parsed
+                .modifier
+                .push(ModifierPart::Raw(trailing.to_string()));
+        }
+        parsed.modifier.extend(tail_parts);
+    }
+
     /// Move a trailing "for …" purpose clause out of the name into the modifier.
     /// Two shapes qualify:
     /// - "for `<gerund>` …" ("Extra-virgin olive oil for brushing the bread" ->
@@ -534,6 +649,10 @@ const POST_PASSES: &[(&str, Pass)] = &[
         IngredientParser::extract_trailing_prep_clause,
     ),
     (
+        "recover_head_noun_from_modifier",
+        IngredientParser::recover_head_noun_from_modifier,
+    ),
+    (
         "extract_adjectives_from_name",
         IngredientParser::extract_adjectives_from_name,
     ),
@@ -666,6 +785,24 @@ fn split_word_alternative(
     // ingredient, never a two-ingredient alternative — leave the name whole.
     let is_size = |w: &str| crate::parser::vocab::SIZE_WORDS.contains(&w.to_lowercase().as_str());
     if left_tokens.len() == 1 && is_size(left) && is_size(right_tokens[0]) {
+        return (name.to_string(), None);
+    }
+
+    // A possessive-brand left ("Hellmann's or Best Foods mayonnaise") sharing a
+    // lowercase head noun on the right is one ingredient with two brand options,
+    // not an "X or Y" alternative — keep the name whole. Deliberately narrow:
+    // broader brand detection (capitalization, or "Best Foods or Hellmann's")
+    // would over-fire on title-cased lines and strand real alternatives like
+    // "Fresh or Frozen Blueberries".
+    // Match a possessive "'s" with either a straight (') or curly (’) apostrophe.
+    let left_has_possessive = left_tokens
+        .iter()
+        .any(|t| t.ends_with("'s") || t.ends_with("\u{2019}s"));
+    let right_ends_lowercase = right_tokens
+        .last()
+        .and_then(|t| t.chars().next())
+        .is_some_and(|c| c.is_ascii_lowercase());
+    if left_has_possessive && right_ends_lowercase {
         return (name.to_string(), None);
     }
 
