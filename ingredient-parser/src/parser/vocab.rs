@@ -249,21 +249,26 @@ pub(crate) const SHARED_HEAD_MODIFIERS: &[&str] = &[
     "refined",
     "virgin",
     "fancy",
-    // fat / size
+    // fat
     "skim",
     "nonfat",
     "lean",
-    "large",
-    "small",
-    "medium",
-    "jumbo",
-    "baby",
+    // size words (small/medium/large/jumbo/baby): see SIZE_WORDS, folded in by
+    // is_shared_head_modifier so the size vocabulary has a single source of truth.
     // common attributive nouns that premodify a shared head ("lemon zest")
     "lemon",
     "lime",
     "orange",
     "grapefruit",
 ];
+
+/// Whether `word` can premodify a shared head noun in the "A or B C" alternative
+/// reconstruction (`refine::split_word_alternative`). Folds [`SIZE_WORDS`] into
+/// [`SHARED_HEAD_MODIFIERS`] so size words live in exactly one place; both are tiny
+/// slices, so the two linear scans cost the same as the previous single `.contains`.
+pub(crate) fn is_shared_head_modifier(word: &str) -> bool {
+    SHARED_HEAD_MODIFIERS.contains(&word) || SIZE_WORDS.contains(&word)
+}
 
 /// Head nouns that an "X, Y, or Z <noun>" alternatives list can share, where the
 /// noun appears only after the final alternative — "canola, vegetable, or melted
@@ -386,3 +391,118 @@ pub(crate) const DISTANCE_UNIT_BASES: &[&str] = &[
     "yard",
     "yd",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `subset` ⊆ `superset`, reporting the offending entries when not.
+    fn assert_subset(subset: &[&str], subset_name: &str, superset: &[&str], superset_name: &str) {
+        let missing: Vec<&str> = subset
+            .iter()
+            .filter(|w| !superset.contains(*w))
+            .copied()
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "{subset_name} entries missing from {superset_name}: {missing:?}"
+        );
+    }
+
+    // The size-qualifier gate in `single::amount_qualifier_between` only fires when
+    // the unit parser will accept the following word, so every vague/size-qualifiable
+    // measure MUST also be a recognized unit — otherwise the size word is dropped with
+    // no unit to show for it. (vocab.rs doc comments on VAGUE_UNITS / SIZE_QUALIFIABLE_UNITS.)
+    #[test]
+    fn vague_and_size_qualifiable_units_are_recognized_units() {
+        assert_subset(
+            VAGUE_UNITS,
+            "VAGUE_UNITS",
+            NON_STANDARD_UNITS,
+            "NON_STANDARD_UNITS",
+        );
+        assert_subset(
+            SIZE_QUALIFIABLE_UNITS,
+            "SIZE_QUALIFIABLE_UNITS",
+            NON_STANDARD_UNITS,
+            "NON_STANDARD_UNITS",
+        );
+    }
+
+    // "small or large onion" needs the left size word recognized as a premodifier to
+    // graft the shared head. After the Part 2 de-dup this holds by construction via
+    // `is_shared_head_modifier`; the test pins both the containment and that helper.
+    #[test]
+    fn size_words_are_shared_head_modifiers() {
+        for &w in SIZE_WORDS {
+            assert!(
+                is_shared_head_modifier(w),
+                "size word {w:?} is not recognized as a shared-head modifier"
+            );
+        }
+    }
+
+    // The postfix-produce parse ("1 garlic clove" -> {clove:1} garlic) only works if
+    // each trailing count unit also parses as a unit. (vocab.rs doc on POSTFIX_PRODUCE_UNITS.)
+    #[test]
+    fn postfix_produce_units_are_recognized_units() {
+        for (food, units) in POSTFIX_PRODUCE_UNITS {
+            for unit in *units {
+                assert!(
+                    NON_STANDARD_UNITS.contains(unit),
+                    "POSTFIX_PRODUCE_UNITS[{food:?}] unit {unit:?} missing from NON_STANDARD_UNITS"
+                );
+            }
+        }
+    }
+
+    // The extractor moves "for the pan" into the modifier; the classifier reads it back
+    // out as PanGrease. The two tables deliberately overlap on this phrase — pin it so
+    // neither side drops it silently. (vocab.rs doc on the usage phrase tables.)
+    #[test]
+    fn for_the_pan_is_in_both_purpose_and_pan_grease() {
+        assert!(DEFAULT_PURPOSE_PHRASES.contains(&"for the pan"));
+        assert!(PAN_GREASE_PHRASES.contains(&"for the pan"));
+    }
+
+    // Hygiene: every membership list is duplicate-free and lowercase. Consumers
+    // lowercase input before matching, so an upper-cased entry would be dead code.
+    #[test]
+    fn lists_are_dup_free_and_lowercase() {
+        let lists: &[(&str, &[&str])] = &[
+            (
+                "DEFAULT_PREPARATION_ADJECTIVES",
+                DEFAULT_PREPARATION_ADJECTIVES,
+            ),
+            ("DEFAULT_PURPOSE_PHRASES", DEFAULT_PURPOSE_PHRASES),
+            ("GARNISH_PHRASES", GARNISH_PHRASES),
+            ("FRYING_PHRASES", FRYING_PHRASES),
+            ("PAN_GREASE_PHRASES", PAN_GREASE_PHRASES),
+            ("DREDGING_PHRASES", DREDGING_PHRASES),
+            ("SEASONING_PHRASES", SEASONING_PHRASES),
+            ("MARINADE_PHRASES", MARINADE_PHRASES),
+            ("MARINADE_SECTION_WORDS", MARINADE_SECTION_WORDS),
+            ("NON_STANDARD_UNITS", NON_STANDARD_UNITS),
+            ("VAGUE_UNITS", VAGUE_UNITS),
+            ("SIZE_QUALIFIABLE_UNITS", SIZE_QUALIFIABLE_UNITS),
+            ("SIZE_WORDS", SIZE_WORDS),
+            ("SHARED_HEAD_MODIFIERS", SHARED_HEAD_MODIFIERS),
+            ("SHARED_HEAD_NOUNS", SHARED_HEAD_NOUNS),
+            ("DISTRIBUTABLE_HEAD_NOUNS", DISTRIBUTABLE_HEAD_NOUNS),
+            ("INTENSIFIER_ADVERBS", INTENSIFIER_ADVERBS),
+            ("MANNER_ADVERBS", MANNER_ADVERBS),
+            ("CONTAINER_NOUNS", CONTAINER_NOUNS),
+            ("DISTANCE_UNIT_BASES", DISTANCE_UNIT_BASES),
+        ];
+        for (name, list) in lists {
+            let mut seen = std::collections::HashSet::new();
+            for &entry in *list {
+                assert!(
+                    entry == entry.to_lowercase(),
+                    "{name} entry {entry:?} is not lowercase"
+                );
+                assert!(seen.insert(entry), "{name} has duplicate entry {entry:?}");
+            }
+        }
+    }
+}

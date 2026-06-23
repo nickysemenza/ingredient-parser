@@ -888,8 +888,7 @@ fn split_word_alternative(
     // frozen blueberries" -> "fresh blueberries"). A complete-noun left absorbs
     // nothing ("amaretto or dark rum" stays "amaretto", not "amaretto rum").
     let left_lower = left.to_lowercase();
-    let left_is_premodifier = crate::parser::vocab::SHARED_HEAD_MODIFIERS
-        .contains(&left_lower.as_str())
+    let left_is_premodifier = crate::parser::vocab::is_shared_head_modifier(&left_lower)
         || adjectives.contains(&left_lower);
 
     // Shared by both reconstruction paths: the right side must read as
