@@ -10,6 +10,7 @@ use std::io::Cursor;
 
 use ego_tree::iter::Edge;
 use epub::doc::EpubDoc;
+use ingredient::unit::Unit;
 use scraper::{Html, Node};
 
 use crate::{Chunk, EpubError, ImageRef, Link};
@@ -296,12 +297,6 @@ fn is_block(tag: &str) -> bool {
             | "h4"
             | "h5"
             | "h6"
-            | "table"
-            | "thead"
-            | "tbody"
-            | "tr"
-            | "td"
-            | "th"
             | "dl"
             | "dt"
             | "dd"
@@ -405,6 +400,15 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
     let mut images: Vec<(usize, ImageRef)> = Vec::new();
     // Open <a> with an internal href: (start offset in buf, href).
     let mut open_anchor: Option<(usize, String)> = None;
+    // Table state: a <table> emits one line per <tr> with its cells joined (see
+    // `render_table_row`), rather than the generic one-line-per-block flattening
+    // that would split a row's cells (name / baker's % / weight) onto separate
+    // lines. `row_cells` accumulates the current row's cell texts; `in_cell` /
+    // `in_caption` route text nodes while inside a table.
+    let mut table_depth = 0usize;
+    let mut row_cells: Vec<String> = Vec::new();
+    let mut in_cell = false;
+    let mut in_caption = false;
 
     for edge in dom.tree.root().traverse() {
         match edge {
@@ -419,28 +423,69 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                         open_anchor = None;
                         skip_depth += 1;
                     } else if skip_depth == 0 {
-                        if is_block(name) {
-                            buf.push(SEP);
-                        }
-                        if name == "a"
-                            && let Some(href) = e.attr("href")
-                            && is_internal_href(href)
-                        {
-                            open_anchor = Some((buf.len(), href.to_string()));
-                        }
-                        // <img> is a void element (no Close edge), so capture it
-                        // here. Its offset marks where it sits in the text flow.
-                        if name == "img"
-                            && let Some(src) = e.attr("src")
-                            && let Some(path) = resolve_relative(doc_path, src)
-                            && let Some(mime) = mime_from_ext(&path)
-                        {
-                            let alt = e.attr("alt").map(str::to_string).filter(|a| !a.is_empty());
-                            images.push((buf.len(), ImageRef { path, mime, alt }));
+                        match name {
+                            "table" => {
+                                buf.push(SEP);
+                                table_depth += 1;
+                            }
+                            "tr" if table_depth > 0 => {
+                                row_cells.clear();
+                                in_cell = false;
+                            }
+                            "td" | "th" if table_depth > 0 => {
+                                row_cells.push(String::new());
+                                in_cell = true;
+                            }
+                            "caption" if table_depth > 0 => {
+                                buf.push(SEP);
+                                in_caption = true;
+                            }
+                            // Outside a table: behave as before. Inside a table,
+                            // nested block tags (the `<p class="table">` wrapping
+                            // each cell) must NOT break the line, and links/images
+                            // are skipped — their buf offsets wouldn't map onto a
+                            // row rendered later at `</tr>`.
+                            _ if table_depth == 0 => {
+                                if is_block(name) {
+                                    buf.push(SEP);
+                                }
+                                if name == "a"
+                                    && let Some(href) = e.attr("href")
+                                    && is_internal_href(href)
+                                {
+                                    open_anchor = Some((buf.len(), href.to_string()));
+                                }
+                                // <img> is a void element (no Close edge), so
+                                // capture it here. Its offset marks where it sits
+                                // in the text flow.
+                                if name == "img"
+                                    && let Some(src) = e.attr("src")
+                                    && let Some(path) = resolve_relative(doc_path, src)
+                                    && let Some(mime) = mime_from_ext(&path)
+                                {
+                                    let alt =
+                                        e.attr("alt").map(str::to_string).filter(|a| !a.is_empty());
+                                    images.push((buf.len(), ImageRef { path, mime, alt }));
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
-                Node::Text(t) if skip_depth == 0 => buf.push_str(t),
+                Node::Text(t) if skip_depth == 0 => {
+                    if table_depth > 0 {
+                        if in_cell {
+                            if let Some(cell) = row_cells.last_mut() {
+                                cell.push_str(t);
+                            }
+                        } else if in_caption {
+                            buf.push_str(t);
+                        }
+                        // Text between cells/rows (source indentation) is dropped.
+                    } else {
+                        buf.push_str(t);
+                    }
+                }
                 _ => {}
             },
             Edge::Close(node) => {
@@ -449,14 +494,40 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                     if is_skip(name) {
                         skip_depth = skip_depth.saturating_sub(1);
                     } else if skip_depth == 0 {
-                        if name == "a"
-                            && let Some((start, href)) = open_anchor.take()
-                        {
-                            let text = buf[start..].to_string();
-                            links.push((start, href, text));
-                        }
-                        if is_block(name) {
-                            buf.push(SEP);
+                        match name {
+                            "table" if table_depth > 0 => {
+                                table_depth -= 1;
+                                buf.push(SEP);
+                            }
+                            "td" | "th" if table_depth > 0 => {
+                                in_cell = false;
+                            }
+                            "tr" if table_depth > 0 => {
+                                let rendered = render_table_row(&row_cells);
+                                if !rendered.is_empty() {
+                                    buf.push(SEP);
+                                    buf.push_str(&rendered);
+                                    buf.push(SEP);
+                                }
+                                row_cells.clear();
+                                in_cell = false;
+                            }
+                            "caption" if table_depth > 0 => {
+                                buf.push(SEP);
+                                in_caption = false;
+                            }
+                            _ if table_depth == 0 => {
+                                if name == "a"
+                                    && let Some((start, href)) = open_anchor.take()
+                                {
+                                    let text = buf[start..].to_string();
+                                    links.push((start, href, text));
+                                }
+                                if is_block(name) {
+                                    buf.push(SEP);
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -504,6 +575,73 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
         }
     }
     out
+}
+
+/// Render one table `<tr>`'s cells into a single line.
+///
+/// Multi-column "measure tables" — a name column, an optional baker's-percentage
+/// / ratio column, and a weight column (e.g. Tartine's `FLOUR | BAKER'S % |
+/// WEIGHT`) — render as `"{name} ({weight})"`, dropping the bare-ratio column, so
+/// the core `ingredient` parser (which only reads a *leading* amount) recovers
+/// the weight: `High-extraction wheat flour (400 g)` → name + 400 g. Rows that
+/// don't fit that shape — header rows (no weight cell), single-cell rows — fall
+/// back to a plain space-join, leaving the structure call to the downstream LLM.
+fn render_table_row(cells: &[String]) -> String {
+    let cells: Vec<String> = cells
+        .iter()
+        .map(|c| normalize_ws(c))
+        .filter(|c| !c.is_empty())
+        .collect();
+    match cells.as_slice() {
+        [] => String::new(),
+        [only] => only.clone(),
+        _ => {
+            let kinds: Vec<CellKind> = cells.iter().map(|c| classify_cell(c)).collect();
+            let weights: Vec<usize> = kinds
+                .iter()
+                .enumerate()
+                .filter(|(_, k)| matches!(k, CellKind::Measure))
+                .map(|(i, _)| i)
+                .collect();
+            // Name + exactly one unit-bearing weight ⇒ "name (weight)". The ratio
+            // column (and any other extra cell) is intentionally dropped.
+            if let [w] = weights.as_slice()
+                && matches!(kinds[0], CellKind::Text)
+            {
+                format!("{} ({})", cells[0], cells[*w])
+            } else {
+                cells.join(" ")
+            }
+        }
+    }
+}
+
+/// Classification of a normalized table cell, for [`render_table_row`].
+enum CellKind {
+    /// A number with a real unit (`400 g`, `1 cup`) — the weight column.
+    Measure,
+    /// A bare number (`40`, `2.5`) — a baker's-percentage / ratio cell, dropped.
+    Number,
+    /// Anything else — an ingredient name or a header label.
+    Text,
+}
+
+/// A cell is a [`CellKind::Measure`] when the parser finds a unit-bearing amount
+/// (`Unit::Whole` is the bare-number case), [`CellKind::Number`] when it's only
+/// bare numbers with no leftover name, else [`CellKind::Text`].
+fn classify_cell(cell: &str) -> CellKind {
+    let parsed = ingredient::from_str(cell);
+    if parsed
+        .amounts
+        .iter()
+        .any(|m| !matches!(m.unit(), Unit::Whole))
+    {
+        CellKind::Measure
+    } else if !parsed.amounts.is_empty() && parsed.name.trim().is_empty() {
+        CellKind::Number
+    } else {
+        CellKind::Text
+    }
 }
 
 /// Collapse all whitespace (incl. non-breaking spaces) to single spaces, trim,
@@ -558,6 +696,25 @@ mod tests {
     #[case::nbsp("<p>1\u{a0}cup\n\n  flour</p>", "1 cup flour")]
     // nested block (p inside td) is not double-counted
     #[case::nested("<table><tr><td><p>200 g flour</p></td></tr></table>", "200 g flour")]
+    // Baker's-percentage table row: name / ratio / weight ⇒ "name (weight)",
+    // dropping the bare baker's-% column so the parser recovers the weight.
+    #[case::bakers_table_row(
+        "<table><tr>\
+         <td><p class=\"table\">High-extraction wheat flour</p></td>\
+         <td><p class=\"table\">40</p></td>\
+         <td><p class=\"table\">400 g</p></td></tr></table>",
+        "High-extraction wheat flour (400 g)"
+    )]
+    // Header row (all text, no weight cell) falls back to a one-line space-join,
+    // and each data row stays on its own line (no cell explosion).
+    #[case::bakers_table_full(
+        "<table>\
+         <tr><td><p>FLOUR</p></td><td><p>BAKER\u{2019}S %</p></td><td><p>WEIGHT</p></td></tr>\
+         <tr><td><p>WATER</p></td><td><p>85</p></td><td><p>850 g</p></td></tr>\
+         <tr><td colspan=\"3\"><p>+ RYE FLAKES FOR COATING (OPTIONAL)</p></td></tr>\
+         </table>",
+        "FLOUR BAKER\u{2019}S % WEIGHT\nWATER (850 g)\n+ RYE FLAKES FOR COATING (OPTIONAL)"
+    )]
     // <style>/<head> contents are dropped
     #[case::drops_style(
         "<html><head><title>T</title><style>p{color:red}</style></head><body><p>real text</p></body></html>",
