@@ -16,6 +16,38 @@ use crate::{Chunk, EpubError};
 // `recipe_epub::RecipeMeta` paths are unchanged.
 pub use recipe_types::RecipeMeta;
 
+/// Deserialize a `Vec<T>` from malformed LLM tool output. Tolerates an explicit
+/// `null` (→ empty) and a JSON-string-encoded array — the model occasionally
+/// double-encodes its whole tool `input`, sending `recipes` as the *string*
+/// `"[{…}]"` rather than an array (serde rejects that with "invalid type:
+/// string, expected a sequence"). A genuine array deserializes normally, and its
+/// elements still run their own (equally lenient) field deserializers.
+///
+/// Lives here rather than in `recipe-types` because re-parsing the embedded JSON
+/// needs `serde_json`, which the deps-light `recipe-types` crate omits on
+/// purpose (its `null_as_empty_vec` covers the null-only leaf fields).
+fn vec_lenient<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    use serde::de::Error;
+
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Null => Ok(Vec::new()),
+        serde_json::Value::String(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                Ok(Vec::new())
+            } else {
+                serde_json::from_str(trimmed).map_err(Error::custom)
+            }
+        }
+        other => serde_json::from_value(other).map_err(Error::custom),
+    }
+}
+
 /// A recipe as segmented + labeled by the extractor (model output). Sections use
 /// the shared [`recipe_scraper::RecipeSection`] type; ingredient/instruction
 /// strings are **verbatim** — quantities are parsed downstream by the core
@@ -24,6 +56,9 @@ pub use recipe_types::RecipeMeta;
 pub struct ExtractedRecipe {
     #[serde(flatten)]
     pub meta: RecipeMeta,
+    // Lenient: a recipe with `sections: null` or missing sections degrades to an
+    // empty list (its meta still survives) instead of failing the chunk.
+    #[serde(default, deserialize_with = "vec_lenient")]
     pub sections: Vec<RecipeSection>,
 }
 
@@ -105,6 +140,80 @@ pub fn build_chunk_request(chunk: &Chunk) -> ChunkRequest {
 /// backends and the wasm `assemble_recipes` path.
 pub fn parse_recipes_payload(input: serde_json::Value) -> Result<Vec<ExtractedRecipe>, EpubError> {
     Ok(serde_json::from_value::<RecipesPayload>(input)?.recipes)
+}
+
+/// One extra attempt after the first, so one model gets at most `1 + PARSE_RETRIES`
+/// calls per chunk. The model occasionally emits a payload that's valid-but-
+/// unparseable (most often the whole `recipes` array double-encoded as a *string*
+/// with under-escaped quotes — invalid JSON no deserializer can repair). That's
+/// usually stochastic, so a re-issued identical request comes back clean. The
+/// disjoint-failure escalation (a *different* model) is the caller's job.
+pub const PARSE_RETRIES: usize = 1;
+
+/// One model's structured output for a chunk: the raw tool `input` (`None` if the
+/// model returned no tool block) plus the cost/limit signals the native backend
+/// tracks. The wasm driver passes `Usage::default()` + `truncated: false`.
+pub struct CallResult {
+    pub input: Option<serde_json::Value>,
+    pub usage: Usage,
+    pub truncated: bool,
+}
+
+/// Recipes decoded from one model for one chunk, with accumulated usage.
+pub struct DrivenChunk {
+    pub recipes: Vec<ExtractedRecipe>,
+    pub usage: Usage,
+    pub truncated: bool,
+}
+
+/// Drive ONE model over one chunk: call it, decode the payload, and retry the
+/// call up to [`PARSE_RETRIES`] times when the payload won't parse (malformed
+/// JSON a fresh call usually avoids). Never retries on truncation — a same-size
+/// retry would just truncate again. Returns `Err` once the attempts are spent, so
+/// the caller can escalate to a different model or salvage (skip) the chunk.
+///
+/// `call` performs one extraction call and is the ONLY I/O — supplied by the
+/// native reqwest backend or the wasm JS-callback driver — so this retry/parse
+/// policy is shared verbatim across both. `doc_path` only labels log lines.
+pub async fn try_extract_chunk<F, Fut>(doc_path: &str, call: F) -> Result<DrivenChunk, EpubError>
+where
+    F: Fn() -> Fut,
+    Fut: core::future::Future<Output = Result<CallResult, EpubError>>,
+{
+    let mut usage = Usage::default();
+    let mut attempt = 0;
+    loop {
+        let CallResult {
+            input,
+            usage: call_usage,
+            truncated,
+        } = call().await?;
+        usage.add(&call_usage);
+        match input {
+            // No tool block / no recipes is a valid empty result, not a failure.
+            None => {
+                return Ok(DrivenChunk {
+                    recipes: Vec::new(),
+                    usage,
+                    truncated,
+                });
+            }
+            Some(v) => match parse_recipes_payload(v) {
+                Ok(recipes) => {
+                    return Ok(DrivenChunk {
+                        recipes,
+                        usage,
+                        truncated,
+                    });
+                }
+                Err(e) if truncated || attempt >= PARSE_RETRIES => return Err(e),
+                Err(e) => {
+                    tracing::warn!("chunk {doc_path} payload didn't parse ({e}); retrying");
+                    attempt += 1;
+                }
+            },
+        }
+    }
 }
 
 /// Turns a [`Chunk`] of cookbook text into zero or more recipes.
@@ -213,6 +322,9 @@ pub fn recipes_tool_schema() -> serde_json::Value {
 /// (which decode real API payloads) can name it.
 #[derive(Deserialize)]
 pub(crate) struct RecipesPayload {
+    // Lenient: tolerates `recipes: null` and the double-encoded `recipes:
+    // "[{…}]"` string the model emits on a fraction of chunks.
+    #[serde(default, deserialize_with = "vec_lenient")]
     pub(crate) recipes: Vec<ExtractedRecipe>,
 }
 
@@ -244,5 +356,148 @@ impl RecipeExtractor for MockExtractor {
             cached: false,
             truncated: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use serde_json::json;
+
+    use super::parse_recipes_payload;
+
+    // Regression: real `claude-haiku-4-5` output on Tartine Book No. 3 produced
+    // four malformed chunks that each `?`-aborted the cookbook import. The lenient
+    // deserializers must now absorb every shape instead of erroring. See the
+    // `food-cli debug-epub` taxonomy: missing `ingredients`, double-encoded
+    // `recipes` string, plus `null` arrays (the original browser failure).
+
+    #[test]
+    fn well_formed_payload_parses() {
+        let v = json!({ "recipes": [
+            { "title": "X", "sections": [{ "ingredients": ["1 cup flour"], "instructions": ["Mix."] }] }
+        ]});
+        let r = parse_recipes_payload(v).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].sections[0].ingredients, vec!["1 cup flour"]);
+    }
+
+    #[test]
+    fn section_missing_ingredients_degrades_to_empty() {
+        // chapters 33/48/60: a section object with no `ingredients` key.
+        let v = json!({ "recipes": [
+            { "title": "X", "sections": [{ "instructions": ["Stir."] }] }
+        ]});
+        let r = parse_recipes_payload(v).unwrap();
+        assert!(r[0].sections[0].ingredients.is_empty());
+        assert_eq!(r[0].sections[0].instructions, vec!["Stir."]);
+    }
+
+    #[test]
+    fn double_encoded_recipes_string_is_reparsed() {
+        // chapter 64: the whole `recipes` value arrives as a JSON string.
+        let inner = json!([
+            { "title": "Sablés", "sections": [{ "ingredients": ["150 g hazelnuts"] }] }
+        ])
+        .to_string();
+        let v = json!({ "recipes": inner });
+        let r = parse_recipes_payload(v).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].meta.title, "Sablés");
+    }
+
+    #[test]
+    fn explicit_null_arrays_become_empty() {
+        // The original browser failure: "invalid type: null, expected a sequence".
+        // `#[serde(default)]` alone does NOT rescue an explicit null.
+        let v = json!({ "recipes": [
+            { "title": "X",
+              "sections": [{ "ingredients": null, "instructions": null }],
+              "notes": null, "equipment": null }
+        ]});
+        let r = parse_recipes_payload(v).unwrap();
+        assert!(r[0].sections[0].ingredients.is_empty());
+        assert!(r[0].meta.notes.is_empty());
+    }
+
+    #[test]
+    fn top_level_recipes_null_is_empty() {
+        let r = parse_recipes_payload(json!({ "recipes": null })).unwrap();
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn recipe_sections_null_is_empty() {
+        let v = json!({ "recipes": [{ "title": "X", "sections": null }] });
+        let r = parse_recipes_payload(v).unwrap();
+        assert!(r[0].sections.is_empty());
+    }
+
+    // --- try_extract_chunk: the shared call+parse+retry policy (native + wasm) ---
+
+    use std::cell::Cell;
+
+    use super::{CallResult, Usage, try_extract_chunk};
+
+    fn call_result(input: serde_json::Value, truncated: bool) -> CallResult {
+        CallResult {
+            input: Some(input),
+            usage: Usage::default(),
+            truncated,
+        }
+    }
+
+    #[tokio::test]
+    async fn try_extract_chunk_retries_then_succeeds() {
+        let calls = Cell::new(0usize);
+        let driven = try_extract_chunk("doc", || {
+            let attempt = calls.get();
+            calls.set(attempt + 1);
+            async move {
+                // First call: double-encoded but invalid JSON (unparseable).
+                // Second: a clean array.
+                let input = if attempt == 0 {
+                    json!({ "recipes": "[oops not json" })
+                } else {
+                    json!({ "recipes": [{ "title": "X", "sections": [{ "ingredients": ["a"] }] }] })
+                };
+                Ok(call_result(input, false))
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(driven.recipes.len(), 1);
+        assert_eq!(calls.get(), 2, "should retry exactly once");
+    }
+
+    #[tokio::test]
+    async fn try_extract_chunk_gives_up_after_retries() {
+        let calls = Cell::new(0usize);
+        let res = try_extract_chunk("doc", || {
+            calls.set(calls.get() + 1);
+            async move { Ok(call_result(json!({ "recipes": "[bad" }), false)) }
+        })
+        .await;
+        assert!(
+            res.is_err(),
+            "exhausted retries → Err so the caller can escalate"
+        );
+        assert_eq!(calls.get(), 2, "1 + PARSE_RETRIES attempts");
+    }
+
+    #[tokio::test]
+    async fn try_extract_chunk_no_retry_on_truncation() {
+        let calls = Cell::new(0usize);
+        let res = try_extract_chunk("doc", || {
+            calls.set(calls.get() + 1);
+            async move { Ok(call_result(json!({ "recipes": "[bad" }), true)) }
+        })
+        .await;
+        assert!(res.is_err());
+        assert_eq!(
+            calls.get(),
+            1,
+            "truncated → no retry (same-size retry would truncate again)"
+        );
     }
 }

@@ -40,9 +40,29 @@ enum Commands {
         /// Model id override (default: gemini-2.5-flash; claude-* / gpt-* also work)
         #[arg(long)]
         model: Option<String>,
+        /// Fallback model for chunks the primary can't return parseable output
+        /// for (e.g. --escalate-model claude-sonnet-4-6). Different models fail on
+        /// different chunks, so a fallback recovers the primary's misses.
+        #[arg(long)]
+        escalate_model: Option<String>,
         /// Bypass the on-disk extraction cache
         #[arg(long)]
         no_cache: bool,
+    },
+    /// Debug a single EPUB: re-run every chunk through the model and report any
+    /// whose raw payload fails to deserialize, with the offending JSON path. This
+    /// is the view `scrape-epub` HIDES — it silently skips bad chunks (and the
+    /// wasm cookbook import aborts the whole book on the first one). Bypasses the
+    /// cache. Defaults to `claude-haiku-4-5` to mirror cubby's cookbook import.
+    DebugEpub {
+        /// Path to the .epub file
+        path: String,
+        /// Model id override (default: claude-haiku-4-5, matching cubby's import)
+        #[arg(long)]
+        model: Option<String>,
+        /// Print the full raw JSON payload of each failed chunk (can be large)
+        #[arg(long)]
+        raw: bool,
     },
     /// Scan a Calibre/EPUB library, ranking ingredient lines the parser misses
     /// (have a number but yield no amount) as accuracy-corpus candidates.
@@ -138,6 +158,37 @@ fn emit_parsed_line(ip: &ingredient::IngredientParser, line: &str) {
         "modifier": p.modifier,
     });
     println!("{}", serde_json::to_string(&obj).unwrap());
+}
+
+/// Collect dotted paths of every `null`-valued key in a JSON payload, e.g.
+/// `recipes[0].sections[1].instructions`. A `null` in an array-typed recipe
+/// field is exactly what serde rejects with "expected a sequence", so this
+/// points `debug-epub` straight at the offending field.
+fn null_paths(v: &serde_json::Value, path: &str, out: &mut Vec<String>) {
+    use serde_json::Value;
+    match v {
+        Value::Null => out.push(if path.is_empty() {
+            "<root>".into()
+        } else {
+            path.into()
+        }),
+        Value::Object(m) => {
+            for (k, val) in m {
+                let p = if path.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{path}.{k}")
+                };
+                null_paths(val, &p, out);
+            }
+        }
+        Value::Array(a) => {
+            for (i, val) in a.iter().enumerate() {
+                null_paths(val, &format!("{path}[{i}]"), out);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// One renderable corpus entry: a parsed JSON row plus the section it falls
@@ -317,6 +368,13 @@ fn render_corpus_html(corpus: &str) -> (String, usize) {
 
 #[tokio::main]
 async fn main() {
+    // Surface the extractor's tracing (chunk skips, escalation, truncation) on
+    // stderr. Off unless RUST_LOG is set, so normal --json stdout stays clean;
+    // try `RUST_LOG=recipe_epub=info`. Without this, those warns went nowhere.
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .init();
     // Load AI gateway creds (AI_GATEWAY_API_KEY, CLOUDFLARE_AI_GATEWAY_BASE_URL)
     // from a repo-root .env. Missing file is fine; real exported vars take precedence.
     let _ = dotenvy::dotenv();
@@ -351,11 +409,13 @@ async fn main() {
             parse,
             dump_parsed,
             model,
+            escalate_model,
             no_cache,
         } => {
             let bytes = std::fs::read(path).unwrap();
             let opts = recipe_epub::Options {
                 model: model.clone(),
+                escalate_model: escalate_model.clone(),
                 use_cache: !no_cache,
                 ..Default::default()
             };
@@ -419,6 +479,82 @@ async fn main() {
                     std::process::exit(1);
                 }
             }
+        }
+        Commands::DebugEpub { path, model, raw } => {
+            let bytes = std::fs::read(path).unwrap_or_else(|e| {
+                eprintln!("failed to read {path}: {e}");
+                std::process::exit(1);
+            });
+            // Default to Haiku (cubby's cookbook-import model) so a failure here
+            // reproduces the real import; the cache is off because a failed parse
+            // is never cached anyway and we want a live payload every run.
+            let opts = recipe_epub::Options {
+                model: Some(
+                    model
+                        .clone()
+                        .unwrap_or_else(|| "claude-haiku-4-5".to_string()),
+                ),
+                use_cache: false,
+                ..Default::default()
+            };
+            let mut chunks = match recipe_epub::debug_extract_cookbook(&bytes, path, &opts).await {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("debug-epub error: {e}");
+                    std::process::exit(1);
+                }
+            };
+            chunks.sort_by(|a, b| a.doc_path.cmp(&b.doc_path));
+            let failures: Vec<&recipe_epub::ChunkDebug> =
+                chunks.iter().filter(|c| c.error.is_some()).collect();
+            let recipes: usize = chunks.iter().filter_map(|c| c.parsed).sum();
+            eprintln!(
+                "[{}] {} chunk(s): {} ok ({recipes} recipes), {} FAILED",
+                opts.model.as_deref().unwrap_or(""),
+                chunks.len(),
+                chunks.len() - failures.len(),
+                failures.len()
+            );
+            for c in &failures {
+                println!("\n--- FAILED chunk: {} ---", c.doc_path);
+                if let Some(h) = &c.title_hint {
+                    println!("  title hint: {h}");
+                }
+                if c.truncated {
+                    println!("  ⚠ truncated (hit the {} token limit)", 16000);
+                }
+                // A "invalid type: string …" serde error inlines the entire
+                // offending payload; truncate so the report stays readable
+                // (pass --raw for the full payload).
+                let err = c.error.as_deref().unwrap_or("");
+                let shown = if err.len() > 300 && !*raw {
+                    // char-safe truncation (the payload contains °, é, …)
+                    let head: String = err.chars().take(300).collect();
+                    format!("{head}… ({} bytes total)", err.len())
+                } else {
+                    err.to_string()
+                };
+                println!("  error: {shown}");
+                if let Some(input) = &c.raw_input {
+                    let mut nulls = Vec::new();
+                    null_paths(input, "", &mut nulls);
+                    println!("  null field(s): {nulls:?}");
+                    if *raw {
+                        println!(
+                            "  raw payload:\n{}",
+                            serde_json::to_string_pretty(input).unwrap()
+                        );
+                    }
+                }
+            }
+            if failures.is_empty() {
+                println!(
+                    "no parse failures — all {} chunk(s) deserialized cleanly",
+                    chunks.len()
+                );
+            }
+            // Non-zero exit when any chunk failed, so this is scriptable in CI.
+            std::process::exit(if failures.is_empty() { 0 } else { 2 });
         }
         Commands::ScanCookbooks {
             dir,

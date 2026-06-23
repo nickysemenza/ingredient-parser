@@ -25,8 +25,9 @@ mod library;
 // response parsing (`parse_recipes_payload`), and assembly (`assemble_recipes`).
 pub use epub_text::chunk_epub;
 pub use extractor::{
-    ChunkOutcome, ChunkRequest, ExtractedRecipe, MockExtractor, RecipeExtractor, RecipeMeta, Usage,
-    build_chunk_request, parse_recipes_payload, recipes_tool_schema,
+    CallResult, ChunkOutcome, ChunkRequest, DrivenChunk, ExtractedRecipe, MockExtractor,
+    PARSE_RETRIES, RecipeExtractor, RecipeMeta, Usage, build_chunk_request, parse_recipes_payload,
+    recipes_tool_schema, try_extract_chunk,
 };
 // Library scanning: list + classify the cookbooks in a directory of epubs
 // (native: needs std::fs + the LLM classifier).
@@ -40,7 +41,8 @@ pub use library::{
 // (etc.) paths stay stable.
 #[cfg(feature = "native")]
 pub use backend::{
-    Options, extract_cookbook, extract_cookbook_with, extract_cookbook_with_progress,
+    ChunkDebug, Options, debug_extract_cookbook, extract_cookbook, extract_cookbook_with,
+    extract_cookbook_with_progress,
 };
 // Section + time types are shared with the web scraper — one shape workspace-wide.
 pub use recipe_scraper::{ParsedSection, RecipeSection, RecipeTimes};
@@ -83,6 +85,11 @@ pub enum EpubError {
     /// The on-disk cache could not be read or written.
     #[error("cache error: {0}")]
     Cache(String),
+    /// The chunk-extraction call supplied by the caller failed. Used by the wasm
+    /// driver, whose "call" is a JS proxy callback (threw or rejected); the
+    /// native backends raise [`EpubError::Http`]/[`EpubError::Api`] instead.
+    #[error("chunk extraction call failed: {0}")]
+    Proxy(String),
 }
 
 /// An EPUB internal hyperlink found inside an ingredient/text line — the visible

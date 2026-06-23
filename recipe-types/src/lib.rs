@@ -10,6 +10,62 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Deserialize a `Vec<T>` tolerantly: an explicit JSON `null` becomes an empty
+/// vec, exactly like a missing key. `#[serde(default)]` alone does NOT cover
+/// this — `default` fills a *missing* key, but a present-but-`null` value is
+/// still handed to the `Vec` deserializer, which rejects it with "invalid type:
+/// null, expected a sequence". Pair this with `#[serde(default)]` so missing,
+/// null, and a real array all yield a vec.
+///
+/// This hardens the recipe shape against malformed LLM tool output: the EPUB
+/// extractor's model occasionally emits `"instructions": null` (or omits a
+/// required array field), which would otherwise sink the whole chunk. Kept
+/// dependency-free (a serde `Visitor`, no `serde_json`) so this crate stays the
+/// minimal shared contract.
+pub fn null_as_empty_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    use std::marker::PhantomData;
+
+    use serde::de::{self, SeqAccess, Visitor};
+
+    struct LenientVec<T>(PhantomData<T>);
+
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for LenientVec<T> {
+        type Value = Vec<T>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("an array or null")
+        }
+
+        // An explicit JSON `null` (serde_json calls `visit_unit`) → empty.
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(Vec::new())
+        }
+
+        // `Option`-style null paths, for completeness across data formats.
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(Vec::new())
+        }
+
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<Self::Value, D2::Error> {
+            null_as_empty_vec(d)
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut out = Vec::new();
+            while let Some(item) = seq.next_element()? {
+                out.push(item);
+            }
+            Ok(out)
+        }
+    }
+
+    deserializer.deserialize_any(LenientVec(PhantomData))
+}
+
 /// Structured yield from a recipe (e.g., "12 pancakes").
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct RecipeYield {
@@ -48,8 +104,13 @@ pub struct RecipeSection {
     /// Component label; `None` for the main/only section.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    // `default` + `null_as_empty_vec`: the LLM extractor sometimes omits
+    // `ingredients` entirely or sends it as `null` (e.g. an instructions-only
+    // block it mis-shaped as a section). Both now yield an empty list instead of
+    // failing the whole chunk's deserialize.
+    #[serde(default, deserialize_with = "null_as_empty_vec")]
     pub ingredients: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty_vec")]
     pub instructions: Vec<String>,
 }
 
@@ -79,10 +140,18 @@ pub struct RecipeMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub times: Option<RecipeTimes>,
     /// Special-equipment lines.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_empty_vec",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub equipment: Vec<String>,
     /// Do-ahead/make-ahead notes, tips, "serve with" suggestions.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_empty_vec",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub notes: Vec<String>,
     /// Chapter/category within the book.
     #[serde(default, skip_serializing_if = "Option::is_none")]

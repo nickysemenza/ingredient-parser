@@ -19,6 +19,8 @@ open = "5"
 maud = "0.27"  # compile-time, auto-escaping HTML for the corpus table
 miette.workspace = true # rich --explain diagnostics with source carets
 tabled.workspace = true # pretty CLI tables
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] } # surface extractor warns (chunk skips, escalation) via RUST_LOG
 
 [dev-dependencies]
 rstest.workspace = true
