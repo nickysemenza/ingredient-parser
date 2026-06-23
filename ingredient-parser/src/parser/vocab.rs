@@ -24,6 +24,11 @@ pub(crate) const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     // Bare participle: "grated lemon zest" -> "lemon zest" / "grated". The
     // multiword "freshly grated"/"finely grated" win via longest-match-first.
     "grated",
+    // "shredded zucchini" -> "zucchini" / "shredded", "shredded cheddar cheese"
+    // -> "cheddar cheese" / "shredded". Multiword forms win via longest-match.
+    "finely shredded",
+    "coarsely shredded",
+    "shredded",
     // "fresh" is the *implied default* state of herbs/produce/juice — "fresh
     // cilantro" is just cilantro. The marked forms ("dried"/"frozen") are named
     // explicitly and stay in the name. So extract "fresh" to the modifier.
@@ -247,6 +252,20 @@ pub(crate) const SHARED_HEAD_MODIFIERS: &[&str] = &[
     "orange",
     "grapefruit",
 ];
+
+/// Head nouns that an "X, Y, or Z <noun>" alternatives list can share, where the
+/// noun appears only after the final alternative — "canola, vegetable, or melted
+/// coconut oil" is three kinds of *oil*. The grammar splits the list on the first
+/// comma, stranding the head noun ("oil") off the end of the modifier; the
+/// `recover_shared_head_from_alternatives` refine pass grafts it back onto the
+/// first alternative ("canola" -> "canola oil").
+///
+/// Deliberately tiny: only nouns where the bare-modifier-list construction is
+/// idiomatic. "salt, pepper, or paprika" and "flour, sugar, or baking soda" are
+/// lists of *complete* ingredients, not premodifiers of a shared head — including
+/// their last word here would graft nonsense ("salt paprika"), so keep this to
+/// nouns that genuinely read as "<type> <noun>".
+pub(crate) const SHARED_HEAD_NOUNS: &[&str] = &["oil", "vinegar", "broth", "stock"];
 
 /// Intensifier adverbs that precede a preparation phrase ("very thinly sliced").
 /// They carry no ingredient meaning on their own, so when one is stranded

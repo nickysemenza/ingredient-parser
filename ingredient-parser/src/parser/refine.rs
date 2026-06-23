@@ -597,6 +597,52 @@ impl IngredientParser {
         }
     }
 
+    /// Recover a head noun stranded at the tail of an alternatives list in the
+    /// modifier. The grammar splits "canola, vegetable, or melted coconut oil" on
+    /// the first comma, leaving name="canola" and modifier="vegetable, or melted
+    /// coconut oil" — the shared head "oil" dropped off the name entirely. When
+    /// the modifier is a comma+or list ending in a curated shared-head noun and
+    /// the name is a single bare token, graft the head onto the name ("canola" →
+    /// "canola oil") and keep the whole list as an "or …" alternative modifier.
+    ///
+    /// Gated narrowly (requires a comma *and* an "or", plus a final word in
+    /// [`vocab::SHARED_HEAD_NOUNS`]) so lists of complete ingredients —
+    /// "salt, pepper, or paprika", "flour, sugar, or baking soda" — never get a
+    /// nonsense head grafted on.
+    fn recover_shared_head_from_alternatives(&self, parsed: &mut ParsedIngredient) {
+        // Name must be a single bare token that isn't already the head noun.
+        let mut name_words = parsed.name.split_whitespace();
+        let (Some(name_word), None) = (name_words.next(), name_words.next()) else {
+            return;
+        };
+        if crate::parser::vocab::SHARED_HEAD_NOUNS.contains(&name_word.to_lowercase().as_str()) {
+            return;
+        }
+        let Some(modifier) = parsed.modifier_string() else {
+            return;
+        };
+        // The modifier must read as a comma-separated alternatives list joined by
+        // "or" — both signals that the trailing noun is a shared head, not a
+        // standalone alternative ("flour or oil" stays two ingredients).
+        if !modifier.contains(',') || !modifier.to_lowercase().contains(" or ") {
+            return;
+        }
+        // Its final token must be a curated shared head noun the bare alternatives
+        // can all premodify ("oil"), so grafting it produces a real ingredient.
+        let Some(head) = modifier
+            .split_whitespace()
+            .next_back()
+            .map(|t| t.trim_matches(|c: char| !c.is_alphanumeric()))
+        else {
+            return;
+        };
+        if !crate::parser::vocab::SHARED_HEAD_NOUNS.contains(&head.to_lowercase().as_str()) {
+            return;
+        }
+        parsed.name = format!("{name_word} {head}");
+        parsed.modifier = vec![ModifierPart::Alternative(format!("or {modifier}"))];
+    }
+
     fn extract_secondary_amounts_from_modifier(&self, parsed: &mut ParsedIngredient) {
         let Some(modifier) = parsed.modifier_string() else {
             return;
@@ -668,6 +714,10 @@ const POST_PASSES: &[(&str, Pass)] = &[
     (
         "extract_word_alternative_from_name",
         IngredientParser::extract_word_alternative_from_name,
+    ),
+    (
+        "recover_shared_head_from_alternatives",
+        IngredientParser::recover_shared_head_from_alternatives,
     ),
     (
         "extract_secondary_amounts_from_modifier",
@@ -1144,6 +1194,51 @@ mod tests {
         assert_eq!(got_alternative.as_deref(), want_alternative, "name: {name}");
     }
 
+    /// A comma+or alternatives list whose shared head noun trails the final
+    /// option (stranded by the grammar's first-comma split) recovers the head
+    /// onto the single-token name; lists of complete ingredients are left alone.
+    #[rstest]
+    // Fires: bare options share the trailing head noun "oil".
+    #[case::oil(
+        "canola",
+        Some("vegetable, or melted coconut oil"),
+        "canola oil",
+        Some("or vegetable, or melted coconut oil")
+    )]
+    // Guard: final word isn't a curated shared head → no graft ("salt paprika").
+    #[case::complete_nouns("salt", Some("pepper, or paprika"), "salt", Some("pepper, or paprika"))]
+    #[case::baking_soda(
+        "flour",
+        Some("sugar, or baking soda"),
+        "flour",
+        Some("sugar, or baking soda")
+    )]
+    // Guard: no comma → just a two-way alternative, not a shared-head list.
+    #[case::no_comma("flour", Some("or oil"), "flour", Some("or oil"))]
+    // Guard: name already has a head noun (multi-token) → untouched.
+    #[case::multitoken_name(
+        "olive oil",
+        Some("vegetable, or canola oil"),
+        "olive oil",
+        Some("vegetable, or canola oil")
+    )]
+    fn test_recover_shared_head_from_alternatives(
+        #[case] name: &str,
+        #[case] modifier: Option<&str>,
+        #[case] want_name: &str,
+        #[case] want_modifier: Option<&str>,
+    ) {
+        let parser = IngredientParser::new();
+        let mut i = ing(name, modifier);
+        parser.recover_shared_head_from_alternatives(&mut i);
+        assert_eq!(i.name, want_name, "name: {name}");
+        assert_eq!(
+            i.modifier_string().as_deref(),
+            want_modifier,
+            "name: {name}"
+        );
+    }
+
     /// The IR exposes a typed view of the modifier: extracted adjectives land in
     /// `prep`, alternatives in `alternatives` — not a single opaque string.
     #[test]
@@ -1237,6 +1332,7 @@ mod tests {
     #[case::leading_adjective("1 onion, finely chopped")]
     #[case::name_adjective("1 cup packed brown sugar, sifted")]
     #[case::word_alternative("red or white onion")]
+    #[case::shared_head_alternatives("canola, vegetable, or melted coconut oil")]
     #[case::quantity_alternative("1 clove garlic or 1 teaspoon garlic powder")]
     #[case::secondary_amount("1 stick butter (8 tablespoons)")]
     #[case::leading_prep_phrase("grated zest of 1 lemon")]

@@ -337,7 +337,7 @@
 {"input": "2 tablespoons finely chopped toasted pistachios (see this page)", "name": "toasted pistachios", "amounts": [{"unit": "tbsp", "value": 2.0, "upper_value": null}], "modifier": "finely chopped"}
 {"input": "2 generous tablespoons coarsely chopped unsalted roasted peanuts", "name": "unsalted roasted peanuts", "amounts": [{"unit": "tbsp", "value": 2.0, "upper_value": null}], "modifier": "coarsely chopped"}
 {"input": "1 generous tablespoon medium-size dried shrimp, rinsed and patted dry", "name": "medium-size dried shrimp", "amounts": [{"unit": "tbsp", "value": 1.0, "upper_value": null}], "modifier": "rinsed and patted dry"}
-{"input": "Scant 2 tablespoons shredded salted radish, soaked in water 10 minutes then drained", "name": "shredded salted radish", "amounts": [{"unit": "tbsp", "value": 2.0, "upper_value": null}], "modifier": "soaked in water 10 minutes then drained"}
+{"input": "Scant 2 tablespoons shredded salted radish, soaked in water 10 minutes then drained", "name": "salted radish", "amounts": [{"unit": "tbsp", "value": 2.0, "upper_value": null}], "modifier": "shredded, soaked in water 10 minutes then drained"}
 {"input": "1 cup (½ pint) strawberries", "name": "strawberries", "amounts": [{"unit": "cup", "value": 1}, {"unit": "pint", "value": 0.5}]}
 {"input": "½ cup minus 1 tablespoon flour", "name": "flour", "amounts": [{"unit": "cup", "value": 0.5, "upper_value": null}], "modifier": "minus 1 tablespoon"}
 {"input": "15 tablespoons (2 sticks minus 1 tablespoon) unsalted butter", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 15}]}
@@ -482,3 +482,11 @@
 {"input": "1 cup Hellmann's or Best Foods mayonnaise", "name": "Hellmann's or Best Foods mayonnaise", "amounts": [{"unit": "cup", "value": 1.0}]}
 // guard: a plain ingredient alternative still splits to name + "or …" modifier.
 {"input": "2 tablespoons amaretto or dark rum", "name": "amaretto", "amounts": [{"unit": "tbsp", "value": 2.0}], "modifier": "or dark rum"}
+// A comma+or alternatives list sharing a trailing head noun ("oil") recovers the
+// head onto the first option and keeps the rest as an "or …" modifier.
+{"input": "1/3 cup (80ml) canola, vegetable, or melted coconut oil", "name": "canola oil", "amounts": [{"unit": "cup", "value": 0.3333333333333333}, {"unit": "ml", "value": 80.0}], "modifier": "or vegetable, or melted coconut oil"}
+// guard: a comma+or list of *complete* ingredients gets no head grafted on.
+{"input": "1 teaspoon salt, pepper, or paprika", "name": "salt", "amounts": [{"unit": "tsp", "value": 1.0}], "modifier": "pepper, or paprika"}
+// "shredded" is a prep word → modifier; "(see note)" + trailing "*" are stripped.
+{"input": "1 cup (130g) shredded zucchini (see note)*", "name": "zucchini", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "g", "value": 130.0}], "modifier": "shredded"}
+{"input": "1 cup shredded cheddar cheese", "name": "cheddar cheese", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "shredded"}

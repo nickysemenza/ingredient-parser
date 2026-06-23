@@ -46,6 +46,20 @@ fn strip_footnote_markers(input: &str) -> Cow<'_, str> {
     }
 }
 
+/// Strip a trailing footnote marker — an ASCII asterisk or dagger left at the
+/// end of a line ("shredded zucchini (see note)*" → "shredded zucchini (see
+/// note)"). Anchored to the end so a mid-name asterisk is untouched; the Unicode
+/// circled-digit markers are handled by `strip_footnote_markers`.
+fn strip_trailing_footnote_markers(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static TRAILING_MARK: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"\s*[*\u{2020}\u{2021}]+\s*$").expect("invalid trailing-footnote regex")
+    });
+    TRAILING_MARK.replace(input, "")
+}
+
 /// Strip a leading list-bullet glyph — an en/em-dash, bullet, middot, or
 /// asterisk followed by whitespace — that some cookbooks (e.g. hotpot ingredient
 /// lists in *The Food of Sichuan*) prefix to each ingredient line. Left in place
@@ -85,6 +99,21 @@ fn strip_cross_reference(input: &str) -> Cow<'_, str> {
         .expect("invalid cross-reference regex")
     });
     CROSS_REF.replace_all(input, "")
+}
+
+/// Drop a "(see note)" / "(note)" cross-reference parenthetical — a pointer to
+/// the recipe's headnote, not ingredient information ("shredded zucchini (see
+/// note)" → "shredded zucchini"). Scoped tightly to a paren whose content is
+/// exactly an optional "see" plus "note"/"notes", so a paren carrying real
+/// content ("(note the color)") is left for the modifier.
+fn strip_note_reference(input: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static NOTE_REF: LazyLock<Regex> = LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"(?i)\s*\(\s*(?:see\s+)?notes?\s*\)").expect("invalid note-reference regex")
+    });
+    NOTE_REF.replace_all(input, "")
 }
 
 /// Reduce a parenthetical that mixes a cross-reference with an "optional" note —
@@ -308,8 +337,13 @@ const REWRITES: &[(&str, Rewrite)] = &[
     ("strip_nbsp", strip_nbsp),
     ("strip_leading_bullet", strip_leading_bullet),
     ("strip_footnote_markers", strip_footnote_markers),
+    (
+        "strip_trailing_footnote_markers",
+        strip_trailing_footnote_markers,
+    ),
     ("split_crossref_optional", split_crossref_optional),
     ("strip_cross_reference", strip_cross_reference),
+    ("strip_note_reference", strip_note_reference),
     ("strip_leading_determiner", strip_leading_determiner),
     ("strip_minus_equivalence", strip_minus_equivalence),
     ("strip_total_in_measure_paren", strip_total_in_measure_paren),
@@ -553,6 +587,19 @@ mod tests {
     }
 
     #[rstest]
+    // A trailing asterisk/dagger footnote marker is dropped.
+    #[case::asterisk("shredded zucchini (see note)*", "shredded zucchini (see note)")]
+    #[case::dagger("kosher salt \u{2020}", "kosher salt")]
+    #[case::double_dagger("flour\u{2021}", "flour")]
+    // A mid-name asterisk is NOT trailing → left alone.
+    #[case::mid("2% milk", "2% milk")]
+    // No marker → unchanged.
+    #[case::clean("rye flour", "rye flour")]
+    fn test_strip_trailing_footnote_markers(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(strip_trailing_footnote_markers(input), expected);
+    }
+
+    #[rstest]
     // "the" directly before a quantity is a determiner → dropped.
     #[case::the_fraction("the ¼ cup of garlic chives", "¼ cup of garlic chives")]
     #[case::the_digit("the 2 cups flour", "2 cups flour")]
@@ -729,6 +776,23 @@ mod tests {
     fn test_split_crossref_optional(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(
             split_crossref_optional(input).as_ref(),
+            expected,
+            "input: {input}"
+        );
+    }
+
+    #[rstest]
+    // "(see note)" / "(note)" headnote cross-refs are dropped.
+    #[case::see_note("shredded zucchini (see note)", "shredded zucchini")]
+    #[case::bare_note("zucchini (note)", "zucchini")]
+    #[case::see_notes("zucchini (see notes)", "zucchini")]
+    // A paren carrying real content is left for the modifier.
+    #[case::real_content("zucchini (note the color)", "zucchini (note the color)")]
+    // No note paren → unchanged.
+    #[case::clean("shredded zucchini", "shredded zucchini")]
+    fn test_strip_note_reference(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(
+            strip_note_reference(input).as_ref(),
             expected,
             "input: {input}"
         );
