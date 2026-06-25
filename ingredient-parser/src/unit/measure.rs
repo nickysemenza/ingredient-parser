@@ -223,11 +223,15 @@ fn find_normalization_rule(unit: &Unit) -> Option<&'static NormalizationRule> {
 /// Known nutrient unit prefixes (mass/energy units used for nutrients)
 static NUTRIENT_UNIT_PREFIXES: &[&str] = &["g", "mg", "ug", "µg", "mcg", "kcal", "iu"];
 
-/// Known nutrient names that follow the unit prefix
+/// Known nutrient names that follow the unit prefix, in their canonical
+/// *singular* form — `is_nutrient_unit` singularizes the descriptor before
+/// matching, so a unit that has been normalized ("g carbs" -> "g carb") is still
+/// recognized. `carb` is the only entry that differs from its plural input
+/// form; the rest are already singular.
 static NUTRIENT_NAMES: &[&str] = &[
     "protein",
     "fat",
-    "carbs",
+    "carb",
     "fiber",
     "calcium",
     "iron",
@@ -255,8 +259,12 @@ pub(crate) fn is_nutrient_unit(s: &str) -> bool {
         return false; // require exactly two whitespace-separated tokens
     };
     let prefix = prefix.to_lowercase();
-    let name = name.to_lowercase();
-    NUTRIENT_UNIT_PREFIXES.contains(&prefix.as_str()) && NUTRIENT_NAMES.contains(&name.as_str())
+    // Singularize the descriptor so the normalized form ("carbs" -> "carb") still
+    // matches — `make_graph`/`normalize` singularize units, so the classifier has
+    // to agree or a normalized nutrient unit reads as `other:*` instead.
+    let lowered = name.to_lowercase();
+    let name = singular(&lowered);
+    NUTRIENT_UNIT_PREFIXES.contains(&prefix.as_str()) && NUTRIENT_NAMES.contains(&name.as_ref())
 }
 
 impl Measure {
@@ -655,6 +663,11 @@ mod tests {
     #[case::g_protein("g protein", true)]
     #[case::mg_sodium("mg sodium", true)]
     #[case::ug_b12("ug vitamin_b12", true)]
+    // "carbs" is the lone plural nutrient name; both it and the normalized
+    // singular "carb" must be recognized so a unit isn't `other:*` after
+    // singularization.
+    #[case::g_carbs_plural("g carbs", true)]
+    #[case::g_carb_singular("g carb", true)]
     #[case::case_insensitive("G PROTEIN", true)]
     #[case::mixed_case("MG Calcium", true)]
     #[case::kcal_fat("kcal fat", true)]
