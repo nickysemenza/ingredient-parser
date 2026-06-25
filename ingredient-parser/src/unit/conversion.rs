@@ -330,13 +330,16 @@ pub fn convert_measure_with_graph_explained(
     graph: &MeasureGraph,
 ) -> Option<(Measure, Vec<ConversionStep>)> {
     let input = measure.normalize();
-    let unit_a = input.unit();
-    // Normalize the target unit the same way `make_graph` normalizes its nodes
-    // (lowercase + singularize). Without this, a target whose descriptor
-    // singularizes — only `carbs` -> `carb` among the tier-1 nutrients — looks up
-    // `Other("g carbs")` while the graph stored `Other("g carb")`, the node lookup
-    // below misses, and carbs silently fail to convert (rolling up to zero) while
-    // every other nutrient works.
+    // Normalize BOTH endpoints the exact way `make_graph` normalizes its nodes
+    // (`unit().normalize()` — lowercase + singularize + promote known aliases), so
+    // the node lookups below can't miss. Without this on the target, a descriptor
+    // that singularizes — only `carbs` -> `carb` among the tier-1 nutrients —
+    // looks up `Other("g carbs")` while the graph stored `Other("g carb")`, and
+    // carbs silently fail to convert (rolling up to zero) while every other
+    // nutrient works. The source side was already singularized via
+    // `measure.normalize()`, but normalizing it through the same function keeps
+    // the two endpoints symmetric and order-independent.
+    let unit_a = input.unit().normalize();
     let unit_b = target.unit().normalize();
 
     // Identity: once normalized, the measure may already sit in the target kind's
@@ -345,7 +348,7 @@ pub fn convert_measure_with_graph_explained(
     // instead of requiring both units to appear in the mapping graph. Without this,
     // a bare "8½ oz" with no product mapping can't reach Weight even though oz→g is
     // constant, and an empty graph fails even g→Weight.
-    if *unit_a == unit_b {
+    if unit_a == unit_b {
         // Round like the graph path below (the result is integer-rounded there),
         // so identity and multi-hop conversions agree to the unit. Apply the same
         // `upper > lower` suppression as the graph path so a ranged input whose
@@ -357,7 +360,7 @@ pub fn convert_measure_with_graph_explained(
         return Some((resolved.denormalize(), Vec::new()));
     }
 
-    let n_a = graph.node_indices().find(|i| graph[*i] == *unit_a)?;
+    let n_a = graph.node_indices().find(|i| graph[*i] == unit_a)?;
     let n_b = graph.node_indices().find(|i| graph[*i] == unit_b)?;
 
     debug!("calculating {:?} to {:?}", n_a, n_b);
@@ -535,6 +538,23 @@ mod tests {
             "plural nutrient descriptor failed to convert"
         );
         // 27 g * (67.7 / 100) = 18.279 -> 18
+        assert_eq!(result.unwrap().value(), 18.0);
+    }
+
+    #[test]
+    fn test_convert_to_plural_nutrient_descriptor_reversed_pair() {
+        // `make_graph` adds both edge directions and normalizes both endpoints, so
+        // the stored pair's order must not matter — the carb edge written
+        // `67.7 g carbs = 100 g` converts identically to the `100 g = 67.7 g carbs`
+        // form above. Guards that both conversion endpoints are normalized, not
+        // just the target.
+        let mappings = vec![(Measure::new("g carbs", 67.7), Measure::new("g", 100.0))];
+        let measure = Measure::new("g", 27.0);
+        let result = convert_measure_via_mappings(
+            &measure,
+            MeasureKind::Nutrient("g carbs".to_string()),
+            &mappings,
+        );
         assert_eq!(result.unwrap().value(), 18.0);
     }
 
