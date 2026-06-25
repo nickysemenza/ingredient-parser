@@ -52,6 +52,8 @@
 //
 // --- modifiers (preparation) ---
 {"input": "2 cups flour, sifted", "name": "flour", "amounts": [{"unit": "cup", "value": 2}], "modifier": "sifted"}
+{"input": "1 cup warm water", "name": "water", "amounts": [{"unit": "cup", "value": 1}], "modifier": "warm"}
+{"input": "1 tablespoon hot sauce", "name": "hot sauce", "amounts": [{"unit": "tbsp", "value": 1}]}
 {"input": "1 cup chopped onion", "name": "onion", "amounts": [{"unit": "cup", "value": 1}], "modifier": "chopped"}
 {"input": "2 cloves garlic, minced", "name": "garlic", "amounts": [{"unit": "clove", "value": 2}], "modifier": "minced"}
 {"input": "1 onion, finely chopped", "name": "onion", "amounts": [{"unit": "whole", "value": 1}], "modifier": "finely chopped"}
@@ -100,6 +102,7 @@
 {"input": "(1 egg)", "name": "egg", "amounts": [{"unit": "whole", "value": 1.0}], "optional": true}
 {"input": "pinch nutmeg", "name": "nutmeg", "amounts": [{"unit": "pinch", "value": 1.0}]}
 {"input": "100 grams whole wheat flour", "name": "whole wheat flour", "amounts": [{"unit": "g", "value": 100.0}]}
+{"input": "500 grams (3 ¾ cups) bread or all-purpose flour", "name": "bread flour", "amounts": [{"unit": "g", "value": 500.0}, {"unit": "cup", "value": 3.75}], "modifier": "or all-purpose flour"}
 {"input": "1 clove garlic, grated", "name": "garlic", "amounts": [{"unit": "clove", "value": 1.0}], "modifier": "grated"}
 {"input": "12 cloves of garlic, peeled", "name": "garlic", "amounts": [{"unit": "clove", "value": 12.0}], "modifier": "peeled"}
 {"input": "4 ounces raw or roasted and salted shelled sunflower seeds (about ¾ cup)", "name": "raw or roasted and salted shelled sunflower seeds", "amounts": [{"unit": "oz", "value": 4.0}, {"unit": "cup", "value": 0.75}]}

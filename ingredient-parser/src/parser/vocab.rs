@@ -59,6 +59,14 @@ pub(crate) const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     // spellings reduce to the same modifier.
     "room temperature",
     "room-temperature",
+    // Serving-temperature states (e.g. "warm water", "lukewarm milk", "chilled
+    // butter") describe how the ingredient is brought to the recipe, not its
+    // identity. Deliberately excludes "hot"/"cold" — those carry identity in
+    // "hot sauce"/"hot dog"/"cold brew"/"cold cuts", which extraction would
+    // corrupt to "sauce"/"brew".
+    "warm",
+    "lukewarm",
+    "chilled",
 ];
 
 /// Purpose phrases that get extracted into the modifier (e.g. "for garnish").
@@ -385,8 +393,9 @@ pub(crate) const SHARED_HEAD_NOUNS: &[&str] = &["oil", "vinegar", "broth", "stoc
 /// "amaretto or dark rum" the left is a *distinct* ingredient, not a type of the
 /// head, so grafting ("butter oil") would be nonsense — those keep `name = left`.
 /// Curate toward nouns that essentially always carry a variety/type premodifier.
-pub(crate) const DISTRIBUTABLE_HEAD_NOUNS: &[&str] =
-    &["stock", "broth", "mustard", "pepper", "lettuce", "cabbage"];
+pub(crate) const DISTRIBUTABLE_HEAD_NOUNS: &[&str] = &[
+    "stock", "broth", "mustard", "pepper", "lettuce", "cabbage", "flour",
+];
 
 /// Intensifier adverbs that precede a preparation phrase ("very thinly sliced").
 /// They carry no ingredient meaning on their own, so when one is stranded
