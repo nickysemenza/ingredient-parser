@@ -331,7 +331,13 @@ pub fn convert_measure_with_graph_explained(
 ) -> Option<(Measure, Vec<ConversionStep>)> {
     let input = measure.normalize();
     let unit_a = input.unit();
-    let unit_b = target.unit();
+    // Normalize the target unit the same way `make_graph` normalizes its nodes
+    // (lowercase + singularize). Without this, a target whose descriptor
+    // singularizes — only `carbs` -> `carb` among the tier-1 nutrients — looks up
+    // `Other("g carbs")` while the graph stored `Other("g carb")`, the node lookup
+    // below misses, and carbs silently fail to convert (rolling up to zero) while
+    // every other nutrient works.
+    let unit_b = target.unit().normalize();
 
     // Identity: once normalized, the measure may already sit in the target kind's
     // base unit (every mass unit normalizes to grams, and Weight targets grams).
@@ -507,6 +513,43 @@ mod tests {
         let result = convert_measure_via_mappings(&measure, MeasureKind::Volume, &mappings);
         assert!(result.is_some());
         assert_eq!(result.unwrap().value(), 250.0);
+    }
+
+    #[test]
+    fn test_convert_to_plural_nutrient_descriptor() {
+        // Regression: a nutrient whose descriptor is plural ("g carbs") must still
+        // convert. `make_graph` normalizes (singularizes) graph nodes, so the carb
+        // edge becomes the node `Other("g carb")`. If the conversion *target* isn't
+        // normalized the same way, the node lookup looks for `Other("g carbs")`,
+        // misses, and carbs silently roll up to zero — even though "g protein" /
+        // "g fiber" / "mg sodium" (none of which singularize) all work.
+        let mappings = vec![(Measure::new("g", 100.0), Measure::new("g carbs", 67.7))];
+        let measure = Measure::new("g", 27.0);
+        let result = convert_measure_via_mappings(
+            &measure,
+            MeasureKind::Nutrient("g carbs".to_string()),
+            &mappings,
+        );
+        assert!(
+            result.is_some(),
+            "plural nutrient descriptor failed to convert"
+        );
+        // 27 g * (67.7 / 100) = 18.279 -> 18
+        assert_eq!(result.unwrap().value(), 18.0);
+    }
+
+    #[test]
+    fn test_convert_to_singular_nutrient_descriptor() {
+        // The descriptors that don't singularize always worked — keep them green so
+        // the normalization fix can't regress the common case.
+        let mappings = vec![(Measure::new("g", 100.0), Measure::new("g fiber", 10.0))];
+        let measure = Measure::new("g", 50.0);
+        let result = convert_measure_via_mappings(
+            &measure,
+            MeasureKind::Nutrient("g fiber".to_string()),
+            &mappings,
+        );
+        assert_eq!(result.unwrap().value(), 5.0);
     }
 
     #[test]
