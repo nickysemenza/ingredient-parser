@@ -7471,19 +7471,3 @@ dependencies = [
  "syn",
  "winnow",
 ]
-
-[[patch.unused]]
-name = "ingredient"
-version = "0.3.0"
-
-[[patch.unused]]
-name = "recipe-epub"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "recipe-scraper"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "recipe-types"
-version = "0.1.0"

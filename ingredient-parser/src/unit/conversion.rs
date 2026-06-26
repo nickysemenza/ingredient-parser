@@ -323,7 +323,14 @@ pub fn convert_measure_with_graph(
 /// This is the conversion's "show your work": it makes a wrong result
 /// self-explanatory (e.g. a 34 g amount reaching money via a bogus
 /// `g → whole → $` route reads right off the steps).
-#[tracing::instrument]
+// `skip_all` + `level = "trace"`: this runs on the per-conversion hot path (every
+// nutrient/cost/weight resolution per row per recipe). The default `#[instrument]`
+// is INFO and Debug-formats ALL args — including the whole `MeasureGraph` (a
+// petgraph) — into the span on every call, building a large transient String.
+// Under a reused WASM isolate that allocation churn (and any subscriber state) is
+// per-call overhead nobody consumes in prod. Keep the span for explain-path
+// debugging but make it free when disabled: no arg formatting, below INFO.
+#[tracing::instrument(level = "trace", skip_all)]
 pub fn convert_measure_with_graph_explained(
     measure: &Measure,
     target: MeasureKind,
