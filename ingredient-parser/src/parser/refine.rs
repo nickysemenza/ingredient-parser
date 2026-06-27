@@ -5,6 +5,12 @@
 //! modifier, and hoist secondary amounts. They run in a fixed, load-bearing
 //! order (see `postprocess_ingredient`).
 
+mod alternatives;
+mod amounts;
+mod prep;
+mod recover;
+mod units;
+
 use std::cmp::Reverse;
 
 use super::ir::{ModifierPart, ParsedIngredient};
@@ -27,885 +33,199 @@ impl IngredientParser {
     /// inline-descriptive-paren path) can do so through the IR before lowering,
     /// rather than hand-joining the public modifier string.
     pub(super) fn refine(&self, parsed: &mut ParsedIngredient) {
-        // When tracing, emit a node for each pass that actually changed the
-        // ingredient (a before→after view) so the egui tree shows what each pass
-        // did. The clone is gated behind the tracing flag, so the hot path stays
-        // allocation-free.
+        for pass in REFINE_PIPELINE {
+            self.run_refine_pass(pass, parsed);
+        }
+    }
+
+    fn run_refine_pass(&self, pass: &RefinePass, parsed: &mut ParsedIngredient) {
+        let RefinePass {
+            id,
+            phase: _phase,
+            run,
+        } = *pass;
         if crate::trace::is_tracing_enabled() {
-            for (name, pass) in POST_PASSES {
-                let before = parsed.clone();
-                pass(self, parsed);
-                if *parsed != before {
-                    crate::trace::trace_enter(name, &before.name);
-                    crate::trace::trace_exit_success(
-                        0,
-                        &format!(
-                            "{} | {}",
-                            parsed.name,
-                            parsed.modifier_string().as_deref().unwrap_or("-")
-                        ),
-                    );
-                }
+            let before = parsed.clone();
+            run(self, parsed);
+            if *parsed != before {
+                crate::trace::trace_enter(id.as_str(), &before.name);
+                crate::trace::trace_exit_success(
+                    0,
+                    &format!(
+                        "{} | {}",
+                        parsed.name,
+                        parsed.modifier_string().as_deref().unwrap_or("-")
+                    ),
+                );
             }
         } else {
-            for (_name, pass) in POST_PASSES {
-                pass(self, parsed);
-            }
+            run(self, parsed);
         }
     }
 
     /// Collapse runs of whitespace left in the name by earlier passes. A pass in
-    /// its own right so the ordered `POST_PASSES` list stays the single source of
-    /// truth for the sequence.
-    fn collapse_name(&self, parsed: &mut ParsedIngredient) {
+    /// its own right so the ordered [`REFINE_PIPELINE`] list stays the single
+    /// source of truth for the sequence.
+    pub(super) fn collapse_name(&self, parsed: &mut ParsedIngredient) {
         parsed.name = collapse_whitespace(&parsed.name);
-    }
-
-    /// Recover from a leading prep phrase that displaced the ingredient name.
-    ///
-    /// A line like "2/3 cup finely chopped, raw pistachios" parses with the
-    /// text *before* the comma as the name and the text *after* as the modifier,
-    /// yielding name="finely chopped" / modifier="raw pistachios" — backwards.
-    /// When the whole name is a single known prep phrase and a modifier is
-    /// present, swap them so the prep phrase becomes the modifier and the real
-    /// name is restored. The exact-match guard keeps descriptive names (e.g.
-    /// "raw pistachios, finely chopped", where the name isn't a prep phrase) from
-    /// ever being touched.
-    fn fix_leading_prep_phrase(&self, parsed: &mut ParsedIngredient) {
-        let name = parsed.name.trim();
-        if name.is_empty() || !self.adjectives.contains(&name.to_lowercase()) {
-            return;
-        }
-        let Some(modifier) = parsed.modifier_string() else {
-            return;
-        };
-        let prep = name.to_string();
-        parsed.name = modifier;
-        parsed.modifier = vec![ModifierPart::Prep(prep)];
-    }
-
-    /// Recover from a leading subtractive clause that displaced the name, e.g.
-    /// "½ cup minus 1 tablespoon flour" parses with "½ cup" as the amount and
-    /// "minus 1 tablespoon flour" as the name. When the name begins with "minus"
-    /// followed by a parseable measurement, move "minus <measure>" into the
-    /// modifier and restore the real name ("flour"). The primary amount is left
-    /// as stated (the subtraction isn't applied numerically).
-    fn fix_leading_minus_clause(&self, parsed: &mut ParsedIngredient) {
-        // Borrow for the prefix guard; only allocate once we've confirmed a match.
-        let Some(rest) = parsed
-            .name
-            .strip_prefix("minus ")
-            .or_else(|| parsed.name.strip_prefix("Minus "))
-        else {
-            return;
-        };
-        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
-        let Ok((remaining, measures)) = mp.parse_measurement_list(rest) else {
-            return;
-        };
-        if measures.is_empty() || remaining.trim().is_empty() {
-            return;
-        }
-        let consumed = rest[..rest.len() - remaining.len()].trim();
-        let clause = format!("minus {consumed}");
-        let new_name = remaining.trim().to_string();
-        // The `parsed.name` borrows (rest/remaining/consumed) all end above.
-        parsed.name = new_name;
-        // Prepend the subtractive clause so it leads the modifier ("minus …, …").
-        parsed.modifier.insert(0, ModifierPart::Raw(clause));
-    }
-
-    /// Postfix produce count-units: "1 medium garlic clove" -> name "garlic",
-    /// amount `{clove:1}`, with leading descriptors ("medium") moved to the
-    /// modifier. Only fires for the curated [`vocab::POSTFIX_PRODUCE_UNITS`]
-    /// pairs and only when the count is a plain whole number (or absent), so
-    /// weights/volumes and idioms like "cinnamon stick" / "wood ear mushroom"
-    /// are untouched.
-    ///
-    /// [`vocab::POSTFIX_PRODUCE_UNITS`]: crate::parser::vocab::POSTFIX_PRODUCE_UNITS
-    fn extract_postfix_produce_unit(&self, parsed: &mut ParsedIngredient) {
-        // The count must be a plain whole number (the default count unit) or
-        // there must be no amount at all; a real volume/weight lead means the
-        // trailing word isn't acting as the count unit.
-        let whole_idx = parsed
-            .amounts
-            .iter()
-            .position(|m| matches!(m.unit(), unit::Unit::Whole));
-        if whole_idx.is_none() && !parsed.amounts.is_empty() {
-            return;
-        }
-
-        let name_lower = parsed.name.to_lowercase();
-        for (food, units) in crate::parser::vocab::POSTFIX_PRODUCE_UNITS {
-            for unit_word in *units {
-                let suffix = format!("{food} {unit_word}");
-                if name_lower != suffix && !name_lower.ends_with(&format!(" {suffix}")) {
-                    continue;
-                }
-                // `suffix` is ASCII produce, so lowercasing preserved byte
-                // lengths and this offset is a valid char boundary in `name`.
-                let food_start = parsed.name.len() - suffix.len();
-                let count = whole_idx.map(|i| parsed.amounts[i].value()).unwrap_or(1.0);
-                let measure = Measure::new(unit_word, count);
-                match whole_idx {
-                    Some(i) => parsed.amounts[i] = measure,
-                    None => parsed.amounts.push(measure),
-                }
-                let prefix = parsed.name[..food_start].trim().to_string();
-                parsed.name = (*food).to_string();
-                if !prefix.is_empty() {
-                    parsed.modifier.insert(0, ModifierPart::Prep(prefix));
-                }
-                return;
-            }
-        }
-    }
-
-    /// Consume a leading size descriptor as the count *unit* for an explicitly
-    /// counted item: "3 medium carrots" -> `{medium:3}` carrots, "2 extra large
-    /// eggs" -> `{extra large:2}` eggs. This lets the size map to USDA portion data
-    /// through the unit graph — a bare `{whole}` count is not a USDA portion key,
-    /// the size is (cubby already maps "1 each = 1 large" on its egg product).
-    ///
-    /// Fires only when a real `Unit::Whole` count is present (so "medium heat", a
-    /// no-count "medium onion", and "2 cups large onion" are all untouched), the
-    /// name begins with a [`vocab::SIZE_UNIT_WORDS`] token, and a head noun follows
-    /// that isn't a connector or another size word (so the "medium or large …"
-    /// range — kept whole by [`split_word_alternative`] — is left alone). Runs after
-    /// [`Self::extract_postfix_produce_unit`] so a produce count unit ("1 medium
-    /// garlic clove" -> `{clove:1}`) wins and this pass then skips it.
-    ///
-    /// [`vocab::SIZE_UNIT_WORDS`]: crate::parser::vocab::SIZE_UNIT_WORDS
-    fn extract_size_unit_from_name(&self, parsed: &mut ParsedIngredient) {
-        // Require an explicit whole count — the load-bearing gate. No count means
-        // there is no portion to size ("medium heat" has no amount).
-        let Some(idx) = parsed
-            .amounts
-            .iter()
-            .position(|m| matches!(m.unit(), unit::Unit::Whole))
-        else {
-            return;
-        };
-
-        let name = parsed.name.trim();
-        let name_lower = name.to_lowercase();
-        // SIZE_UNIT_WORDS is ordered longest-first, so "extra large"/"extra-large"
-        // win over "large"; the trailing-whitespace check rejects "larger"/"jumbos".
-        let mut matched: Option<&str> = None;
-        for w in crate::parser::vocab::SIZE_UNIT_WORDS {
-            if let Some(rest) = name_lower.strip_prefix(*w)
-                && rest.starts_with(char::is_whitespace)
-            {
-                matched = Some(*w);
-                break;
-            }
-        }
-        let Some(size) = matched else {
-            return;
-        };
-
-        // `size` is ASCII, so its byte length indexes `name` (original case) too.
-        let rest = name[size.len()..].trim();
-        if rest.is_empty() {
-            return;
-        }
-        // A connector or a second size word means this is a range ("medium or large
-        // carrots") or malformed — leave the whole phrase in the name.
-        let next = rest.split_whitespace().next().unwrap_or("").to_lowercase();
-        if next == "or"
-            || next == "and"
-            || crate::parser::vocab::SIZE_WORDS.contains(&next.as_str())
-        {
-            return;
-        }
-
-        // Both "extra large" and "extra-large" canonicalize to "extra large".
-        let unit_str = if size.starts_with("extra") {
-            "extra large"
-        } else {
-            size
-        };
-        let m = &parsed.amounts[idx];
-        parsed.amounts[idx] = Measure::from_parts(unit_str, m.value(), m.upper_value());
-        parsed.name = rest.to_string();
-    }
-
-    fn extract_adjectives_from_name(&self, parsed: &mut ParsedIngredient) {
-        let mut name_lower = parsed.name.to_lowercase();
-        let mut found_adjectives: Vec<&String> = self
-            .adjectives
-            .iter()
-            .filter(|adj| name_lower.contains(adj.as_str()))
-            .collect();
-        // Common case: a clean name carries no known adjective. Bail before the
-        // `parsed.name.clone()` (and the per-adjective work) rather than cloning,
-        // looping zero times, and writing the name back unchanged.
-        if found_adjectives.is_empty() {
-            return;
-        }
-        found_adjectives.sort_by_key(|adj| Reverse(adj.len()));
-        let mut name = parsed.name.clone();
-
-        // Count of leading prep adjectives already moved to the front, so several
-        // ("chopped minced onion") keep their source order instead of reversing.
-        let mut leading_count = 0usize;
-        for adjective in found_adjectives {
-            let Some(pos) = name_lower.find(adjective.as_str()) else {
-                continue;
-            };
-
-            // An adjective after a word-boundary " or " belongs to the
-            // ALTERNATIVE, not the primary: leave it for the alternative passes
-            // ("basil or chopped parsley" must keep "chopped" with parsley, not
-            // read as prep for basil).
-            if let Some(or_pos) = name_lower.find(" or ")
-                && pos > or_pos
-            {
-                continue;
-            }
-
-            let end = pos + adjective.len();
-
-            // An adjective after a word-boundary " and " usually belongs to the
-            // second conjunct of an "X and Y" line ("Kosher salt and freshly
-            // ground black pepper" — "freshly ground" modifies the pepper, not
-            // the whole line), so leave it in the name. The `end < len` clause
-            // keeps a *trailing* phrase like "to taste" ("Salt and pepper to
-            // taste") extractable: only a mid-seam adjective with a head noun
-            // still after it is skipped. (Two ingredients on one line is really
-            // a parse_multi concern — see the TODO in recognize.rs.)
-            if let Some(and_pos) = name_lower.find(" and ")
-                && pos > and_pos
-                && end < name_lower.len()
-            {
-                continue;
-            }
-
-            // "fresh" immediately before " or " is a genuine contrast
-            // ("fresh or frozen …"), not the implied default — leave it in the
-            // name for the alternative pass to reconstruct ("fresh blueberries").
-            if adjective.as_str() == "fresh" && name_lower[end..].starts_with(" or ") {
-                continue;
-            }
-            // `pos`/`end` are byte offsets into the lowercased name. Lowercasing
-            // can change byte lengths for some Unicode (e.g. 'İ' -> "i̇"), so these
-            // offsets may not fall on char boundaries in the original `name`.
-            // Skip rather than panic when slicing `name` would split a char.
-            if !name.is_char_boundary(pos) || !name.is_char_boundary(end) {
-                continue;
-            }
-
-            // Require a whitespace/string-edge boundary on both sides, so an
-            // adjective embedded in a larger token is left alone (e.g. "chopped"
-            // inside "well-chopped" must not corrupt the name into "well-").
-            let before_boundary = name[..pos]
-                .chars()
-                .next_back()
-                .is_none_or(char::is_whitespace);
-            let after_boundary = name[end..].chars().next().is_none_or(char::is_whitespace);
-            if !before_boundary || !after_boundary {
-                continue;
-            }
-
-            // Fold a stranded intensifier ("very") or manner adverb ("diagonally")
-            // sitting immediately before the adjective into the modifier too, and
-            // extend the cut so it doesn't get left behind in the name ("very thinly
-            // sliced chives" -> name "chives"; "diagonally sliced scallions" -> name
-            // "scallions", modifier "diagonally sliced"). Only the word directly
-            // abutting the adjective is consumed.
-            let mut prep = adjective.clone();
-            let mut cut = pos;
-            if let Some(prev) = name_lower[..pos].split_whitespace().next_back()
-                && (crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&prev)
-                    || crate::parser::vocab::MANNER_ADVERBS.contains(&prev))
-                && let Some(wstart) = name_lower[..pos].rfind(prev)
-            {
-                let boundary_ok = name.is_char_boundary(wstart)
-                    && name[..wstart]
-                        .chars()
-                        .next_back()
-                        .is_none_or(char::is_whitespace);
-                if boundary_ok {
-                    prep = format!("{prev} {adjective}");
-                    cut = wstart;
-                }
-            }
-            // A prep adjective at the *start* of the name leads the modifier
-            // ("minced lamb (not too lean)" -> "minced (not too lean)"), matching
-            // what the grammar's old leading-adjective branch produced before prep
-            // extraction was unified here. A mid/trailing one is appended. Several
-            // leading ones keep source order via the running insert index.
-            if name[..cut].trim().is_empty() {
-                parsed
-                    .modifier
-                    .insert(leading_count, ModifierPart::Prep(prep));
-                leading_count += 1;
-            } else {
-                parsed.push_modifier(ModifierPart::Prep(prep));
-            }
-
-            // Rebuild both `name` and its lowercase view from the same before/after
-            // slices, so `name_lower` is kept in sync without re-lowercasing the
-            // whole string each iteration. `pos`/`end` are char boundaries in both
-            // strings (verified for `name`; for `name_lower` they came from `find`).
-            let join = |s: &str, pos: usize, end: usize| -> String {
-                let before = s[..pos].trim();
-                let after = s[end..].trim();
-                let mut out = String::with_capacity(s.len());
-                if !before.is_empty() {
-                    out.push_str(before);
-                    if !after.is_empty() {
-                        out.push(' ');
-                    }
-                }
-                if !after.is_empty() {
-                    out.push_str(after);
-                }
-                // `before`/`after` are pre-trimmed and the guards above never
-                // emit a leading/trailing space, so `out` needs no final trim.
-                out
-            };
-
-            name = join(&name, cut, end);
-            name_lower = join(&name_lower, cut, end);
-        }
-
-        parsed.name = name;
-    }
-
-    /// Move a trailing participial preparation clause out of the name into the
-    /// modifier: "anchovy fillets mashed with the flat side of a knife into a
-    /// paste" -> name "anchovy fillets", modifier "mashed with the flat side of a
-    /// knife into a paste". `extract_adjectives_from_name` only relocates the
-    /// adjective *word*, never its trailing prepositional tail, so this handles
-    /// the "<head noun> <participle> <preposition> …" shape as a whole and runs
-    /// *before* it so the full span moves intact.
-    ///
-    /// Tightly guarded: the trigger token must look like a participle (ends in
-    /// "ed", or is a known adjective) AND be immediately followed by a cooking
-    /// preposition ("with"/"into"), AND have at least one preceding word (the head
-    /// noun). That last guard keeps a *leading* participle in the name
-    /// ("mashed potatoes" — participle is the first word, no split), and the
-    /// preposition requirement leaves plain "<noun> with <noun>" ("chicken with
-    /// skin") alone since the noun isn't a participle.
-    fn extract_trailing_prep_clause(&self, parsed: &mut ParsedIngredient) {
-        // Find the byte offset to cut at while only borrowing the name; the borrow
-        // ends with this block so the owned-string rewrite below can reassign it.
-        let cut = {
-            let name = parsed.name.as_str();
-            // Byte offset of each whitespace-split token within `name` (the tokens
-            // are subslices of `name`, so pointer arithmetic gives their start).
-            let tokens: Vec<(usize, &str)> = name
-                .split_whitespace()
-                .map(|w| (w.as_ptr() as usize - name.as_ptr() as usize, w))
-                .collect();
-            let mut found = None;
-            // Start at 1: index 0 is the head noun and can never be the trigger.
-            for i in 1..tokens.len() {
-                let Some(&(_, next)) = tokens.get(i + 1) else {
-                    break;
-                };
-                let (start, word) = tokens[i];
-                let word_lower = word.to_lowercase();
-                let is_participle =
-                    word_lower.ends_with("ed") || self.adjectives.contains(word_lower.as_str());
-                let next_lower = next.to_lowercase();
-                let is_cooking_prep = next_lower == "with" || next_lower == "into";
-                if is_participle && is_cooking_prep && name.is_char_boundary(start) {
-                    found = Some(start);
-                    break;
-                }
-            }
-            found
-        };
-        let Some(start) = cut else {
-            return;
-        };
-        let clause = parsed.name[start..].trim().to_string();
-        let new_name = parsed.name[..start].trim().to_string();
-        if new_name.is_empty() || clause.is_empty() {
-            return;
-        }
-        parsed.name = new_name;
-        parsed.push_modifier(ModifierPart::Prep(clause));
-    }
-
-    /// Recover a head noun stranded behind a leading participle chain. The grammar
-    /// carves the name at the first comma, so a line like "1/2 cup deribbed,
-    /// seeded, and roughly chopped fresh hot green chiles, such as serrano" leaves
-    /// name="deribbed" and the real ingredient ("fresh hot green chiles") buried in
-    /// the `Raw` modifier. This is the mirror of [`Self::extract_trailing_prep_clause`]:
-    /// it pulls the head noun *out of* the modifier *into* an all-participle name.
-    ///
-    /// Also handles a leading hyphenated/-less adjective chain ("bone-in, skin-on
-    /// chicken legs" -> name "chicken legs", modifier "bone-in, skin-on").
-    ///
-    /// Tightly guarded to avoid touching legitimate names:
-    /// - the name must be a *pure* prep chain (every token a participle "-ed"/"-ly",
-    ///   a hyphenated/-less descriptor "bone-in"/"boneless", or an intensifier
-    ///   adverb) — any real noun in the name and it bails, so "chopped onion" /
-    ///   "peeled and diced potatoes" are untouched;
-    /// - the modifier's first part must be `Raw` and yield a head noun whose first
-    ///   word is not a stopword, so a prose modifier ("then served over ice") bails.
-    ///
-    /// Runs after [`Self::fix_leading_prep_phrase`] (so the vocab-adjective case
-    /// "chopped, toasted walnuts" is already resolved and never reaches here) and
-    /// before `extract_adjectives_from_name` (so the recovered name still gets the
-    /// normal adjective scan).
-    fn recover_head_noun_from_modifier(&self, parsed: &mut ParsedIngredient) {
-        // A "prep" token: a preparation participle ("-ed"), an "-ly" adverb
-        // ("roughly"/"finely"), or a known intensifier. Deliberately NOT the broad
-        // adjective set — a descriptive adjective like "fresh" must lead the head
-        // noun, not be swallowed as prep.
-        let is_prep = |w: &str| {
-            // `trim_matches` strips leading/trailing non-alphanumerics only, so an
-            // internal hyphen ("bone-in") survives for the suffix checks below.
-            let wl = w
-                .trim_matches(|c: char| !c.is_alphanumeric())
-                .to_lowercase();
-            wl.ends_with("ed")
-                || wl.ends_with("ly")
-                // Hyphenless adjectives ("boneless", "skinless", "seedless") and
-                // hyphenated meat/prep descriptors ("bone-in", "skin-on",
-                // "sugar-free") that the grammar's first-comma carve strands as a
-                // leading chain ("bone-in, skin-on chicken legs").
-                || wl.ends_with("less")
-                || wl
-                    .rsplit_once('-')
-                    .is_some_and(|(_, suf)| matches!(suf, "in" | "on" | "out" | "off" | "free" | "style"))
-                || crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&wl.as_str())
-        };
-        let is_connector = |w: &str| {
-            let wl = w
-                .trim_matches(|c: char| !c.is_alphanumeric())
-                .to_lowercase();
-            wl == "and" || wl == "&"
-        };
-        // Stopwords that, as the would-be head noun's first word, mean the modifier
-        // is a prose clause, not "<preps> <head noun>".
-        const STOPWORDS: &[&str] = &[
-            "then", "to", "for", "with", "if", "until", "or", "such", "as", "plus", "about", "per",
-            "from", "into", "over", "on", "in", "at", "the", "a", "an", "of",
-        ];
-
-        // Precondition: the name is a pure leading prep chain.
-        let name_pure_prep =
-            !parsed.name.trim().is_empty() && parsed.name.split_whitespace().all(&is_prep);
-        if !name_pure_prep {
-            return;
-        }
-
-        // The first modifier part must be raw grammar text (the post-comma tail).
-        let Some(ModifierPart::Raw(modtext)) = parsed.modifier.first() else {
-            return;
-        };
-        let modtext = modtext.clone();
-
-        // Walk tokens, skipping leading preps/connectors, to find the head noun's
-        // byte offset within `modtext`.
-        let head_start = modtext
-            .split_whitespace()
-            .map(|w| (w.as_ptr() as usize - modtext.as_ptr() as usize, w))
-            .find(|(_, w)| !is_prep(w) && !is_connector(w))
-            .map(|(off, _)| off);
-        let Some(head_start) = head_start else {
-            return; // modifier was all prep — nothing to recover.
-        };
-
-        let rest = &modtext[head_start..];
-        let first_word = rest.split_whitespace().next().unwrap_or("");
-        let first_lower = first_word
-            .trim_matches(|c: char| !c.is_alphanumeric())
-            .to_lowercase();
-        if STOPWORDS.contains(&first_lower.as_str()) {
-            return;
-        }
-
-        // The head noun runs to the next clause boundary. " (" ends it at a
-        // trailing parenthetical aside ("chicken thighs (8 to 12 thighs, …)"),
-        // before the comma *inside* that aside can truncate the noun.
-        let mut end = rest.len();
-        for pat in [", ", " such as ", " or ", " to taste", " ("] {
-            if let Some(p) = rest.find(pat) {
-                end = end.min(p);
-            }
-        }
-        let head_noun = rest[..end].trim();
-        if head_noun.is_empty() {
-            return;
-        }
-        let trailing = rest[end..]
-            .trim_start_matches(|c: char| c == ',' || c.is_whitespace())
-            .trim();
-
-        // The prep prefix is the original name plus everything consumed up to the
-        // head noun (preserving the "and"/commas), e.g.
-        // "deribbed" + "seeded, and roughly chopped".
-        let consumed = modtext[..head_start].trim().trim_end_matches(',').trim();
-        let prep = if consumed.is_empty() {
-            parsed.name.trim().to_string()
-        } else {
-            format!("{}, {}", parsed.name.trim(), consumed)
-        };
-
-        // Rebuild: head noun is the name; prep leads the modifier; the trailing
-        // clause follows; any later modifier parts are preserved.
-        let tail_parts = parsed.modifier.split_off(1);
-        parsed.name = head_noun.to_string();
-        parsed.modifier = vec![ModifierPart::Prep(prep)];
-        if !trailing.is_empty() {
-            parsed
-                .modifier
-                .push(ModifierPart::Raw(trailing.to_string()));
-        }
-        parsed.modifier.extend(tail_parts);
-    }
-
-    /// Move a trailing "for …" purpose clause out of the name into the modifier.
-    /// Two shapes qualify:
-    /// - "for `<gerund>` …" ("Extra-virgin olive oil for brushing the bread" ->
-    ///   name "Extra-virgin olive oil", modifier "for brushing the bread"), and
-    /// - "for the `<noun>` …" ("Butter for the pans" -> name "Butter", modifier
-    ///   "for the pans"). The definite article is the signal here; the singular
-    ///   "for the pan" is a fixed vocab phrase handled by
-    ///   `extract_adjectives_from_name`, but plurals/other nouns leak past it.
-    ///
-    /// Runs AFTER `extract_adjectives_from_name`, so fixed purpose phrases already
-    /// in the vocab ("for dusting", "for garnish") are gone and aren't
-    /// double-handled. The guards (next word is an "ing" gerund ≥5 chars, or the
-    /// article "the") keep a plain "<name> for <noun>" like "flour for bread"
-    /// intact.
-    fn extract_purpose_gerund(&self, parsed: &mut ParsedIngredient) {
-        use regex::Regex;
-        use std::sync::LazyLock;
-
-        // Match the first word-boundary " for " on the original string so the
-        // byte offsets stay valid for slicing.
-        static FOR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-            #[allow(clippy::expect_used)]
-            Regex::new(r"(?i)\s+for\s+").expect("invalid for-clause regex")
-        });
-
-        // Borrow `parsed.name` for the match/guards; only the two owned result
-        // strings are built before the name is reassigned, so no upfront clone.
-        let Some(m) = FOR_PATTERN.find(&parsed.name) else {
-            return;
-        };
-        let next_word = parsed.name[m.end()..]
-            .split_whitespace()
-            .next()
-            .unwrap_or("");
-        let is_gerund = next_word.len() >= 5
-            && next_word.ends_with("ing")
-            && next_word.chars().all(char::is_alphabetic);
-        let is_for_the = next_word.eq_ignore_ascii_case("the");
-        if !is_gerund && !is_for_the {
-            return;
-        }
-        let clause = parsed.name[m.start()..].trim().to_string();
-        let new_name = parsed.name[..m.start()].trim().to_string();
-        parsed.name = new_name;
-        parsed.push_modifier(ModifierPart::Prep(clause));
-    }
-
-    /// Recover a leading preparation *alternative* that displaced the name, e.g.
-    /// "grated or finely chopped lemon zest" parses with "grated or finely
-    /// chopped lemon zest" as the name. When the name begins with
-    /// "`<participle> or <known-adjective>`" — a prep word (typically `-ed`),
-    /// "or", then a recognized adjective phrase — that whole prefix is a
-    /// preparation note. Move it to the modifier and keep the trailing head noun
-    /// as the name ("lemon zest", modifier "grated or finely chopped").
-    ///
-    /// Guarded tightly so genuine two-ingredient alternatives ("basil or chopped
-    /// parsley") are left alone: the first word must look like a participle
-    /// (`-ed`) or be a known adjective, the word after "or" must be a known
-    /// adjective phrase, and a head noun must remain.
-    fn extract_leading_prep_alternative(&self, parsed: &mut ParsedIngredient) {
-        let trimmed = parsed.name.trim();
-        let words: Vec<&str> = trimmed.split_whitespace().collect();
-        if words.len() < 4 {
-            return;
-        }
-        // Every guard below matches tokens against lowercase vocab ("or", known
-        // adjectives), so lowercase each token once up front instead of repeating
-        // `words[i].to_lowercase()` per check.
-        let words_lower: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
-        if words_lower[1] != "or" {
-            return;
-        }
-        let first = &words_lower[0];
-        let first_is_prep = first.ends_with("ed") || self.adjectives.contains(first);
-        if !first.chars().all(char::is_alphabetic) || !first_is_prep {
-            return;
-        }
-        // A known adjective phrase (two words then one) immediately after "or".
-        // Only build the two-word key when there's room for it — the common
-        // short-name case never allocates the `format!`.
-        let two_word_adj = words.len() >= 5
-            && words_lower.get(3).is_some_and(|w3| {
-                self.adjectives
-                    .contains(&format!("{} {}", words_lower[2], w3))
-            });
-        let adj_len = if two_word_adj {
-            2
-        } else if self.adjectives.contains(&words_lower[2]) {
-            1
-        } else {
-            return;
-        };
-        let name_start = 2 + adj_len;
-        if name_start >= words.len() {
-            return;
-        }
-        let prefix = words[..name_start].join(" ");
-        let new_name = words[name_start..].join(" ");
-        // `words` (borrowing parsed.name) is no longer read past this point.
-        parsed.name = new_name;
-        parsed.push_modifier(ModifierPart::Prep(prefix));
-    }
-
-    fn extract_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
-        let (name, alternative) = extract_alternative(&parsed.name);
-        parsed.name = name;
-        if let Some(alternative) = alternative {
-            parsed.push_modifier(ModifierPart::Alternative(alternative));
-        }
-    }
-
-    /// Split a no-quantity "X or Y" alternative left in the name into the
-    /// modifier. The quantity form is already gone (handled by
-    /// [`Self::extract_alternative_from_name`]), so any "or" remaining here is a
-    /// plain ingredient/adjective alternative sharing the primary's amount.
-    fn extract_word_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
-        let (name, alternative) = split_word_alternative(&parsed.name, &self.adjectives);
-        parsed.name = name;
-        if let Some(alternative) = alternative {
-            parsed.push_modifier(ModifierPart::Alternative(alternative));
-        }
-    }
-
-    /// Split an inclusive "X and/or Y" coordination out of the name into the
-    /// modifier. The slash is part of the ingredient text grammar so the whole
-    /// phrase survives parsing; this pass then keeps the primary ingredient in
-    /// `name` and preserves the author's "and/or" wording in the modifier.
-    fn extract_and_or_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
-        use regex::Regex;
-        use std::sync::LazyLock;
-
-        static AND_OR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-            #[allow(clippy::expect_used)]
-            Regex::new(r"(?i)\s+and/or\s+").expect("invalid and/or split regex")
-        });
-
-        let Some(m) = AND_OR_PATTERN.find(&parsed.name) else {
-            return;
-        };
-        let left = parsed.name[..m.start()].trim().to_string();
-        let right = parsed.name[m.end()..].trim().to_string();
-        if left.is_empty() || right.is_empty() {
-            return;
-        }
-
-        parsed.name = left;
-        let alternative = ModifierPart::Alternative(format!("and/or {right}"));
-        let insert_at = parsed
-            .modifier
-            .iter()
-            .position(|part| matches!(part, ModifierPart::Raw(_)))
-            .unwrap_or(parsed.modifier.len());
-        parsed.modifier.insert(insert_at, alternative);
-    }
-
-    /// Recover a head noun stranded behind an inline parenthetical alias, e.g.
-    /// "1 medium purple (red) cabbage (about 1 pound)" reaches refine as
-    /// name="purple" and modifier="(red) cabbage (about 1 pound)". Move the
-    /// leading "(red) cabbage" back into the name and leave later modifier text
-    /// for the normal secondary-amount pass.
-    fn recover_parenthetical_alias_from_modifier(&self, parsed: &mut ParsedIngredient) {
-        let Some(ModifierPart::Raw(raw)) = parsed.modifier.first() else {
-            return;
-        };
-        let raw = raw.clone();
-        let trimmed = raw.trim_start();
-        if !trimmed.starts_with('(') {
-            return;
-        }
-        let Some(close) = matching_close_paren(trimmed) else {
-            return;
-        };
-        let inner = trimmed[1..close].trim();
-        if inner.is_empty()
-            || inner
-                .chars()
-                .any(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
-        {
-            return;
-        }
-
-        let after = trimmed[close + 1..].trim_start();
-        if !after.chars().next().is_some_and(char::is_alphabetic) {
-            return;
-        }
-
-        let head_end = after
-            .find(" (")
-            .or_else(|| after.find(", "))
-            .unwrap_or(after.len());
-        let head = after[..head_end].trim();
-        if head.is_empty() || !head.chars().any(char::is_alphabetic) {
-            return;
-        }
-
-        let recovered = format!("({inner}) {head}");
-        parsed.name = collapse_whitespace(&format!("{} {recovered}", parsed.name));
-
-        let remainder = after[head_end..]
-            .trim_start_matches(|c: char| c == ',' || c.is_whitespace())
-            .trim()
-            .to_string();
-        if remainder.is_empty() {
-            parsed.modifier.remove(0);
-        } else if let Some(ModifierPart::Raw(raw)) = parsed.modifier.first_mut() {
-            *raw = remainder;
-        }
-    }
-
-    /// Recover a head noun stranded at the tail of an alternatives list in the
-    /// modifier. The grammar splits "canola, vegetable, or melted coconut oil" on
-    /// the first comma, leaving name="canola" and modifier="vegetable, or melted
-    /// coconut oil" — the shared head "oil" dropped off the name entirely. When
-    /// the modifier is a comma+or list ending in a curated shared-head noun and
-    /// the name is a single bare token, graft the head onto the name ("canola" →
-    /// "canola oil") and keep the whole list as an "or …" alternative modifier.
-    ///
-    /// Gated narrowly (requires a comma *and* an "or", plus a final word in
-    /// [`vocab::SHARED_HEAD_NOUNS`]) so lists of complete ingredients —
-    /// "salt, pepper, or paprika", "flour, sugar, or baking soda" — never get a
-    /// nonsense head grafted on.
-    fn recover_shared_head_from_alternatives(&self, parsed: &mut ParsedIngredient) {
-        // Name must be a single bare token that isn't already the head noun.
-        let mut name_words = parsed.name.split_whitespace();
-        let (Some(name_word), None) = (name_words.next(), name_words.next()) else {
-            return;
-        };
-        if crate::parser::vocab::SHARED_HEAD_NOUNS.contains(&name_word.to_lowercase().as_str()) {
-            return;
-        }
-        let Some(modifier) = parsed.modifier_string() else {
-            return;
-        };
-        // The modifier must read as a comma-separated alternatives list joined by
-        // "or" — both signals that the trailing noun is a shared head, not a
-        // standalone alternative ("flour or oil" stays two ingredients).
-        if !modifier.contains(',') || !modifier.to_lowercase().contains(" or ") {
-            return;
-        }
-        // Its final token must be a curated shared head noun the bare alternatives
-        // can all premodify ("oil"), so grafting it produces a real ingredient.
-        let Some(head) = modifier
-            .split_whitespace()
-            .next_back()
-            .map(|t| t.trim_matches(|c: char| !c.is_alphanumeric()))
-        else {
-            return;
-        };
-        if !crate::parser::vocab::SHARED_HEAD_NOUNS.contains(&head.to_lowercase().as_str()) {
-            return;
-        }
-        parsed.name = format!("{name_word} {head}");
-        parsed.modifier = vec![ModifierPart::Alternative(format!("or {modifier}"))];
-    }
-
-    fn extract_secondary_amounts_from_modifier(&self, parsed: &mut ParsedIngredient) {
-        let Some(modifier) = parsed.modifier_string() else {
-            return;
-        };
-
-        let (secondary_amounts, cleaned_modifier) =
-            extract_secondary_amounts(&modifier, &self.units);
-        // Only rewrite the modifier when an amount was actually hoisted; otherwise
-        // leave the typed parts untouched (the cleaned string equals the original).
-        if secondary_amounts.is_empty() {
-            return;
-        }
-        parsed.amounts.extend(secondary_amounts);
-        parsed.modifier = if cleaned_modifier.trim().is_empty() {
-            Vec::new()
-        } else {
-            vec![ModifierPart::Raw(cleaned_modifier)]
-        };
     }
 }
 
-/// A single post-parse refinement pass: a named mutation of the parsed
-/// ingredient. `&IngredientParser` carries the parse context (units, adjectives,
-/// rich-text mode) each pass needs.
 type Pass = fn(&IngredientParser, &mut ParsedIngredient);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum PassId {
+    FixLeadingPrepPhrase,
+    FixLeadingMinusClause,
+    ExtractPostfixProduceUnit,
+    ExtractSizeUnitFromName,
+    ExtractLeadingPrepAlternative,
+    ExtractTrailingPrepClause,
+    RecoverHeadNounFromModifier,
+    ExtractAdjectivesFromName,
+    CollapseName,
+    ExtractPurposeGerund,
+    ExtractAlternativeFromName,
+    ExtractWordAlternativeFromName,
+    ExtractAndOrAlternativeFromName,
+    RecoverParentheticalAliasFromModifier,
+    RecoverSharedHeadFromAlternatives,
+    ExtractSecondaryAmountsFromModifier,
+}
+
+impl PassId {
+    pub(super) const fn as_str(self) -> &'static str {
+        match self {
+            PassId::FixLeadingPrepPhrase => "fix_leading_prep_phrase",
+            PassId::FixLeadingMinusClause => "fix_leading_minus_clause",
+            PassId::ExtractPostfixProduceUnit => "extract_postfix_produce_unit",
+            PassId::ExtractSizeUnitFromName => "extract_size_unit_from_name",
+            PassId::ExtractLeadingPrepAlternative => "extract_leading_prep_alternative",
+            PassId::ExtractTrailingPrepClause => "extract_trailing_prep_clause",
+            PassId::RecoverHeadNounFromModifier => "recover_head_noun_from_modifier",
+            PassId::ExtractAdjectivesFromName => "extract_adjectives_from_name",
+            PassId::CollapseName => "collapse_name",
+            PassId::ExtractPurposeGerund => "extract_purpose_gerund",
+            PassId::ExtractAlternativeFromName => "extract_alternative_from_name",
+            PassId::ExtractWordAlternativeFromName => "extract_word_alternative_from_name",
+            PassId::ExtractAndOrAlternativeFromName => "extract_and_or_alternative_from_name",
+            PassId::RecoverParentheticalAliasFromModifier => {
+                "recover_parenthetical_alias_from_modifier"
+            }
+            PassId::RecoverSharedHeadFromAlternatives => "recover_shared_head_from_alternatives",
+            PassId::ExtractSecondaryAmountsFromModifier => {
+                "extract_secondary_amounts_from_modifier"
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum RefinePhase {
+    Recover,
+    Units,
+    Prep,
+    Alternatives,
+    Amounts,
+    Cleanup,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct RefinePass {
+    id: PassId,
+    phase: RefinePhase,
+    run: Pass,
+}
+
+impl RefinePass {
+    const fn new(id: PassId, phase: RefinePhase, run: Pass) -> Self {
+        Self { id, phase, run }
+    }
+}
 
 /// The ordered refinement pipeline. The order is load-bearing — e.g. whitespace
 /// is collapsed *between* adjective and alternative extraction. The modifier is
 /// finalized when the IR is lowered to `Ingredient`. Adding or reordering a step
 /// is a one-line edit here.
-const POST_PASSES: &[(&str, Pass)] = &[
-    (
-        "fix_leading_prep_phrase",
+pub(super) const REFINE_PIPELINE: &[RefinePass] = &[
+    RefinePass::new(
+        PassId::FixLeadingPrepPhrase,
+        RefinePhase::Recover,
         IngredientParser::fix_leading_prep_phrase,
     ),
-    (
-        "fix_leading_minus_clause",
+    RefinePass::new(
+        PassId::FixLeadingMinusClause,
+        RefinePhase::Recover,
         IngredientParser::fix_leading_minus_clause,
     ),
-    (
-        "extract_postfix_produce_unit",
+    RefinePass::new(
+        PassId::ExtractPostfixProduceUnit,
+        RefinePhase::Units,
         IngredientParser::extract_postfix_produce_unit,
     ),
-    (
-        "extract_size_unit_from_name",
+    RefinePass::new(
+        PassId::ExtractSizeUnitFromName,
+        RefinePhase::Units,
         IngredientParser::extract_size_unit_from_name,
     ),
-    (
-        "extract_leading_prep_alternative",
+    RefinePass::new(
+        PassId::ExtractLeadingPrepAlternative,
+        RefinePhase::Alternatives,
         IngredientParser::extract_leading_prep_alternative,
     ),
-    (
-        "extract_trailing_prep_clause",
+    RefinePass::new(
+        PassId::ExtractTrailingPrepClause,
+        RefinePhase::Prep,
         IngredientParser::extract_trailing_prep_clause,
     ),
-    (
-        "recover_head_noun_from_modifier",
+    RefinePass::new(
+        PassId::RecoverHeadNounFromModifier,
+        RefinePhase::Recover,
         IngredientParser::recover_head_noun_from_modifier,
     ),
-    (
-        "extract_adjectives_from_name",
+    RefinePass::new(
+        PassId::ExtractAdjectivesFromName,
+        RefinePhase::Prep,
         IngredientParser::extract_adjectives_from_name,
     ),
-    ("collapse_name", IngredientParser::collapse_name),
-    (
-        "extract_purpose_gerund",
+    RefinePass::new(
+        PassId::CollapseName,
+        RefinePhase::Cleanup,
+        IngredientParser::collapse_name,
+    ),
+    RefinePass::new(
+        PassId::ExtractPurposeGerund,
+        RefinePhase::Prep,
         IngredientParser::extract_purpose_gerund,
     ),
-    (
-        "extract_alternative_from_name",
+    RefinePass::new(
+        PassId::ExtractAlternativeFromName,
+        RefinePhase::Alternatives,
         IngredientParser::extract_alternative_from_name,
     ),
-    (
-        "extract_word_alternative_from_name",
+    RefinePass::new(
+        PassId::ExtractWordAlternativeFromName,
+        RefinePhase::Alternatives,
         IngredientParser::extract_word_alternative_from_name,
     ),
-    (
-        "extract_and_or_alternative_from_name",
+    RefinePass::new(
+        PassId::ExtractAndOrAlternativeFromName,
+        RefinePhase::Alternatives,
         IngredientParser::extract_and_or_alternative_from_name,
     ),
-    (
-        "recover_parenthetical_alias_from_modifier",
+    RefinePass::new(
+        PassId::RecoverParentheticalAliasFromModifier,
+        RefinePhase::Recover,
         IngredientParser::recover_parenthetical_alias_from_modifier,
     ),
-    (
-        "recover_shared_head_from_alternatives",
+    RefinePass::new(
+        PassId::RecoverSharedHeadFromAlternatives,
+        RefinePhase::Alternatives,
         IngredientParser::recover_shared_head_from_alternatives,
     ),
-    (
-        "extract_secondary_amounts_from_modifier",
+    RefinePass::new(
+        PassId::ExtractSecondaryAmountsFromModifier,
+        RefinePhase::Amounts,
         IngredientParser::extract_secondary_amounts_from_modifier,
     ),
 ];
@@ -937,272 +257,95 @@ pub(super) fn clean_modifier(modifier: Option<String>) -> Option<String> {
     })
 }
 
-/// Extract alternative ingredients from the name (e.g., "garlic or 1 teaspoon garlic powder")
-///
-/// Returns `(cleaned_name, optional_alternative)` where:
-/// - `cleaned_name`: The ingredient name with alternative removed
-/// - `optional_alternative`: The alternative portion to be added to modifier
-fn extract_alternative(name: &str) -> (String, Option<String>) {
-    use regex::Regex;
-    use std::sync::LazyLock;
-
-    static ALTERNATIVE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        let frac = crate::fraction::VULGAR_FRACTIONS;
-        #[allow(clippy::expect_used)]
-        Regex::new(&format!(r"(?i)\s+or\s+(\d+|[{frac}]|a\s+|an\s+)"))
-            .expect("invalid alternative pattern regex")
-    });
-
-    let Some(matched) = ALTERNATIVE_PATTERN.find(name) else {
-        return (name.to_string(), None);
-    };
-
-    let (ingredient_part, alternative_part) = name.split_at(matched.start());
-    let alternative = alternative_part.trim();
-    if alternative.is_empty() {
-        return (name.to_string(), None);
-    }
-
-    (
-        ingredient_part.trim().to_string(),
-        Some(alternative.to_string()),
-    )
-}
-
-/// Split a no-quantity "X or Y" alternative out of the name into the modifier,
-/// e.g. "red or white onion" -> ("red onion", Some("or white onion")).
-///
-/// Returns `(primary_name, optional_alternative)`. The alternative keeps its
-/// "or " prefix to match the existing quantity-alternative modifier style.
-///
-/// When the word before "or" is a single token and the part after "or" begins
-/// with an adjective modifying a *shared head noun* ("red or **white onion**"),
-/// the head noun is reconstructed onto the primary ("red onion"). A second path
-/// gates on the trailing head noun itself ([`vocab::DISTRIBUTABLE_HEAD_NOUNS`]) so
-/// an open-ended left distributes too ("chicken or vegetable **stock**" -> "chicken
-/// stock"). Reconstruction is gated to the cases a grammar can recognize without a
-/// food ontology; when unsure it falls back to `primary = left` and still captures
-/// the alternative.
-/// Known limitation: a single-token *noun* on the left with a distinct
-/// multi-word alternative ("salt or chicken broth") over-reconstructs to "salt
-/// broth" — rare, not in the corpus, and the alternative stays correct.
-fn split_word_alternative(
-    name: &str,
-    adjectives: &std::collections::HashSet<String>,
-) -> (String, Option<String>) {
-    use regex::Regex;
-    use std::sync::LazyLock;
-
-    // First word-boundary " or ", case-insensitive. Matching on the original
-    // `name` (not a lowercased copy) keeps the byte offsets valid for slicing.
-    static OR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"(?i)\s+or\s+").expect("invalid or-split regex")
-    });
-
-    let Some(m) = OR_PATTERN.find(name) else {
-        return (name.to_string(), None);
-    };
-    let left = name[..m.start()].trim();
-    let right = name[m.end()..].trim();
-    if left.is_empty() || right.is_empty() {
-        return (name.to_string(), None);
-    }
-
-    // Multiple coordinations ("raw or roasted and salted ...", "a or b or c")
-    // are too ambiguous to split — keep the name whole.
-    let right_lower = right.to_lowercase();
-    if right_lower.contains(" and ") || right_lower.contains(" or ") {
-        return (name.to_string(), None);
-    }
-
-    let left_tokens: Vec<&str> = left.split_whitespace().collect();
-    let right_tokens: Vec<&str> = right.split_whitespace().collect();
-
-    // A size-word OR size-word pair ("medium or large") is a size *range* of one
-    // ingredient, never a two-ingredient alternative — leave the name whole.
-    let is_size = |w: &str| crate::parser::vocab::SIZE_WORDS.contains(&w.to_lowercase().as_str());
-    if left_tokens.len() == 1 && is_size(left) && is_size(right_tokens[0]) {
-        return (name.to_string(), None);
-    }
-
-    // A possessive-brand left ("Hellmann's or Best Foods mayonnaise") sharing a
-    // lowercase head noun on the right is one ingredient with two brand options,
-    // not an "X or Y" alternative — keep the name whole. Deliberately narrow:
-    // broader brand detection (capitalization, or "Best Foods or Hellmann's")
-    // would over-fire on title-cased lines and strand real alternatives like
-    // "Fresh or Frozen Blueberries".
-    // Match a possessive "'s" with either a straight (') or curly (’) apostrophe.
-    let left_has_possessive = left_tokens
-        .iter()
-        .any(|t| t.ends_with("'s") || t.ends_with("\u{2019}s"));
-    let right_ends_lowercase = right_tokens
-        .last()
-        .and_then(|t| t.chars().next())
-        .is_some_and(|c| c.is_ascii_lowercase());
-    if left_has_possessive && right_ends_lowercase {
-        return (name.to_string(), None);
-    }
-
-    // Stopwords/prepositions signal `right` is a noun + trailing phrase
-    // ("pepper to taste"), not "adjective + shared head" ("white onion").
-    const STOPWORDS: &[&str] = &[
-        "to", "for", "with", "if", "such", "plus", "about", "as", "per", "from", "into", "over",
-        "on", "in", "at", "the", "a", "an", "of",
-    ];
-
-    // Only an *adjective* left can share the right side's head noun ("fresh or
-    // frozen blueberries" -> "fresh blueberries"). A complete-noun left absorbs
-    // nothing ("amaretto or dark rum" stays "amaretto", not "amaretto rum").
-    let left_lower = left.to_lowercase();
-    let left_is_premodifier = crate::parser::vocab::is_shared_head_modifier(&left_lower)
-        || adjectives.contains(&left_lower);
-
-    // Shared by both reconstruction paths: the right side must read as
-    // "<premodifier> <head noun>" — at least two tokens, not led by a prep
-    // adjective ("basil or chopped parsley" keeps "chopped" with parsley), and
-    // free of stopwords ("pepper to taste" isn't a shared head).
-    let right_is_modifier_plus_head = right_tokens.len() >= 2
-        && !adjectives.contains(&right_tokens[0].to_lowercase())
-        && !right_tokens
-            .iter()
-            .any(|t| STOPWORDS.contains(&t.to_lowercase().as_str()));
-
-    // Path A — a single known-premodifier left shares the right's head noun:
-    // "red or white onion" -> "red onion".
-    let reconstruct = left_tokens.len() == 1 && left_is_premodifier && right_is_modifier_plus_head;
-
-    // Path B — the right's *trailing head noun* is one that essentially always
-    // carries a variety/type premodifier, so an open-ended (even multi-word) left
-    // distributes onto it without needing a left-vocab match: "chicken or
-    // vegetable stock" -> "chicken stock", "Little Gem or Bibb lettuce" ->
-    // "Little Gem lettuce".
-    let right_head_noun = right_tokens.last().copied().unwrap_or_default();
-    let head_noun_distribute = right_is_modifier_plus_head
-        && crate::parser::vocab::DISTRIBUTABLE_HEAD_NOUNS
-            .contains(&right_head_noun.to_lowercase().as_str());
-
-    let primary = if reconstruct {
-        // The single left adjective replaces `right`'s leading adjective, sharing
-        // the trailing head noun: "red" + "white onion" -> "red onion".
-        format!("{} {}", left, right_tokens[1..].join(" "))
-    } else if head_noun_distribute {
-        // Graft just the trailing head noun onto the (possibly multi-word) left;
-        // the alternative's own premodifier stays in the "or …" modifier.
-        format!("{left} {right_head_noun}")
-    } else {
-        left.to_string()
-    };
-
-    (primary, Some(format!("or {right}")))
-}
-
-fn matching_close_paren(input: &str) -> Option<usize> {
-    let mut depth = 0usize;
-    for (index, character) in input.char_indices() {
-        match character {
-            '(' => depth += 1,
-            ')' => {
-                depth = depth.checked_sub(1)?;
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Extract secondary amounts from modifier patterns like "(from about 15 sprigs)"
-/// or a bare trailing measure parenthetical like "coarsely chopped (2.1 oz / 60g)".
-///
-/// Returns `(extracted_amounts, cleaned_modifier)` where:
-/// - `extracted_amounts`: `Vec<Measure>` parsed from the pattern
-/// - `cleaned_modifier`: The modifier with the pattern removed
-fn extract_secondary_amounts(
-    modifier: &str,
-    units: &std::collections::HashSet<String>,
-) -> (Vec<Measure>, String) {
-    use regex::Regex;
-    use std::sync::LazyLock;
-
-    // An explicit approximation aside, anywhere in the modifier: "(about 2 cups)".
-    static SECONDARY_AMOUNT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"\((?:from\s+)?(?:about|approximately|roughly|around)\s+([^)]+)\)")
-            .expect("invalid secondary amount regex")
-    });
-    // A bare trailing measure parenthetical: "coarsely chopped (2.1 oz / 60g)" —
-    // a weight/volume equivalence stated for the prepped ingredient. Anchored to
-    // the end and validated below (the inner text must fully parse as a
-    // non-distance measurement), so non-measure asides like "(softened)" or
-    // "(70% cacao)" fall through untouched.
-    static TRAILING_MEASURE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"\(([^)]+)\)\s*$").expect("invalid trailing-measure regex")
-    });
-
-    // The approximation aside wins (it strips the "about" off the amount text);
-    // otherwise fall back to a bare trailing measure parenthetical.
-    let Some(caps) = SECONDARY_AMOUNT_PATTERN
-        .captures(modifier)
-        .or_else(|| TRAILING_MEASURE_PATTERN.captures(modifier))
-    else {
-        return (vec![], modifier.to_string());
-    };
-
-    let Some(full_match) = caps.get(0) else {
-        return (vec![], modifier.to_string());
-    };
-    let Some(amount_match) = caps.get(1) else {
-        return (vec![], modifier.to_string());
-    };
-    let amount_text = amount_match.as_str().trim();
-
-    let mp = MeasurementParser::new(units, MeasurementMode::IngredientList);
-    let Ok((remaining, measures)) = mp.parse_measurement_list(amount_text) else {
-        return (vec![], modifier.to_string());
-    };
-
-    // A *dimension* aside like "(about 3-inch)" inside a prep phrase ("cut into
-    // long (about 3-inch) strips") describes shape, not a secondary quantity.
-    // Leave it in the modifier rather than hoisting a spurious inch amount.
-    let is_distance = |m: &Measure| match m.unit() {
-        unit::Unit::Inch => true,
-        unit::Unit::Other(s) => crate::parser::is_distance_unit(s),
-        _ => false,
-    };
-    if measures.iter().any(is_distance) {
-        return (vec![], modifier.to_string());
-    }
-
-    let remaining_trimmed = remaining.trim();
-    let is_simple_remaining = remaining_trimmed.is_empty()
-        || (remaining_trimmed.split_whitespace().count() == 1
-            && remaining_trimmed.chars().all(char::is_alphabetic));
-
-    if !is_simple_remaining || measures.is_empty() {
-        return (vec![], modifier.to_string());
-    }
-
-    // Collapse, don't just trim: a mid-modifier match ("chopped (about 2 cups)
-    // plus more") leaves the spaces on both sides of the excised parenthetical
-    // adjacent, which trim() can't fix.
-    let cleaned = super::normalize::collapse_whitespace(&format!(
-        "{}{}",
-        &modifier[..full_match.start()],
-        &modifier[full_match.end()..]
-    ));
-
-    (measures, cleaned)
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use rstest::rstest;
+    use std::collections::HashSet;
+
+    const EXPECTED_PIPELINE: &[(PassId, RefinePhase)] = &[
+        (PassId::FixLeadingPrepPhrase, RefinePhase::Recover),
+        (PassId::FixLeadingMinusClause, RefinePhase::Recover),
+        (PassId::ExtractPostfixProduceUnit, RefinePhase::Units),
+        (PassId::ExtractSizeUnitFromName, RefinePhase::Units),
+        (
+            PassId::ExtractLeadingPrepAlternative,
+            RefinePhase::Alternatives,
+        ),
+        (PassId::ExtractTrailingPrepClause, RefinePhase::Prep),
+        (PassId::RecoverHeadNounFromModifier, RefinePhase::Recover),
+        (PassId::ExtractAdjectivesFromName, RefinePhase::Prep),
+        (PassId::CollapseName, RefinePhase::Cleanup),
+        (PassId::ExtractPurposeGerund, RefinePhase::Prep),
+        (
+            PassId::ExtractAlternativeFromName,
+            RefinePhase::Alternatives,
+        ),
+        (
+            PassId::ExtractWordAlternativeFromName,
+            RefinePhase::Alternatives,
+        ),
+        (
+            PassId::ExtractAndOrAlternativeFromName,
+            RefinePhase::Alternatives,
+        ),
+        (
+            PassId::RecoverParentheticalAliasFromModifier,
+            RefinePhase::Recover,
+        ),
+        (
+            PassId::RecoverSharedHeadFromAlternatives,
+            RefinePhase::Alternatives,
+        ),
+        (
+            PassId::ExtractSecondaryAmountsFromModifier,
+            RefinePhase::Amounts,
+        ),
+    ];
+
+    const EXPECTED_TRACE_LABELS: &[&str] = &[
+        "fix_leading_prep_phrase",
+        "fix_leading_minus_clause",
+        "extract_postfix_produce_unit",
+        "extract_size_unit_from_name",
+        "extract_leading_prep_alternative",
+        "extract_trailing_prep_clause",
+        "recover_head_noun_from_modifier",
+        "extract_adjectives_from_name",
+        "collapse_name",
+        "extract_purpose_gerund",
+        "extract_alternative_from_name",
+        "extract_word_alternative_from_name",
+        "extract_and_or_alternative_from_name",
+        "recover_parenthetical_alias_from_modifier",
+        "recover_shared_head_from_alternatives",
+        "extract_secondary_amounts_from_modifier",
+    ];
+
+    #[test]
+    fn refine_pipeline_order_is_locked() {
+        let actual: Vec<_> = REFINE_PIPELINE
+            .iter()
+            .map(|pass| (pass.id, pass.phase))
+            .collect();
+        assert_eq!(actual, EXPECTED_PIPELINE);
+    }
+
+    #[test]
+    fn refine_pipeline_pass_ids_are_unique() {
+        let ids: HashSet<_> = REFINE_PIPELINE.iter().map(|pass| pass.id).collect();
+        assert_eq!(ids.len(), REFINE_PIPELINE.len());
+    }
+
+    #[test]
+    fn refine_pipeline_trace_labels_are_stable() {
+        let labels: Vec<_> = REFINE_PIPELINE
+            .iter()
+            .map(|pass| pass.id.as_str())
+            .collect();
+        assert_eq!(labels, EXPECTED_TRACE_LABELS);
+    }
 
     #[rstest]
     // Fully wrapped: outer parens are stripped.
@@ -1485,7 +628,8 @@ mod tests {
         #[case] want_alternative: Option<&str>,
     ) {
         let parser = IngredientParser::new();
-        let (got_name, got_alternative) = split_word_alternative(name, &parser.adjectives);
+        let (got_name, got_alternative) =
+            alternatives::split_word_alternative(name, &parser.adjectives);
         assert_eq!(got_name, want_name, "name: {name}");
         assert_eq!(got_alternative.as_deref(), want_alternative, "name: {name}");
     }
@@ -1684,7 +828,7 @@ mod tests {
         assert_eq!(i.modifier_string().as_deref(), want_modifier);
     }
 
-    /// The ordered `POST_PASSES` pipeline must be idempotent: running it a second
+    /// The ordered `REFINE_PIPELINE` must be idempotent: running it a second
     /// time on its own output must change nothing. This is the invariant the
     /// load-bearing pass order depends on — a pass that isn't a fixpoint (e.g. it
     /// re-extracts an adjective it already moved, or re-splits an alternative)

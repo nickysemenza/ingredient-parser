@@ -346,39 +346,147 @@ fn is_dimension_descriptor(tok: &str) -> bool {
 /// (`Cow::Owned`) or unchanged (`Cow::Borrowed`).
 type Rewrite = fn(&str) -> Cow<'_, str>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum RewriteId {
+    StripNbsp,
+    StripLeadingBullet,
+    StripFootnoteMarkers,
+    StripTrailingFootnoteMarkers,
+    SplitCrossrefOptional,
+    StripCrossReference,
+    StripNoteReference,
+    RewriteBatchOfToRecipe,
+    StripLeadingDeterminer,
+    StripMinusEquivalence,
+    StripTotalInMeasureParen,
+    LiftLeadingDimension,
+    LiftLeadingPieceDimension,
+}
+
+impl RewriteId {
+    const fn as_str(self) -> &'static str {
+        match self {
+            RewriteId::StripNbsp => "strip_nbsp",
+            RewriteId::StripLeadingBullet => "strip_leading_bullet",
+            RewriteId::StripFootnoteMarkers => "strip_footnote_markers",
+            RewriteId::StripTrailingFootnoteMarkers => "strip_trailing_footnote_markers",
+            RewriteId::SplitCrossrefOptional => "split_crossref_optional",
+            RewriteId::StripCrossReference => "strip_cross_reference",
+            RewriteId::StripNoteReference => "strip_note_reference",
+            RewriteId::RewriteBatchOfToRecipe => "rewrite_batch_of_to_recipe",
+            RewriteId::StripLeadingDeterminer => "strip_leading_determiner",
+            RewriteId::StripMinusEquivalence => "strip_minus_equivalence",
+            RewriteId::StripTotalInMeasureParen => "strip_total_in_measure_paren",
+            RewriteId::LiftLeadingDimension => "lift_leading_dimension",
+            RewriteId::LiftLeadingPieceDimension => "lift_leading_piece_dimension",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum RewritePhase {
+    Artifact,
+    Reference,
+    RecipeAlias,
+    GrammarLift,
+}
+
+#[derive(Clone, Copy)]
+struct RewriteEntry {
+    id: RewriteId,
+    phase: RewritePhase,
+    run: Rewrite,
+}
+
+impl RewriteEntry {
+    const fn new(id: RewriteId, phase: RewritePhase, run: Rewrite) -> Self {
+        Self { id, phase, run }
+    }
+}
+
 /// The ordered pre-parse rewrite pipeline. Each entry runs on the output of the
 /// previous one; a borrow result means "no change" and is threaded through
-/// without allocating. The leading string is the rewrite's name, used in the
-/// parse trace (mirrors `refine::POST_PASSES`). Adding a rewrite is a one-line
+/// without allocating. Each entry's ID owns the trace label used in the
+/// parse trace (mirrors `refine::REFINE_PIPELINE`). Adding a rewrite is a one-line
 /// edit here.
-const REWRITES: &[(&str, Rewrite)] = &[
-    ("strip_nbsp", strip_nbsp),
-    ("strip_leading_bullet", strip_leading_bullet),
-    ("strip_footnote_markers", strip_footnote_markers),
-    (
-        "strip_trailing_footnote_markers",
+const REWRITES: &[RewriteEntry] = &[
+    RewriteEntry::new(RewriteId::StripNbsp, RewritePhase::Artifact, strip_nbsp),
+    RewriteEntry::new(
+        RewriteId::StripLeadingBullet,
+        RewritePhase::Artifact,
+        strip_leading_bullet,
+    ),
+    RewriteEntry::new(
+        RewriteId::StripFootnoteMarkers,
+        RewritePhase::Artifact,
+        strip_footnote_markers,
+    ),
+    RewriteEntry::new(
+        RewriteId::StripTrailingFootnoteMarkers,
+        RewritePhase::Artifact,
         strip_trailing_footnote_markers,
     ),
-    ("split_crossref_optional", split_crossref_optional),
-    ("strip_cross_reference", strip_cross_reference),
-    ("strip_note_reference", strip_note_reference),
-    ("rewrite_batch_of_to_recipe", rewrite_batch_of_to_recipe),
-    ("strip_leading_determiner", strip_leading_determiner),
-    ("strip_minus_equivalence", strip_minus_equivalence),
-    ("strip_total_in_measure_paren", strip_total_in_measure_paren),
-    ("lift_leading_dimension", lift_leading_dimension),
-    ("lift_leading_piece_dimension", lift_leading_piece_dimension),
+    RewriteEntry::new(
+        RewriteId::SplitCrossrefOptional,
+        RewritePhase::Reference,
+        split_crossref_optional,
+    ),
+    RewriteEntry::new(
+        RewriteId::StripCrossReference,
+        RewritePhase::Reference,
+        strip_cross_reference,
+    ),
+    RewriteEntry::new(
+        RewriteId::StripNoteReference,
+        RewritePhase::Reference,
+        strip_note_reference,
+    ),
+    RewriteEntry::new(
+        RewriteId::RewriteBatchOfToRecipe,
+        RewritePhase::RecipeAlias,
+        rewrite_batch_of_to_recipe,
+    ),
+    RewriteEntry::new(
+        RewriteId::StripLeadingDeterminer,
+        RewritePhase::Artifact,
+        strip_leading_determiner,
+    ),
+    RewriteEntry::new(
+        RewriteId::StripMinusEquivalence,
+        RewritePhase::Reference,
+        strip_minus_equivalence,
+    ),
+    RewriteEntry::new(
+        RewriteId::StripTotalInMeasureParen,
+        RewritePhase::Reference,
+        strip_total_in_measure_paren,
+    ),
+    RewriteEntry::new(
+        RewriteId::LiftLeadingDimension,
+        RewritePhase::GrammarLift,
+        lift_leading_dimension,
+    ),
+    RewriteEntry::new(
+        RewriteId::LiftLeadingPieceDimension,
+        RewritePhase::GrammarLift,
+        lift_leading_piece_dimension,
+    ),
 ];
 
 /// Apply one rewrite to the accumulator, preserving its owned-ness: a borrowed
 /// result means the rewrite changed nothing, so the accumulator is kept as-is
 /// (no allocation on the common path). When tracing, a rewrite that *did* change
 /// the line emits a before→after node so `--explain` shows which rewrite fired.
-fn apply_rewrite<'a>(acc: Cow<'a, str>, name: &str, rewrite: Rewrite) -> Cow<'a, str> {
-    match rewrite(acc.as_ref()) {
+fn apply_rewrite<'a>(acc: Cow<'a, str>, rewrite: &RewriteEntry) -> Cow<'a, str> {
+    let RewriteEntry {
+        id,
+        phase: _phase,
+        run,
+    } = *rewrite;
+    match run(acc.as_ref()) {
         Cow::Owned(rewritten) => {
             if crate::trace::is_tracing_enabled() {
-                crate::trace::trace_enter(name, acc.as_ref());
+                crate::trace::trace_enter(id.as_str(), acc.as_ref());
                 crate::trace::trace_exit_success(0, &rewritten);
             }
             Cow::Owned(rewritten)
@@ -391,8 +499,8 @@ fn apply_rewrite<'a>(acc: Cow<'a, str>, name: &str, rewrite: Rewrite) -> Cow<'a,
 /// trailing/doubled whitespace a rewrite may have left behind.
 pub(super) fn normalize_input(input: &str) -> Cow<'_, str> {
     let mut normalized = Cow::Borrowed(input);
-    for (name, rewrite) in REWRITES {
-        normalized = apply_rewrite(normalized, name, *rewrite);
+    for rewrite in REWRITES {
+        normalized = apply_rewrite(normalized, rewrite);
     }
 
     let has_multiple_spaces = normalized
@@ -550,6 +658,66 @@ pub(super) fn collapse_whitespace(input: &str) -> String {
 mod tests {
     use super::*;
     use rstest::rstest;
+    use std::collections::HashSet;
+
+    const EXPECTED_REWRITES: &[(RewriteId, RewritePhase)] = &[
+        (RewriteId::StripNbsp, RewritePhase::Artifact),
+        (RewriteId::StripLeadingBullet, RewritePhase::Artifact),
+        (RewriteId::StripFootnoteMarkers, RewritePhase::Artifact),
+        (
+            RewriteId::StripTrailingFootnoteMarkers,
+            RewritePhase::Artifact,
+        ),
+        (RewriteId::SplitCrossrefOptional, RewritePhase::Reference),
+        (RewriteId::StripCrossReference, RewritePhase::Reference),
+        (RewriteId::StripNoteReference, RewritePhase::Reference),
+        (RewriteId::RewriteBatchOfToRecipe, RewritePhase::RecipeAlias),
+        (RewriteId::StripLeadingDeterminer, RewritePhase::Artifact),
+        (RewriteId::StripMinusEquivalence, RewritePhase::Reference),
+        (RewriteId::StripTotalInMeasureParen, RewritePhase::Reference),
+        (RewriteId::LiftLeadingDimension, RewritePhase::GrammarLift),
+        (
+            RewriteId::LiftLeadingPieceDimension,
+            RewritePhase::GrammarLift,
+        ),
+    ];
+
+    const EXPECTED_REWRITE_LABELS: &[&str] = &[
+        "strip_nbsp",
+        "strip_leading_bullet",
+        "strip_footnote_markers",
+        "strip_trailing_footnote_markers",
+        "split_crossref_optional",
+        "strip_cross_reference",
+        "strip_note_reference",
+        "rewrite_batch_of_to_recipe",
+        "strip_leading_determiner",
+        "strip_minus_equivalence",
+        "strip_total_in_measure_paren",
+        "lift_leading_dimension",
+        "lift_leading_piece_dimension",
+    ];
+
+    #[test]
+    fn rewrite_pipeline_order_is_locked() {
+        let actual: Vec<_> = REWRITES
+            .iter()
+            .map(|rewrite| (rewrite.id, rewrite.phase))
+            .collect();
+        assert_eq!(actual, EXPECTED_REWRITES);
+    }
+
+    #[test]
+    fn rewrite_ids_are_unique() {
+        let ids: HashSet<_> = REWRITES.iter().map(|rewrite| rewrite.id).collect();
+        assert_eq!(ids.len(), REWRITES.len());
+    }
+
+    #[test]
+    fn rewrite_trace_labels_are_stable() {
+        let labels: Vec<_> = REWRITES.iter().map(|rewrite| rewrite.id.as_str()).collect();
+        assert_eq!(labels, EXPECTED_REWRITE_LABELS);
+    }
 
     #[rstest]
     // Descriptive aside flanked by name words → lifted out.

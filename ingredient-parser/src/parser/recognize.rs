@@ -15,14 +15,15 @@ impl IngredientParser {
     /// Try each whole-line special-form recognizer in order, returning the first
     /// that matches (or `None` to fall through to the core parse).
     pub(super) fn run_recognizers(&self, input: &str) -> Option<Ingredient> {
-        RECOGNIZERS.iter().find_map(|(name, recognize)| {
+        RECOGNIZERS.iter().find_map(|recognizer| {
+            let _phase = recognizer.phase;
             if !crate::trace::is_tracing_enabled() {
-                return recognize(self, input);
+                return (recognizer.run)(self, input);
             }
             // Trace each recognizer attempt so the egui tree shows which matched
             // (and which were skipped).
-            crate::trace::trace_enter(name, input);
-            match recognize(self, input) {
+            crate::trace::trace_enter(recognizer.id.as_str(), input);
+            match (recognizer.run)(self, input) {
                 Some(ingredient) => {
                     crate::trace::trace_exit_success(0, &ingredient.name);
                     Some(ingredient)
@@ -168,6 +169,43 @@ impl IngredientParser {
 /// `Ingredient` when the line has its particular shape, else `None`.
 type Recognizer = fn(&IngredientParser, &str) -> Option<Ingredient>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum RecognizerId {
+    OptionalWrapped,
+    TrailingAmount,
+    XOfConstruction,
+}
+
+impl RecognizerId {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            RecognizerId::OptionalWrapped => "optional_wrapped",
+            RecognizerId::TrailingAmount => "trailing_amount",
+            RecognizerId::XOfConstruction => "x_of_construction",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum RecognizerPhase {
+    Wrapper,
+    AmountPosition,
+    DerivedPart,
+}
+
+#[derive(Clone, Copy)]
+struct RecognizerEntry {
+    id: RecognizerId,
+    phase: RecognizerPhase,
+    run: Recognizer,
+}
+
+impl RecognizerEntry {
+    const fn new(id: RecognizerId, phase: RecognizerPhase, run: Recognizer) -> Self {
+        Self { id, phase, run }
+    }
+}
+
 /// The ordered recognizer list, tried first-match before the core parse. Order
 /// matters: the optional-wrapped check must precede the others (it strips the
 /// outer parens), and x-of-construction is last (most permissive).
@@ -180,19 +218,28 @@ type Recognizer = fn(&IngredientParser, &str) -> Option<Ingredient>;
 // doing mid-seam adjective surgery), and the or-line keeps its reconstructed
 // primary + alternative. A future `parse_multi` recognizer would split these
 // into a `Vec<Ingredient>`. Corpus rows for these carry a matching TODO.
-const RECOGNIZERS: &[(&str, Recognizer)] = &[
-    (
-        "optional_wrapped",
+const RECOGNIZERS: &[RecognizerEntry] = &[
+    RecognizerEntry::new(
+        RecognizerId::OptionalWrapped,
+        RecognizerPhase::Wrapper,
         IngredientParser::try_parse_optional_ingredient,
     ),
-    (
-        "trailing_amount",
+    RecognizerEntry::new(
+        RecognizerId::TrailingAmount,
+        RecognizerPhase::AmountPosition,
         IngredientParser::try_parse_trailing_amount_format,
     ),
-    (
-        "x_of_construction",
+    RecognizerEntry::new(
+        RecognizerId::XOfConstruction,
+        RecognizerPhase::DerivedPart,
         IngredientParser::try_parse_x_of_construction,
     ),
+];
+
+pub(crate) const RECOGNIZER_TRACE_NAMES: &[&str] = &[
+    RecognizerId::OptionalWrapped.as_str(),
+    RecognizerId::TrailingAmount.as_str(),
+    RecognizerId::XOfConstruction.as_str(),
 ];
 
 fn is_temperature_unit(unit: &unit::Unit) -> bool {
@@ -204,6 +251,44 @@ fn is_temperature_unit(unit: &unit::Unit) -> bool {
 mod tests {
     use super::*;
     use rstest::rstest;
+    use std::collections::HashSet;
+
+    const EXPECTED_RECOGNIZERS: &[(RecognizerId, RecognizerPhase)] = &[
+        (RecognizerId::OptionalWrapped, RecognizerPhase::Wrapper),
+        (
+            RecognizerId::TrailingAmount,
+            RecognizerPhase::AmountPosition,
+        ),
+        (RecognizerId::XOfConstruction, RecognizerPhase::DerivedPart),
+    ];
+
+    const EXPECTED_RECOGNIZER_LABELS: &[&str] =
+        &["optional_wrapped", "trailing_amount", "x_of_construction"];
+
+    #[test]
+    fn recognizer_order_is_locked() {
+        let actual: Vec<_> = RECOGNIZERS
+            .iter()
+            .map(|recognizer| (recognizer.id, recognizer.phase))
+            .collect();
+        assert_eq!(actual, EXPECTED_RECOGNIZERS);
+    }
+
+    #[test]
+    fn recognizer_ids_are_unique() {
+        let ids: HashSet<_> = RECOGNIZERS.iter().map(|recognizer| recognizer.id).collect();
+        assert_eq!(ids.len(), RECOGNIZERS.len());
+    }
+
+    #[test]
+    fn recognizer_trace_labels_are_stable() {
+        let labels: Vec<_> = RECOGNIZERS
+            .iter()
+            .map(|recognizer| recognizer.id.as_str())
+            .collect();
+        assert_eq!(labels, EXPECTED_RECOGNIZER_LABELS);
+        assert_eq!(RECOGNIZER_TRACE_NAMES, EXPECTED_RECOGNIZER_LABELS);
+    }
 
     // ── try_parse_optional_ingredient ───────────────────────────────────────
     #[rstest]

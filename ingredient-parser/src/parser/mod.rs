@@ -29,12 +29,12 @@
 //!   modifier (or vice versa), a prep adjective stuck to the name, an
 //!   alternative/secondary-amount needs splitting out. The `grammar:` name and
 //!   the final `result:` name differ, or *should*. → add/adjust a pass in
-//!   [`refine::POST_PASSES`]. (`--explain` lists each refine pass that fired.)
+//!   [`refine::REFINE_PIPELINE`]. (`--explain` lists each refine pass that fired.)
 //! - **Last resort: string surgery to unblock the grammar** — e.g. lifting a
 //!   mid-name dimensional aside so the name grammar doesn't stall. → a "lift"
 //!   rewrite in [`normalize`].
 //!
-//! The `normalize::REWRITES`, `recognize::RECOGNIZERS`, and `refine::POST_PASSES`
+//! The `normalize::REWRITES`, `recognize::RECOGNIZERS`, and `refine::REFINE_PIPELINE`
 //! lists are each an ordered, named, one-line-to-extend source of truth; the
 //! refine order is load-bearing (see [`refine`]). Always add a corpus row for
 //! the fix (`tests/corpus/corpus.jsonl`).

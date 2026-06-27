@@ -8,11 +8,8 @@
 //! bucketing. See the routing guide in `parser/mod.rs`.
 
 use super::{TraceNode, TraceOutcome};
+use crate::parser::recognize::RECOGNIZER_TRACE_NAMES;
 
-/// Recognizer span names, mirroring `parser::recognize::RECOGNIZERS`. Used only
-/// to bucket the trace's direct children into stages for this debug view; a
-/// stale entry would only mis-label a stage in `--explain`, never affect parsing.
-const RECOGNIZER_NAMES: &[&str] = &["optional_wrapped", "trailing_amount", "x_of_construction"];
 /// The grammar span name (the `traced_parser!` wrapping `parse_ingredient`).
 const GRAMMAR_NAME: &str = "parse_ingredient";
 
@@ -73,7 +70,7 @@ impl StageReport {
 }
 
 fn is_core_node(name: &str) -> bool {
-    name == GRAMMAR_NAME || RECOGNIZER_NAMES.contains(&name)
+    name == GRAMMAR_NAME || RECOGNIZER_TRACE_NAMES.contains(&name)
 }
 
 fn success_preview(node: &TraceNode) -> Option<&str> {
@@ -91,7 +88,7 @@ fn find_grammar(core: &[TraceNode]) -> Option<&TraceNode> {
         if c.name == GRAMMAR_NAME {
             return Some(c);
         }
-        if RECOGNIZER_NAMES.contains(&c.name.as_str())
+        if RECOGNIZER_TRACE_NAMES.contains(&c.name.as_str())
             && let Some(g) = c.children.iter().find(|g| g.name == GRAMMAR_NAME)
         {
             return Some(g);
@@ -127,7 +124,7 @@ pub(super) fn build_report(root: &TraceNode) -> StageReport {
             let core = &children[i..=j];
             let recognizers = core
                 .iter()
-                .filter(|c| RECOGNIZER_NAMES.contains(&c.name.as_str()))
+                .filter(|c| RECOGNIZER_TRACE_NAMES.contains(&c.name.as_str()))
                 .map(|c| RecognizerAttempt {
                     name: c.name.clone(),
                     output: success_preview(c).map(str::to_string),
