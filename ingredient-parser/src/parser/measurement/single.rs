@@ -173,12 +173,14 @@ impl<'a> MeasurementParser<'a> {
         // (The early return above already rejected rich-text mode, so a plain
         // `space0` is correct here.)
         //
-        // `opt(leading_qualifier)` lets a bare unit carry a discarded shape/approx
-        // qualifier ("Generous pinch of salt" -> 1 pinch, name "salt"), matching the
-        // numbered path in `parse_single_measurement`. It backtracks to nothing when
-        // the next word isn't a qualifier, so "pinch of salt" is unaffected.
+        // `opt(unit_only_qualifier)` lets a bare unit carry a discarded
+        // shape/approx qualifier ("Generous pinch of salt" -> 1 pinch, name
+        // "salt") or a size word before a vague unit ("Small handful thyme" ->
+        // 1 handful thyme), matching the numbered path in
+        // `parse_single_measurement`. It backtracks to nothing when the next word
+        // isn't a qualifier, so "pinch of salt" is unaffected.
         let unit_only_format = (
-            opt(leading_qualifier),
+            opt(unit_only_qualifier),
             space0,
             |a| self.unit_extra(a),
             optional_period_or_of,
@@ -360,6 +362,18 @@ fn amount_qualifier_between(input: &str) -> Res<&str, ()> {
     Ok((input, ()))
 }
 
+/// Consume a qualifier before a bare unit-only amount. This mirrors the numbered
+/// path's leading/size qualifiers, but is deliberately limited to qualifiers
+/// that still leave a recognized addon unit immediately after them.
+fn unit_only_qualifier(input: &str) -> Res<&str, ()> {
+    alt((leading_qualifier, |input| {
+        let (input, _) = size_word_before_discardable_unit(input)?;
+        let (input, _) = space1(input)?;
+        Ok((input, ()))
+    }))
+    .parse(input)
+}
+
 /// Match a SIZE word ("small"/"large"/…) only when a vague unit
 /// ("handful"/"pinch"/"dash") or a size-qualifiable container ("bunch"/"head")
 /// immediately follows, so the size word can be discarded as a measure qualifier
@@ -493,6 +507,17 @@ mod tests {
         assert!(result.is_ok());
         let (_, measure) = result.unwrap();
         assert_eq!(measure.value(), 1.0);
+    }
+
+    #[rstest]
+    fn test_unit_only_size_qualified_vague_unit() {
+        let mut units = units();
+        units.insert("handful".to_string());
+        let parser = MeasurementParser::new(&units, MeasurementMode::IngredientList);
+        let (remaining, measure) = parser.parse_unit_only("Small handful thyme").unwrap();
+        assert_eq!(remaining, "thyme");
+        assert_eq!(measure.value(), 1.0);
+        assert_eq!(measure.unit_as_string(), "handful");
     }
 
     #[rstest]

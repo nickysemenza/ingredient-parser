@@ -533,5 +533,15 @@
 {"input": "1 jar of salsa", "name": "salsa", "amounts": [{"unit": "jar", "value": 1}]}
 {"input": "tub of yogurt", "name": "yogurt", "amounts": [{"unit": "tub", "value": 1}]}
 {"input": "bag of all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "bag", "value": 1}]}
+
+// --- cubby cookbook-import fixes (2026-06-27) ---
+{"input": "2 cups cubed seedless watermelon (from about ¼ small melon), chilled", "name": "seedless watermelon", "amounts": [{"unit": "cup", "value": 2}], "modifier": "cubed (from about ¼ small melon), chilled"}
+{"input": "½ cup unsalted peanuts", "name": "unsalted peanuts", "amounts": [{"unit": "cup", "value": 0.5}]}
+{"input": "1 medium purple (red) cabbage (about 1 pound)", "name": "purple (red) cabbage", "amounts": [{"unit": "medium", "value": 1}, {"unit": "lb", "value": 1}]}
+{"input": "3 or 4 sprigs thyme and/or rosemary", "name": "thyme", "amounts": [{"unit": "sprig", "value": 3, "upper_value": 4}], "modifier": "and/or rosemary"}
+{"input": "2 cups parsley leaves and tender stems", "name": "parsley leaves and tender stems", "amounts": [{"unit": "cup", "value": 2}]}
+{"input": "8 ounces small potatoes", "name": "small potatoes", "amounts": [{"unit": "oz", "value": 8}]}
+{"input": "Handful cilantro and/or mint, for serving", "name": "cilantro", "amounts": [{"unit": "handful", "value": 1}], "modifier": "and/or mint, for serving"}
+{"input": "Small handful thyme sprigs", "name": "thyme sprigs", "amounts": [{"unit": "handful", "value": 1}]}
 {"input": "block of cream cheese", "name": "cream cheese", "amounts": [{"unit": "block", "value": 1}]}
 {"input": "tube of tomato paste", "name": "tomato paste", "amounts": [{"unit": "tube", "value": 1}]}

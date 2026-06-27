@@ -99,14 +99,14 @@ pub(crate) fn thousands_number(input: &str) -> Res<&str, f64> {
 /// Parse text characters for ingredient names.
 ///
 /// Consumes a contiguous run of: alphanumeric, whitespace, hyphens, apostrophes,
-/// periods, backslashes, em-dashes, and right single quotes.
+/// periods, slashes, backslashes, em-dashes, and right single quotes.
 ///
 /// Note: This is more restrictive than `rich_text::parse_rich_char()` which also allows
 /// punctuation like commas, parentheses, semicolons, etc. for parsing recipe
 /// instructions rather than ingredient names.
 pub(crate) fn parse_ingredient_text(input: &str) -> Res<&str, &str> {
     take_while1(|c: char| match c {
-        '-' | '\u{2014}' | '\'' | '\u{2019}' | '.' | '\\' => true,
+        '-' | '\u{2014}' | '\'' | '\u{2019}' | '.' | '/' | '\\' => true,
         c => c.is_alphanumeric() || c.is_whitespace(),
     })
     .parse(input)
@@ -183,6 +183,7 @@ mod tests {
     #[case::apostrophe("'", "", "'")]
     #[case::right_quote("\u{2019}", "", "\u{2019}")]
     #[case::period(".", "", ".")]
+    #[case::slash("and/or", "", "and/or")]
     #[case::backslash("\\", "", "\\")]
     #[case::space(" ", "", " ")]
     #[case::multiword("all-purpose flour", "", "all-purpose flour")]

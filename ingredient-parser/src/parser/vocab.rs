@@ -13,6 +13,7 @@ pub(crate) const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     "chopped",
     "minced",
     "diced",
+    "cubed",
     "freshly ground",
     "freshly grated",
     "freshly squeezed",

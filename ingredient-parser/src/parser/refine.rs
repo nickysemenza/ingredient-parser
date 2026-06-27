@@ -684,6 +684,92 @@ impl IngredientParser {
         }
     }
 
+    /// Split an inclusive "X and/or Y" coordination out of the name into the
+    /// modifier. The slash is part of the ingredient text grammar so the whole
+    /// phrase survives parsing; this pass then keeps the primary ingredient in
+    /// `name` and preserves the author's "and/or" wording in the modifier.
+    fn extract_and_or_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
+        use regex::Regex;
+        use std::sync::LazyLock;
+
+        static AND_OR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+            #[allow(clippy::expect_used)]
+            Regex::new(r"(?i)\s+and/or\s+").expect("invalid and/or split regex")
+        });
+
+        let Some(m) = AND_OR_PATTERN.find(&parsed.name) else {
+            return;
+        };
+        let left = parsed.name[..m.start()].trim().to_string();
+        let right = parsed.name[m.end()..].trim().to_string();
+        if left.is_empty() || right.is_empty() {
+            return;
+        }
+
+        parsed.name = left;
+        let alternative = ModifierPart::Alternative(format!("and/or {right}"));
+        let insert_at = parsed
+            .modifier
+            .iter()
+            .position(|part| matches!(part, ModifierPart::Raw(_)))
+            .unwrap_or(parsed.modifier.len());
+        parsed.modifier.insert(insert_at, alternative);
+    }
+
+    /// Recover a head noun stranded behind an inline parenthetical alias, e.g.
+    /// "1 medium purple (red) cabbage (about 1 pound)" reaches refine as
+    /// name="purple" and modifier="(red) cabbage (about 1 pound)". Move the
+    /// leading "(red) cabbage" back into the name and leave later modifier text
+    /// for the normal secondary-amount pass.
+    fn recover_parenthetical_alias_from_modifier(&self, parsed: &mut ParsedIngredient) {
+        let Some(ModifierPart::Raw(raw)) = parsed.modifier.first() else {
+            return;
+        };
+        let raw = raw.clone();
+        let trimmed = raw.trim_start();
+        if !trimmed.starts_with('(') {
+            return;
+        }
+        let Some(close) = matching_close_paren(trimmed) else {
+            return;
+        };
+        let inner = trimmed[1..close].trim();
+        if inner.is_empty()
+            || inner
+                .chars()
+                .any(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
+        {
+            return;
+        }
+
+        let after = trimmed[close + 1..].trim_start();
+        if !after.chars().next().is_some_and(char::is_alphabetic) {
+            return;
+        }
+
+        let head_end = after
+            .find(" (")
+            .or_else(|| after.find(", "))
+            .unwrap_or(after.len());
+        let head = after[..head_end].trim();
+        if head.is_empty() || !head.chars().any(char::is_alphabetic) {
+            return;
+        }
+
+        let recovered = format!("({inner}) {head}");
+        parsed.name = collapse_whitespace(&format!("{} {recovered}", parsed.name));
+
+        let remainder = after[head_end..]
+            .trim_start_matches(|c: char| c == ',' || c.is_whitespace())
+            .trim()
+            .to_string();
+        if remainder.is_empty() {
+            parsed.modifier.remove(0);
+        } else if let Some(ModifierPart::Raw(raw)) = parsed.modifier.first_mut() {
+            *raw = remainder;
+        }
+    }
+
     /// Recover a head noun stranded at the tail of an alternatives list in the
     /// modifier. The grammar splits "canola, vegetable, or melted coconut oil" on
     /// the first comma, leaving name="canola" and modifier="vegetable, or melted
@@ -805,6 +891,14 @@ const POST_PASSES: &[(&str, Pass)] = &[
     (
         "extract_word_alternative_from_name",
         IngredientParser::extract_word_alternative_from_name,
+    ),
+    (
+        "extract_and_or_alternative_from_name",
+        IngredientParser::extract_and_or_alternative_from_name,
+    ),
+    (
+        "recover_parenthetical_alias_from_modifier",
+        IngredientParser::recover_parenthetical_alias_from_modifier,
     ),
     (
         "recover_shared_head_from_alternatives",
@@ -1003,6 +1097,23 @@ fn split_word_alternative(
     (primary, Some(format!("or {right}")))
 }
 
+fn matching_close_paren(input: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (index, character) in input.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Extract secondary amounts from modifier patterns like "(from about 15 sprigs)"
 /// or a bare trailing measure parenthetical like "coarsely chopped (2.1 oz / 60g)".
 ///
@@ -1199,6 +1310,7 @@ mod tests {
     #[case::and_trailing_extracted("Salt and pepper to taste", "Salt and pepper", Some("to taste"))]
     // bare "grated" extracts; "fresh" (implied default) extracts…
     #[case::grated_extracts("grated lemon zest", "lemon zest", Some("grated"))]
+    #[case::cubed_extracts("cubed seedless watermelon", "seedless watermelon", Some("cubed"))]
     #[case::fresh_extracts("fresh mint", "mint", Some("fresh"))]
     // …except "fresh or frozen" — a genuine contrast — keeps "fresh" in the name.
     #[case::fresh_or_kept("fresh or frozen blueberries", "fresh or frozen blueberries", None)]
@@ -1229,6 +1341,53 @@ mod tests {
         parser.extract_leading_prep_alternative(&mut i);
         assert_eq!(i.name, want_name);
         assert_eq!(i.modifier_string().is_some(), moved, "name: {name}");
+    }
+
+    #[rstest]
+    #[case::plain("thyme and/or rosemary", None, "thyme", Some("and/or rosemary"))]
+    #[case::before_raw(
+        "cilantro and/or mint",
+        Some("for serving"),
+        "cilantro",
+        Some("and/or mint, for serving")
+    )]
+    fn test_extract_and_or_alternative_from_name(
+        #[case] name: &str,
+        #[case] modifier: Option<&str>,
+        #[case] want_name: &str,
+        #[case] want_modifier: Option<&str>,
+    ) {
+        let parser = IngredientParser::new();
+        let mut i = ing(name, modifier);
+        parser.extract_and_or_alternative_from_name(&mut i);
+        assert_eq!(i.name, want_name);
+        assert_eq!(i.modifier_string().as_deref(), want_modifier);
+    }
+
+    #[rstest]
+    #[case::recovers_alias(
+        "purple",
+        Some("(red) cabbage (about 1 pound)"),
+        "purple (red) cabbage",
+        Some("(about 1 pound)")
+    )]
+    #[case::non_alias_amount_left_alone(
+        "cabbage",
+        Some("(about 1 pound)"),
+        "cabbage",
+        Some("(about 1 pound)")
+    )]
+    fn test_recover_parenthetical_alias_from_modifier(
+        #[case] name: &str,
+        #[case] modifier: Option<&str>,
+        #[case] want_name: &str,
+        #[case] want_modifier: Option<&str>,
+    ) {
+        let parser = IngredientParser::new();
+        let mut i = ing(name, modifier);
+        parser.recover_parenthetical_alias_from_modifier(&mut i);
+        assert_eq!(i.name, want_name);
+        assert_eq!(i.modifier_string().as_deref(), want_modifier);
     }
 
     /// "(about N unit)" in the modifier hoists a secondary amount; a distance
