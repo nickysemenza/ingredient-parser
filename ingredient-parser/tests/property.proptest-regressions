@@ -9,3 +9,4 @@ cc 020ac996f0e61a733565760e8d520b36920d7f357dc57e0f225a09dd36cf5912 # shrinks to
 cc 29b33d036b0df50325de9f16e5db7a8bac2e3e54b5b4bcbf98d7450376d72a97 # shrinks to whole = 0, frac = "1/2", unit = "cup", name = " "
 cc eb728444ea198a79c16dd3bf0becc6fd2b5bbf123b6d0e17782d9aa0ae83c3d9 # shrinks to whole = 0, frac = "1/2", unit = "cup", name = "of"
 cc aaece4a9db5cdaf48ca721024bafe56878d81771c7ef18485b0c4fcd8f8159b2 # shrinks to whole = 0, frac = "1/2", unit = "cup", name = "a "
+cc 8687b498362d8868594e74e9bfb5d9ff67ebc00c6cc8a49a164f112950838d5e # shrinks to input = "0t"

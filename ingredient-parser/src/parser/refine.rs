@@ -147,6 +147,14 @@ impl RefinePass {
 /// is collapsed *between* adjective and alternative extraction. The modifier is
 /// finalized when the IR is lowered to `Ingredient`. Adding or reordering a step
 /// is a one-line edit here.
+///
+/// Critical ordering dependencies (see `refine_pipeline_order_invariants` test):
+/// - `ExtractAdjectivesFromName` before alternative passes — prep words must leave
+///   the name before "or …" / "and …" alternative extraction runs.
+/// - `CollapseName` between adjective and alternative extraction — whitespace
+///   normalization must not run before adjectives are peeled.
+/// - `ExtractSecondaryAmountsFromModifier` last — hoists parenthetical amounts
+///   after all modifier text shaping is finished.
 pub(super) const REFINE_PIPELINE: &[RefinePass] = &[
     RefinePass::new(
         PassId::FixLeadingPrepPhrase,
@@ -258,7 +266,7 @@ pub(super) fn clean_modifier(modifier: Option<String>) -> Option<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use rstest::rstest;
@@ -345,6 +353,47 @@ mod tests {
             .map(|pass| pass.id.as_str())
             .collect();
         assert_eq!(labels, EXPECTED_TRACE_LABELS);
+    }
+
+    fn pass_index(id: PassId) -> usize {
+        REFINE_PIPELINE
+            .iter()
+            .position(|pass| pass.id == id)
+            .expect("REFINE_PIPELINE missing expected pass")
+    }
+
+    #[test]
+    fn refine_pipeline_order_invariants() {
+        // Prep adjectives must leave the name before any alternative extraction.
+        assert!(
+            pass_index(PassId::ExtractAdjectivesFromName)
+                < pass_index(PassId::ExtractAlternativeFromName),
+            "adjectives before alternatives"
+        );
+        assert!(
+            pass_index(PassId::ExtractAdjectivesFromName)
+                < pass_index(PassId::ExtractWordAlternativeFromName),
+            "adjectives before word alternatives"
+        );
+        assert!(
+            pass_index(PassId::ExtractAdjectivesFromName)
+                < pass_index(PassId::ExtractAndOrAlternativeFromName),
+            "adjectives before and/or alternatives"
+        );
+        // Whitespace collapse sits between adjective peel and alternative passes.
+        assert!(
+            pass_index(PassId::ExtractAdjectivesFromName) < pass_index(PassId::CollapseName),
+            "adjectives before collapse"
+        );
+        assert!(
+            pass_index(PassId::CollapseName) < pass_index(PassId::ExtractAlternativeFromName),
+            "collapse before alternatives"
+        );
+        // Parenthetical amount hoists run after modifier text is fully shaped.
+        assert!(
+            pass_index(PassId::ExtractSecondaryAmountsFromModifier) == REFINE_PIPELINE.len() - 1,
+            "secondary amounts must be last"
+        );
     }
 
     #[rstest]

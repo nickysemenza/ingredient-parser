@@ -4,7 +4,10 @@ use ingredient::{
     Decomposition, Field, decompose as decompose_str, from_str as parse_ingredient_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
-    unit::{Measure, MeasureKind, convert_measure_with_graph, is_valid, make_graph, print_graph},
+    unit::{
+        Measure, MeasureKind, convert_measure_with_graph, is_valid, make_graph,
+        mapping_target_kind, print_graph,
+    },
     unit_mapping::{ParsedUnitMapping, parse_unit_mapping as parse_unit_mapping_internal},
     util::truncate_3_decimals,
 };
@@ -444,11 +447,12 @@ pub fn conv_amount_to_unit(
 ) -> Result<WAmount, String> {
     let pairs = mappings.to_pairs();
     let measure = amount.to_measure();
-    let kind = MeasureKind::Nutrient(target_unit.clone());
+    let kind = mapping_target_kind(&target_unit);
 
     measure
         .convert_measure_via_mappings(kind, &pairs)
         .ok_or_else(|| format!("Failed to convert to '{target_unit}'"))
+        .map(|m| m.denormalize())
         .map(WAmount::from)
 }
 
@@ -493,7 +497,9 @@ pub fn graph_unit_mappings(mappings: WUnitMappings) -> String {
 
 #[wasm_bindgen]
 pub fn parse_unit_mapping(input: &str) -> Result<WUnitMapping, String> {
-    Ok(parse_unit_mapping_internal(input)?.into())
+    parse_unit_mapping_internal(input)
+        .map(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[wasm_bindgen]
@@ -579,6 +585,39 @@ mod tests {
                 ("modifier", "sifted"),
             ]
         );
+    }
+
+    /// `conv_amount_to_unit` must resolve volume targets against normalized graph
+    /// nodes (cup → tsp) and denormalize back to the requested display unit.
+    #[test]
+    fn conv_amount_to_unit_cup_from_grams() {
+        use crate::{WAmount, WUnitMapping, WUnitMappings};
+
+        let mappings = WUnitMappings(vec![WUnitMapping {
+            a: WAmount {
+                unit: "cup".into(),
+                value: 1.0,
+                upper_value: None,
+            },
+            b: WAmount {
+                unit: "g".into(),
+                value: 120.0,
+                upper_value: None,
+            },
+            source: None,
+        }]);
+        let converted = conv_amount_to_unit(
+            mappings,
+            "cup".into(),
+            WAmount {
+                unit: "g".into(),
+                value: 240.0,
+                upper_value: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(converted.unit, "cup");
+        assert!((converted.value - 2.0).abs() < 1e-9);
     }
 
     /// A recognizer-handled line has no grammar carve → all segments unlabeled,

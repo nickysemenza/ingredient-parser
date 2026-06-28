@@ -58,6 +58,56 @@ fn boundary_before(s: &str, idx: usize) -> bool {
         .is_none_or(|c| !is_word_char(c))
 }
 
+/// Recipe steps often open with an imperative verb spelled like an ingredient
+/// ("Oil the pan", "Salt to taste", "Cream together"). Case-insensitive matching
+/// at sentence start would false-positive on those; block when the tail matches.
+fn is_imperative_continuation(tail: &str) -> bool {
+    tail.starts_with(" the ")
+        || tail.starts_with(" to ")
+        || tail.starts_with(" together")
+        || tail.starts_with(" well")
+        || tail.starts_with(" until ")
+        || tail.starts_with(" for ")
+}
+
+/// Case-insensitive match at the start of a text chunk only — catches
+/// sentence-initial capitalized mentions ("Parsley makes…") without folding case
+/// mid-sentence ("the best Parsley around") or on imperative openers ("Oil the
+/// pan"). Uses char-wise comparison so multibyte haystacks never slice mid-char.
+fn find_candidate_case_insensitive_at_start(
+    haystack: &str,
+    candidate: &str,
+) -> Option<(usize, usize)> {
+    if candidate.is_empty() {
+        return None;
+    }
+    if !boundary_before(haystack, 0) {
+        return None;
+    }
+    let mut h_iter = haystack.char_indices().peekable();
+    for c in candidate.chars() {
+        let (_, h) = h_iter.next()?;
+        if !h.eq_ignore_ascii_case(&c) {
+            return None;
+        }
+    }
+    let base_end = h_iter.peek().map(|(i, _)| *i).unwrap_or(haystack.len());
+    let tail = &haystack[base_end..];
+    if is_imperative_continuation(tail) {
+        return None;
+    }
+    if tail.starts_with("es") && boundary_at(haystack, base_end + 2) {
+        return Some((0, base_end + 2));
+    }
+    if tail.starts_with('s') && boundary_at(haystack, base_end + 1) {
+        return Some((0, base_end + 1));
+    }
+    if boundary_at(haystack, base_end) {
+        return Some((0, base_end));
+    }
+    None
+}
+
 /// Locate `candidate` in `haystack`, returning the matched **surface span**
 /// `(pos, end)` in `haystack` byte offsets, or `None`.
 ///
@@ -70,13 +120,10 @@ fn boundary_before(s: &str, idx: usize) -> bool {
 /// punch through "limestone". The returned span is sliced out of the original
 /// `haystack`, so the caller emits the prose's own suffix ("eggs", "tomatoes").
 ///
-/// Matching stays **case-sensitive**. Case-folding was tried (to highlight a
-/// capitalized sentence-initial mention like "Parsley …") and rejected: recipe
-/// steps overwhelmingly open with an imperative verb spelled like an ingredient
-/// head noun ("Oil the pan", "Salt to taste", "Cream together…"), so folding
-/// case mis-highlights the *normal* form of an instruction. Telling noun from
-/// verb needs a POS tagger / word list, both of which this matcher avoids by
-/// design — so the capitalized-mention case stays a documented `xfail`.
+/// Matching is **case-sensitive** except at chunk start, where a guarded
+/// case-insensitive pass catches sentence-initial capitalized mentions without
+/// mis-highlighting imperative step openers ("Oil the pan") or mid-sentence
+/// capitals ("the best Parsley around").
 fn find_candidate(haystack: &str, candidate: &str) -> Option<(usize, usize)> {
     let clen = candidate.len();
     for (pos, m) in haystack.match_indices(candidate) {
@@ -103,7 +150,7 @@ fn find_candidate(haystack: &str, candidate: &str) -> Option<(usize, usize)> {
         // Otherwise this occurrence fails the trailing guard; `match_indices`
         // keeps scanning for a later, boundary-valid one.
     }
-    None
+    find_candidate_case_insensitive_at_start(haystack, candidate)
 }
 
 // find any text chunks which have an ingredient name as a substring in them.
@@ -578,9 +625,11 @@ mod tests {
 
     /// Plural-suffix matching, with the boundary guard re-checked past the
     /// suffix. Each case: (input, name, expected chunks). Surface text must
-    /// carry the prose's own plural, not the candidate. Matching is
-    /// case-sensitive (see `find_candidate` doc for why case-folding was
-    /// rejected): a capitalized mention stays plain text.
+    /// carry the prose's own plural, not the candidate.
+    ///
+    /// Sentence-initial capitalized mentions use guarded case-insensitive
+    /// matching (see `find_candidate_case_insensitive_at_start`); mid-sentence
+    /// capitals and imperative openers stay plain text.
     #[rstest]
     // plural: name "egg" matches prose "eggs", surface keeps the plural.
     #[case::plural_s("beat the eggs", "egg", vec![
@@ -597,11 +646,9 @@ mod tests {
     // apostrophe-s is a boundary, not a plural to absorb.
     #[case::apostrophe_s("trim the egg's shell", "egg", vec![
         Chunk::Text("trim the ".into()), Chunk::Ing("egg".into()), Chunk::Text("'s shell".into())])]
-    // case-sensitive guard: a capitalized sentence-initial mention does NOT
-    // match a lowercase name (the documented xfail) — folding case here would
-    // mis-highlight imperative verbs like "Oil"/"Salt" that open recipe steps.
-    #[case::cap_start_no_match("Parsley is nice", "parsley", vec![
-        Chunk::Text("Parsley is nice".into())])]
+    // Sentence-initial capitalized head noun matches via guarded case-insensitive pass.
+    #[case::cap_start_match("Parsley is nice", "parsley", vec![
+        Chunk::Ing("Parsley".into()), Chunk::Text(" is nice".into())])]
     // same guard after a sentence terminator: still no case-fold.
     #[case::cap_after_period_no_match("Stir well. Onion adds depth", "onion", vec![
         Chunk::Text("Stir well. Onion adds depth".into())])]
@@ -609,6 +656,10 @@ mod tests {
     // "Oil" opening a step must stay text, not highlight name "olive oil".
     #[case::imperative_verb_guard("Oil the pan well", "olive oil", vec![
         Chunk::Text("Oil the pan well".into())])]
+    #[case::imperative_salt_to("Salt to taste", "salt", vec![
+        Chunk::Text("Salt to taste".into())])]
+    #[case::cap_start_plural_es("Tomatoes are ripe", "tomato", vec![
+        Chunk::Ing("Tomatoes".into()), Chunk::Text(" are ripe".into())])]
     // must-preserve: "oil" never matches inside "broil" (leading boundary).
     #[case::broil_guard("broil until charred", "oil", vec![
         Chunk::Text("broil until charred".into())])]

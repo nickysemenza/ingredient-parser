@@ -283,6 +283,17 @@ pub enum Confidence {
 /// Review-queue consumers should key off the discrete [`fell_back`] /
 /// [`unparsed_digit`] booleans rather than a [`confidence`] threshold.
 ///
+/// ```
+/// use ingredient::{from_str, ParseNotes, Confidence};
+///
+/// let notes: ParseNotes = from_str("2 cups flour").parse_notes;
+/// assert_eq!(notes.confidence, Confidence::High);
+/// assert!(!notes.fell_back);
+///
+/// let notes = from_str("salt to taste").parse_notes;
+/// assert_eq!(notes.confidence, Confidence::Medium);
+/// ```
+///
 /// [`fell_back`]: ParseNotes::fell_back
 /// [`unparsed_digit`]: ParseNotes::unparsed_digit
 /// [`confidence`]: ParseNotes::confidence

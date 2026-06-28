@@ -11,7 +11,6 @@
 
 use crate::Ingredient;
 use crate::unit::Measure;
-use crate::usage::classify_usage;
 
 /// A single piece of an ingredient's modifier, tagged by what it represents.
 /// The tag gives a structured view (see [`ParsedIngredient::prep`] etc.); the
@@ -109,16 +108,13 @@ impl ParsedIngredient {
 impl From<ParsedIngredient> for Ingredient {
     fn from(parsed: ParsedIngredient) -> Ingredient {
         let modifier = super::refine::strip_wrapping_parens(parsed.modifier_string());
-        // Classified from name+modifier here; the pipeline re-classifies once
-        // more with the raw line in hand (see `parse_pipeline_after_normalize`).
-        let usage = classify_usage(&parsed.name, modifier.as_deref(), None, None);
         Ingredient {
             name: parsed.name,
             amounts: parsed.amounts,
             modifier,
             optional: parsed.optional,
-            usage,
-            // Overwritten at the parse funnel (`parse_ingredient_line`).
+            // Set authoritatively at the parse funnel (`parse_pipeline_after_normalize`).
+            usage: Default::default(),
             parse_notes: Default::default(),
         }
     }

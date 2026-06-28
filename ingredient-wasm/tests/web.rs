@@ -47,7 +47,7 @@ fn test_parse_ingredient_range() {
 
 #[wasm_bindgen_test]
 fn test_format_amount() {
-    assert_eq!(ingredient_wasm::format_amount(amount("cup", 2.0)), "2 cup");
+    assert_eq!(ingredient_wasm::format_amount(amount("cup", 2.0)), "2 cups");
 }
 
 #[wasm_bindgen_test]

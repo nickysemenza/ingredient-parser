@@ -5,6 +5,7 @@
 //! - Price-per format: "$5/4lb"
 //! - With source: "4 lb = $5 @ costco"
 
+use crate::error::{IngredientError, IngredientResult};
 use crate::parser::parse_amount_string;
 use crate::unit::Measure;
 use serde::{Deserialize, Serialize};
@@ -30,10 +31,13 @@ pub struct ParsedUnitMapping {
 /// assert_eq!(result.a.value(), 4.0);
 /// assert_eq!(result.b.value(), 5.0);
 /// ```
-pub fn parse_unit_mapping(input: &str) -> Result<ParsedUnitMapping, String> {
+pub fn parse_unit_mapping(input: &str) -> IngredientResult<ParsedUnitMapping> {
     let input = input.trim();
     if input.is_empty() {
-        return Err("Empty input".to_string());
+        return Err(IngredientError::UnitMappingError {
+            input: input.to_string(),
+            reason: "empty input".to_string(),
+        });
     }
 
     // Extract source if present: "... @ source"
@@ -41,8 +45,18 @@ pub fn parse_unit_mapping(input: &str) -> Result<ParsedUnitMapping, String> {
 
     // Try conversion format: "4 lb = $5"
     if let Some((left, right)) = mapping_part.split_once('=') {
-        let a = parse_amount_string(left.trim())?;
-        let b = parse_amount_string(right.trim())?;
+        let a = parse_amount_string(left.trim()).map_err(|reason| {
+            IngredientError::AmountParseError {
+                input: left.trim().to_string(),
+                reason,
+            }
+        })?;
+        let b = parse_amount_string(right.trim()).map_err(|reason| {
+            IngredientError::AmountParseError {
+                input: right.trim().to_string(),
+                reason,
+            }
+        })?;
         return Ok(ParsedUnitMapping { a, b, source });
     }
 
@@ -56,9 +70,10 @@ pub fn parse_unit_mapping(input: &str) -> Result<ParsedUnitMapping, String> {
         });
     }
 
-    Err(format!(
-        "Invalid unit mapping format: '{input}'. Expected format: '4 lb = $5' or '$5/4lb'"
-    ))
+    Err(IngredientError::UnitMappingError {
+        input: input.to_string(),
+        reason: "expected format: '4 lb = $5' or '$5/4lb'".to_string(),
+    })
 }
 
 /// Extract source from input if present
@@ -77,7 +92,7 @@ fn extract_source(input: &str) -> (&str, Option<String>) {
 
 /// Try to parse price-per format: "$5/4lb" or "$5/4 lb"
 /// Returns None if not in price-per format, Some(Result) if it looks like price-per
-fn try_parse_price_per(input: &str) -> Option<Result<(Measure, Measure), String>> {
+fn try_parse_price_per(input: &str) -> Option<IngredientResult<(Measure, Measure)>> {
     // Must start with $ and contain /
     if !input.starts_with('$') || !input.contains('/') {
         return None;
@@ -89,8 +104,18 @@ fn try_parse_price_per(input: &str) -> Option<Result<(Measure, Measure), String>
     let amount_str = &input[slash_pos + 1..];
 
     Some((|| {
-        let price = parse_amount_string(price_str.trim())?;
-        let amount = parse_amount_string(amount_str.trim())?;
+        let price = parse_amount_string(price_str.trim()).map_err(|reason| {
+            IngredientError::AmountParseError {
+                input: price_str.trim().to_string(),
+                reason,
+            }
+        })?;
+        let amount = parse_amount_string(amount_str.trim()).map_err(|reason| {
+            IngredientError::AmountParseError {
+                input: amount_str.trim().to_string(),
+                reason,
+            }
+        })?;
         Ok((price, amount))
     })())
 }
@@ -189,6 +214,22 @@ mod tests {
     #[case::empty("")]
     fn test_invalid_format(#[case] input: &str) {
         assert!(parse_unit_mapping(input).is_err());
+    }
+
+    #[rstest]
+    #[case::bad_left("not an amount = $5", "not an amount")]
+    #[case::bad_right("4 lb = not money", "not money")]
+    #[case::bad_price_per("$bad/4lb", "$bad")]
+    #[case::bad_price_per_amount("$5/notlb", "notlb")]
+    fn test_amount_parse_errors(#[case] input: &str, #[case] bad_part: &str) {
+        let err = parse_unit_mapping(input).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                crate::IngredientError::AmountParseError { ref input, .. } if input == bad_part
+            ),
+            "expected AmountParseError for {bad_part:?}, got {err:?}"
+        );
     }
 
     // ============================================================================
