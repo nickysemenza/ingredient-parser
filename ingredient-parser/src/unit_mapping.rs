@@ -216,6 +216,22 @@ mod tests {
         assert!(parse_unit_mapping(input).is_err());
     }
 
+    #[rstest]
+    #[case::bad_left("not an amount = $5", "not an amount")]
+    #[case::bad_right("4 lb = not money", "not money")]
+    #[case::bad_price_per("$bad/4lb", "$bad")]
+    #[case::bad_price_per_amount("$5/notlb", "notlb")]
+    fn test_amount_parse_errors(#[case] input: &str, #[case] bad_part: &str) {
+        let err = parse_unit_mapping(input).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                crate::IngredientError::AmountParseError { ref input, .. } if input == bad_part
+            ),
+            "expected AmountParseError for {bad_part:?}, got {err:?}"
+        );
+    }
+
     // ============================================================================
     // Unit Singularization Test
     // ============================================================================

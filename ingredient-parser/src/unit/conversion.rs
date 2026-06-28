@@ -416,6 +416,17 @@ pub fn convert_measure_with_graph_explained(
     Some((result.denormalize(), steps))
 }
 
+/// Unit node used by [`make_graph`] for a display unit string (e.g. `"cup"` →
+/// [`Unit::Teaspoon`] after volume normalization).
+pub fn mapping_graph_unit(unit: &str) -> Unit {
+    Measure::new(unit, 1.0).normalize().unit().normalize()
+}
+
+/// [`MeasureKind`] for converting to a specific unit via user mappings.
+pub fn mapping_target_kind(unit: &str) -> MeasureKind {
+    MeasureKind::Other(mapping_graph_unit(unit).to_str().into_owned())
+}
+
 /// Convert a measure to a target kind using user-provided mappings.
 ///
 /// Convenience wrapper that builds the graph and converts in one call.
@@ -442,6 +453,12 @@ pub(crate) fn convert_measure_via_mappings(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mapping_target_kind_uses_normalized_graph_node() {
+        assert_eq!(mapping_graph_unit("cup"), Unit::Teaspoon);
+        assert_eq!(mapping_target_kind("cup").to_str(), "other:tsp");
+    }
 
     #[test]
     fn test_make_graph_basic() {

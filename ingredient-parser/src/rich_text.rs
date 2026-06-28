@@ -656,6 +656,10 @@ mod tests {
     // "Oil" opening a step must stay text, not highlight name "olive oil".
     #[case::imperative_verb_guard("Oil the pan well", "olive oil", vec![
         Chunk::Text("Oil the pan well".into())])]
+    #[case::imperative_salt_to("Salt to taste", "salt", vec![
+        Chunk::Text("Salt to taste".into())])]
+    #[case::cap_start_plural_es("Tomatoes are ripe", "tomato", vec![
+        Chunk::Ing("Tomatoes".into()), Chunk::Text(" are ripe".into())])]
     // must-preserve: "oil" never matches inside "broil" (leading boundary).
     #[case::broil_guard("broil until charred", "oil", vec![
         Chunk::Text("broil until charred".into())])]
