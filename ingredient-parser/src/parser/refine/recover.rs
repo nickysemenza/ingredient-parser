@@ -106,12 +106,6 @@ impl IngredientParser {
                 .to_lowercase();
             wl == "and" || wl == "&"
         };
-        // Stopwords that, as the would-be head noun's first word, mean the modifier
-        // is a prose clause, not "<preps> <head noun>".
-        const STOPWORDS: &[&str] = &[
-            "then", "to", "for", "with", "if", "until", "or", "such", "as", "plus", "about", "per",
-            "from", "into", "over", "on", "in", "at", "the", "a", "an", "of",
-        ];
 
         // Precondition: the name is a pure leading prep chain.
         let name_pure_prep =
@@ -142,7 +136,9 @@ impl IngredientParser {
         let first_lower = first_word
             .trim_matches(|c: char| !c.is_alphanumeric())
             .to_lowercase();
-        if STOPWORDS.contains(&first_lower.as_str()) {
+        // Stopwords that, as the would-be head noun's first word, mean the modifier
+        // is a prose clause, not "<preps> <head noun>".
+        if crate::parser::vocab::MODIFIER_STOPWORDS.contains(&first_lower.as_str()) {
             return;
         }
 

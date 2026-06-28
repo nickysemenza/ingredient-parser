@@ -35,7 +35,8 @@
 //!   rewrite in [`normalize`].
 //!
 //! The `normalize::REWRITES`, `recognize::RECOGNIZERS`, and `refine::REFINE_PIPELINE`
-//! lists are each an ordered, named, one-line-to-extend source of truth; the
+//! tables (built via [`stage::define_stage_pipeline!`](crate::define_stage_pipeline))
+//! are each an ordered, named, one-line-to-extend source of truth; the
 //! refine order is load-bearing (see [`refine`]). Always add a corpus row for
 //! the fix (`tests/corpus/corpus.jsonl`).
 
@@ -46,11 +47,13 @@ pub(crate) mod normalize;
 pub(crate) mod pipeline;
 pub(crate) mod recognize;
 pub(crate) mod refine;
+pub(crate) mod stage;
 pub(crate) mod vocab;
 
 pub(crate) use helpers::parse_amount_string;
 pub(crate) use helpers::{
-    Res, parse_ingredient_text, parse_unit_text, text_number, thousands_number,
+    Res, byte_aligned_lowercase, parse_ingredient_text, parse_unit_text, text_number,
+    thousands_number,
 };
 pub(crate) use measurement::guards::is_distance_unit;
 pub(crate) use measurement::{MeasurementMode, MeasurementParser};

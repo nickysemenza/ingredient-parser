@@ -2,7 +2,9 @@ use super::*;
 
 impl IngredientParser {
     pub(super) fn extract_adjectives_from_name(&self, parsed: &mut ParsedIngredient) {
-        let mut name_lower = parsed.name.to_lowercase();
+        let Some(mut name_lower) = crate::parser::byte_aligned_lowercase(&parsed.name) else {
+            return;
+        };
         let mut found_adjectives: Vec<&String> = self
             .adjectives
             .iter()
@@ -56,13 +58,6 @@ impl IngredientParser {
             // ("fresh or frozen …"), not the implied default — leave it in the
             // name for the alternative pass to reconstruct ("fresh blueberries").
             if adjective.as_str() == "fresh" && name_lower[end..].starts_with(" or ") {
-                continue;
-            }
-            // `pos`/`end` are byte offsets into the lowercased name. Lowercasing
-            // can change byte lengths for some Unicode (e.g. 'İ' -> "i̇"), so these
-            // offsets may not fall on char boundaries in the original `name`.
-            // Skip rather than panic when slicing `name` would split a char.
-            if !name.is_char_boundary(pos) || !name.is_char_boundary(end) {
                 continue;
             }
 
@@ -216,15 +211,9 @@ impl IngredientParser {
     /// article "the") keep a plain "<name> for <noun>" like "flour for bread"
     /// intact.
     pub(super) fn extract_purpose_gerund(&self, parsed: &mut ParsedIngredient) {
-        use regex::Regex;
-        use std::sync::LazyLock;
-
         // Match the first word-boundary " for " on the original string so the
         // byte offsets stay valid for slicing.
-        static FOR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-            #[allow(clippy::expect_used)]
-            Regex::new(r"(?i)\s+for\s+").expect("invalid for-clause regex")
-        });
+        crate::lazy_regex!(FOR_PATTERN, r"(?i)\s+for\s+");
 
         // Borrow `parsed.name` for the match/guards; only the two owned result
         // strings are built before the name is reassigned, so no upfront clone.

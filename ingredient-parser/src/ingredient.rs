@@ -148,6 +148,24 @@ impl Ingredient {
         }
     }
 
+    /// Parser-internal ingredient without [`classify_usage`]. The grammar and
+    /// recognizer paths build this shape; usage is set when lowering from IR.
+    pub(crate) fn from_parser_parts(
+        name: impl Into<String>,
+        amounts: Vec<Measure>,
+        modifier: Option<String>,
+        optional: bool,
+    ) -> Self {
+        Ingredient {
+            name: name.into(),
+            amounts,
+            modifier,
+            optional,
+            usage: Default::default(),
+            parse_notes: Default::default(),
+        }
+    }
+
     /// Create a new optional ingredient with the given components
     ///
     /// # Example

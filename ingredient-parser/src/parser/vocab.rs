@@ -5,6 +5,40 @@
 //! is consumed where it was before (seeding the parser's `HashSet`s, or via
 //! `.contains` checks); only the data's home moved.
 
+/// Spelled-out count tokens recognized as leading quantities ("one" … "twelve",
+/// "a"/"an"). Consumed by `normalize::is_count_token`.
+pub(crate) const SPELLED_COUNTS: &[&str] = &[
+    "a", "an", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "eleven", "twelve",
+];
+
+/// Spelled-out number words parsed as amounts. Order matches `helpers::text_number`
+/// precedence (longest/most-specific first). Articles "a"/"an" are handled separately
+/// there (they require a trailing space).
+pub(crate) const NUMBER_WORDS: &[(&str, f64)] = &[
+    ("twelve", 12.0),
+    ("eleven", 11.0),
+    ("ten", 10.0),
+    ("nine", 9.0),
+    ("eight", 8.0),
+    ("seven", 7.0),
+    ("six", 6.0),
+    ("five", 5.0),
+    ("four", 4.0),
+    ("three", 3.0),
+    ("two", 2.0),
+    ("one", 1.0),
+    ("dozen", 12.0),
+    ("half", 0.5),
+];
+
+/// Stopwords that signal a modifier clause is prose, not a shared head noun. Union
+/// of the lists used in `refine::recover` and `refine::alternatives`.
+pub(crate) const MODIFIER_STOPWORDS: &[&str] = &[
+    "then", "to", "for", "with", "if", "until", "or", "such", "as", "plus", "about", "per", "from",
+    "into", "over", "on", "in", "at", "the", "a", "an", "of",
+];
+
 /// Preparation adjectives that get extracted from the name into the modifier.
 /// These describe how an ingredient is prepared before use. Multi-word forms
 /// (e.g. "firmly packed") win over their single-word substring ("packed") via

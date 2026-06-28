@@ -18,6 +18,14 @@ use crate::unit::Measure;
 
 pub(crate) type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
+/// Lowercase `s` only when the result preserves byte length, so offsets found in
+/// the lowercase copy align with `s` for slicing. Returns `None` when case-folding
+/// changes byte length (e.g. `'İ'` → `"i\u{307}"`).
+pub(crate) fn byte_aligned_lowercase(s: &str) -> Option<String> {
+    let lower = s.to_lowercase();
+    (lower.len() == s.len()).then_some(lower)
+}
+
 /// Parse a simple amount string like "4 lb", "$5", "120g", "1/2 cup"
 ///
 /// Crate-internal utility for parsing standalone amount strings without full
@@ -137,6 +145,19 @@ fn number_word<'a>(word: &'static str, value: f64, input: &'a str) -> Res<&'a st
     }
 }
 
+/// Try each spelled-out number word from [`vocab::NUMBER_WORDS`], longest first.
+fn try_spelled_number_words(input: &str) -> Res<&str, f64> {
+    for &(word, value) in crate::parser::vocab::NUMBER_WORDS {
+        if let Ok(result) = number_word(word, value, input) {
+            return Ok(result);
+        }
+    }
+    Err(nom::Err::Error(VerboseError::from_error_kind(
+        input,
+        nom::error::ErrorKind::Tag,
+    )))
+}
+
 /// Parse spelled-out text numbers: integer words ("one".."twelve", "dozen") and
 /// the articles "a"/"an" (which mean a quantity of one). Numeric words require a
 /// word boundary so they never match inside a larger word.
@@ -144,20 +165,7 @@ pub(crate) fn text_number(input: &str) -> Res<&str, f64> {
     context(
         "text_number",
         alt((
-            |i| number_word("twelve", 12.0, i),
-            |i| number_word("eleven", 11.0, i),
-            |i| number_word("ten", 10.0, i),
-            |i| number_word("nine", 9.0, i),
-            |i| number_word("eight", 8.0, i),
-            |i| number_word("seven", 7.0, i),
-            |i| number_word("six", 6.0, i),
-            |i| number_word("five", 5.0, i),
-            |i| number_word("four", 4.0, i),
-            |i| number_word("three", 3.0, i),
-            |i| number_word("two", 2.0, i),
-            |i| number_word("one", 1.0, i),
-            |i| number_word("dozen", 12.0, i),
-            |i| number_word("half", 0.5, i),
+            try_spelled_number_words,
             |i| tag_no_case("an ").parse(i).map(|(r, _)| (r, 1.0)),
             |i| tag_no_case("a ").parse(i).map(|(r, _)| (r, 1.0)),
         )),

@@ -51,12 +51,7 @@ fn strip_footnote_markers(input: &str) -> Cow<'_, str> {
 /// note)"). Anchored to the end so a mid-name asterisk is untouched; the Unicode
 /// circled-digit markers are handled by `strip_footnote_markers`.
 fn strip_trailing_footnote_markers(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static TRAILING_MARK: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"\s*[*\u{2020}\u{2021}]+\s*$").expect("invalid trailing-footnote regex")
-    });
+    crate::lazy_regex!(TRAILING_MARK, r"\s*[*\u{2020}\u{2021}]+\s*$");
     TRAILING_MARK.replace(input, "")
 }
 
@@ -66,13 +61,10 @@ fn strip_trailing_footnote_markers(input: &str) -> Cow<'_, str> {
 /// it lands at the head of the name ("– shiitake mushrooms"). The trailing
 /// whitespace requirement keeps a hyphenated/negative leading token untouched.
 fn strip_leading_bullet(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static LEADING_BULLET: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"^\s*[-\u{2013}\u{2014}\u{2022}\u{00B7}\u{2219}*]\s+")
-            .expect("invalid leading-bullet regex")
-    });
+    crate::lazy_regex!(
+        LEADING_BULLET,
+        r"^\s*[-\u{2013}\u{2014}\u{2022}\u{00B7}\u{2219}*]\s+"
+    );
     LEADING_BULLET.replace(input, "")
 }
 
@@ -89,15 +81,10 @@ fn strip_leading_bullet(input: &str) -> Cow<'_, str> {
 /// page ref with real content ("(from Lamb Meat Soup, this page)") is left for
 /// the modifier — only pure navigation cruft is dropped.
 fn strip_cross_reference(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static CROSS_REF: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(
-            r"(?i)\s*\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*\s*\)",
-        )
-        .expect("invalid cross-reference regex")
-    });
+    crate::lazy_regex!(
+        CROSS_REF,
+        r"(?i)\s*\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*\s*\)"
+    );
     CROSS_REF.replace_all(input, "")
 }
 
@@ -107,12 +94,7 @@ fn strip_cross_reference(input: &str) -> Cow<'_, str> {
 /// exactly an optional "see" plus "note"/"notes", so a paren carrying real
 /// content ("(note the color)") is left for the modifier.
 fn strip_note_reference(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static NOTE_REF: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"(?i)\s*\(\s*(?:see\s+)?notes?\s*\)").expect("invalid note-reference regex")
-    });
+    crate::lazy_regex!(NOTE_REF, r"(?i)\s*\(\s*(?:see\s+)?notes?\s*\)");
     NOTE_REF.replace_all(input, "")
 }
 
@@ -122,15 +104,10 @@ fn strip_note_reference(input: &str) -> Cow<'_, str> {
 /// Meringue", `{recipe:1}`). Anchored to a leading quantity so prose uses of
 /// "batch" elsewhere in a line are untouched; the quantity is preserved.
 fn rewrite_batch_of_to_recipe(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static BATCH_OF: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(
-            r"(?i)^(\s*[\d\x{00BC}-\x{00BE}\x{2150}-\x{215E}][\d\x{00BC}-\x{00BE}\x{2150}-\x{215E}\s./-]*\s+)batch(?:es)?\s+of\s+",
-        )
-        .expect("invalid batch-of regex")
-    });
+    crate::lazy_regex!(
+        BATCH_OF,
+        r"(?i)^(\s*[\d\x{00BC}-\x{00BE}\x{2150}-\x{215E}][\d\x{00BC}-\x{00BE}\x{2150}-\x{215E}\s./-]*\s+)batch(?:es)?\s+of\s+"
+    );
     BATCH_OF.replace(input, "${1}recipe ")
 }
 
@@ -142,15 +119,10 @@ fn rewrite_batch_of_to_recipe(input: &str) -> Cow<'_, str> {
 /// the modifier. Running before `strip_cross_reference`, this peels off the ref
 /// and leaves the bare "(optional)" for `strip_optional_note` to flag.
 fn split_crossref_optional(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static CROSS_REF_OPTIONAL: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(
-            r"(?i)\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*[\s,;]+optional\s*\)",
-        )
-        .expect("invalid cross-reference+optional regex")
-    });
+    crate::lazy_regex!(
+        CROSS_REF_OPTIONAL,
+        r"(?i)\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*[\s,;]+optional\s*\)"
+    );
     CROSS_REF_OPTIONAL.replace_all(input, "(optional)")
 }
 
@@ -159,11 +131,9 @@ fn split_crossref_optional(input: &str) -> Cow<'_, str> {
 /// immediately followed by a number so ordinary names ("the works seasoning")
 /// are untouched. ("a"/"an" already read as a quantity of 1, so they're left.)
 fn strip_leading_determiner(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static LEADING_THE: LazyLock<Regex> = LazyLock::new(|| {
+    crate::lazy_regex!(LEADING_THE, {
+        use regex::Regex;
         let frac = crate::fraction::VULGAR_FRACTIONS;
-        #[allow(clippy::expect_used)]
         Regex::new(&format!(r"(?i)^the\s+([0-9{frac}])")).expect("invalid leading-the regex")
     });
     LEADING_THE.replace(input, "$1")
@@ -179,12 +149,7 @@ fn strip_leading_determiner(input: &str) -> Cow<'_, str> {
 /// quantity, it's kept — dropping it would silently zero the amount, whereas
 /// leaving the digit lets the parse surface `unparsed_digit` for review instead.
 fn strip_minus_equivalence(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static MINUS_PAREN: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"\s*\([^)]*\bminus\b[^)]*\)").expect("invalid minus-equivalence regex")
-    });
+    crate::lazy_regex!(MINUS_PAREN, r"\s*\([^)]*\bminus\b[^)]*\)");
     let stripped = MINUS_PAREN.replace_all(input, "");
     // `replace_all` borrows unchanged when nothing matched.
     if matches!(stripped, Cow::Borrowed(_)) {
@@ -208,11 +173,9 @@ fn strip_minus_equivalence(input: &str) -> Cow<'_, str> {
 /// secondary amount. Scoped to a parenthetical whose content starts with a number
 /// so ordinary "(total recipe)"-style asides are untouched.
 fn strip_total_in_measure_paren(input: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static TOTAL_PAREN: LazyLock<Regex> = LazyLock::new(|| {
+    crate::lazy_regex!(TOTAL_PAREN, {
+        use regex::Regex;
         let frac = crate::fraction::VULGAR_FRACTIONS;
-        #[allow(clippy::expect_used)]
         Regex::new(&format!(r"(?i)\(([0-9{frac}][^)]*?)\s+(?:in\s+)?total\)"))
             .expect("invalid total-paren regex")
     });
@@ -313,12 +276,8 @@ fn is_bare_dimension(tok: &str) -> bool {
 /// A leading count: digits/decimal/fraction ("1", "1½", "2.5") or a spelled-out
 /// small number ("one" … "twelve", "a"/"an").
 fn is_count_token(tok: &str) -> bool {
-    const SPELLED: &[&str] = &[
-        "a", "an", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-        "eleven", "twelve",
-    ];
     let lower = tok.to_lowercase();
-    SPELLED.contains(&lower.as_str())
+    crate::parser::vocab::SPELLED_COUNTS.contains(&lower.as_str())
         || (!tok.is_empty()
             && tok.chars().all(|c| {
                 c.is_ascii_digit() || c == '.' || c == '/' || crate::fraction::is_vulgar(c)
@@ -346,149 +305,44 @@ fn is_dimension_descriptor(tok: &str) -> bool {
 /// (`Cow::Owned`) or unchanged (`Cow::Borrowed`).
 type Rewrite = fn(&str) -> Cow<'_, str>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum RewriteId {
-    StripNbsp,
-    StripLeadingBullet,
-    StripFootnoteMarkers,
-    StripTrailingFootnoteMarkers,
-    SplitCrossrefOptional,
-    StripCrossReference,
-    StripNoteReference,
-    RewriteBatchOfToRecipe,
-    StripLeadingDeterminer,
-    StripMinusEquivalence,
-    StripTotalInMeasureParen,
-    LiftLeadingDimension,
-    LiftLeadingPieceDimension,
+crate::define_stage_pipeline! {
+    enum RewriteId,
+    struct RewriteEntry,
+    const REWRITES: &[RewriteEntry],
+    type Rewrite = Rewrite,
+    trace: none,
+    (StripNbsp, "strip_nbsp", strip_nbsp),
+    (StripLeadingBullet, "strip_leading_bullet", strip_leading_bullet),
+    (StripFootnoteMarkers, "strip_footnote_markers", strip_footnote_markers),
+    (
+        StripTrailingFootnoteMarkers,
+        "strip_trailing_footnote_markers",
+        strip_trailing_footnote_markers
+    ),
+    (SplitCrossrefOptional, "split_crossref_optional", split_crossref_optional),
+    (StripCrossReference, "strip_cross_reference", strip_cross_reference),
+    (StripNoteReference, "strip_note_reference", strip_note_reference),
+    (RewriteBatchOfToRecipe, "rewrite_batch_of_to_recipe", rewrite_batch_of_to_recipe),
+    (StripLeadingDeterminer, "strip_leading_determiner", strip_leading_determiner),
+    (StripMinusEquivalence, "strip_minus_equivalence", strip_minus_equivalence),
+    (StripTotalInMeasureParen, "strip_total_in_measure_paren", strip_total_in_measure_paren),
+    (LiftLeadingDimension, "lift_leading_dimension", lift_leading_dimension),
+    (
+        LiftLeadingPieceDimension,
+        "lift_leading_piece_dimension",
+        lift_leading_piece_dimension
+    ),
 }
-
-impl RewriteId {
-    const fn as_str(self) -> &'static str {
-        match self {
-            RewriteId::StripNbsp => "strip_nbsp",
-            RewriteId::StripLeadingBullet => "strip_leading_bullet",
-            RewriteId::StripFootnoteMarkers => "strip_footnote_markers",
-            RewriteId::StripTrailingFootnoteMarkers => "strip_trailing_footnote_markers",
-            RewriteId::SplitCrossrefOptional => "split_crossref_optional",
-            RewriteId::StripCrossReference => "strip_cross_reference",
-            RewriteId::StripNoteReference => "strip_note_reference",
-            RewriteId::RewriteBatchOfToRecipe => "rewrite_batch_of_to_recipe",
-            RewriteId::StripLeadingDeterminer => "strip_leading_determiner",
-            RewriteId::StripMinusEquivalence => "strip_minus_equivalence",
-            RewriteId::StripTotalInMeasureParen => "strip_total_in_measure_paren",
-            RewriteId::LiftLeadingDimension => "lift_leading_dimension",
-            RewriteId::LiftLeadingPieceDimension => "lift_leading_piece_dimension",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum RewritePhase {
-    Artifact,
-    Reference,
-    RecipeAlias,
-    GrammarLift,
-}
-
-#[derive(Clone, Copy)]
-struct RewriteEntry {
-    id: RewriteId,
-    phase: RewritePhase,
-    run: Rewrite,
-}
-
-impl RewriteEntry {
-    const fn new(id: RewriteId, phase: RewritePhase, run: Rewrite) -> Self {
-        Self { id, phase, run }
-    }
-}
-
-/// The ordered pre-parse rewrite pipeline. Each entry runs on the output of the
-/// previous one; a borrow result means "no change" and is threaded through
-/// without allocating. Each entry's ID owns the trace label used in the
-/// parse trace (mirrors `refine::REFINE_PIPELINE`). Adding a rewrite is a one-line
-/// edit here.
-const REWRITES: &[RewriteEntry] = &[
-    RewriteEntry::new(RewriteId::StripNbsp, RewritePhase::Artifact, strip_nbsp),
-    RewriteEntry::new(
-        RewriteId::StripLeadingBullet,
-        RewritePhase::Artifact,
-        strip_leading_bullet,
-    ),
-    RewriteEntry::new(
-        RewriteId::StripFootnoteMarkers,
-        RewritePhase::Artifact,
-        strip_footnote_markers,
-    ),
-    RewriteEntry::new(
-        RewriteId::StripTrailingFootnoteMarkers,
-        RewritePhase::Artifact,
-        strip_trailing_footnote_markers,
-    ),
-    RewriteEntry::new(
-        RewriteId::SplitCrossrefOptional,
-        RewritePhase::Reference,
-        split_crossref_optional,
-    ),
-    RewriteEntry::new(
-        RewriteId::StripCrossReference,
-        RewritePhase::Reference,
-        strip_cross_reference,
-    ),
-    RewriteEntry::new(
-        RewriteId::StripNoteReference,
-        RewritePhase::Reference,
-        strip_note_reference,
-    ),
-    RewriteEntry::new(
-        RewriteId::RewriteBatchOfToRecipe,
-        RewritePhase::RecipeAlias,
-        rewrite_batch_of_to_recipe,
-    ),
-    RewriteEntry::new(
-        RewriteId::StripLeadingDeterminer,
-        RewritePhase::Artifact,
-        strip_leading_determiner,
-    ),
-    RewriteEntry::new(
-        RewriteId::StripMinusEquivalence,
-        RewritePhase::Reference,
-        strip_minus_equivalence,
-    ),
-    RewriteEntry::new(
-        RewriteId::StripTotalInMeasureParen,
-        RewritePhase::Reference,
-        strip_total_in_measure_paren,
-    ),
-    RewriteEntry::new(
-        RewriteId::LiftLeadingDimension,
-        RewritePhase::GrammarLift,
-        lift_leading_dimension,
-    ),
-    RewriteEntry::new(
-        RewriteId::LiftLeadingPieceDimension,
-        RewritePhase::GrammarLift,
-        lift_leading_piece_dimension,
-    ),
-];
 
 /// Apply one rewrite to the accumulator, preserving its owned-ness: a borrowed
 /// result means the rewrite changed nothing, so the accumulator is kept as-is
 /// (no allocation on the common path). When tracing, a rewrite that *did* change
 /// the line emits a before→after node so `--explain` shows which rewrite fired.
 fn apply_rewrite<'a>(acc: Cow<'a, str>, rewrite: &RewriteEntry) -> Cow<'a, str> {
-    let RewriteEntry {
-        id,
-        phase: _phase,
-        run,
-    } = *rewrite;
+    let RewriteEntry { run, .. } = *rewrite;
     match run(acc.as_ref()) {
         Cow::Owned(rewritten) => {
-            if crate::trace::is_tracing_enabled() {
-                crate::trace::trace_enter(id.as_str(), acc.as_ref());
-                crate::trace::trace_exit_success(0, &rewritten);
-            }
+            crate::trace::trace_on_change(rewrite.id().as_str(), acc.as_ref(), &rewritten, true);
             Cow::Owned(rewritten)
         }
         Cow::Borrowed(_) => acc,
@@ -528,16 +382,8 @@ pub(super) fn normalize_input(input: &str) -> Cow<'_, str> {
 /// whole-line "(optional)" (nothing else) is left for the optional-ingredient
 /// path and not treated as a note.
 pub(super) fn strip_optional_note(input: &str) -> (Cow<'_, str>, bool) {
-    use regex::Regex;
-    use std::sync::LazyLock;
-    static PAREN: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"(?i)\s*\(optional\)").expect("invalid optional-note regex")
-    });
-    static TRAIL_WORD: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"(?i),?\s+optional\s*$").expect("invalid optional-word regex")
-    });
+    crate::lazy_regex!(PAREN, r"(?i)\s*\(optional\)");
+    crate::lazy_regex!(TRAIL_WORD, r"(?i),?\s+optional\s*$");
 
     let trimmed = input.trim();
     // Whole-line "(optional)" → leave for try_parse_optional_ingredient.
@@ -655,333 +501,4 @@ pub(super) fn collapse_whitespace(input: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rstest::rstest;
-    use std::collections::HashSet;
-
-    const EXPECTED_REWRITES: &[(RewriteId, RewritePhase)] = &[
-        (RewriteId::StripNbsp, RewritePhase::Artifact),
-        (RewriteId::StripLeadingBullet, RewritePhase::Artifact),
-        (RewriteId::StripFootnoteMarkers, RewritePhase::Artifact),
-        (
-            RewriteId::StripTrailingFootnoteMarkers,
-            RewritePhase::Artifact,
-        ),
-        (RewriteId::SplitCrossrefOptional, RewritePhase::Reference),
-        (RewriteId::StripCrossReference, RewritePhase::Reference),
-        (RewriteId::StripNoteReference, RewritePhase::Reference),
-        (RewriteId::RewriteBatchOfToRecipe, RewritePhase::RecipeAlias),
-        (RewriteId::StripLeadingDeterminer, RewritePhase::Artifact),
-        (RewriteId::StripMinusEquivalence, RewritePhase::Reference),
-        (RewriteId::StripTotalInMeasureParen, RewritePhase::Reference),
-        (RewriteId::LiftLeadingDimension, RewritePhase::GrammarLift),
-        (
-            RewriteId::LiftLeadingPieceDimension,
-            RewritePhase::GrammarLift,
-        ),
-    ];
-
-    const EXPECTED_REWRITE_LABELS: &[&str] = &[
-        "strip_nbsp",
-        "strip_leading_bullet",
-        "strip_footnote_markers",
-        "strip_trailing_footnote_markers",
-        "split_crossref_optional",
-        "strip_cross_reference",
-        "strip_note_reference",
-        "rewrite_batch_of_to_recipe",
-        "strip_leading_determiner",
-        "strip_minus_equivalence",
-        "strip_total_in_measure_paren",
-        "lift_leading_dimension",
-        "lift_leading_piece_dimension",
-    ];
-
-    #[test]
-    fn rewrite_pipeline_order_is_locked() {
-        let actual: Vec<_> = REWRITES
-            .iter()
-            .map(|rewrite| (rewrite.id, rewrite.phase))
-            .collect();
-        assert_eq!(actual, EXPECTED_REWRITES);
-    }
-
-    #[test]
-    fn rewrite_ids_are_unique() {
-        let ids: HashSet<_> = REWRITES.iter().map(|rewrite| rewrite.id).collect();
-        assert_eq!(ids.len(), REWRITES.len());
-    }
-
-    #[test]
-    fn rewrite_trace_labels_are_stable() {
-        let labels: Vec<_> = REWRITES.iter().map(|rewrite| rewrite.id.as_str()).collect();
-        assert_eq!(labels, EXPECTED_REWRITE_LABELS);
-    }
-
-    #[rstest]
-    // Descriptive aside flanked by name words → lifted out.
-    #[case::temp(
-        "room-temperature (70° to 80°F) water",
-        Some(("room-temperature water", "70° to 80°F"))
-    )]
-    #[case::distance(
-        "sliced (¼ inch / 6 mm) green onions",
-        Some(("sliced green onions", "¼ inch / 6 mm"))
-    )]
-    // Mass/volume parenthetical → left for the amount path.
-    #[case::mass("flour (190 grams) sifted", None)]
-    // The English preposition "in" must not read as the inch unit: only a
-    // number-adjacent "in"/"m" counts as a dimension.
-    #[case::preposition_in("tuna (packed in oil) drained", None)]
-    #[case::number_adjacent_in(
-        "steak (1 in thick) trimmed",
-        Some(("steak trimmed", "1 in thick"))
-    )]
-    // Count + size ("4 (½-inch) slices"): digit before paren, not a name word.
-    #[case::count_size("4 (½-inch) slices pork", None)]
-    // Trailing paren (no name text after) → left for other paths.
-    #[case::trailing("warm water (100°F)", None)]
-    // Leading paren (optional-ingredient shape) → untouched.
-    #[case::leading("(70°F) water", None)]
-    fn test_lift_inline_descriptive_paren(
-        #[case] input: &str,
-        #[case] expected: Option<(&str, &str)>,
-    ) {
-        let got = lift_inline_descriptive_paren(input);
-        assert_eq!(
-            got,
-            expected.map(|(c, a)| (c.to_string(), a.to_string())),
-            "input: {input}"
-        );
-    }
-
-    #[rstest]
-    #[case::nbsp("1\u{a0}cup\u{a0}flour", "1 cup flour")]
-    #[case::no_nbsp("1 cup flour", "1 cup flour")]
-    fn test_strip_nbsp(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(strip_nbsp(input), expected);
-    }
-
-    #[rstest]
-    // Circled-number footnote markers are dropped.
-    #[case::circled("rye flour \u{2460}", "rye flour ")]
-    #[case::dingbat("salt \u{2776}", "salt ")]
-    // No marker → passes through unchanged.
-    #[case::clean("rye flour", "rye flour")]
-    fn test_strip_footnote_markers(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(strip_footnote_markers(input), expected);
-    }
-
-    #[rstest]
-    // A trailing asterisk/dagger footnote marker is dropped.
-    #[case::asterisk("shredded zucchini (see note)*", "shredded zucchini (see note)")]
-    #[case::dagger("kosher salt \u{2020}", "kosher salt")]
-    #[case::double_dagger("flour\u{2021}", "flour")]
-    // A mid-name asterisk is NOT trailing → left alone.
-    #[case::mid("2% milk", "2% milk")]
-    // No marker → unchanged.
-    #[case::clean("rye flour", "rye flour")]
-    fn test_strip_trailing_footnote_markers(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(strip_trailing_footnote_markers(input), expected);
-    }
-
-    #[rstest]
-    // "the" directly before a quantity is a determiner → dropped.
-    #[case::the_fraction("the ¼ cup of garlic chives", "¼ cup of garlic chives")]
-    #[case::the_digit("the 2 cups flour", "2 cups flour")]
-    // "the" before a word is part of the name → left alone.
-    #[case::the_word("the works seasoning", "the works seasoning")]
-    fn test_strip_leading_determiner(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(strip_leading_determiner(input), expected);
-    }
-
-    #[rstest]
-    // An amount stated elsewhere → the redundant minus-paren is dropped.
-    #[case::redundant(
-        "15 tablespoons (2 sticks minus 1 tablespoon) unsalted butter",
-        "15 tablespoons unsalted butter"
-    )]
-    // Sole-quantity guard: when the minus-paren is the line's ONLY quantity it is
-    // KEPT, so the parse can surface `unparsed_digit` rather than silently zeroing
-    // the amount. (Regression for the minus-equivalence guard.)
-    #[case::sole_quantity(
-        "butter (2 sticks minus 1 tablespoon)",
-        "butter (2 sticks minus 1 tablespoon)"
-    )]
-    // No minus-paren at all → unchanged.
-    #[case::no_paren("2 sticks butter", "2 sticks butter")]
-    fn test_strip_minus_equivalence(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(strip_minus_equivalence(input), expected);
-    }
-
-    #[rstest]
-    // Parenthetical "(optional)" mid/end of a line → stripped, flagged optional.
-    #[case::paren("flour (optional)", "flour", true)]
-    // Trailing ", optional" word form → stripped, flagged.
-    #[case::trailing_word("toasted sesame seeds, optional", "toasted sesame seeds", true)]
-    // Whole-line "(optional)" is left for try_parse_optional_ingredient.
-    #[case::whole_line("(optional)", "(optional)", false)]
-    // No optional marker → unchanged, not flagged.
-    #[case::none("flour", "flour", false)]
-    fn test_strip_optional_note(
-        #[case] input: &str,
-        #[case] expected_text: &str,
-        #[case] expected_flag: bool,
-    ) {
-        let (text, flag) = strip_optional_note(input);
-        assert_eq!(text, expected_text, "text for: {input}");
-        assert_eq!(flag, expected_flag, "flag for: {input}");
-    }
-
-    #[rstest]
-    // Parenthesized leading descriptor → moved to a trailing modifier.
-    #[case::paren_form(
-        "1 (1½-inch-thick) bone-in pork chop (about 1¼ pounds)",
-        "1 bone-in pork chop (about 1¼ pounds), 1½-inch-thick"
-    )]
-    // Bare leading descriptor after a spelled count → moved to the end.
-    #[case::bare_form(
-        "Four ½-inch-thick boneless pork shoulder steaks (2 pounds)",
-        "Four boneless pork shoulder steaks (2 pounds), ½-inch-thick"
-    )]
-    // A size ("10-ounce") ends in a unit, not a shape word → left for the
-    // count+size amount parser, never moved.
-    #[case::size_untouched("1 (10-ounce) can tomatoes", "1 (10-ounce) can tomatoes")]
-    // No leading count → untouched (avoids stealing a mid-line "¼-inch-thick").
-    #[case::no_count(
-        "onion, cut into ¼-inch-thick slices",
-        "onion, cut into ¼-inch-thick slices"
-    )]
-    // A plain dimension ("8-inch") without a shape suffix → untouched.
-    #[case::plain_dimension("1 8-inch cake pan", "1 8-inch cake pan")]
-    fn test_lift_leading_dimension(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(
-            lift_leading_dimension(input).as_ref(),
-            expected,
-            "input: {input}"
-        );
-    }
-
-    #[rstest]
-    // Bare dimension + container + weight paren → count 1 inserted, dimension
-    // carried to the end so the count+container+weight path can parse.
-    #[case::inch_piece(
-        "1-inch piece (20g) ginger, unpeeled",
-        "1 piece (20g) ginger, unpeeled, 1-inch"
-    )]
-    #[case::vulgar("¾-inch piece (15g) ginger", "1 piece (15g) ginger, ¾-inch")]
-    #[case::range(
-        "1–1½-inch piece (20–30g) ginger, unpeeled",
-        "1 piece (20–30g) ginger, unpeeled, 1–1½-inch"
-    )]
-    #[case::cm_knob("2-cm knob (10g) ginger", "1 knob (10g) ginger, 2-cm")]
-    // No weight paren → bare form parses fine on its own; left untouched.
-    #[case::no_weight("2-inch piece ginger", "2-inch piece ginger")]
-    // A weight size ("10-ounce") ends in a unit, not a distance word → untouched.
-    #[case::weight_size("10-ounce can tomatoes", "10-ounce can tomatoes")]
-    // Second token not a container noun → untouched ("pan" is not a container).
-    #[case::not_container(
-        "9-inch springform (about 23cm) pan",
-        "9-inch springform (about 23cm) pan"
-    )]
-    fn test_lift_leading_piece_dimension(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(
-            lift_leading_piece_dimension(input).as_ref(),
-            expected,
-            "input: {input}"
-        );
-    }
-
-    #[rstest]
-    // Leading list bullets (en/em-dash, bullet, asterisk) are stripped.
-    #[case::en_dash("– shiitake mushrooms, whole", "shiitake mushrooms, whole")]
-    #[case::em_dash("— bean sprouts", "bean sprouts")]
-    #[case::bullet("• daikon, sliced", "daikon, sliced")]
-    #[case::ascii_hyphen("- firm tofu", "firm tofu")]
-    // A hyphenated leading token (no trailing space after the dash) is untouched.
-    #[case::hyphenated_name("all-purpose flour", "all-purpose flour")]
-    fn test_strip_leading_bullet(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(
-            strip_leading_bullet(input).as_ref(),
-            expected,
-            "input: {input}"
-        );
-    }
-
-    #[rstest]
-    // "total" inside a measure parenthetical is dropped so the weight can hoist.
-    #[case::pounds("steaks (2 pounds total)", "steaks (2 pounds)")]
-    #[case::in_total("steaks (2 pounds in total)", "steaks (2 pounds)")]
-    // A non-measure parenthetical (no leading number) is left alone.
-    #[case::not_measure("(total recipe)", "(total recipe)")]
-    fn test_strip_total_in_measure_paren(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(
-            strip_total_in_measure_paren(input).as_ref(),
-            expected,
-            "input: {input}"
-        );
-    }
-
-    #[rstest]
-    // Single page reference (the original cases).
-    #[case::this_page("walnuts (this page)", "walnuts")]
-    #[case::see_this_page("walnuts (see this page),", "walnuts,")]
-    #[case::page_n("flour (page 123)", "flour")]
-    // Chains of page refs joined by connectors (Xi'an Famous Foods).
-    #[case::to_chain("8 dumplings (this page to this page)", "8 dumplings")]
-    #[case::or_list(
-        "1 recipe filling (this page, this page, or this page)",
-        "1 recipe filling"
-    )]
-    // A paren that MIXES a page ref with real content is left alone.
-    #[case::mixed(
-        "8 cups broth (from Lamb Soup, this page)",
-        "8 cups broth (from Lamb Soup, this page)"
-    )]
-    // A page ref mixed with "optional" is left by strip_cross_reference itself —
-    // split_crossref_optional (which runs first) reduces it to "(optional)".
-    #[case::with_optional(
-        "XFF Chili Oil (this page; optional)",
-        "XFF Chili Oil (this page; optional)"
-    )]
-    fn test_strip_cross_reference(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(
-            strip_cross_reference(input).as_ref(),
-            expected,
-            "input: {input}"
-        );
-    }
-
-    #[rstest]
-    #[case::semicolon("XFF Chili Oil (this page; optional)", "XFF Chili Oil (optional)")]
-    #[case::comma_see_page("flour (see page 12, optional)", "flour (optional)")]
-    // No "optional" → untouched (strip_cross_reference handles the pure ref).
-    #[case::pure_ref("walnuts (this page)", "walnuts (this page)")]
-    // No page ref → untouched (a bare "(optional)" is strip_optional_note's job).
-    #[case::pure_optional("walnuts (optional)", "walnuts (optional)")]
-    fn test_split_crossref_optional(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(
-            split_crossref_optional(input).as_ref(),
-            expected,
-            "input: {input}"
-        );
-    }
-
-    #[rstest]
-    // "(see note)" / "(note)" headnote cross-refs are dropped.
-    #[case::see_note("shredded zucchini (see note)", "shredded zucchini")]
-    #[case::bare_note("zucchini (note)", "zucchini")]
-    #[case::see_notes("zucchini (see notes)", "zucchini")]
-    // A paren carrying real content is left for the modifier.
-    #[case::real_content("zucchini (note the color)", "zucchini (note the color)")]
-    // No note paren → unchanged.
-    #[case::clean("shredded zucchini", "shredded zucchini")]
-    fn test_strip_note_reference(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(
-            strip_note_reference(input).as_ref(),
-            expected,
-            "input: {input}"
-        );
-    }
-}
+mod tests;

@@ -26,24 +26,11 @@ fn extract_secondary_amounts(
     modifier: &str,
     units: &std::collections::HashSet<String>,
 ) -> (Vec<Measure>, String) {
-    use regex::Regex;
-    use std::sync::LazyLock;
-
-    // An explicit approximation aside, anywhere in the modifier: "(about 2 cups)".
-    static SECONDARY_AMOUNT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"\((?:from\s+)?(?:about|approximately|roughly|around)\s+([^)]+)\)")
-            .expect("invalid secondary amount regex")
-    });
-    // A bare trailing measure parenthetical: "coarsely chopped (2.1 oz / 60g)" —
-    // a weight/volume equivalence stated for the prepped ingredient. Anchored to
-    // the end and validated below (the inner text must fully parse as a
-    // non-distance measurement), so non-measure asides like "(softened)" or
-    // "(70% cacao)" fall through untouched.
-    static TRAILING_MEASURE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"\(([^)]+)\)\s*$").expect("invalid trailing-measure regex")
-    });
+    crate::lazy_regex!(
+        SECONDARY_AMOUNT_PATTERN,
+        r"\((?:from\s+)?(?:about|approximately|roughly|around)\s+([^)]+)\)"
+    );
+    crate::lazy_regex!(TRAILING_MEASURE_PATTERN, r"\(([^)]+)\)\s*$");
 
     // The approximation aside wins (it strips the "about" off the amount text);
     // otherwise fall back to a bare trailing measure parenthetical.
