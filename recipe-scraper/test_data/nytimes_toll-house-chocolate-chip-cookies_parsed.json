@@ -92,10 +92,10 @@
           "usage": "normal"
         },
         {
-          "name": "large eggs",
+          "name": "eggs",
           "amounts": [
             {
-              "unit": "whole",
+              "unit": "large",
               "value": 2.0,
               "upper_value": null
             }

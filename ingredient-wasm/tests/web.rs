@@ -89,41 +89,38 @@ fn test_is_valid_unit_custom() {
 
 #[wasm_bindgen_test]
 fn test_parse_unit_mapping_conversion_format() {
-    let result = ingredient_wasm::parse_unit_mapping("4 lb = $5".to_string());
+    let result = ingredient_wasm::parse_unit_mapping("4 lb = $5");
     assert!(result.is_ok());
 }
 
 #[wasm_bindgen_test]
 fn test_parse_unit_mapping_price_per_format() {
-    let result = ingredient_wasm::parse_unit_mapping("$5/4lb".to_string());
+    let result = ingredient_wasm::parse_unit_mapping("$5/4lb");
     assert!(result.is_ok());
 }
 
 #[wasm_bindgen_test]
 fn test_parse_unit_mapping_with_source() {
-    let result = ingredient_wasm::parse_unit_mapping("4 lb = $5 @ costco".to_string());
+    let result = ingredient_wasm::parse_unit_mapping("4 lb = $5 @ costco");
     assert_eq!(result.unwrap().source.as_deref(), Some("costco"));
 }
 
 #[wasm_bindgen_test]
 fn test_parse_unit_mapping_invalid() {
-    let result = ingredient_wasm::parse_unit_mapping("invalid".to_string());
+    let result = ingredient_wasm::parse_unit_mapping("invalid");
     assert!(result.is_err());
 }
 
 #[wasm_bindgen_test]
 fn test_parse_rich_text_simple() {
-    let result = ingredient_wasm::parse_rich_text(
-        "Add 2 cups of flour".to_string(),
-        vec!["flour".to_string()],
-    );
+    let result = ingredient_wasm::parse_rich_text("Add 2 cups of flour", vec!["flour".to_string()]);
     assert!(result.is_ok());
 }
 
 #[wasm_bindgen_test]
 fn test_parse_rich_text_multiple_ingredients() {
     let result = ingredient_wasm::parse_rich_text(
-        "Mix the flour and sugar together".to_string(),
+        "Mix the flour and sugar together",
         vec!["flour".to_string(), "sugar".to_string()],
     );
     assert!(result.is_ok());
