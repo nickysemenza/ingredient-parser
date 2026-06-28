@@ -8,7 +8,6 @@
 
 use crate::parser::{MeasurementMode, MeasurementParser};
 use crate::unit;
-use crate::usage::classify_usage;
 use crate::{Ingredient, IngredientParser};
 
 impl IngredientParser {
@@ -89,8 +88,7 @@ impl IngredientParser {
                 amounts,
                 modifier: None,
                 optional: false,
-                usage: classify_usage(name_part.trim(), None, Some(input), None),
-                // Overwritten at the parse funnel (`parse_ingredient_line`).
+                usage: Default::default(),
                 parse_notes: Default::default(),
             });
         }

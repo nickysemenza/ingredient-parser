@@ -13,6 +13,9 @@ pub enum IngredientError {
     /// Measure operation error (adding incompatible measures, etc.)
     #[error("Measure operation '{operation}' failed: {reason}")]
     MeasureError { operation: String, reason: String },
+    /// Failed to parse a unit mapping string ("4 lb = $5", "$5/4lb", …)
+    #[error("Failed to parse unit mapping '{input}': {reason}")]
+    UnitMappingError { input: String, reason: String },
 }
 
 /// Result type for ingredient parsing operations

@@ -53,7 +53,33 @@
 {"input": "set on limestone", "ingredients": ["lime"], "chunks": [{"text": "set on limestone"}]}
 // Apostrophe-s is a boundary, not a plural to absorb: surface stays "onion".
 {"input": "trim the onion's stem", "ingredients": ["red onion"], "chunks": [{"text": "trim the "}, {"ing": "onion"}, {"text": "'s stem"}]}
-// Case-sensitive guard: a capitalized mention stays text, since matching never folds case.
+// Case-sensitive guard: a capitalized mention mid-sentence stays text.
 {"input": "the best Parsley around", "ingredients": ["flat-leaf parsley"], "chunks": [{"text": "the best Parsley around"}]}
-// Known gap (xfail): a capitalized mention is not matched. Case-folding to catch it would mis-highlight the imperative verbs that open most recipe steps ("Oil the pan", "Salt to taste", "Cream together…"); telling noun from verb needs a POS tagger / word list, which this matcher avoids by design.
-{"input": "Parsley makes a nice garnish", "ingredients": ["flat-leaf parsley"], "chunks": [{"ing": "Parsley"}, {"text": " makes a nice garnish"}], "xfail": "case-sensitive match misses capitalized mentions; case-folding risks verb collisions ('Oil', 'Salt', 'Cream' opening a step)"}
+// Sentence-initial capitalized head noun (guarded case-insensitive at chunk start).
+{"input": "Parsley makes a nice garnish", "ingredients": ["flat-leaf parsley"], "chunks": [{"ing": "Parsley"}, {"text": " makes a nice garnish"}]}
+// Imperative openers must not match even when an ingredient shares the verb spelling.
+{"input": "Oil the pan over medium heat", "ingredients": ["olive oil"], "chunks": [{"text": "Oil the pan over medium heat"}]}
+{"input": "Salt to taste before serving", "ingredients": ["salt"], "chunks": [{"text": "Salt to taste before serving"}]}
+{"input": "Cream together the butter and sugar", "ingredients": ["heavy cream"], "chunks": [{"text": "Cream together the butter and sugar"}]}
+// Mid-sentence amount + ingredient mention.
+{"input": "After 5 minutes, stir in the parsley", "ingredients": ["flat-leaf parsley"], "chunks": [{"text": "After "}, {"measure": [{"unit": "minute", "value": 5.0}]}, {"text": ", stir in the "}, {"ing": "parsley"}]}
+// Parenthetical aside stays prose.
+{"input": "Roast (uncovered) for 20 minutes", "chunks": [{"text": "Roast (uncovered) for "}, {"measure": [{"unit": "minute", "value": 20.0}]}]}
+// Plus-X-for-garnish pattern — garnish phrase stays text, ingredient highlighted.
+{"input": "Top with parsley, plus more for garnish", "ingredients": ["flat-leaf parsley"], "chunks": [{"text": "Top with "}, {"ing": "parsley"}, {"text": ", plus more for garnish"}]}
+// Multiple ingredient mentions in one step.
+{"input": "Combine flour and salt, then add sugar", "ingredients": ["flour", "salt", "sugar"], "chunks": [{"text": "Combine "}, {"ing": "flour"}, {"text": " and "}, {"ing": "salt"}, {"text": ", then add "}, {"ing": "sugar"}]}
+// Approximate duration with leading qualifier preserved as text.
+{"input": "Simmer for about 15 minutes", "chunks": [{"text": "Simmer for about "}, {"measure": [{"unit": "minute", "value": 15.0}]}]}
+// Temperature range in prose.
+{"input": "Warm to 300-325°F", "chunks": [{"text": "Warm to "}, {"measure": [{"unit": "°f", "value": 300.0, "upper_value": 325.0}]}]}
+// Ingredient at start of step after a numbered prefix (no highlight — not chunk start).
+{"input": "3 Fold in the egg whites gently", "ingredients": ["egg"], "chunks": [{"text": "3 Fold in the "}, {"ing": "egg"}, {"text": " whites gently"}]}
+// Second mention of same ingredient later in the line.
+{"input": "Add onion, cook until soft, then add more onion", "ingredients": ["red onion"], "chunks": [{"text": "Add "}, {"ing": "onion"}, {"text": ", cook until soft, then add more "}, {"ing": "onion"}]}
+// Semicolon-separated clauses with a measure in the second.
+{"input": "Drain well; return to the pot and cook 2 minutes", "chunks": [{"text": "Drain well; return to the pot and cook "}, {"measure": [{"unit": "minute", "value": 2.0}]}]}
+// Dimension in prose without falsely matching a unit-only ingredient name.
+{"input": "Roll into 1-inch balls", "chunks": [{"text": "Roll into "}, {"measure": [{"unit": "inch", "value": 1.0}]}, {"text": " balls"}]}
+// Garnish callout with ingredient mid-sentence.
+{"input": "Serve hot, sprinkled with parsley", "ingredients": ["flat-leaf parsley"], "chunks": [{"text": "Serve hot, sprinkled with "}, {"ing": "parsley"}]}

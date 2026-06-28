@@ -493,7 +493,9 @@ pub fn graph_unit_mappings(mappings: WUnitMappings) -> String {
 
 #[wasm_bindgen]
 pub fn parse_unit_mapping(input: &str) -> Result<WUnitMapping, String> {
-    Ok(parse_unit_mapping_internal(input)?.into())
+    parse_unit_mapping_internal(input)
+        .map(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[wasm_bindgen]
