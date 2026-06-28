@@ -26,6 +26,33 @@ pub use stages::{GrammarOutcome, RecognizerAttempt, StageReport, StageRewrite};
 pub(crate) use collector::{disable_tracing, enable_tracing};
 pub(crate) use collector::{trace_enter, trace_exit_failure, trace_exit_success};
 
+/// Trace a stage step that may or may not change its input (normalize rewrites,
+/// refine passes). Emits a before→after node only when `changed` is true.
+pub(crate) fn trace_on_change(id: &str, before: &str, after: &str, changed: bool) {
+    if changed && is_tracing_enabled() {
+        trace_enter(id, before);
+        trace_exit_success(0, after);
+    }
+}
+
+/// Trace one recognizer attempt. Returns `result` unchanged after optionally
+/// recording success or "no match" in the trace tree.
+pub(crate) fn trace_attempt<T>(
+    id: &str,
+    input: &str,
+    result: Option<T>,
+    format_success: impl FnOnce(&T) -> String,
+) -> Option<T> {
+    if is_tracing_enabled() {
+        trace_enter(id, input);
+        match &result {
+            Some(value) => trace_exit_success(0, &format_success(value)),
+            None => trace_exit_failure("no match"),
+        }
+    }
+    result
+}
+
 use std::fmt;
 use std::time::Instant;
 

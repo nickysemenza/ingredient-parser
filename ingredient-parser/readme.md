@@ -15,6 +15,41 @@
 
 ---
 
+## Parsing pipeline
+
+Each ingredient line flows through four stages. Ordered tables in the codebase (`REWRITES`, `RECOGNIZERS`, `REFINE_PIPELINE`) are the single source of truth for each stage — add a row to extend.
+
+```mermaid
+flowchart TD
+    input["Raw ingredient line"]
+    normalize["normalize · REWRITES"]
+    optNote["strip optional note"]
+    tryRec["recognize · RECOGNIZERS"]
+    tryCore["grammar · nom parse"]
+    refine["refine · REFINE_PIPELINE"]
+    fallback["name-only fallback"]
+    classify["classify usage"]
+    output["Ingredient"]
+
+    input --> normalize --> optNote --> tryRec
+    tryRec -->|match| classify
+    tryRec -->|no match| tryCore
+    tryCore --> refine --> classify
+    tryCore -->|fail| fallback --> classify
+    classify --> output
+```
+
+| Stage | What it does | Example fix |
+|-------|--------------|-------------|
+| **normalize** | Pre-parse string rewrites | Strip footnote markers, lift dimensional asides |
+| **recognize** | Whole-line special forms (first match wins) | `"Juice of 1 lemon"`, `"Flour — 2 cups"` |
+| **grammar** | Nom combinators capture amounts, name, modifier | New unit token in measurement grammar |
+| **refine** | Post-parse passes recover misplaced text | Move `"chopped"` from name into modifier |
+
+To see which stage shaped a line: `cargo run -p food-cli --quiet -- parse-ingredient --explain "<line>"`
+
+---
+
 ## Example
 
 Given the input:

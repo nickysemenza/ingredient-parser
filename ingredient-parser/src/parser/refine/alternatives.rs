@@ -57,12 +57,16 @@ impl IngredientParser {
         parsed.push_modifier(ModifierPart::Prep(prefix));
     }
 
-    pub(super) fn extract_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
-        let (name, alternative) = extract_alternative(&parsed.name);
+    fn apply_alternative_split(parsed: &mut ParsedIngredient, split: (String, Option<String>)) {
+        let (name, alternative) = split;
         parsed.name = name;
         if let Some(alternative) = alternative {
             parsed.push_modifier(ModifierPart::Alternative(alternative));
         }
+    }
+
+    pub(super) fn extract_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
+        Self::apply_alternative_split(parsed, extract_alternative(&parsed.name));
     }
 
     /// Split a no-quantity "X or Y" alternative left in the name into the
@@ -70,11 +74,10 @@ impl IngredientParser {
     /// [`Self::extract_alternative_from_name`]), so any "or" remaining here is a
     /// plain ingredient/adjective alternative sharing the primary's amount.
     pub(super) fn extract_word_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
-        let (name, alternative) = split_word_alternative(&parsed.name, &self.adjectives);
-        parsed.name = name;
-        if let Some(alternative) = alternative {
-            parsed.push_modifier(ModifierPart::Alternative(alternative));
-        }
+        Self::apply_alternative_split(
+            parsed,
+            split_word_alternative(&parsed.name, &self.adjectives),
+        );
     }
 
     /// Split an inclusive "X and/or Y" coordination out of the name into the
@@ -82,13 +85,7 @@ impl IngredientParser {
     /// phrase survives parsing; this pass then keeps the primary ingredient in
     /// `name` and preserves the author's "and/or" wording in the modifier.
     pub(super) fn extract_and_or_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
-        use regex::Regex;
-        use std::sync::LazyLock;
-
-        static AND_OR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-            #[allow(clippy::expect_used)]
-            Regex::new(r"(?i)\s+and/or\s+").expect("invalid and/or split regex")
-        });
+        crate::lazy_regex!(AND_OR_PATTERN, r"(?i)\s+and/or\s+");
 
         let Some(m) = AND_OR_PATTERN.find(&parsed.name) else {
             return;
@@ -162,12 +159,9 @@ impl IngredientParser {
 /// - `cleaned_name`: The ingredient name with alternative removed
 /// - `optional_alternative`: The alternative portion to be added to modifier
 fn extract_alternative(name: &str) -> (String, Option<String>) {
-    use regex::Regex;
-    use std::sync::LazyLock;
-
-    static ALTERNATIVE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    crate::lazy_regex!(ALTERNATIVE_PATTERN, {
+        use regex::Regex;
         let frac = crate::fraction::VULGAR_FRACTIONS;
-        #[allow(clippy::expect_used)]
         Regex::new(&format!(r"(?i)\s+or\s+(\d+|[{frac}]|a\s+|an\s+)"))
             .expect("invalid alternative pattern regex")
     });
@@ -209,15 +203,9 @@ pub(super) fn split_word_alternative(
     name: &str,
     adjectives: &std::collections::HashSet<String>,
 ) -> (String, Option<String>) {
-    use regex::Regex;
-    use std::sync::LazyLock;
-
     // First word-boundary " or ", case-insensitive. Matching on the original
     // `name` (not a lowercased copy) keeps the byte offsets valid for slicing.
-    static OR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        Regex::new(r"(?i)\s+or\s+").expect("invalid or-split regex")
-    });
+    crate::lazy_regex!(OR_PATTERN, r"(?i)\s+or\s+");
 
     let Some(m) = OR_PATTERN.find(name) else {
         return (name.to_string(), None);
@@ -265,14 +253,6 @@ pub(super) fn split_word_alternative(
 
     // Stopwords/prepositions signal `right` is a noun + trailing phrase
     // ("pepper to taste"), not "adjective + shared head" ("white onion").
-    const STOPWORDS: &[&str] = &[
-        "to", "for", "with", "if", "such", "plus", "about", "as", "per", "from", "into", "over",
-        "on", "in", "at", "the", "a", "an", "of",
-    ];
-
-    // Only an *adjective* left can share the right side's head noun ("fresh or
-    // frozen blueberries" -> "fresh blueberries"). A complete-noun left absorbs
-    // nothing ("amaretto or dark rum" stays "amaretto", not "amaretto rum").
     let left_lower = left.to_lowercase();
     let left_is_premodifier = crate::parser::vocab::is_shared_head_modifier(&left_lower)
         || adjectives.contains(&left_lower);
@@ -285,7 +265,7 @@ pub(super) fn split_word_alternative(
         && !adjectives.contains(&right_tokens[0].to_lowercase())
         && !right_tokens
             .iter()
-            .any(|t| STOPWORDS.contains(&t.to_lowercase().as_str()));
+            .any(|t| crate::parser::vocab::MODIFIER_STOPWORDS.contains(&t.to_lowercase().as_str()));
 
     // Path A — a single known-premodifier left shares the right's head noun:
     // "red or white onion" -> "red onion".

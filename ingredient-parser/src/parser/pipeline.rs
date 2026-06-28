@@ -273,6 +273,36 @@ impl<'a> GrammarCapture<'a> {
     }
 }
 
+/// Shared ingredient grammar fields. The `values` arm parses measurements and
+/// name chunks directly; the `spans` arm wraps them in `consumed` for field-span
+/// extraction.
+macro_rules! ingredient_grammar_fields {
+    ($mp:ident, values) => {
+        (
+            opt(|a| $mp.parse_measurement_list(a)),
+            space0,
+            opt(|a| $mp.parse_bracketed_amounts(a)),
+            space0,
+            opt(many1(parse_ingredient_text)),
+            opt(|a| $mp.parse_parenthesized_amounts(a)),
+            opt(tag(", ")),
+            not_line_ending,
+        )
+    };
+    ($mp:ident, spans) => {
+        (
+            opt(consumed(|a| $mp.parse_measurement_list(a))),
+            space0,
+            opt(consumed(|a| $mp.parse_bracketed_amounts(a))),
+            space0,
+            opt(consumed(many1(parse_ingredient_text))),
+            opt(consumed(|a| $mp.parse_parenthesized_amounts(a))),
+            opt(tag(", ")),
+            consumed(not_line_ending),
+        )
+    };
+}
+
 /// Shared ingredient grammar (values). Used by [`IngredientParser::parse_ingredient`].
 ///
 /// NOTE: a leading preparation adjective ("1 cup chopped onion") is NOT consumed
@@ -284,27 +314,17 @@ fn parse_ingredient_grammar_values<'a>(
 ) -> Res<&'a str, ParsedIngredient> {
     context(
         "ingredient",
-        (
-            opt(|a| mp.parse_measurement_list(a)),
-            space0,
-            opt(|a| mp.parse_bracketed_amounts(a)),
-            space0,
-            opt(many1(parse_ingredient_text)),
-            opt(|a| mp.parse_parenthesized_amounts(a)),
-            opt(tag(", ")),
-            not_line_ending,
-        )
-            .map(
-                |(primary, _, bracketed, _, name_chunks, paren, _, modifier_text)| {
-                    build_parsed_ingredient(GrammarValues {
-                        primary,
-                        bracketed,
-                        name_chunks,
-                        paren,
-                        modifier: modifier_text,
-                    })
-                },
-            ),
+        ingredient_grammar_fields!(mp, values).map(
+            |(primary, _, bracketed, _, name_chunks, paren, _, modifier_text)| {
+                build_parsed_ingredient(GrammarValues {
+                    primary,
+                    bracketed,
+                    name_chunks,
+                    paren,
+                    modifier: modifier_text,
+                })
+            },
+        ),
     )
     .parse(input)
 }
@@ -317,38 +337,21 @@ fn parse_ingredient_grammar_spans<'a>(
 ) -> Res<&'a str, GrammarCapture<'a>> {
     context(
         "ingredient",
-        (
-            opt(consumed(|a| mp.parse_measurement_list(a))),
-            space0,
-            opt(consumed(|a| mp.parse_bracketed_amounts(a))),
-            space0,
-            opt(consumed(many1(parse_ingredient_text))),
-            opt(consumed(|a| mp.parse_parenthesized_amounts(a))),
-            opt(tag(", ")),
-            consumed(not_line_ending),
-        )
-            .map(
-                |(primary, _, bracketed, _, name, paren, _, (modifier, _))| GrammarCapture {
-                    primary,
-                    bracketed,
-                    name,
-                    paren,
-                    modifier,
-                },
-            ),
+        ingredient_grammar_fields!(mp, spans).map(
+            |(primary, _, bracketed, _, name, paren, _, (modifier, _))| GrammarCapture {
+                primary,
+                bracketed,
+                name,
+                paren,
+                modifier,
+            },
+        ),
     )
     .parse(input)
 }
 
 fn fallback_ingredient(input: &str) -> Ingredient {
-    Ingredient {
-        name: input.trim().to_string(),
-        amounts: vec![],
-        modifier: None,
-        optional: false,
-        usage: Default::default(),
-        parse_notes: Default::default(),
-    }
+    Ingredient::from_parser_parts(input.trim(), vec![], None, false)
 }
 
 fn raw_name(name_chunks: Option<Vec<&str>>) -> String {

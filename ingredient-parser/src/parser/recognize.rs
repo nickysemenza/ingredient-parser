@@ -15,23 +15,10 @@ impl IngredientParser {
     /// that matches (or `None` to fall through to the core parse).
     pub(super) fn run_recognizers(&self, input: &str) -> Option<Ingredient> {
         RECOGNIZERS.iter().find_map(|recognizer| {
-            let _phase = recognizer.phase;
-            if !crate::trace::is_tracing_enabled() {
-                return (recognizer.run)(self, input);
-            }
-            // Trace each recognizer attempt so the egui tree shows which matched
-            // (and which were skipped).
-            crate::trace::trace_enter(recognizer.id.as_str(), input);
-            match (recognizer.run)(self, input) {
-                Some(ingredient) => {
-                    crate::trace::trace_exit_success(0, &ingredient.name);
-                    Some(ingredient)
-                }
-                None => {
-                    crate::trace::trace_exit_failure("no match");
-                    None
-                }
-            }
+            let result = (recognizer.run)(self, input);
+            crate::trace::trace_attempt(recognizer.id().as_str(), input, result, |ingredient| {
+                ingredient.name.clone()
+            })
         })
     }
 
@@ -83,14 +70,12 @@ impl IngredientParser {
                 continue;
             }
 
-            return Some(Ingredient {
-                name: name_part.trim().to_string(),
+            return Some(Ingredient::from_parser_parts(
+                name_part.trim(),
                 amounts,
-                modifier: None,
-                optional: false,
-                usage: Default::default(),
-                parse_notes: Default::default(),
-            });
+                None,
+                false,
+            ));
         }
 
         None
@@ -108,14 +93,7 @@ impl IngredientParser {
         // Find the leading "… of " / "… from " clause whose pivot is immediately
         // followed by a number (e.g. "Seeds scraped from 1 …"). Uses the EARLIEST
         // qualifying pivot across both separators.
-        let lower = trimmed.to_lowercase();
-        // Lowercasing can change byte lengths for some Unicode (e.g. 'İ' ->
-        // "i̇"), so offsets found in `lower` would misalign with `trimmed` and
-        // slicing could split a char (panic). Bail for such rare inputs, the
-        // same defense extract_adjectives_from_name uses.
-        if lower.len() != trimmed.len() {
-            return None;
-        }
+        let lower = crate::parser::byte_aligned_lowercase(trimmed)?;
         let pivot_end = [" of ", " from "]
             .iter()
             .filter_map(|sep| {
@@ -167,78 +145,24 @@ impl IngredientParser {
 /// `Ingredient` when the line has its particular shape, else `None`.
 type Recognizer = fn(&IngredientParser, &str) -> Option<Ingredient>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum RecognizerId {
-    OptionalWrapped,
-    TrailingAmount,
-    XOfConstruction,
-}
-
-impl RecognizerId {
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            RecognizerId::OptionalWrapped => "optional_wrapped",
-            RecognizerId::TrailingAmount => "trailing_amount",
-            RecognizerId::XOfConstruction => "x_of_construction",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum RecognizerPhase {
-    Wrapper,
-    AmountPosition,
-    DerivedPart,
-}
-
-#[derive(Clone, Copy)]
-struct RecognizerEntry {
-    id: RecognizerId,
-    phase: RecognizerPhase,
-    run: Recognizer,
-}
-
-impl RecognizerEntry {
-    const fn new(id: RecognizerId, phase: RecognizerPhase, run: Recognizer) -> Self {
-        Self { id, phase, run }
-    }
-}
-
-/// The ordered recognizer list, tried first-match before the core parse. Order
-/// matters: the optional-wrapped check must precede the others (it strips the
-/// outer parens), and x-of-construction is last (most permissive).
-//
-// TODO(parse_multi): an "X and Y" line with two distinct heads ("Kosher salt
-// and freshly ground black pepper") — and a no-quantity "X or Y" contrast
-// ("fresh or frozen blueberries") — is really TWO ingredients. There is no
-// multi-ingredient splitter yet, so `from_str` returns a single Ingredient:
-// refine's " and " guard keeps the and-line as one clean name (rather than
-// doing mid-seam adjective surgery), and the or-line keeps its reconstructed
-// primary + alternative. A future `parse_multi` recognizer would split these
-// into a `Vec<Ingredient>`. Corpus rows for these carry a matching TODO.
-const RECOGNIZERS: &[RecognizerEntry] = &[
-    RecognizerEntry::new(
-        RecognizerId::OptionalWrapped,
-        RecognizerPhase::Wrapper,
-        IngredientParser::try_parse_optional_ingredient,
+crate::define_stage_pipeline! {
+    pub(crate) enum RecognizerId,
+    struct RecognizerEntry,
+    const RECOGNIZERS: &[RecognizerEntry],
+    type Recognizer = Recognizer,
+    trace: pub(crate) RECOGNIZER_TRACE_NAMES,
+    (OptionalWrapped, "optional_wrapped", IngredientParser::try_parse_optional_ingredient),
+    (
+        TrailingAmount,
+        "trailing_amount",
+        IngredientParser::try_parse_trailing_amount_format
     ),
-    RecognizerEntry::new(
-        RecognizerId::TrailingAmount,
-        RecognizerPhase::AmountPosition,
-        IngredientParser::try_parse_trailing_amount_format,
+    (
+        XOfConstruction,
+        "x_of_construction",
+        IngredientParser::try_parse_x_of_construction
     ),
-    RecognizerEntry::new(
-        RecognizerId::XOfConstruction,
-        RecognizerPhase::DerivedPart,
-        IngredientParser::try_parse_x_of_construction,
-    ),
-];
-
-pub(crate) const RECOGNIZER_TRACE_NAMES: &[&str] = &[
-    RecognizerId::OptionalWrapped.as_str(),
-    RecognizerId::TrailingAmount.as_str(),
-    RecognizerId::XOfConstruction.as_str(),
-];
+}
 
 fn is_temperature_unit(unit: &unit::Unit) -> bool {
     matches!(unit, unit::Unit::Fahrenheit | unit::Unit::Celsius)
@@ -249,43 +173,10 @@ fn is_temperature_unit(unit: &unit::Unit) -> bool {
 mod tests {
     use super::*;
     use rstest::rstest;
-    use std::collections::HashSet;
-
-    const EXPECTED_RECOGNIZERS: &[(RecognizerId, RecognizerPhase)] = &[
-        (RecognizerId::OptionalWrapped, RecognizerPhase::Wrapper),
-        (
-            RecognizerId::TrailingAmount,
-            RecognizerPhase::AmountPosition,
-        ),
-        (RecognizerId::XOfConstruction, RecognizerPhase::DerivedPart),
-    ];
-
-    const EXPECTED_RECOGNIZER_LABELS: &[&str] =
-        &["optional_wrapped", "trailing_amount", "x_of_construction"];
-
-    #[test]
-    fn recognizer_order_is_locked() {
-        let actual: Vec<_> = RECOGNIZERS
-            .iter()
-            .map(|recognizer| (recognizer.id, recognizer.phase))
-            .collect();
-        assert_eq!(actual, EXPECTED_RECOGNIZERS);
-    }
 
     #[test]
     fn recognizer_ids_are_unique() {
-        let ids: HashSet<_> = RECOGNIZERS.iter().map(|recognizer| recognizer.id).collect();
-        assert_eq!(ids.len(), RECOGNIZERS.len());
-    }
-
-    #[test]
-    fn recognizer_trace_labels_are_stable() {
-        let labels: Vec<_> = RECOGNIZERS
-            .iter()
-            .map(|recognizer| recognizer.id.as_str())
-            .collect();
-        assert_eq!(labels, EXPECTED_RECOGNIZER_LABELS);
-        assert_eq!(RECOGNIZER_TRACE_NAMES, EXPECTED_RECOGNIZER_LABELS);
+        crate::assert_stage_pipeline!(RECOGNIZERS);
     }
 
     // ── try_parse_optional_ingredient ───────────────────────────────────────
