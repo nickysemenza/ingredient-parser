@@ -47,7 +47,7 @@ jobs:
           target: wasm32-unknown-unknown
       - uses: jetli/wasm-pack-action@v0.4.0
       - name: Install Chrome for headless wasm tests
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
       - name: Run wasm-bindgen tests
         run: wasm-pack test --headless --chrome ingredient-wasm
   coverage:
