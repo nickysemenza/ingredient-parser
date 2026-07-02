@@ -43,6 +43,10 @@ Row schema:
 - When in doubt for a COMMITTED row, copy the value from the parser's OWN
   serialized output (`food-cli parse-ingredient "<line>"` or `parse-lines`), then
   rewrite any repeating decimal as its fraction string.
+- EASIEST for a COMMITTED row: `food-cli parse-ingredient "<line>" --emit-corpus-row`
+  builds the whole row for you — keys in corpus order, optional keys omitted, and
+  repeating decimals already written as exact fraction strings (⅔ → `"2/3"`). It
+  refuses fell-back / low-confidence parses, so it only ever emits a sound row.
 </exact_amount_rule>
 
 <labeling_rules>

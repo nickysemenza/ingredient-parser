@@ -99,6 +99,12 @@ enum Commands {
         /// Export trace to Jaeger JSON format and write to file
         #[arg(long)]
         jaeger_output: Option<String>,
+        /// Print exactly one JSONL corpus row for the parse, ready to append to
+        /// tests/corpus/corpus.jsonl. Refuses (stderr + non-zero exit) when the
+        /// parse fell back or is low-confidence, so a garbage row can't be
+        /// appended blindly. Suppresses the normal JSON output.
+        #[arg(long)]
+        emit_corpus_row: bool,
     },
     /// Parse a file of ingredient lines (one per line) and emit one JSONL object
     /// per line: {line, name, amounts, modifier} — the same shape as
@@ -181,6 +187,80 @@ fn emit_parsed_line(ip: &ingredient::IngredientParser, line: &str) {
         "modifier": p.modifier,
     });
     println!("{}", serde_json::to_string(&obj).unwrap());
+}
+
+/// Render a corpus amount value: an exact fraction *string* (`"2/3"`) for a
+/// non-terminating decimal, else a plain JSON number with no trailing `.0`
+/// (`2.0` → `2`, `0.5` → `0.5`) — matching the hand-authored corpus convention so
+/// ⅔ round-trips exactly rather than as `0.666…`.
+fn corpus_value_json(frac: Option<String>, val: f64) -> String {
+    match frac {
+        Some(s) => serde_json::json!(s).to_string(),
+        // An integer-valued f64 writes as a bare int; keep `serde_json`'s float
+        // rendering (shortest round-trip) for the rest.
+        None if val.fract() == 0.0 && val.abs() < i64::MAX as f64 => (val as i64).to_string(),
+        None => serde_json::json!(val).to_string(),
+    }
+}
+
+/// Serialize one amount as a corpus `{"unit": .., "value": ..}` object string,
+/// with keys in corpus order (unit, value, upper_value). `upper_value` is omitted
+/// entirely when the amount is not a range. Built as a string (not a
+/// `serde_json::Map`, which would alphabetize the keys) to pin that order.
+fn corpus_amount_json(m: &ingredient::unit::Measure) -> String {
+    let unit = serde_json::json!(m.unit().to_string());
+    let value = corpus_value_json(m.value_as_fraction_str(), m.value());
+    match m.upper_value() {
+        Some(upper) => {
+            let upper = corpus_value_json(m.upper_value_as_fraction_str(), upper);
+            format!(r#"{{"unit": {unit}, "value": {value}, "upper_value": {upper}}}"#)
+        }
+        None => format!(r#"{{"unit": {unit}, "value": {value}}}"#),
+    }
+}
+
+/// Build the one-line JSONL corpus row for `input`'s parse, with keys in corpus
+/// order (`input, name, amounts, modifier, optional, usage`) and the optional
+/// keys omitted per corpus convention: `modifier` when `None`, `optional` when
+/// `false`, `usage` when `Normal`. `amounts` is omitted when empty (a bare
+/// name-only row). Returns the row string, or `Err` describing why the parse is
+/// unfit to author (fell back, or low confidence) so the caller can refuse it.
+fn build_corpus_row(ip: &ingredient::IngredientParser, input: &str) -> Result<String, String> {
+    use ingredient::Confidence;
+
+    let ing = ip.from_str(input);
+    let notes = ing.parse_notes;
+    if notes.fell_back {
+        return Err("parse fell back to a name-only ingredient".to_string());
+    }
+    if notes.confidence == Confidence::Low {
+        return Err("low-confidence parse (a digit produced no amount)".to_string());
+    }
+
+    // Assemble by hand so key order is stable without the serde_json
+    // `preserve_order` feature. Each `to_string` value is valid JSON already.
+    let mut parts: Vec<String> = Vec::new();
+    let field = |k: &str, v: &serde_json::Value| format!("{}: {}", serde_json::json!(k), v);
+
+    parts.push(field("input", &serde_json::json!(input)));
+    parts.push(field("name", &serde_json::json!(ing.name)));
+    if !ing.amounts.is_empty() {
+        let amounts: Vec<String> = ing.amounts.iter().map(corpus_amount_json).collect();
+        parts.push(format!("\"amounts\": [{}]", amounts.join(", ")));
+    }
+    if let Some(modifier) = &ing.modifier {
+        parts.push(field("modifier", &serde_json::json!(modifier)));
+    }
+    if ing.optional {
+        parts.push(field("optional", &serde_json::json!(true)));
+    }
+    // `usage` is serialized to its snake_case string; omit the `normal` default.
+    let usage = serde_json::to_value(ing.usage).map_err(|e| e.to_string())?;
+    if usage.as_str() != Some("normal") {
+        parts.push(field("usage", &usage));
+    }
+
+    Ok(format!("{{{}}}", parts.join(", ")))
 }
 
 /// Collect dotted paths of every `null`-valued key in a JSON payload, e.g.
@@ -673,7 +753,23 @@ async fn main() {
             debug,
             explain,
             jaeger_output,
+            emit_corpus_row,
         } => {
+            if *emit_corpus_row {
+                // Authoring helper: one JSONL row for the corpus, or a refusal.
+                let ip = ingredient::IngredientParser::new();
+                match build_corpus_row(&ip, name) {
+                    Ok(row) => println!("{row}"),
+                    Err(reason) => {
+                        eprintln!(
+                            "refusing to emit corpus row for {name:?}: {reason}\n\
+                             (inspect with `parse-ingredient {name:?} --explain`)"
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
             if *debug || *explain || jaeger_output.is_some() {
                 // Use parse_with_trace for debug output or Jaeger export
                 let parser = ingredient::IngredientParser::new();
