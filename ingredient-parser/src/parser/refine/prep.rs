@@ -1,5 +1,102 @@
 use super::*;
 
+/// An adjective after a word-boundary " or " belongs to the ALTERNATIVE, not
+/// the primary: leave it for the alternative passes ("basil or chopped parsley"
+/// must keep "chopped" with parsley, not read as prep for basil). `pos` is the
+/// adjective's byte offset in `name_lower`.
+fn adjective_belongs_to_alternative(name_lower: &str, pos: usize) -> bool {
+    name_lower.find(" or ").is_some_and(|or_pos| pos > or_pos)
+}
+
+/// An adjective after a word-boundary " and " usually belongs to the second
+/// conjunct of an "X and Y" line ("Kosher salt and freshly ground black pepper"
+/// — "freshly ground" modifies the pepper, not the whole line), so leave it in
+/// the name. The `end < len` clause keeps a *trailing* phrase like "to taste"
+/// ("Salt and pepper to taste") extractable: only a mid-seam adjective with a
+/// head noun still after it is skipped. (Multi-ingredient lines with "and"
+/// conjunctions are out of scope for this pass.) `pos`/`end` bound the adjective
+/// in `name_lower`.
+fn adjective_belongs_to_second_conjunct(name_lower: &str, pos: usize, end: usize) -> bool {
+    name_lower
+        .find(" and ")
+        .is_some_and(|and_pos| pos > and_pos && end < name_lower.len())
+}
+
+/// "fresh" immediately before " or " is a genuine contrast ("fresh or frozen …"),
+/// not the implied default — leave it in the name for the alternative pass to
+/// reconstruct ("fresh blueberries"). `end` is the byte offset just past the
+/// adjective in `name_lower`.
+fn fresh_is_contrastive(adjective: &str, name_lower: &str, end: usize) -> bool {
+    adjective == "fresh" && name_lower[end..].starts_with(" or ")
+}
+
+/// Require a whitespace/string-edge boundary on both sides of the adjective, so
+/// an adjective embedded in a larger token is left alone (e.g. "chopped" inside
+/// "well-chopped" must not corrupt the name into "well-"). `pos`/`end` bound the
+/// adjective in `name`.
+fn on_word_boundaries(name: &str, pos: usize, end: usize) -> bool {
+    let before_boundary = name[..pos]
+        .chars()
+        .next_back()
+        .is_none_or(char::is_whitespace);
+    let after_boundary = name[end..].chars().next().is_none_or(char::is_whitespace);
+    before_boundary && after_boundary
+}
+
+/// Fold a stranded intensifier ("very") or manner adverb ("diagonally") sitting
+/// immediately before the adjective into the modifier too, extending the cut so
+/// it doesn't get left behind in the name ("very thinly sliced chives" -> name
+/// "chives"; "diagonally sliced scallions" -> name "scallions", modifier
+/// "diagonally sliced"). Only the word directly abutting the adjective is
+/// consumed. Returns `(prep_phrase, cut)`: the modifier text and the byte offset
+/// in `name`/`name_lower` where the removed span starts. When no adverb folds in,
+/// returns the bare adjective and `pos` unchanged.
+fn extend_cut_over_adverb(
+    adjective: &str,
+    name: &str,
+    name_lower: &str,
+    pos: usize,
+) -> (String, usize) {
+    if let Some(prev) = name_lower[..pos].split_whitespace().next_back()
+        && (crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&prev)
+            || crate::parser::vocab::MANNER_ADVERBS.contains(&prev))
+        && let Some(wstart) = name_lower[..pos].rfind(prev)
+    {
+        let boundary_ok = name.is_char_boundary(wstart)
+            && name[..wstart]
+                .chars()
+                .next_back()
+                .is_none_or(char::is_whitespace);
+        if boundary_ok {
+            return (format!("{prev} {adjective}"), wstart);
+        }
+    }
+    (adjective.to_string(), pos)
+}
+
+/// Remove the `[pos, end)` span from `s`, rejoining the trimmed before/after
+/// slices with a single space. `pos`/`end` must be char boundaries in `s`.
+///
+/// Used to rebuild both `name` and its lowercase view from the same span, so
+/// `name_lower` stays in sync without re-lowercasing the whole string each
+/// iteration. `before`/`after` are pre-trimmed and the caller's guards never
+/// emit a leading/trailing space, so the result needs no final trim.
+fn join_around_span(s: &str, pos: usize, end: usize) -> String {
+    let before = s[..pos].trim();
+    let after = s[end..].trim();
+    let mut out = String::with_capacity(s.len());
+    if !before.is_empty() {
+        out.push_str(before);
+        if !after.is_empty() {
+            out.push(' ');
+        }
+    }
+    if !after.is_empty() {
+        out.push_str(after);
+    }
+    out
+}
+
 impl IngredientParser {
     pub(super) fn extract_adjectives_from_name(&self, parsed: &mut ParsedIngredient) {
         let Some(mut name_lower) = crate::parser::byte_aligned_lowercase(&parsed.name) else {
@@ -16,6 +113,8 @@ impl IngredientParser {
         if found_adjectives.is_empty() {
             return;
         }
+        // Longest-match-first, so a two-word adjective is claimed before either of
+        // its component words. The driver below takes the *first* match per pass.
         found_adjectives.sort_by_key(|adj| Reverse(adj.len()));
         let mut name = parsed.name.clone();
 
@@ -26,76 +125,18 @@ impl IngredientParser {
             let Some(pos) = name_lower.find(adjective.as_str()) else {
                 continue;
             };
-
-            // An adjective after a word-boundary " or " belongs to the
-            // ALTERNATIVE, not the primary: leave it for the alternative passes
-            // ("basil or chopped parsley" must keep "chopped" with parsley, not
-            // read as prep for basil).
-            if let Some(or_pos) = name_lower.find(" or ")
-                && pos > or_pos
-            {
-                continue;
-            }
-
             let end = pos + adjective.len();
 
-            // An adjective after a word-boundary " and " usually belongs to the
-            // second conjunct of an "X and Y" line ("Kosher salt and freshly
-            // ground black pepper" — "freshly ground" modifies the pepper, not
-            // the whole line), so leave it in the name. The `end < len` clause
-            // keeps a *trailing* phrase like "to taste" ("Salt and pepper to
-            // taste") extractable: only a mid-seam adjective with a head noun
-            // still after it is skipped. (Multi-ingredient lines with "and"
-            // conjunctions are out of scope for this pass.)
-            if let Some(and_pos) = name_lower.find(" and ")
-                && pos > and_pos
-                && end < name_lower.len()
+            if adjective_belongs_to_alternative(&name_lower, pos)
+                || adjective_belongs_to_second_conjunct(&name_lower, pos, end)
+                || fresh_is_contrastive(adjective, &name_lower, end)
+                || !on_word_boundaries(&name, pos, end)
             {
                 continue;
             }
 
-            // "fresh" immediately before " or " is a genuine contrast
-            // ("fresh or frozen …"), not the implied default — leave it in the
-            // name for the alternative pass to reconstruct ("fresh blueberries").
-            if adjective.as_str() == "fresh" && name_lower[end..].starts_with(" or ") {
-                continue;
-            }
+            let (prep, cut) = extend_cut_over_adverb(adjective, &name, &name_lower, pos);
 
-            // Require a whitespace/string-edge boundary on both sides, so an
-            // adjective embedded in a larger token is left alone (e.g. "chopped"
-            // inside "well-chopped" must not corrupt the name into "well-").
-            let before_boundary = name[..pos]
-                .chars()
-                .next_back()
-                .is_none_or(char::is_whitespace);
-            let after_boundary = name[end..].chars().next().is_none_or(char::is_whitespace);
-            if !before_boundary || !after_boundary {
-                continue;
-            }
-
-            // Fold a stranded intensifier ("very") or manner adverb ("diagonally")
-            // sitting immediately before the adjective into the modifier too, and
-            // extend the cut so it doesn't get left behind in the name ("very thinly
-            // sliced chives" -> name "chives"; "diagonally sliced scallions" -> name
-            // "scallions", modifier "diagonally sliced"). Only the word directly
-            // abutting the adjective is consumed.
-            let mut prep = adjective.clone();
-            let mut cut = pos;
-            if let Some(prev) = name_lower[..pos].split_whitespace().next_back()
-                && (crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&prev)
-                    || crate::parser::vocab::MANNER_ADVERBS.contains(&prev))
-                && let Some(wstart) = name_lower[..pos].rfind(prev)
-            {
-                let boundary_ok = name.is_char_boundary(wstart)
-                    && name[..wstart]
-                        .chars()
-                        .next_back()
-                        .is_none_or(char::is_whitespace);
-                if boundary_ok {
-                    prep = format!("{prev} {adjective}");
-                    cut = wstart;
-                }
-            }
             // A prep adjective at the *start* of the name leads the modifier
             // ("minced lamb (not too lean)" -> "minced (not too lean)"), matching
             // what the grammar's old leading-adjective branch produced before prep
@@ -110,30 +151,8 @@ impl IngredientParser {
                 parsed.push_modifier(ModifierPart::Prep(prep));
             }
 
-            // Rebuild both `name` and its lowercase view from the same before/after
-            // slices, so `name_lower` is kept in sync without re-lowercasing the
-            // whole string each iteration. `pos`/`end` are char boundaries in both
-            // strings (verified for `name`; for `name_lower` they came from `find`).
-            let join = |s: &str, pos: usize, end: usize| -> String {
-                let before = s[..pos].trim();
-                let after = s[end..].trim();
-                let mut out = String::with_capacity(s.len());
-                if !before.is_empty() {
-                    out.push_str(before);
-                    if !after.is_empty() {
-                        out.push(' ');
-                    }
-                }
-                if !after.is_empty() {
-                    out.push_str(after);
-                }
-                // `before`/`after` are pre-trimmed and the guards above never
-                // emit a leading/trailing space, so `out` needs no final trim.
-                out
-            };
-
-            name = join(&name, cut, end);
-            name_lower = join(&name_lower, cut, end);
+            name = join_around_span(&name, cut, end);
+            name_lower = join_around_span(&name_lower, cut, end);
         }
 
         parsed.name = name;
@@ -231,5 +250,110 @@ impl IngredientParser {
         let new_name = parsed.name[..m.start()].trim().to_string();
         parsed.name = new_name;
         parsed.push_modifier(ModifierPart::Prep(clause));
+    }
+}
+
+#[cfg(test)]
+mod adjective_guard_tests {
+    //! Direct coverage for the guards extracted from `extract_adjectives_from_name`.
+    //! End-to-end accuracy is pinned by the corpus and `refine/tests.rs`; these
+    //! rows exercise each predicate in isolation. Byte offsets are computed with
+    //! `.find(..)` so the rows read as intent, not hand-counted positions.
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use rstest::rstest;
+
+    /// Fires only when the adjective sits *after* a word-boundary " or ".
+    #[rstest]
+    #[case::after_or("basil or chopped parsley", "chopped", true)]
+    #[case::before_or("chopped basil or parsley", "chopped", false)]
+    #[case::no_or("chopped parsley", "chopped", false)]
+    fn test_adjective_belongs_to_alternative(
+        #[case] name_lower: &str,
+        #[case] adj: &str,
+        #[case] expected: bool,
+    ) {
+        let pos = name_lower.find(adj).unwrap();
+        assert_eq!(adjective_belongs_to_alternative(name_lower, pos), expected);
+    }
+
+    /// Fires on a mid-seam adjective after " and " that still has a head noun
+    /// after it; a trailing phrase (adjective ending the string) stays extractable.
+    #[rstest]
+    #[case::mid_seam("salt and freshly ground pepper", "freshly", true)]
+    #[case::before_and("freshly ground salt and pepper", "freshly", false)]
+    #[case::trailing("salt and pepper minced", "minced", false)]
+    #[case::no_and("freshly ground pepper", "freshly", false)]
+    fn test_adjective_belongs_to_second_conjunct(
+        #[case] name_lower: &str,
+        #[case] adj: &str,
+        #[case] expected: bool,
+    ) {
+        let pos = name_lower.find(adj).unwrap();
+        let end = pos + adj.len();
+        assert_eq!(
+            adjective_belongs_to_second_conjunct(name_lower, pos, end),
+            expected
+        );
+    }
+
+    /// "fresh" is kept only when immediately followed by " or " (a contrast).
+    #[rstest]
+    #[case::contrast("fresh or frozen berries", "fresh", true)]
+    #[case::not_contrast("fresh berries", "fresh", false)]
+    #[case::other_adj("chopped or minced garlic", "chopped", false)]
+    fn test_fresh_is_contrastive(
+        #[case] name_lower: &str,
+        #[case] adj: &str,
+        #[case] expected: bool,
+    ) {
+        let end = name_lower.find(adj).unwrap() + adj.len();
+        assert_eq!(fresh_is_contrastive(adj, name_lower, end), expected);
+    }
+
+    /// Both sides of the span must fall on whitespace or a string edge.
+    #[rstest]
+    #[case::clean("very chopped onion", "chopped", true)]
+    #[case::at_start("chopped onion", "chopped", true)]
+    #[case::embedded_before("well-chopped onion", "chopped", false)]
+    #[case::embedded_after("choppedonion", "chopped", false)]
+    fn test_on_word_boundaries(#[case] name: &str, #[case] adj: &str, #[case] expected: bool) {
+        let pos = name.find(adj).unwrap();
+        let end = pos + adj.len();
+        assert_eq!(on_word_boundaries(name, pos, end), expected);
+    }
+
+    /// Folds a preceding intensifier/manner adverb into the cut; leaves a plain
+    /// preceding noun (or nothing) alone.
+    #[rstest]
+    #[case::intensifier("very sliced chives", "sliced", "very sliced", 0)]
+    #[case::manner("diagonally sliced scallions", "sliced", "diagonally sliced", 0)]
+    #[case::no_adverb("baby sliced carrots", "sliced", "sliced", 5)]
+    #[case::at_start("sliced onion", "sliced", "sliced", 0)]
+    fn test_extend_cut_over_adverb(
+        #[case] name: &str,
+        #[case] adj: &str,
+        #[case] expected_prep: &str,
+        #[case] expected_cut: usize,
+    ) {
+        let name_lower = name.to_lowercase();
+        let pos = name_lower.find(adj).unwrap();
+        let (prep, cut) = extend_cut_over_adverb(adj, name, &name_lower, pos);
+        assert_eq!((prep.as_str(), cut), (expected_prep, expected_cut));
+    }
+
+    /// Removes the span and rejoins the trimmed halves with one space; a
+    /// leading/trailing removal leaves no stray whitespace.
+    #[rstest]
+    #[case::middle("very chopped onion", 5, 12, "very onion")]
+    #[case::leading("chopped onion", 0, 8, "onion")]
+    #[case::trailing("onion chopped", 6, 13, "onion")]
+    fn test_join_around_span(
+        #[case] s: &str,
+        #[case] pos: usize,
+        #[case] end: usize,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(join_around_span(s, pos, end), expected);
     }
 }

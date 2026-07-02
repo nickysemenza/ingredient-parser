@@ -328,29 +328,67 @@ pub(super) fn split_word_alternative(
         return (name.to_string(), None);
     }
 
-    // Multiple coordinations ("raw or roasted and salted ...", "a or b or c")
-    // are too ambiguous to split — keep the name whole.
-    let right_lower = right.to_lowercase();
-    if right_lower.contains(" and ") || right_lower.contains(" or ") {
-        return (name.to_string(), None);
-    }
-
     let left_tokens: Vec<&str> = left.split_whitespace().collect();
     let right_tokens: Vec<&str> = right.split_whitespace().collect();
 
-    // A size-word OR size-word pair ("medium or large") is a size *range* of one
-    // ingredient, never a two-ingredient alternative — leave the name whole.
-    let is_size = |w: &str| crate::parser::vocab::SIZE_WORDS.contains(&w.to_lowercase().as_str());
-    if left_tokens.len() == 1 && is_size(left) && is_size(right_tokens[0]) {
+    if keep_whole(left, &left_tokens, right, &right_tokens) {
         return (name.to_string(), None);
     }
 
-    // A possessive-brand left ("Hellmann's or Best Foods mayonnaise") sharing a
-    // lowercase head noun on the right is one ingredient with two brand options,
-    // not an "X or Y" alternative — keep the name whole. Deliberately narrow:
-    // broader brand detection (capitalization, or "Best Foods or Hellmann's")
-    // would over-fire on title-cased lines and strand real alternatives like
-    // "Fresh or Frozen Blueberries".
+    let primary = match graft_decision(left, &left_tokens, right, &right_tokens, adjectives) {
+        // A single left adjective replaces `right`'s leading adjective, keeping
+        // the trailing head noun: "red or white onion" -> "red onion".
+        Graft::ReplaceLeadingAdjective => graft(
+            left,
+            &right_tokens[1..].join(" "),
+            GraftMode::ReplaceLeadingAdjective,
+        ),
+        // An open-ended left distributes onto the right's trailing head noun:
+        // "chicken or vegetable stock" -> "chicken stock".
+        Graft::AppendTrailingHead(head) => graft(left, head, GraftMode::AppendTrailingHead),
+        Graft::None => left.to_string(),
+    };
+
+    (primary, Some(format!("or {right}")))
+}
+
+/// The graft outcome for a no-quantity "X or Y" split: how (if at all) the
+/// right's shared head noun folds back onto the left conjunct. `None` keeps the
+/// primary as the bare left and still captures the alternative.
+enum Graft<'a> {
+    /// Path A — the single left premodifier replaces `right`'s leading adjective.
+    ReplaceLeadingAdjective,
+    /// Path B — append `right`'s trailing head noun (carried here) onto the left.
+    AppendTrailingHead(&'a str),
+    /// No reconstruction: `primary = left`.
+    None,
+}
+
+/// Named early-outs that keep the "X or Y" name whole (no split at all). Each is
+/// a distinct reason the "or" is *not* a two-ingredient alternative:
+/// - multi-coordination: a second " and "/" or " on the right is too ambiguous
+///   ("raw or roasted and salted …", "a or b or c");
+/// - size range: "medium or large" is one ingredient's size range, not two
+///   ingredients (both sides single [`vocab::SIZE_WORDS`]);
+/// - possessive/brand: "Hellmann's or Best Foods mayonnaise" is one ingredient
+///   with two brand options (a possessive left sharing a lowercase head on the
+///   right). Deliberately narrow: broader brand detection would over-fire on
+///   title-cased lines and strand real alternatives like "Fresh or Frozen
+///   Blueberries".
+fn keep_whole(left: &str, left_tokens: &[&str], right: &str, right_tokens: &[&str]) -> bool {
+    // Multiple coordinations ("raw or roasted and salted ...", "a or b or c").
+    let right_lower = right.to_lowercase();
+    if right_lower.contains(" and ") || right_lower.contains(" or ") {
+        return true;
+    }
+
+    // A size-word OR size-word pair ("medium or large") is a size *range*.
+    let is_size = |w: &str| crate::parser::vocab::SIZE_WORDS.contains(&w.to_lowercase().as_str());
+    if left_tokens.len() == 1 && is_size(left) && is_size(right_tokens[0]) {
+        return true;
+    }
+
+    // A possessive-brand left sharing a lowercase head noun on the right.
     // Match a possessive "'s" with either a straight (') or curly (’) apostrophe.
     let left_has_possessive = left_tokens
         .iter()
@@ -359,44 +397,40 @@ pub(super) fn split_word_alternative(
         .last()
         .and_then(|t| t.chars().next())
         .is_some_and(|c| c.is_ascii_lowercase());
-    if left_has_possessive && right_ends_lowercase {
-        return (name.to_string(), None);
-    }
+    left_has_possessive && right_ends_lowercase
+}
 
+/// Decide how the right's shared head grafts onto the left, having already
+/// cleared [`keep_whole`]. Path A is tried first: a single known-premodifier left
+/// ("red") replacing the right's leading adjective. Path B is the fallback: the
+/// right's trailing head noun is one that always carries a variety/type
+/// premodifier ([`vocab::DISTRIBUTABLE_HEAD_NOUNS`], via [`distributable_head`]),
+/// so an open-ended (even multi-word) left distributes onto it without a
+/// left-vocab match. Both paths share the [`right_is_modifier_plus_head`] guard.
+fn graft_decision<'a>(
+    left: &str,
+    left_tokens: &[&str],
+    right: &'a str,
+    right_tokens: &[&str],
+    adjectives: &std::collections::HashSet<String>,
+) -> Graft<'a> {
     // Stopwords/prepositions signal `right` is a noun + trailing phrase
     // ("pepper to taste"), not "adjective + shared head" ("white onion").
     let left_lower = left.to_lowercase();
     let left_is_premodifier = crate::parser::vocab::is_shared_head_modifier(&left_lower)
         || adjectives.contains(&left_lower);
 
-    // Path A — a single known-premodifier left shares the right's head noun:
-    // "red or white onion" -> "red onion". The single left adjective replaces
-    // `right`'s leading adjective, keeping the trailing head noun.
-    let reconstruct = left_tokens.len() == 1
+    if left_tokens.len() == 1
         && left_is_premodifier
-        && right_is_modifier_plus_head(&right_tokens, adjectives);
+        && right_is_modifier_plus_head(right_tokens, adjectives)
+    {
+        return Graft::ReplaceLeadingAdjective;
+    }
 
-    // Path B — the right's *trailing head noun* is one that essentially always
-    // carries a variety/type premodifier, so an open-ended (even multi-word) left
-    // distributes onto it without needing a left-vocab match: "chicken or
-    // vegetable stock" -> "chicken stock", "Little Gem or Bibb lettuce" ->
-    // "Little Gem lettuce". `distributable_head` applies the same
-    // `right_is_modifier_plus_head` guard as Path A plus the head-noun list.
-    let distributed = distributable_head(right, SharedHeadContext::InlineOr { adjectives });
-
-    let primary = if reconstruct {
-        graft(
-            left,
-            &right_tokens[1..].join(" "),
-            GraftMode::ReplaceLeadingAdjective,
-        )
-    } else if let Some(head) = distributed {
-        graft(left, head, GraftMode::AppendTrailingHead)
-    } else {
-        left.to_string()
-    };
-
-    (primary, Some(format!("or {right}")))
+    match distributable_head(right, SharedHeadContext::InlineOr { adjectives }) {
+        Some(head) => Graft::AppendTrailingHead(head),
+        None => Graft::None,
+    }
 }
 
 #[cfg(test)]
@@ -462,5 +496,45 @@ mod helper_tests {
         #[case] expected: &str,
     ) {
         assert_eq!(graft(left, head, mode), expected);
+    }
+
+    /// `keep_whole`: each early-out reason keeps the name whole; a genuine "X or
+    /// Y" alternative ("red or white onion") passes through to reconstruction.
+    #[rstest]
+    #[case::multi_or("a", "b or c", true)]
+    #[case::multi_and("raw", "roasted and salted", true)]
+    #[case::size_range("medium", "large", true)]
+    #[case::possessive_brand("Hellmann's", "Best Foods mayonnaise", true)]
+    // A possessive left whose right ends title-cased is a real alternative.
+    #[case::possessive_titlecase("Fresh", "Frozen Blueberries", false)]
+    #[case::genuine_alternative("red", "white onion", false)]
+    fn test_keep_whole(#[case] left: &str, #[case] right: &str, #[case] expected: bool) {
+        let left_tokens: Vec<&str> = left.split_whitespace().collect();
+        let right_tokens: Vec<&str> = right.split_whitespace().collect();
+        assert_eq!(
+            keep_whole(left, &left_tokens, right, &right_tokens),
+            expected,
+            "{left} or {right}"
+        );
+    }
+
+    /// `graft_decision`: Path A (single known-premodifier left) → replace; Path B
+    /// (distributable trailing head) → append; otherwise → None.
+    #[rstest]
+    #[case::replace("red", "white onion", "replace")]
+    #[case::append("chicken", "vegetable stock", "append:stock")]
+    // A non-distributable trailing head with a non-premodifier left grafts nothing.
+    #[case::none_non_distributable("butter", "olive oil", "none")]
+    #[case::none_single_right("red", "white", "none")]
+    fn test_graft_decision(#[case] left: &str, #[case] right: &str, #[case] expected: &str) {
+        let adjectives = IngredientParser::new().adjectives;
+        let left_tokens: Vec<&str> = left.split_whitespace().collect();
+        let right_tokens: Vec<&str> = right.split_whitespace().collect();
+        let tag = match graft_decision(left, &left_tokens, right, &right_tokens, &adjectives) {
+            Graft::ReplaceLeadingAdjective => "replace".to_string(),
+            Graft::AppendTrailingHead(head) => format!("append:{head}"),
+            Graft::None => "none".to_string(),
+        };
+        assert_eq!(tag, expected, "{left} or {right}");
     }
 }
