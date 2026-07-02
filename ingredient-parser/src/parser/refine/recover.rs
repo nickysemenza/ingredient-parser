@@ -142,11 +142,12 @@ impl IngredientParser {
             return;
         }
 
-        // The head noun runs to the next clause boundary. " (" ends it at a
-        // trailing parenthetical aside ("chicken thighs (8 to 12 thighs, …)"),
-        // before the comma *inside* that aside can truncate the noun.
+        // The head noun runs to the next clause boundary (see
+        // `vocab::CLAUSE_BOUNDARIES`). " (" ends it at a trailing parenthetical
+        // aside ("chicken thighs (8 to 12 thighs, …)"), before the comma *inside*
+        // that aside can truncate the noun.
         let mut end = rest.len();
-        for pat in [", ", " such as ", " or ", " to taste", " ("] {
+        for pat in crate::parser::vocab::CLAUSE_BOUNDARIES {
             if let Some(p) = rest.find(pat) {
                 end = end.min(p);
             }

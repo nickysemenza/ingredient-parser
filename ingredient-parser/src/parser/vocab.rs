@@ -506,6 +506,14 @@ pub(crate) const CONTAINER_NOUNS: &[&str] = &[
     "envelopes",
 ];
 
+/// Clause boundaries that end a recovered head noun. When
+/// `refine::recover::recover_head_noun_from_modifier` pulls a head noun out of a
+/// modifier, the noun runs up to the next clause boundary: a comma, a
+/// "such as"/"or"/"to taste" prose lead-in, or " (" — the last ends the noun at a
+/// trailing parenthetical aside ("chicken thighs (8 to 12 thighs, …)"), before the
+/// comma *inside* that aside can truncate the noun. Consumed by `refine::recover`.
+pub(crate) const CLAUSE_BOUNDARIES: &[&str] = &[", ", " such as ", " or ", " to taste", " ("];
+
 /// Distance unit base forms for dimension detection (see
 /// `measurement::guards::is_distance_unit`, which also handles plurals).
 pub(crate) const DISTANCE_UNIT_BASES: &[&str] = &[
@@ -597,6 +605,127 @@ mod tests {
     fn for_the_pan_is_in_both_purpose_and_pan_grease() {
         assert!(DEFAULT_PURPOSE_PHRASES.contains(&"for the pan"));
         assert!(PAN_GREASE_PHRASES.contains(&"for the pan"));
+    }
+
+    // The shared-head lists diverge on purpose. "broth"/"stock" belong to BOTH:
+    // they read as "<type> broth" whether the list is a bare "X, Y, or Z broth"
+    // (SHARED_HEAD_NOUNS) or an inline "A or B broth" (DISTRIBUTABLE_HEAD_NOUNS).
+    // "oil"/"vinegar" are in SHARED_HEAD_NOUNS only — in "butter or olive oil" the
+    // left is a *distinct* ingredient, so distributing would graft nonsense
+    // ("butter oil"); see the DISTRIBUTABLE_HEAD_NOUNS doc (vocab.rs ~428-431).
+    // This pins the divergence so a future "cleanup" that merges the two lists
+    // fails loudly. NOT a subset relation in either direction — do not add one.
+    #[test]
+    fn shared_head_lists_diverge_deliberately() {
+        for w in ["broth", "stock"] {
+            assert!(
+                SHARED_HEAD_NOUNS.contains(&w),
+                "{w:?} must be in SHARED_HEAD_NOUNS"
+            );
+            assert!(
+                DISTRIBUTABLE_HEAD_NOUNS.contains(&w),
+                "{w:?} must be in DISTRIBUTABLE_HEAD_NOUNS"
+            );
+        }
+        for w in ["oil", "vinegar"] {
+            assert!(
+                SHARED_HEAD_NOUNS.contains(&w),
+                "{w:?} must be in SHARED_HEAD_NOUNS"
+            );
+            assert!(
+                !DISTRIBUTABLE_HEAD_NOUNS.contains(&w),
+                "{w:?} must NOT be in DISTRIBUTABLE_HEAD_NOUNS (grafting \"butter oil\" is nonsense)"
+            );
+        }
+    }
+
+    // `refine::extract_size_unit_from_name` matches SIZE_UNIT_WORDS in order and
+    // stops at the first hit, so every multi-word entry must precede any single
+    // word it contains — otherwise "large" would match first inside "extra large"
+    // / "extra-large" and strand the "extra". Pin the ordering.
+    #[test]
+    fn size_unit_words_are_longest_first() {
+        for (i, entry) in SIZE_UNIT_WORDS.iter().enumerate() {
+            for word in entry.split(['-', ' ']) {
+                if word == *entry {
+                    continue; // single-word entry, nothing longer to compare
+                }
+                if let Some(j) = SIZE_UNIT_WORDS.iter().position(|e| *e == word) {
+                    assert!(
+                        i < j,
+                        "multi-word {entry:?} (index {i}) must precede its substring {word:?} (index {j})"
+                    );
+                }
+            }
+        }
+    }
+
+    // Adverb-folding (INTENSIFIER/MANNER_ADVERBS) and adjective extraction
+    // (DEFAULT_PREPARATION_ADJECTIVES) both run in `refine::prep`. If a word were
+    // in both an adverb list and the adjective set, the two passes would compete
+    // for the same token. Pin them disjoint on the single-word adjective entries
+    // (multi-word adjectives can't collide with the single-word adverbs anyway).
+    #[test]
+    fn adverbs_disjoint_from_single_word_adjectives() {
+        let single_word_adjectives: std::collections::HashSet<&str> =
+            DEFAULT_PREPARATION_ADJECTIVES
+                .iter()
+                .filter(|a| !a.contains(' '))
+                .copied()
+                .collect();
+        for &adverb in INTENSIFIER_ADVERBS.iter().chain(MANNER_ADVERBS) {
+            assert!(
+                !single_word_adjectives.contains(adverb),
+                "adverb {adverb:?} also appears in DEFAULT_PREPARATION_ADJECTIVES"
+            );
+        }
+    }
+
+    // NUMBER_WORDS (spelled amounts) and SPELLED_COUNTS (leading count tokens)
+    // overlap on the plain integers: every number word is also a count token,
+    // except "dozen"/"half" which SPELLED_COUNTS deliberately omits (a leading
+    // "dozen"/"half" isn't a count slot). Pin the overlap so the two lists stay
+    // in step.
+    #[test]
+    fn number_words_are_spelled_counts_except_dozen_and_half() {
+        for &(word, _) in NUMBER_WORDS {
+            if word == "dozen" || word == "half" {
+                assert!(
+                    !SPELLED_COUNTS.contains(&word),
+                    "{word:?} is excluded from SPELLED_COUNTS by design"
+                );
+                continue;
+            }
+            assert!(
+                SPELLED_COUNTS.contains(&word),
+                "NUMBER_WORDS entry {word:?} missing from SPELLED_COUNTS"
+            );
+        }
+    }
+
+    // CLAUSE_BOUNDARIES (where a recovered head noun ends) and MODIFIER_STOPWORDS
+    // (where a modifier turns to prose) both encode "prose starts here", so the
+    // word-boundary boundaries' lead word must be a stopword. ", " and " (" are
+    // punctuation, not words; the rest (" such as ", " or ", " to taste") lead
+    // with "such"/"or"/"to", all stopwords.
+    #[test]
+    fn clause_boundaries_lead_words_are_stopwords() {
+        assert!(!CLAUSE_BOUNDARIES.is_empty(), "CLAUSE_BOUNDARIES is empty");
+        for &boundary in CLAUSE_BOUNDARIES {
+            // Only the word-boundary entries encode "prose starts here"; the
+            // punctuation-only ones (", ", " (") have no lead word to check.
+            let Some(first) = boundary
+                .split_whitespace()
+                .next()
+                .filter(|w| w.chars().all(char::is_alphabetic))
+            else {
+                continue;
+            };
+            assert!(
+                MODIFIER_STOPWORDS.contains(&first),
+                "CLAUSE_BOUNDARIES entry {boundary:?} leads with {first:?}, not a MODIFIER_STOPWORD"
+            );
+        }
     }
 
     // Hygiene: every membership list is duplicate-free and lowercase. Consumers
