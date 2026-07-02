@@ -134,7 +134,7 @@ impl IngredientParser {
         // "(190 grams)" stay hoisted as amounts and "4 (½-inch) slices" (count +
         // size) is untouched.
         if let Some((cleaned, aside)) = lift_inline_descriptive_paren(input) {
-            let (_, mut parsed) = self.parse_ingredient(&cleaned).ok()?;
+            let (_, mut parsed) = self.parse_ingredient_ir(&cleaned).ok()?;
             // Refine first, then append the lifted aside as the trailing modifier
             // part — so it lands *after* any prep adjective the refine passes
             // extract (e.g. "sliced, ¼ inch / 6 mm"), and is joined/finalized
@@ -144,9 +144,19 @@ impl IngredientParser {
             return Some(parsed.into());
         }
 
-        self.parse_ingredient(input)
+        self.parse_ingredient_ir(input)
             .ok()
             .map(|(_, ingredient)| self.postprocess_ingredient(ingredient))
+    }
+
+    /// Parse the raw grammar shape via the mode-selected path: the legacy
+    /// carve-at-first-comma grammar, or the clause-segmentation path (see
+    /// [`crate::SegmentationMode`]). Both feed the same refine pipeline.
+    fn parse_ingredient_ir<'a>(&self, input: &'a str) -> Res<&'a str, ParsedIngredient> {
+        match self.segmentation {
+            crate::SegmentationMode::Legacy => self.parse_ingredient(input),
+            crate::SegmentationMode::Segmented => self.parse_ingredient_segmented(input),
+        }
     }
 
     /// Parse a complete ingredient line including amounts, name, and modifiers.
