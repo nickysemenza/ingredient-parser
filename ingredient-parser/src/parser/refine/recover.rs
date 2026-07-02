@@ -78,32 +78,9 @@ impl IngredientParser {
     /// before `extract_adjectives_from_name` (so the recovered name still gets the
     /// normal adjective scan).
     pub(super) fn recover_head_noun_from_modifier(&self, parsed: &mut ParsedIngredient) {
-        // A "prep" token: a preparation participle ("-ed"), an "-ly" adverb
-        // ("roughly"/"finely"), or a known intensifier. Deliberately NOT the broad
-        // adjective set — a descriptive adjective like "fresh" must lead the head
-        // noun, not be swallowed as prep.
-        let is_prep = |w: &str| {
-            // `trim_matches` strips leading/trailing non-alphanumerics only, so an
-            // internal hyphen ("bone-in") survives for the suffix checks below.
-            let wl = w
-                .trim_matches(|c: char| !c.is_alphanumeric())
-                .to_lowercase();
-            wl.ends_with("ed")
-                || wl.ends_with("ly")
-                // Hyphenless adjectives ("boneless", "skinless", "seedless") and
-                // hyphenated meat/prep descriptors ("bone-in", "skin-on",
-                // "sugar-free") that the grammar's first-comma carve strands as a
-                // leading chain ("bone-in, skin-on chicken legs").
-                || wl.ends_with("less")
-                || wl
-                    .rsplit_once('-')
-                    .is_some_and(|(_, suf)| matches!(suf, "in" | "on" | "out" | "off" | "free" | "style"))
-                || crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&wl.as_str())
-        };
+        use crate::parser::token::{is_prep_token as is_prep, norm, offsets};
         let is_connector = |w: &str| {
-            let wl = w
-                .trim_matches(|c: char| !c.is_alphanumeric())
-                .to_lowercase();
+            let wl = norm(w);
             wl == "and" || wl == "&"
         };
 
@@ -122,9 +99,7 @@ impl IngredientParser {
 
         // Walk tokens, skipping leading preps/connectors, to find the head noun's
         // byte offset within `modtext`.
-        let head_start = modtext
-            .split_whitespace()
-            .map(|w| (w.as_ptr() as usize - modtext.as_ptr() as usize, w))
+        let head_start = offsets(&modtext)
             .find(|(_, w)| !is_prep(w) && !is_connector(w))
             .map(|(off, _)| off);
         let Some(head_start) = head_start else {
@@ -133,9 +108,7 @@ impl IngredientParser {
 
         let rest = &modtext[head_start..];
         let first_word = rest.split_whitespace().next().unwrap_or("");
-        let first_lower = first_word
-            .trim_matches(|c: char| !c.is_alphanumeric())
-            .to_lowercase();
+        let first_lower = norm(first_word);
         // Stopwords that, as the would-be head noun's first word, mean the modifier
         // is a prose clause, not "<preps> <head noun>".
         if crate::parser::vocab::MODIFIER_STOPWORDS.contains(&first_lower.as_str()) {
@@ -197,7 +170,7 @@ impl IngredientParser {
         if !trimmed.starts_with('(') {
             return;
         }
-        let Some(close) = matching_close_paren(trimmed) else {
+        let Some(close) = crate::parser::token::matching_close_paren(trimmed) else {
             return;
         };
         let inner = trimmed[1..close].trim();
@@ -236,21 +209,4 @@ impl IngredientParser {
             *raw = remainder;
         }
     }
-}
-
-fn matching_close_paren(input: &str) -> Option<usize> {
-    let mut depth = 0usize;
-    for (index, character) in input.char_indices() {
-        match character {
-            '(' => depth += 1,
-            ')' => {
-                depth = depth.checked_sub(1)?;
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }

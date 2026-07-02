@@ -48,6 +48,7 @@ pub(crate) mod pipeline;
 pub(crate) mod recognize;
 pub(crate) mod refine;
 pub(crate) mod stage;
+pub(crate) mod token;
 pub(crate) mod vocab;
 
 pub(crate) use helpers::parse_amount_string;

@@ -159,12 +159,8 @@ impl IngredientParser {
         // ends with this block so the owned-string rewrite below can reassign it.
         let cut = {
             let name = parsed.name.as_str();
-            // Byte offset of each whitespace-split token within `name` (the tokens
-            // are subslices of `name`, so pointer arithmetic gives their start).
-            let tokens: Vec<(usize, &str)> = name
-                .split_whitespace()
-                .map(|w| (w.as_ptr() as usize - name.as_ptr() as usize, w))
-                .collect();
+            // Byte offset of each whitespace-split token within `name`.
+            let tokens: Vec<(usize, &str)> = crate::parser::token::offsets(name).collect();
             let mut found = None;
             // Start at 1: index 0 is the head noun and can never be the trigger.
             for i in 1..tokens.len() {
@@ -174,7 +170,7 @@ impl IngredientParser {
                 let (start, word) = tokens[i];
                 let word_lower = word.to_lowercase();
                 let is_participle =
-                    word_lower.ends_with("ed") || self.adjectives.contains(word_lower.as_str());
+                    crate::parser::token::is_participle(&word_lower, &self.adjectives);
                 let next_lower = next.to_lowercase();
                 let is_cooking_prep = next_lower == "with" || next_lower == "into";
                 if is_participle && is_cooking_prep && name.is_char_boundary(start) {

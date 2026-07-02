@@ -27,7 +27,7 @@ impl IngredientParser {
             return;
         }
         let first = &words_lower[0];
-        let first_is_prep = first.ends_with("ed") || self.adjectives.contains(first);
+        let first_is_prep = crate::parser::token::is_participle(first, &self.adjectives);
         if !first.chars().all(char::is_alphabetic) || !first_is_prep {
             return;
         }
@@ -138,6 +138,8 @@ impl IngredientParser {
         }
         // Its final token must be a curated shared head noun the bare alternatives
         // can all premodify ("oil"), so grafting it produces a real ingredient.
+        // Trim (but don't lowercase) the modifier's last token: the gate lowercases
+        // for the vocab lookup, while the graft below preserves the source casing.
         let Some(head) = modifier
             .split_whitespace()
             .next_back()
