@@ -45,8 +45,8 @@ impl IngredientParser {
             // the whole line), so leave it in the name. The `end < len` clause
             // keeps a *trailing* phrase like "to taste" ("Salt and pepper to
             // taste") extractable: only a mid-seam adjective with a head noun
-            // still after it is skipped. (Two ingredients on one line is really
-            // a parse_multi concern — see the TODO in recognize.rs.)
+            // still after it is skipped. (Multi-ingredient lines with "and"
+            // conjunctions are out of scope for this pass.)
             if let Some(and_pos) = name_lower.find(" and ")
                 && pos > and_pos
                 && end < name_lower.len()

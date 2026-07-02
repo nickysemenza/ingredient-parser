@@ -156,7 +156,7 @@ fn test_fix_leading_minus_clause() {
 #[case::after_or_left_alone("basil or chopped parsley", "basil or chopped parsley", None)]
 #[case::before_or_extracted("chopped basil or parsley", "basil or parsley", Some("chopped"))]
 // " and " guard: a mid-seam adjective belongs to the second conjunct and is
-// left in the name (it's really two ingredients — a parse_multi concern)…
+// left in the name (multi-ingredient lines with "and" are out of scope)…
 #[case::and_guard_keeps_conjunct(
     "Kosher salt and freshly ground black pepper",
     "Kosher salt and freshly ground black pepper",

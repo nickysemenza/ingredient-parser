@@ -174,6 +174,25 @@ impl IngredientParser {
     /// [`FieldSpan`](crate::FieldSpan) per amount region / name / modifier the
     /// grammar carved. `spans` is empty when a whole-line recognizer or the
     /// name-only fallback produced the result (no core-grammar carving to show).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ingredient::IngredientParser;
+    /// use ingredient::Field;
+    ///
+    /// let parser = IngredientParser::new();
+    /// let decomp = parser.decompose("2 cups flour, sifted");
+    ///
+    /// assert_eq!(decomp.source, "2 cups flour, sifted");
+    /// assert_eq!(decomp.spans.len(), 3);
+    /// assert_eq!(decomp.spans[0].field, Field::Amount);
+    /// assert_eq!(decomp.spans[0].text, "2 cups");
+    /// assert_eq!(decomp.spans[1].field, Field::Name);
+    /// assert_eq!(decomp.spans[1].text, "flour");
+    /// assert_eq!(decomp.spans[2].field, Field::Modifier);
+    /// assert_eq!(decomp.spans[2].text, "sifted");
+    /// ```
     pub fn decompose(&self, raw: &str) -> crate::Decomposition {
         let normalized = normalize_input(raw);
         let (cleaned, _optional) = strip_optional_note(normalized.as_ref());
