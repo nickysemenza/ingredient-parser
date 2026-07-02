@@ -49,6 +49,29 @@ fn parse_amount_invalid_exits_nonzero() {
 }
 
 #[test]
+fn corpus_lint_report_stages_runs() {
+    // The default corpus path resolves relative to the crate manifest, so a bare
+    // `corpus lint --report-stages` produces the coverage report and exits 0.
+    let output = food_cli()
+        .args(["corpus", "lint", "--report-stages"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Pass-coverage report"));
+    assert!(stdout.contains("normalize"));
+    assert!(stdout.contains("recognize"));
+    assert!(stdout.contains("refine"));
+    assert!(stdout.contains("ZERO CORPUS COVERAGE"));
+    // A known high-frequency refine pass must appear in the report.
+    assert!(stdout.contains("extract_adjectives_from_name"));
+}
+
+#[test]
 fn parse_rich_text_json() {
     let output = food_cli()
         .args([

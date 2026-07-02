@@ -90,7 +90,7 @@ crate::define_stage_pipeline! {
     pub(super) struct RefinePass,
     pub(super) const REFINE_PIPELINE: &[RefinePass],
     type Pass = Pass,
-    trace: none,
+    trace: pub(crate) REFINE_TRACE_NAMES,
     (
         FixLeadingPrepPhrase,
         "fix_leading_prep_phrase",

@@ -305,7 +305,7 @@ crate::define_stage_pipeline! {
     struct RewriteEntry,
     const REWRITES: &[RewriteEntry],
     type Rewrite = Rewrite,
-    trace: none,
+    trace: pub(crate) REWRITE_TRACE_NAMES,
     (StripNbsp, "strip_nbsp", strip_nbsp),
     (StripLeadingBullet, "strip_leading_bullet", strip_leading_bullet),
     (StripFootnoteMarkers, "strip_footnote_markers", strip_footnote_markers),

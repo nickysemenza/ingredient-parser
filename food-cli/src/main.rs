@@ -4,8 +4,15 @@
 use clap::{Parser, Subcommand};
 use recipe_epub::CookbookRecipeExt; // .parse() / .low_confidence_lines() on CookbookRecipe
 
+mod corpus_lint;
 mod explain;
 mod tables;
+
+/// Default path to the accuracy corpus, relative to this crate's manifest.
+const DEFAULT_CORPUS_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../ingredient-parser/tests/corpus/corpus.jsonl"
+);
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -102,15 +109,15 @@ enum Commands {
         /// Path to a file with one ingredient line per line (blank lines skipped)
         file: String,
     },
+    /// Corpus tooling (lint, coverage reporting). See `corpus lint --help`.
+    #[command(subcommand)]
+    Corpus(CorpusCommand),
     /// Render the accuracy corpus (tests/corpus/corpus.jsonl) as an HTML table
     /// and open it in the default browser (like `cargo doc --open`). Read-only;
     /// does not touch the corpus.
     CorpusTable {
         /// Corpus file to render (defaults to the repo's corpus.jsonl)
-        #[arg(
-            long,
-            default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../ingredient-parser/tests/corpus/corpus.jsonl")
-        )]
+        #[arg(long, default_value = DEFAULT_CORPUS_PATH)]
         corpus: String,
         /// Write the HTML here instead of a temp file, and don't auto-open.
         /// Use "-" for stdout.
@@ -143,6 +150,22 @@ enum Commands {
         /// Additional custom units (comma-separated)
         #[arg(short = 'e', long)]
         extra_units: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum CorpusCommand {
+    /// Validate the accuracy corpus, and (with --report-stages) print a
+    /// per-pass coverage report that flags parser passes firing on zero rows.
+    Lint {
+        /// Corpus file to lint (defaults to the repo's corpus.jsonl)
+        #[arg(long, default_value = DEFAULT_CORPUS_PATH)]
+        corpus: String,
+        /// Print rows-per-pass coverage tables (normalize/recognize/refine) and a
+        /// zero-coverage "possible dead rule" section. Without this flag, `lint`
+        /// only validates that rows parse as JSON and prints the row count.
+        #[arg(long)]
+        report_stages: bool,
     },
 }
 
@@ -717,6 +740,12 @@ async fn main() {
                 }
                 emit_parsed_line(&ip, line);
             }
+        }
+        Commands::Corpus(CorpusCommand::Lint {
+            corpus,
+            report_stages,
+        }) => {
+            corpus_lint::run(corpus, *report_stages);
         }
         Commands::CorpusTable { corpus, out } => {
             let contents = match std::fs::read_to_string(corpus) {

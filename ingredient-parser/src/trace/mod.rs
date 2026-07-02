@@ -26,6 +26,39 @@ pub use stages::{GrammarOutcome, RecognizerAttempt, StageReport, StageRewrite};
 pub(crate) use collector::{disable_tracing, enable_tracing};
 pub(crate) use collector::{trace_enter, trace_exit_failure, trace_exit_success};
 
+/// The full label universe of each pipeline stage — every normalize rewrite,
+/// recognizer, and refine pass that *could* fire, in declared order.
+///
+/// This is a tooling/introspection surface (used by `food-cli corpus lint
+/// --report-stages` to detect rules with zero corpus coverage). It is *not* a
+/// per-parse result — for that, parse with [`ParseTrace::stages`], which reports
+/// only the stages that actually fired on a given line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PipelineStageNames {
+    /// Every normalize rewrite label, in pipeline order.
+    pub normalize: &'static [&'static str],
+    /// Every whole-line recognizer label, in attempt order.
+    pub recognizers: &'static [&'static str],
+    /// Every refine pass label, in pipeline order.
+    pub refine: &'static [&'static str],
+}
+
+/// The full label universe of the parser's three ordered stage pipelines.
+///
+/// A tooling/introspection API: it exposes the *static* set of rules the parser
+/// could apply, so external tooling (e.g. dead-rule detection over the accuracy
+/// corpus) can compare it against the rules that actually fire. It carries no
+/// per-line state; use [`IngredientParser::parse_with_trace`] for that.
+///
+/// [`IngredientParser::parse_with_trace`]: crate::IngredientParser::parse_with_trace
+pub fn pipeline_stage_names() -> PipelineStageNames {
+    PipelineStageNames {
+        normalize: crate::parser::normalize::REWRITE_TRACE_NAMES,
+        recognizers: crate::parser::recognize::RECOGNIZER_TRACE_NAMES,
+        refine: crate::parser::refine::REFINE_TRACE_NAMES,
+    }
+}
+
 /// Trace a stage step that may or may not change its input (normalize rewrites,
 /// refine passes). Emits a before→after node only when `changed` is true.
 pub(crate) fn trace_on_change(id: &str, before: &str, after: &str, changed: bool) {
