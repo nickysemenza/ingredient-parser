@@ -174,11 +174,10 @@ impl IngredientParser {
             return;
         };
         let inner = trimmed[1..close].trim();
-        if inner.is_empty()
-            || inner
-                .chars()
-                .any(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
-        {
+        // The "is this a bare alias?" test (non-empty, no digits/vulgar fractions)
+        // is shared with `paren::classify` (ParenKind::Alias); this site keeps its
+        // own position and head-noun recovery logic below.
+        if !crate::parser::paren::is_alias(inner) {
             return;
         }
 

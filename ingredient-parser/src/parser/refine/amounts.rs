@@ -22,6 +22,11 @@ impl IngredientParser {
     }
 }
 
+// The "does this paren parse as a measurement?" question is the same one
+// `paren::classify` answers as `ParenKind::Amount` (via `paren::is_amount`).
+// This site keeps its own regexes because it needs the *match spans* (to excise
+// and clean the modifier) and its own distance-aside rejection — the classifier
+// yields only a kind, not a span. See `parser::paren` module docs.
 fn extract_secondary_amounts(
     modifier: &str,
     units: &std::collections::HashSet<String>,

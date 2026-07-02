@@ -44,6 +44,7 @@ pub(crate) mod helpers;
 pub(crate) mod ir;
 pub(crate) mod measurement;
 pub(crate) mod normalize;
+pub(crate) mod paren;
 pub(crate) mod pipeline;
 pub(crate) mod recognize;
 pub(crate) mod refine;
