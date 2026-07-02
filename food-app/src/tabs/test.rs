@@ -109,6 +109,14 @@ impl Default for TestTab {
 }
 
 impl TestTab {
+    /// Replace the input with `line` and parse it immediately, so switching to
+    /// this tab (e.g. from the Corpus tab's "Send to Test") shows results
+    /// without a manual Parse click.
+    pub fn set_input(&mut self, line: String) {
+        self.input = line;
+        self.parse();
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui) {
         ui.heading("Test Ingredient Parser");
         ui.separator();
