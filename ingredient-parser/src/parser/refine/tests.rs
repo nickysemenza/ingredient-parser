@@ -15,28 +15,70 @@ fn pass_index(id: PassId) -> usize {
         .expect("REFINE_PIPELINE missing expected pass")
 }
 
+/// Every declared ordering edge in [`ORDER_CONSTRAINTS`] holds positionally:
+/// `before` precedes `after` in the pipeline. Paired with
+/// `constraints_are_load_bearing` (which proves each edge actually matters), this
+/// makes the pass order a two-sided contract.
 #[test]
-fn refine_pipeline_order_invariants() {
-    // Prep adjectives must leave the name before any alternative extraction.
-    assert!(
-        pass_index(PassId::ExtractAdjectivesFromName)
-            < pass_index(PassId::ExtractAlternativesFromName),
-        "adjectives before alternatives"
-    );
-    // Whitespace collapse sits between adjective peel and the alternatives pass.
-    assert!(
-        pass_index(PassId::ExtractAdjectivesFromName) < pass_index(PassId::CollapseName),
-        "adjectives before collapse"
-    );
+fn declared_order_matches_pipeline() {
+    for c in ORDER_CONSTRAINTS {
+        assert!(
+            pass_index(c.before) < pass_index(c.after),
+            "{:?} must run before {:?}: {}",
+            c.before,
+            c.after,
+            c.reason
+        );
+    }
+}
+
+/// Purely positional invariants that aren't a two-pass ordering edge (so they
+/// don't fit the witness-backed constraint table): the collapse pass sits between
+/// the adjective peel and the alternatives split, and the secondary-amount hoist
+/// is always last (it runs after modifier text is fully shaped).
+#[test]
+fn refine_pipeline_positional_invariants() {
     assert!(
         pass_index(PassId::CollapseName) < pass_index(PassId::ExtractAlternativesFromName),
         "collapse before alternatives"
     );
-    // Parenthetical amount hoists run after modifier text is fully shaped.
     assert!(
         pass_index(PassId::ExtractSecondaryAmountsFromModifier) == REFINE_PIPELINE.len() - 1,
         "secondary amounts must be last"
     );
+}
+
+/// Each edge in [`ORDER_CONSTRAINTS`] must be *load-bearing*: running its witness
+/// with the two passes swapped produces a different `ParsedIngredient` than the
+/// declared order. A constraint whose swap changes nothing is dead documentation
+/// and fails here, naming itself.
+#[test]
+fn constraints_are_load_bearing() {
+    let parser = IngredientParser::new();
+    for c in ORDER_CONSTRAINTS {
+        let (_, base) = parser.parse_ingredient(c.witness).unwrap();
+
+        // Declared order: the pipeline as shipped.
+        let declared: Vec<&RefinePass> = REFINE_PIPELINE.iter().collect();
+        let mut in_order = base.clone();
+        parser.refine_with_order(&declared, &mut in_order);
+
+        // Swapped order: the same slice with `before`/`after` transposed.
+        let mut swapped_passes = declared.clone();
+        let bi = pass_index(c.before);
+        let ai = pass_index(c.after);
+        swapped_passes.swap(bi, ai);
+        let mut swapped = base.clone();
+        parser.refine_with_order(&swapped_passes, &mut swapped);
+
+        assert_ne!(
+            in_order, swapped,
+            "constraint {:?} < {:?} is NOT load-bearing for witness {:?}: swapping \
+             the two passes did not change the result, so the edge is dead \
+             documentation. reason on file: {}",
+            c.before, c.after, c.witness, c.reason
+        );
+    }
 }
 
 #[rstest]
@@ -530,6 +572,16 @@ fn test_extract_purpose_gerund(
 #[case::purpose_gerund("Extra-virgin olive oil for brushing the bread")]
 #[case::fresh_extracted("fresh mint")]
 #[case::and_guard("Kosher salt and freshly ground black pepper")]
+// Order-constraint witnesses (see `ORDER_CONSTRAINTS`): idempotency is the
+// invariant the load-bearing order rests on, so every witness must also be a
+// fixpoint.
+#[case::witness_recover_head_noun(
+    "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano"
+)]
+#[case::witness_leading_prep_alt("1 teaspoon grated or finely chopped lemon zest")]
+#[case::witness_adj_before_alt("chopped red or white onion")]
+#[case::witness_trailing_prep("2 cups spinach chopped into ribbons")]
+#[case::witness_shared_head("canola, vegetable, or coconut oil")]
 fn refine_pipeline_is_idempotent(#[case] line: &str) {
     let parser = IngredientParser::new();
     let (_, parsed) = parser.parse_ingredient(line).unwrap();
