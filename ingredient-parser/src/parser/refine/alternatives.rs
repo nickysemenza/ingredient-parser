@@ -65,6 +65,24 @@ impl IngredientParser {
         }
     }
 
+    /// Pull every "X or Y" / "X and/or Y" alternative out of the name into the
+    /// modifier. Runs three phases in a fixed, load-bearing order (each shares
+    /// the alternatives vocab/guards), merged into one refine pass so the trace
+    /// and pipeline see a single `extract_alternatives_from_name` step:
+    ///
+    /// 1. quantity form — "garlic or 1 teaspoon garlic powder"
+    ///    ([`Self::extract_alternative_from_name`]);
+    /// 2. no-quantity "X or Y" — "red or white onion"
+    ///    ([`Self::extract_word_alternative_from_name`]); the quantity form must
+    ///    be gone first so the leftover "or" is a plain alternative;
+    /// 3. inclusive "X and/or Y" — "thyme and/or rosemary"
+    ///    ([`Self::extract_and_or_alternative_from_name`]).
+    pub(super) fn extract_alternatives_from_name(&self, parsed: &mut ParsedIngredient) {
+        self.extract_alternative_from_name(parsed);
+        self.extract_word_alternative_from_name(parsed);
+        self.extract_and_or_alternative_from_name(parsed);
+    }
+
     pub(super) fn extract_alternative_from_name(&self, parsed: &mut ParsedIngredient) {
         Self::apply_alternative_split(parsed, extract_alternative(&parsed.name));
     }

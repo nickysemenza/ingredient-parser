@@ -20,26 +20,16 @@ fn refine_pipeline_order_invariants() {
     // Prep adjectives must leave the name before any alternative extraction.
     assert!(
         pass_index(PassId::ExtractAdjectivesFromName)
-            < pass_index(PassId::ExtractAlternativeFromName),
+            < pass_index(PassId::ExtractAlternativesFromName),
         "adjectives before alternatives"
     );
-    assert!(
-        pass_index(PassId::ExtractAdjectivesFromName)
-            < pass_index(PassId::ExtractWordAlternativeFromName),
-        "adjectives before word alternatives"
-    );
-    assert!(
-        pass_index(PassId::ExtractAdjectivesFromName)
-            < pass_index(PassId::ExtractAndOrAlternativeFromName),
-        "adjectives before and/or alternatives"
-    );
-    // Whitespace collapse sits between adjective peel and alternative passes.
+    // Whitespace collapse sits between adjective peel and the alternatives pass.
     assert!(
         pass_index(PassId::ExtractAdjectivesFromName) < pass_index(PassId::CollapseName),
         "adjectives before collapse"
     );
     assert!(
-        pass_index(PassId::CollapseName) < pass_index(PassId::ExtractAlternativeFromName),
+        pass_index(PassId::CollapseName) < pass_index(PassId::ExtractAlternativesFromName),
         "collapse before alternatives"
     );
     // Parenthetical amount hoists run after modifier text is fully shaped.

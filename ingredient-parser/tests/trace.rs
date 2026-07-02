@@ -373,12 +373,13 @@ fn test_stages_recognizer_match(parser: IngredientParser) {
     assert_eq!(report.result_preview.as_deref(), Some("lemon"));
 }
 
-/// Refine pass: the word-alternative split shows up in the refine bucket.
+/// Refine pass: the merged alternatives extraction (here the no-quantity
+/// word-alternative split) shows up in the refine bucket.
 #[rstest]
 fn test_stages_refine_pass(parser: IngredientParser) {
     let report = parser.parse_with_trace("red or white onion").trace.stages();
     assert_eq!(report.refine.len(), 1);
-    assert_eq!(report.refine[0].name, "extract_word_alternative_from_name");
+    assert_eq!(report.refine[0].name, "extract_alternatives_from_name");
     assert_eq!(report.result_preview.as_deref(), Some("red onion"));
 }
 

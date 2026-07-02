@@ -121,19 +121,9 @@ crate::define_stage_pipeline! {
         IngredientParser::extract_purpose_gerund
     ),
     (
-        ExtractAlternativeFromName,
-        "extract_alternative_from_name",
-        IngredientParser::extract_alternative_from_name
-    ),
-    (
-        ExtractWordAlternativeFromName,
-        "extract_word_alternative_from_name",
-        IngredientParser::extract_word_alternative_from_name
-    ),
-    (
-        ExtractAndOrAlternativeFromName,
-        "extract_and_or_alternative_from_name",
-        IngredientParser::extract_and_or_alternative_from_name
+        ExtractAlternativesFromName,
+        "extract_alternatives_from_name",
+        IngredientParser::extract_alternatives_from_name
     ),
     (
         RecoverParentheticalAliasFromModifier,
