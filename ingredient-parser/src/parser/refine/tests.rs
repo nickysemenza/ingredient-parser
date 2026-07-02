@@ -34,17 +34,12 @@ fn declared_order_matches_pipeline() {
 
 /// Purely positional invariants that aren't a two-pass ordering edge (so they
 /// don't fit the witness-backed constraint table): the collapse pass sits between
-/// the adjective peel and the alternatives split, and the secondary-amount hoist
-/// is always last (it runs after modifier text is fully shaped).
+/// the adjective peel and the alternatives split.
 #[test]
 fn refine_pipeline_positional_invariants() {
     assert!(
         pass_index(PassId::CollapseName) < pass_index(PassId::ExtractAlternativesFromName),
         "collapse before alternatives"
-    );
-    assert!(
-        pass_index(PassId::ExtractSecondaryAmountsFromModifier) == REFINE_PIPELINE.len() - 1,
-        "secondary amounts must be last"
     );
 }
 

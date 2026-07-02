@@ -39,6 +39,9 @@ pub struct PipelineStageNames {
     pub normalize: &'static [&'static str],
     /// Every whole-line recognizer label, in attempt order.
     pub recognizers: &'static [&'static str],
+    /// Every segment-stage label (clause kinds in classifier order, then the
+    /// assembly repairs), in emit order.
+    pub segment: &'static [&'static str],
     /// Every refine pass label, in pipeline order.
     pub refine: &'static [&'static str],
 }
@@ -55,6 +58,7 @@ pub fn pipeline_stage_names() -> PipelineStageNames {
     PipelineStageNames {
         normalize: crate::parser::normalize::REWRITE_TRACE_NAMES,
         recognizers: crate::parser::recognize::RECOGNIZER_TRACE_NAMES,
+        segment: crate::parser::segment::SEGMENT_TRACE_NAMES,
         refine: crate::parser::refine::REFINE_TRACE_NAMES,
     }
 }

@@ -191,24 +191,20 @@ fn never_empty_name() {
     }
 }
 
-/// The clause-segmentation path (shadow-migration mode) upholds the same
-/// invariants over every corpus input: `from_str` never fails (name-only
-/// fallback), never yields an empty name, and — until cutover flips the
-/// default — produces exactly the legacy path's result.
+/// The legacy carve-then-repair path — kept as the `corpus shadow` A/B
+/// baseline after the cutover — still upholds the funnel invariants over every
+/// corpus input: `from_str` never fails (name-only fallback) and never yields
+/// an empty name. (Exact-output parity with the segmented default ended at
+/// cutover, when the repair passes it depended on were absorbed into the
+/// segmenter and deleted.)
 #[test]
-fn segmented_path_invariants_over_corpus() {
-    let segmented = IngredientParser::new().with_segmentation_mode(SegmentationMode::Segmented);
+fn legacy_path_invariants_over_corpus() {
+    let legacy = IngredientParser::new().with_segmentation_mode(SegmentationMode::Legacy);
     for row in load() {
-        let ing = segmented.from_str(&row.input);
+        let ing = legacy.from_str(&row.input);
         assert!(
             !ing.name.trim().is_empty(),
-            "segmented path parsed an empty name for {:?}",
-            row.input
-        );
-        assert_eq!(
-            ing,
-            from_str(&row.input),
-            "segmented path diverged from legacy for {:?}",
+            "legacy path parsed an empty name for {:?}",
             row.input
         );
     }

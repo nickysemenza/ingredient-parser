@@ -58,6 +58,7 @@ pub struct StageCoverage {
     pub total_rows: usize,
     pub normalize: FireCounts,
     pub recognize: FireCounts,
+    pub segment: FireCounts,
     pub refine: FireCounts,
 }
 
@@ -70,6 +71,7 @@ pub fn report_stages(rows: &[String]) -> StageCoverage {
         total_rows: rows.len(),
         normalize: FireCounts::new(),
         recognize: FireCounts::new(),
+        segment: FireCounts::new(),
         refine: FireCounts::new(),
     };
 
@@ -77,7 +79,8 @@ pub fn report_stages(rows: &[String]) -> StageCoverage {
         let stages = parser.parse_with_trace(input).trace.stages();
         // A normalize rewrite / refine pass appears in the report only when it
         // changed the line, so mere presence == it fired. A recognizer appears
-        // for every attempt, so it fired only when it produced output.
+        // for every attempt, so it fired only when it produced output. Segment
+        // nodes appear per clause decision / assembly repair that fired.
         for rw in &stages.normalize {
             *cov.normalize.entry(rw.name.clone()).or_default() += 1;
         }
@@ -85,6 +88,9 @@ pub fn report_stages(rows: &[String]) -> StageCoverage {
             if rec.output.is_some() {
                 *cov.recognize.entry(rec.name.clone()).or_default() += 1;
             }
+        }
+        for seg in &stages.segment {
+            *cov.segment.entry(seg.name.clone()).or_default() += 1;
         }
         for pass in &stages.refine {
             *cov.refine.entry(pass.name.clone()).or_default() += 1;
@@ -136,6 +142,10 @@ fn print_report(cov: &StageCoverage) {
     );
     println!(
         "{}\n",
+        stage_table("segment", universe.segment, &cov.segment, total)
+    );
+    println!(
+        "{}\n",
         stage_table("refine", universe.refine, &cov.refine, total)
     );
 
@@ -146,6 +156,11 @@ fn print_report(cov: &StageCoverage) {
             zero_coverage(universe.recognizers, &cov.recognize)
                 .into_iter()
                 .map(|n| ("recognize", n)),
+        )
+        .chain(
+            zero_coverage(universe.segment, &cov.segment)
+                .into_iter()
+                .map(|n| ("segment", n)),
         )
         .chain(
             zero_coverage(universe.refine, &cov.refine)

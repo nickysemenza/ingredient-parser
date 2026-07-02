@@ -4,16 +4,23 @@
 //! clause segmentation, see `ingredient::SegmentationMode`) and reports:
 //!
 //! - **(a) divergences** — committed `corpus.jsonl` rows where the two paths
-//!   disagree (full field diff). These gate the cutover: the exit code is the
-//!   number of committed-row divergences (capped at 100), so CI/scripts can
-//!   ratchet on zero.
+//!   disagree (full field diff). During the shadow migration these gated the
+//!   cutover at zero. Since the cutover, the legacy mode runs *without* the
+//!   six repair passes the segmenter absorbed, so divergences on
+//!   repair-shaped rows are expected — they enumerate exactly the behavior
+//!   the segmentation stage now owns.
 //! - **(b) improvements** — rows (committed or xfail) where the segmented
-//!   output matches the human label but the legacy output does not.
+//!   output matches the human label but the legacy output does not (post-
+//!   cutover this includes every absorbed-repair row).
+//!
+//! The exit code is the number of committed rows where the SEGMENTED (default)
+//! output does not match the human label — i.e. real regressions, mirroring
+//! `tests/accuracy.rs` — capped at 100.
 //!
 //! `rich_text.jsonl` inputs are also A/B'd informationally: the rich-text
 //! parser itself only borrows the unit set (segmentation cannot affect
 //! `RichParser`), but its `input` lines are still real text both ingredient
-//! paths must agree on. They do not count toward the exit code.
+//! paths parse. They do not count toward the exit code.
 
 use ingredient::{Ingredient, IngredientParser, IngredientUsage, SegmentationMode, unit::Measure};
 use serde::Deserialize;
@@ -111,8 +118,8 @@ fn field_diff(legacy: &Ingredient, segmented: &Ingredient) -> Vec<String> {
 }
 
 /// Run the A/B over the ingredient corpus (and, informationally, the rich-text
-/// corpus inputs). Exits with the number of committed-row divergences, capped
-/// at 100.
+/// corpus inputs). Exits with the number of committed rows the segmented
+/// default gets wrong vs the label, capped at 100.
 pub fn run(corpus_path: &str, rich_corpus_path: &str) {
     let read = |path: &str| {
         std::fs::read_to_string(path).unwrap_or_else(|e| {
@@ -121,11 +128,13 @@ pub fn run(corpus_path: &str, rich_corpus_path: &str) {
         })
     };
     let rows = load_rows(&read(corpus_path), corpus_path);
-    let legacy = IngredientParser::new();
+    // Post-cutover the default is Segmented, so both modes are set explicitly.
+    let legacy = IngredientParser::new().with_segmentation_mode(SegmentationMode::Legacy);
     let segmented = IngredientParser::new().with_segmentation_mode(SegmentationMode::Segmented);
 
     let mut committed_diffs = 0usize;
     let mut xfail_diffs = 0usize;
+    let mut regressions = 0usize;
     let mut improvements: Vec<&str> = Vec::new();
 
     for row in &rows {
@@ -145,6 +154,13 @@ pub fn run(corpus_path: &str, rich_corpus_path: &str) {
             }
         }
 
+        if row.xfail.is_none() && !row.label_matches(&s) {
+            regressions += 1;
+            println!(
+                "REGRESSION (segmented output does not match label): {}",
+                row.input
+            );
+        }
         if row.label_matches(&s) && !row.label_matches(&l) {
             improvements.push(&row.input);
         }
@@ -170,12 +186,13 @@ pub fn run(corpus_path: &str, rich_corpus_path: &str) {
     }
 
     println!(
-        "\nshadow: {} rows — {committed_diffs} committed divergence(s), \
+        "\nshadow: {} rows — {regressions} segmented regression(s) vs labels, \
+         {committed_diffs} committed divergence(s) vs legacy, \
          {xfail_diffs} xfail divergence(s), {rich_diffs} rich-text divergence(s), \
          {} improvement(s)",
         rows.len(),
         improvements.len()
     );
 
-    std::process::exit(committed_diffs.min(100) as i32);
+    std::process::exit(regressions.min(100) as i32);
 }

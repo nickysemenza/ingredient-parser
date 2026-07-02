@@ -1,7 +1,10 @@
 use super::*;
 
 impl IngredientParser {
-    pub(super) fn extract_secondary_amounts_from_modifier(&self, parsed: &mut ParsedIngredient) {
+    pub(in crate::parser) fn extract_secondary_amounts_from_modifier(
+        &self,
+        parsed: &mut ParsedIngredient,
+    ) {
         let Some(modifier) = parsed.modifier_string() else {
             return;
         };

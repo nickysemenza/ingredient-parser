@@ -1,12 +1,21 @@
 //! Post-parse refinement passes.
 //!
-//! After the grammar captures the raw shape, these passes recover misplaced
-//! names, pull preparation adjectives and alternatives out of the name into the
-//! modifier, and hoist secondary amounts. They run in a fixed, load-bearing
-//! order (see `postprocess_ingredient`).
+//! After the segmenter (or, in legacy mode, the grammar tail) captures the raw
+//! shape, these passes work *inside* the name: they pull preparation
+//! adjectives, purpose clauses, and alternatives out of the name into the
+//! modifier, and resolve produce/size count-units. They run in a fixed,
+//! load-bearing order (see `postprocess_ingredient`).
 //!
-//! That order is a *tested contract*, not a comment: [`ORDER_CONSTRAINTS`] lists
-//! each load-bearing edge (`before` must precede `after`) together with a
+//! Clause-structure repairs (recovering a head noun stranded behind a prep
+//! chain, re-attaching an alias parenthetical, grafting a shared head off an
+//! alternatives list, hoisting a secondary measurement parenthetical, the
+//! leading prep-phrase swap and minus-clause split) are NOT here anymore: the
+//! clause segmentation stage resolves them at assembly time — see
+//! [`super::segment`]'s `ASSEMBLY_REPAIRS`. The sub-modules of this module
+//! still house those repair functions; only their caller moved.
+//!
+//! The pass order is a *tested contract*, not a comment: [`ORDER_CONSTRAINTS`]
+//! lists each load-bearing edge (`before` must precede `after`) together with a
 //! `witness` — a real line that parses correctly in declared order and *wrong*
 //! when the two passes are swapped. The `declared_order_matches_pipeline` and
 //! `constraints_are_load_bearing` tests (in `refine/tests.rs`) enforce both
@@ -92,16 +101,6 @@ crate::define_stage_pipeline! {
     type Pass = Pass,
     trace: pub(crate) REFINE_TRACE_NAMES,
     (
-        FixLeadingPrepPhrase,
-        "fix_leading_prep_phrase",
-        IngredientParser::fix_leading_prep_phrase
-    ),
-    (
-        FixLeadingMinusClause,
-        "fix_leading_minus_clause",
-        IngredientParser::fix_leading_minus_clause
-    ),
-    (
         ExtractPostfixProduceUnit,
         "extract_postfix_produce_unit",
         IngredientParser::extract_postfix_produce_unit
@@ -122,11 +121,6 @@ crate::define_stage_pipeline! {
         IngredientParser::extract_trailing_prep_clause
     ),
     (
-        RecoverHeadNounFromModifier,
-        "recover_head_noun_from_modifier",
-        IngredientParser::recover_head_noun_from_modifier
-    ),
-    (
         ExtractAdjectivesFromName,
         "extract_adjectives_from_name",
         IngredientParser::extract_adjectives_from_name
@@ -141,21 +135,6 @@ crate::define_stage_pipeline! {
         ExtractAlternativesFromName,
         "extract_alternatives_from_name",
         IngredientParser::extract_alternatives_from_name
-    ),
-    (
-        RecoverParentheticalAliasFromModifier,
-        "recover_parenthetical_alias_from_modifier",
-        IngredientParser::recover_parenthetical_alias_from_modifier
-    ),
-    (
-        RecoverSharedHeadFromAlternatives,
-        "recover_shared_head_from_alternatives",
-        IngredientParser::recover_shared_head_from_alternatives
-    ),
-    (
-        ExtractSecondaryAmountsFromModifier,
-        "extract_secondary_amounts_from_modifier",
-        IngredientParser::extract_secondary_amounts_from_modifier
     ),
 }
 
@@ -180,14 +159,6 @@ pub(super) struct OrderConstraint {
 #[cfg(test)]
 pub(super) const ORDER_CONSTRAINTS: &[OrderConstraint] = &[
     OrderConstraint {
-        before: PassId::FixLeadingPrepPhrase,
-        after: PassId::RecoverHeadNounFromModifier,
-        reason: "resolve the vocab-adjective leading-prep case first, so a name \
-                 that is a single known prep phrase is swapped with its modifier \
-                 before the pure-prep-chain recovery can misfire on it",
-        witness: "2 cups chopped, toasted walnuts",
-    },
-    OrderConstraint {
         before: PassId::ExtractTrailingPrepClause,
         after: PassId::ExtractAdjectivesFromName,
         reason: "move a trailing \"<participle> with/into …\" clause as one span \
@@ -195,14 +166,6 @@ pub(super) const ORDER_CONSTRAINTS: &[OrderConstraint] = &[
                  the scan would otherwise pull only that word and strand its \
                  prepositional tail in the name",
         witness: "2 cups spinach chopped into ribbons",
-    },
-    OrderConstraint {
-        before: PassId::RecoverHeadNounFromModifier,
-        after: PassId::ExtractAdjectivesFromName,
-        reason: "recover the real head noun out of the modifier first, so the \
-                 adjective scan runs over the restored name rather than a bare \
-                 leading participle",
-        witness: "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano",
     },
     OrderConstraint {
         before: PassId::ExtractLeadingPrepAlternative,

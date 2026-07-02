@@ -1,27 +1,28 @@
-//! Clause segmentation — split post-amount ingredient text into clauses and
-//! classify each one.
+//! Clause segmentation — the default post-amount pipeline stage: split the
+//! post-amount text into clauses, classify each one, and assemble the parsed
+//! ingredient.
 //!
-//! The legacy grammar tail carves the post-amount text at the *first* `", "`
-//! (the name grammar cannot cross `','` or `'('`) and leaves everything after it
-//! as one opaque modifier string, which a family of refine passes then repairs
-//! (recover a head noun stranded behind a prep chain, re-attach an alias
-//! parenthetical, graft a shared head off an alternatives list, hoist a
-//! measurement parenthetical…). This module replaces that carve-then-repair
+//! The legacy grammar tail carved the post-amount text at the *first* `", "`
+//! (the name grammar cannot cross `','` or `'('`) and left everything after it
+//! as one opaque modifier string, which a family of refine passes then
+//! repaired (recover a head noun stranded behind a prep chain, re-attach an
+//! alias parenthetical, graft a shared head off an alternatives list, hoist a
+//! measurement parenthetical…). This module replaced that carve-then-repair
 //! design with an explicit *segmentation*: the post-amount text is split into
 //! clauses at every top-level `", "` / `"; "` boundary, each top-level
 //! parenthetical becomes its own sub-clause attached to its host clause, and
-//! every clause is classified by an ordered rule table ([`CLASSIFIER`]) so the
-//! assembly step (and, later, `--explain`) can reason about the line's
-//! structure directly.
+//! every clause is classified by an ordered rule table ([`CLASSIFIER`]) so
+//! assembly and `--explain` can reason about the line's structure directly.
+//! Assembly then runs the ordered clause-structure repairs
+//! ([`ASSEMBLY_REPAIRS`]) that used to live at the tail of the refine
+//! pipeline — refine now only works *inside* the name.
 //!
 //! Splitting and classification are pure over the source text; byte ranges into
-//! the source are preserved on every clause so field spans can be re-derived
-//! for the decomposition view.
-
-// Parts of the clause model (soft boundaries, per-clause kinds) are consumed by
-// the later migration steps (trace/`--explain` integration, decompose spans);
-// until cutover they are exercised by unit tests only.
-#![allow(dead_code)]
+//! the source are preserved on every clause, and the decomposition view's
+//! field spans derive from them ([`IngredientParser::segmented_field_spans`]).
+//!
+//! The legacy path survives behind [`SegmentationMode::Legacy`] purely as the
+//! `food-cli corpus shadow` A/B baseline.
 
 use std::ops::Range;
 
@@ -124,6 +125,12 @@ impl<'a> Clause<'a> {
 /// not split the clause, but that assembly may consult (e.g. the trailing
 /// or-clause of a shared-head alternatives list, a "for <gerund>" purpose
 /// tail).
+///
+/// Not consumed by production assembly yet: the name-internal "or"/purpose
+/// handling stayed with the kept refine passes at cutover. This detector (unit
+/// tested below) is the seed for absorbing `extract_alternatives_from_name` /
+/// `extract_purpose_gerund` into clause-native logic — a follow-up.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SoftBoundaryKind {
     /// Word-boundary " or ".
@@ -141,6 +148,7 @@ pub(crate) enum SoftBoundaryKind {
 
 /// A soft boundary occurrence: `at` is the byte offset in the examined text
 /// where the boundary's *separator* starts (i.e. the space before "or"/"for"/…).
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SoftBoundary {
     pub at: usize,
@@ -156,11 +164,12 @@ pub(crate) struct SoftBoundary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SegmentationMode {
     /// The historical path: grammar carves name/modifier at the first `", "`,
-    /// refine passes repair the damage.
-    #[default]
+    /// refine passes repair the damage. Kept as the A/B baseline for the
+    /// `corpus shadow` harness.
     Legacy,
-    /// The clause-segmentation path: amounts grammar + [`Segmenter::segment`] +
-    /// assembly, followed by the kept refine passes.
+    /// The clause-segmentation path (the default): amounts grammar +
+    /// [`Segmenter::segment`] + assembly, followed by the refine passes.
+    #[default]
     Segmented,
 }
 
@@ -402,8 +411,10 @@ impl Segmenter<'_> {
 
 /// Find the soft boundaries inside a clause's text: word-boundary " or " /
 /// " and/or " / " such as " / " to taste", and " for " when followed by a
-/// gerund or "the" (see [`SoftBoundaryKind`]). Purely informational for the
-/// splitter — soft boundaries do not split a clause; assembly consults them.
+/// gerund or "the" (see [`SoftBoundaryKind`]). Purely informational — soft
+/// boundaries do not split a clause. (See the note on [`SoftBoundaryKind`]:
+/// unit-tested seed for a follow-up, not yet consumed by assembly.)
+#[allow(dead_code)]
 pub(crate) fn soft_boundaries(text: &str) -> Vec<SoftBoundary> {
     crate::lazy_regex!(SOFT, r"(?i)\s+(and/or|or|such\s+as|to\s+taste|for)(\s+|$)");
     let mut out = Vec::new();
@@ -443,6 +454,19 @@ pub(crate) fn soft_boundaries(text: &str) -> Vec<SoftBoundary> {
 
 // --- Segmented parse path -------------------------------------------------------
 
+/// The result of the grammar-equivalent head carve over the post-amount text:
+/// the name span, an optional hoisted name-adjacent amounts parenthetical, and
+/// where the modifier tail begins.
+struct Carve {
+    /// End of the name run (byte offset into the post-amount source).
+    name_end: usize,
+    /// Byte range of the hoisted name-adjacent amounts parenthetical (if any),
+    /// plus its measures.
+    hoisted: Option<(Range<usize>, Vec<Measure>)>,
+    /// Where the modifier tail starts (after the paren and one `", "`).
+    tail_from: usize,
+}
+
 impl IngredientParser {
     /// Parse an ingredient line via the segmented path: the same leading
     /// amounts grammar as the legacy tail (`opt(measurement_list) → space0 →
@@ -467,43 +491,36 @@ impl IngredientParser {
             .flatten()
             .collect();
         let clauses = self.segmenter().segment(rest);
+        trace_clauses(rest, &clauses);
         let parsed = self.assemble(rest, &clauses, amounts, &mp)?;
         Ok(("", parsed))
     }
 
-    /// Assemble the post-amount clauses into a [`ParsedIngredient`].
+    /// The grammar-equivalent head carve: name = the leading run of
+    /// ingredient-text characters (stops at ',', '(' and other punctuation);
+    /// a paren immediately after the name hoists when it parses as amounts;
+    /// one following `", "` is consumed.
     ///
-    /// The head carve is grammar-equivalent (name = the leading run of
-    /// ingredient-text characters; an adjacent amounts parenthetical hoists;
-    /// one following `", "` is consumed) so the segmented path is byte-faithful
-    /// to the legacy tail wherever no structural repair applies. On top of
-    /// that, a leading prep-chain (per the clause classification) resolves the
-    /// real head noun *here* instead of leaving it to the
-    /// `recover_head_noun_from_modifier` repair pass.
-    fn assemble<'a>(
+    /// A recoverable paren parse error falls through (the paren stays modifier
+    /// text); a nom `Failure` propagates, exactly as the legacy grammar's
+    /// `opt(...)` slot behaved — the whole parse then falls back name-only.
+    fn carve<'a>(
         &self,
         source: &'a str,
-        clauses: &[Clause<'_>],
-        mut amounts: Vec<Measure>,
         mp: &MeasurementParser<'_>,
-    ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
-        // Head carve: the name is the longest leading run the legacy name
-        // grammar would take (stops at ',', '(' and other punctuation).
+    ) -> Result<Carve, nom::Err<nom_language::error::VerboseError<&'a str>>> {
         let name_end = parse_ingredient_text(source)
             .map(|(_, chunk)| chunk.len())
             .unwrap_or(0);
         let mut after = name_end;
 
-        // The grammar's post-name parenthesized-amounts slot: a paren
-        // immediately after the name text hoists when it parses as amounts.
-        // A recoverable parse error falls through (the paren stays modifier
-        // text); a nom `Failure` propagates, exactly as the legacy grammar's
-        // `opt(...)` slot behaved — the whole parse then falls back name-only.
+        let mut hoisted = None;
         if source[after..].starts_with('(') {
             match mp.parse_parenthesized_amounts(&source[after..]) {
                 Ok((rem, measures)) => {
-                    amounts.extend(measures);
-                    after = source.len() - rem.len();
+                    let end = source.len() - rem.len();
+                    hoisted = Some((after..end, measures));
+                    after = end;
                 }
                 Err(err @ nom::Err::Failure(_)) | Err(err @ nom::Err::Incomplete(_)) => {
                     return Err(err);
@@ -511,12 +528,35 @@ impl IngredientParser {
                 Err(nom::Err::Error(_)) => {}
             }
         }
-        // The grammar's single `opt(tag(", "))` before the modifier tail.
         if source[after..].starts_with(", ") {
             after += 2;
         }
+        Ok(Carve {
+            name_end,
+            hoisted,
+            tail_from: after,
+        })
+    }
 
-        let name = source[..name_end].trim();
+    /// Assemble the post-amount clauses into a [`ParsedIngredient`].
+    ///
+    /// The head carve is grammar-equivalent (see [`Self::carve`]) so the
+    /// segmented path is byte-faithful to the legacy tail wherever no
+    /// structural repair applies.
+    fn assemble<'a>(
+        &self,
+        source: &'a str,
+        clauses: &[Clause<'_>],
+        mut amounts: Vec<Measure>,
+        mp: &MeasurementParser<'_>,
+    ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
+        let carve = self.carve(source, mp)?;
+        if let Some((_, measures)) = &carve.hoisted {
+            amounts.extend(measures.iter().cloned());
+        }
+        let after = carve.tail_from;
+
+        let name = source[..carve.name_end].trim();
         let tail = &source[after..];
 
         // Two repair passes scan the *whole* first raw modifier part with
@@ -526,10 +566,6 @@ impl IngredientParser {
         //   (its head scan skips across `", "`);
         // - a paren-led tail triggers `recover_parenthetical_alias_from_modifier`
         //   (its `find(" (")` head cut crosses `", "` too).
-        // Their work moves into assembly at cutover, when the passes are
-        // deleted together with the `fix_leading_prep_phrase` swap that is
-        // order-entangled with them; during shadow migration the pipeline
-        // keeps doing it at the original position.
         let keep_tail_whole = tail.trim_start().starts_with('(')
             || (!name.is_empty() && name.split_whitespace().all(token::is_prep_token));
 
@@ -545,31 +581,224 @@ impl IngredientParser {
                 vec![ModifierPart::Raw(tail.to_string())]
             }
         } else {
-            tail_parts(source, clauses, after)
+            tail_part_ranges(source, clauses, after)
                 .into_iter()
-                .map(ModifierPart::Raw)
+                .map(|r| ModifierPart::Raw(source[r].to_string()))
                 .collect()
         };
-        Ok(ParsedIngredient {
+        let mut parsed = ParsedIngredient {
             name: name.to_string(),
             amounts,
             modifier,
             optional: false,
-        })
+        };
+        self.run_assembly_repairs(&mut parsed);
+        Ok(parsed)
+    }
+
+    /// Run the ordered clause-structure repairs on the freshly assembled IR
+    /// (see [`ASSEMBLY_REPAIRS`]). Mirrors `run_refine_pass`'s
+    /// trace-on-change so `--explain` shows which repairs fired.
+    fn run_assembly_repairs(&self, parsed: &mut ParsedIngredient) {
+        for (label, repair) in ASSEMBLY_REPAIRS {
+            if !crate::trace::is_tracing_enabled() {
+                repair(self, parsed);
+                continue;
+            }
+            let before = parsed.clone();
+            repair(self, parsed);
+            crate::trace::trace_on_change(
+                label,
+                &before.name,
+                &format!(
+                    "{} | {}",
+                    parsed.name,
+                    parsed.modifier_string().as_deref().unwrap_or("-")
+                ),
+                *parsed != before,
+            );
+        }
+    }
+
+    /// Decomposition field spans for the segmented path — the clause-derived
+    /// replacement for the legacy `consumed`-wrapper span capture. Spans index
+    /// into `input` (the normalized, optional-stripped line): the leading
+    /// amounts region and a hoisted name-adjacent amounts parenthetical are
+    /// [`Field::Amount`](crate::Field::Amount) spans, the carved name a
+    /// [`Field::Name`](crate::Field::Name) span, and each modifier part its
+    /// own [`Field::Modifier`](crate::Field::Modifier) span (a multi-clause
+    /// modifier yields multiple spans). Empty when the parse fails.
+    pub(crate) fn segmented_field_spans(&self, input: &str) -> Vec<crate::FieldSpan> {
+        use crate::{Field, FieldSpan};
+
+        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
+        let Ok((rest, _)) = (
+            opt(|a| mp.parse_measurement_list(a)),
+            space0,
+            opt(|a| mp.parse_bracketed_amounts(a)),
+            space0,
+        )
+            .parse(input)
+        else {
+            return Vec::new();
+        };
+        let Ok(carve) = self.carve(rest, &mp) else {
+            return Vec::new();
+        };
+
+        // `rest` is a suffix slice of `input`; offset clause/carve ranges by it.
+        let base = rest.as_ptr() as usize - input.as_ptr() as usize;
+        let span_of = |range: Range<usize>, field: Field| -> Option<FieldSpan> {
+            let slice = &input[range.clone()];
+            let trimmed = slice.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let start = range.start + (trimmed.as_ptr() as usize - slice.as_ptr() as usize);
+            Some(FieldSpan {
+                field,
+                range: start..start + trimmed.len(),
+                text: trimmed.to_string(),
+            })
+        };
+
+        let mut spans = Vec::new();
+        // Leading amounts region (primary + bracketed as one span).
+        spans.extend(span_of(0..base, Field::Amount));
+        // Carved name.
+        spans.extend(span_of(base..base + carve.name_end, Field::Name));
+        // Hoisted name-adjacent amounts parenthetical.
+        if let Some((range, _)) = &carve.hoisted {
+            spans.extend(span_of(base + range.start..base + range.end, Field::Amount));
+        }
+        // Modifier: one span per assembled part (mirrors `assemble`'s
+        // keep-whole / split decision so spans match the parts).
+        let name = rest[..carve.name_end].trim();
+        let tail = &rest[carve.tail_from..];
+        let keep_tail_whole = tail.trim_start().starts_with('(')
+            || (!name.is_empty() && name.split_whitespace().all(token::is_prep_token));
+        if keep_tail_whole {
+            spans.extend(span_of(
+                base + carve.tail_from..input.len(),
+                Field::Modifier,
+            ));
+        } else {
+            let clauses = self.segmenter().segment(rest);
+            for r in tail_part_ranges(rest, &clauses, carve.tail_from) {
+                spans.extend(span_of(base + r.start..base + r.end, Field::Modifier));
+            }
+        }
+        spans
     }
 }
 
-/// Split the modifier tail (everything from byte `from` on) into one string per
-/// *cleanly separable* `", "`-separated clause. The lowering contract is strict:
-/// `modifier_string` re-joins parts with `", "` (or `" ("` before a
+/// Emit one trace node per clause decision (and one per attached
+/// parenthetical), so `--explain` and the stage report can show how the
+/// segmenter read the line. No-ops when tracing is disabled.
+fn trace_clauses(source: &str, clauses: &[Clause<'_>]) {
+    if !crate::trace::is_tracing_enabled() {
+        return;
+    }
+    for clause in clauses {
+        let text = clause.text(source).trim();
+        if text.is_empty() {
+            continue;
+        }
+        crate::trace::trace_on_change(clause.kind.as_str(), text, &clause.stripped, true);
+        for paren in &clause.parens {
+            crate::trace::trace_on_change(
+                ClauseKind::Parenthetical(paren.kind).as_str(),
+                &format!("({})", paren.inner),
+                paren_kind_label(paren.kind),
+                true,
+            );
+        }
+    }
+}
+
+/// Stable lowercase label for a [`ParenKind`] (trace preview text).
+fn paren_kind_label(kind: ParenKind) -> &'static str {
+    match kind {
+        ParenKind::CrossReference => "cross_reference",
+        ParenKind::NoteReference => "note_reference",
+        ParenKind::MinusEquivalence => "minus_equivalence",
+        ParenKind::Optional => "optional",
+        ParenKind::Descriptive => "descriptive",
+        ParenKind::Amount => "amount",
+        ParenKind::Alias => "alias",
+        ParenKind::Other => "other",
+    }
+}
+
+/// A clause-structure repair applied at assembly time.
+type Repair = fn(&IngredientParser, &mut ParsedIngredient);
+
+/// The ordered clause-structure repairs the segmentation stage owns — the
+/// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`. The
+/// functions still live in `refine::{recover, alternatives, amounts}` (their
+/// guards and unit tests are unchanged); only the caller moved: they now run
+/// once at assembly, before the name-internal refine passes, in the same
+/// relative order they held in the old pipeline.
+const ASSEMBLY_REPAIRS: &[(&str, Repair)] = &[
+    (
+        "fix_leading_prep_phrase",
+        IngredientParser::fix_leading_prep_phrase,
+    ),
+    (
+        "fix_leading_minus_clause",
+        IngredientParser::fix_leading_minus_clause,
+    ),
+    (
+        "recover_head_noun_from_modifier",
+        IngredientParser::recover_head_noun_from_modifier,
+    ),
+    (
+        "recover_parenthetical_alias_from_modifier",
+        IngredientParser::recover_parenthetical_alias_from_modifier,
+    ),
+    (
+        "recover_shared_head_from_alternatives",
+        IngredientParser::recover_shared_head_from_alternatives,
+    ),
+    (
+        "extract_secondary_amounts_from_modifier",
+        IngredientParser::extract_secondary_amounts_from_modifier,
+    ),
+];
+
+/// Every label the `segment` stage can emit in a trace — the clause-kind
+/// decisions (classifier order) followed by the assembly repairs — the
+/// stage's label universe for tooling (mirrors the per-stage `*_TRACE_NAMES`
+/// slices).
+pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &[
+    "prep_chain",
+    "known_prep_phrase",
+    "minus_measure",
+    "purpose",
+    "alternative",
+    "parenthetical",
+    "prose",
+    "head_candidate",
+    "fix_leading_prep_phrase",
+    "fix_leading_minus_clause",
+    "recover_head_noun_from_modifier",
+    "recover_parenthetical_alias_from_modifier",
+    "recover_shared_head_from_alternatives",
+    "extract_secondary_amounts_from_modifier",
+];
+
+/// Split the modifier tail (everything from byte `from` on) into one byte range
+/// per *cleanly separable* `", "`-separated clause. The lowering contract is
+/// strict: `modifier_string` re-joins parts with `", "` (or `" ("` before a
 /// parenthesized part) and strips each part's leading commas, so a clause is
-/// only emitted as its own part when that join reproduces the source verbatim —
-/// it must follow a `", "` separator and its trimmed text must be non-empty and
-/// not start with `'('` or `','`. Everything else ("; " separators, empty
-/// clauses, paren-led or comma-led clauses) is preserved byte-for-byte by
-/// merging into the previous part, which keeps the lowered modifier string
-/// identical to the legacy single-raw capture.
-fn tail_parts(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<String> {
+/// only emitted as its own range when that join reproduces the source verbatim —
+/// it must follow a `", "` separator and its text must be non-empty and not
+/// start with whitespace, `'('`, or `','` (nor sit after trailing whitespace).
+/// Everything else ("; " separators, empty clauses, paren-led or comma-led
+/// clauses) is preserved byte-for-byte by extending the previous range across
+/// the separator, which keeps the lowered modifier string identical to the
+/// legacy single-raw capture. Ranges are contiguous slices of `source`.
+fn tail_part_ranges(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<Range<usize>> {
     let separable = |clause: &Clause<'_>| {
         if clause.sep != ", " {
             return false;
@@ -593,7 +822,7 @@ fn tail_parts(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<String> 
             .next_back()
             .is_some_and(char::is_whitespace)
     };
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<Range<usize>> = Vec::new();
     for clause in clauses {
         if clause.range.end <= from {
             continue;
@@ -601,19 +830,18 @@ fn tail_parts(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<String> 
         match parts.last_mut() {
             // First part: include everything from the carve point (which may
             // sit mid-clause, or on separator bytes the carve did not consume).
-            None => parts.push(source[from..clause.range.end].to_string()),
+            None => parts.push(from..clause.range.end),
             Some(_) if separable(clause) => {
-                parts.push(source[clause.range.clone()].to_string());
+                parts.push(clause.range.clone());
             }
-            // Not cleanly separable: preserve the separator bytes verbatim
-            // inside the previous part.
+            // Not cleanly separable: extend the previous range across the
+            // separator bytes, preserving them verbatim.
             Some(prev) => {
-                prev.push_str(clause.sep);
-                prev.push_str(&source[clause.range.clone()]);
+                prev.end = clause.range.end;
             }
         }
     }
-    parts.retain(|p| !p.trim().is_empty());
+    parts.retain(|r| !source[r.clone()].trim().is_empty());
     parts
 }
 
@@ -794,32 +1022,40 @@ mod tests {
         );
     }
 
-    /// The first-part-scanning repair passes need their trigger shapes whole:
-    /// a pure-prep-chain name (recover_head_noun_from_modifier) and a
-    /// paren-led tail (recover_parenthetical_alias_from_modifier) keep the
-    /// tail as a single raw part.
-    #[rstest]
-    #[case(
-        "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano",
-        "deribbed",
-        "seeded, and roughly chopped fresh hot green chiles, such as serrano"
-    )]
-    #[case(
-        "1 medium purple (red) cabbage (about 1 pound), cored",
-        // "medium" stays in the carved name here; the extract_size_unit_from_name
-        // refine pass claims it later.
-        "medium purple",
-        "(red) cabbage (about 1 pound), cored"
-    )]
-    fn assembly_keeps_repair_trigger_tails_whole(
-        #[case] line: &str,
-        #[case] name: &str,
-        #[case] tail: &str,
-    ) {
+    /// The clause-structure repairs run at assembly time: the assembled IR
+    /// (pre-refine) already has the head noun recovered from a leading prep
+    /// chain, and an alias parenthetical re-attached to the name.
+    #[test]
+    fn assembly_repairs_resolve_clause_structure() {
         let p = IngredientParser::new();
-        let (_, parsed) = p.parse_ingredient_segmented(line).expect("segmented parse");
-        assert_eq!(parsed.name, name);
-        assert_eq!(parsed.modifier, vec![ModifierPart::Raw(tail.to_string())]);
+
+        // Prep-chain head recovery (was recover_head_noun_from_modifier).
+        let (_, parsed) = p
+            .parse_ingredient_segmented(
+                "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano",
+            )
+            .expect("segmented parse");
+        assert_eq!(parsed.name, "fresh hot green chiles");
+        assert_eq!(
+            parsed.modifier,
+            vec![
+                ModifierPart::Prep("deribbed, seeded, and roughly chopped".to_string()),
+                ModifierPart::Raw("such as serrano".to_string()),
+            ]
+        );
+
+        // Alias re-attachment + secondary-amount hoist (was
+        // recover_parenthetical_alias_from_modifier +
+        // extract_secondary_amounts_from_modifier). "medium" stays in the
+        // assembled name; extract_size_unit_from_name claims it in refine.
+        let (_, parsed) = p
+            .parse_ingredient_segmented("1 medium purple (red) cabbage (about 1 pound), cored")
+            .expect("segmented parse");
+        assert_eq!(parsed.name, "medium purple (red) cabbage");
+        // The hoist leaves the stray leading comma in the raw part; the
+        // lowering strips it (same as the old pipeline pass did).
+        assert_eq!(parsed.modifier_string().as_deref(), Some("cored"));
+        assert_eq!(parsed.amounts.len(), 2, "pound paren hoisted");
     }
 
     /// Grammar-equivalent head carve: adjacent amounts parenthetical hoists at
@@ -838,46 +1074,96 @@ mod tests {
         );
     }
 
-    // ── segmented path vs legacy path ───────────────────────────────────────
+    // ── segmented default: end-to-end witnesses ─────────────────────────────
 
-    /// The segmented path must produce the same public result as the legacy
-    /// path (the corpus-wide check lives in the food-cli `corpus shadow`
-    /// harness; these are the in-crate witnesses, including every
-    /// ORDER_CONSTRAINTS line).
+    /// End-to-end witnesses for the segmented default, pinned to the exact
+    /// pre-cutover outputs (the migration converged to zero divergences before
+    /// the legacy repair passes were absorbed into assembly, so these are the
+    /// historical parses, now produced by the segmentation stage). Includes
+    /// every shape the absorbed repairs own: prep-chain head recovery, the
+    /// leading prep-phrase swap, the minus-clause split, alias re-attachment,
+    /// the shared-head graft, and the secondary-amount hoist.
     #[rstest]
-    #[case("2 cups flour")]
-    #[case("1 cup flour, sifted")]
-    #[case("salt")]
-    #[case("2 cups chopped, toasted walnuts")]
-    #[case("1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano")]
-    #[case("2 cups spinach chopped into ribbons")]
-    #[case("1 teaspoon grated or finely chopped lemon zest")]
-    #[case("chopped red or white onion")]
-    #[case("chopped parsley for garnish for brushing the bread")]
-    #[case("½ cup minus 1 tablespoon flour")]
-    #[case("1 medium purple (red) cabbage (about 1 pound)")]
-    #[case("1 cup canola, vegetable, or melted coconut oil")]
-    #[case("3 tomatoes (about 2 cups), diced")]
-    #[case("2 boneless, skinless chicken thighs")]
-    #[case("bone-in, skin-on chicken legs")]
-    #[case("1 pound feta (crumbled)")]
-    #[case("salt and pepper to taste")]
-    #[case("1 garlic clove, minced")]
-    #[case("3 medium carrots")]
-    #[case("Juice of 1 lemon")]
-    #[case("(1 cup walnuts, toasted)")]
-    #[case("Butter — 2 tablespoons")]
-    #[case("1,000 grams (about 6 cups) quartered and pitted nectarines")]
-    #[case("2/3 cup (85 grams) finely chopped, raw pistachios")]
-    #[case("")]
-    fn segmented_matches_legacy(#[case] line: &str) {
-        let legacy = IngredientParser::new();
-        let segmented =
-            IngredientParser::new().with_segmentation_mode(crate::SegmentationMode::Segmented);
+    #[case("2 cups flour", "flour", None)]
+    #[case("1 cup flour, sifted", "flour", Some("sifted"))]
+    #[case("salt", "salt", None)]
+    #[case("2 cups chopped, toasted walnuts", "toasted walnuts", Some("chopped"))]
+    #[case(
+        "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano",
+        "hot green chiles",
+        Some("fresh, deribbed, seeded, and roughly chopped, such as serrano")
+    )]
+    #[case(
+        "2 cups spinach chopped into ribbons",
+        "spinach",
+        Some("chopped into ribbons")
+    )]
+    #[case(
+        "1 teaspoon grated or finely chopped lemon zest",
+        "lemon zest",
+        Some("grated or finely chopped")
+    )]
+    #[case(
+        "chopped red or white onion",
+        "red onion",
+        Some("chopped, or white onion")
+    )]
+    #[case(
+        "chopped parsley for garnish for brushing the bread",
+        "parsley",
+        Some("chopped, for garnish, for brushing the bread")
+    )]
+    #[case("½ cup minus 1 tablespoon flour", "flour", Some("minus 1 tablespoon"))]
+    #[case(
+        "1 medium purple (red) cabbage (about 1 pound)",
+        "purple (red) cabbage",
+        None
+    )]
+    #[case(
+        "1 cup canola, vegetable, or melted coconut oil",
+        "canola oil",
+        Some("or vegetable, or melted coconut oil")
+    )]
+    #[case("3 tomatoes (about 2 cups), diced", "tomatoes", Some("diced"))]
+    #[case(
+        "2 boneless, skinless chicken thighs",
+        "chicken thighs",
+        Some("boneless, skinless")
+    )]
+    #[case(
+        "bone-in, skin-on chicken legs",
+        "chicken legs",
+        Some("bone-in, skin-on")
+    )]
+    #[case("1 pound feta (crumbled)", "feta", Some("crumbled"))]
+    #[case("salt and pepper to taste", "salt and pepper", Some("to taste"))]
+    #[case("1 garlic clove, minced", "garlic", Some("minced"))]
+    #[case("3 medium carrots", "carrots", None)]
+    #[case("Juice of 1 lemon", "lemon", Some("juice of"))]
+    #[case("(1 cup walnuts, toasted)", "walnuts", Some("toasted"))]
+    #[case("Butter — 2 tablespoons", "Butter", None)]
+    #[case(
+        "1,000 grams (about 6 cups) quartered and pitted nectarines",
+        "quartered and pitted nectarines",
+        None
+    )]
+    #[case(
+        "2/3 cup (85 grams) finely chopped, raw pistachios",
+        "raw pistachios",
+        Some("finely chopped")
+    )]
+    #[case("", "", None)]
+    fn segmented_default_witnesses(
+        #[case] line: &str,
+        #[case] want_name: &str,
+        #[case] want_modifier: Option<&str>,
+    ) {
+        let ing = IngredientParser::new().from_str(line);
+        assert_eq!(ing.name, want_name, "name for {line:?}");
         assert_eq!(
-            segmented.from_str(line),
-            legacy.from_str(line),
-            "segmented != legacy for {line:?}"
+            ing.modifier.as_deref(),
+            want_modifier,
+            "modifier for {line:?}"
         );
     }
 
@@ -893,8 +1179,14 @@ mod tests {
         let segmented =
             IngredientParser::new().with_segmentation_mode(crate::SegmentationMode::Segmented);
         let ing = segmented.from_str(line);
-        let legacy = IngredientParser::new().from_str(line);
-        assert_eq!(ing, legacy, "segmented != legacy for {line:?}");
+        let has_modifier = ing
+            .modifier
+            .as_deref()
+            .is_some_and(|m| !m.trim().is_empty());
+        assert!(
+            !(ing.name.trim().is_empty() && has_modifier),
+            "stranded name for {line:?}: {ing:?}"
+        );
     }
 
     // ── soft boundaries ─────────────────────────────────────────────────────

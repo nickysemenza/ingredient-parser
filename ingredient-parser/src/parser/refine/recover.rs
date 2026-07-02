@@ -11,7 +11,7 @@ impl IngredientParser {
     /// name is restored. The exact-match guard keeps descriptive names (e.g.
     /// "raw pistachios, finely chopped", where the name isn't a prep phrase) from
     /// ever being touched.
-    pub(super) fn fix_leading_prep_phrase(&self, parsed: &mut ParsedIngredient) {
+    pub(in crate::parser) fn fix_leading_prep_phrase(&self, parsed: &mut ParsedIngredient) {
         let name = parsed.name.trim();
         if name.is_empty() || !self.adjectives.contains(&name.to_lowercase()) {
             return;
@@ -30,7 +30,7 @@ impl IngredientParser {
     /// followed by a parseable measurement, move "minus <measure>" into the
     /// modifier and restore the real name ("flour"). The primary amount is left
     /// as stated (the subtraction isn't applied numerically).
-    pub(super) fn fix_leading_minus_clause(&self, parsed: &mut ParsedIngredient) {
+    pub(in crate::parser) fn fix_leading_minus_clause(&self, parsed: &mut ParsedIngredient) {
         // Borrow for the prefix guard; only allocate once we've confirmed a match.
         let Some(rest) = parsed
             .name
@@ -77,7 +77,7 @@ impl IngredientParser {
     /// "chopped, toasted walnuts" is already resolved and never reaches here) and
     /// before `extract_adjectives_from_name` (so the recovered name still gets the
     /// normal adjective scan).
-    pub(super) fn recover_head_noun_from_modifier(&self, parsed: &mut ParsedIngredient) {
+    pub(in crate::parser) fn recover_head_noun_from_modifier(&self, parsed: &mut ParsedIngredient) {
         use crate::parser::token::{is_prep_token as is_prep, norm, offsets};
         let is_connector = |w: &str| {
             let wl = norm(w);
@@ -161,7 +161,10 @@ impl IngredientParser {
     /// name="purple" and modifier="(red) cabbage (about 1 pound)". Move the
     /// leading "(red) cabbage" back into the name and leave later modifier text
     /// for the normal secondary-amount pass.
-    pub(super) fn recover_parenthetical_alias_from_modifier(&self, parsed: &mut ParsedIngredient) {
+    pub(in crate::parser) fn recover_parenthetical_alias_from_modifier(
+        &self,
+        parsed: &mut ParsedIngredient,
+    ) {
         let Some(ModifierPart::Raw(raw)) = parsed.modifier.first() else {
             return;
         };

@@ -136,7 +136,10 @@ impl IngredientParser {
     /// [`vocab::SHARED_HEAD_NOUNS`]) so lists of complete ingredients —
     /// "salt, pepper, or paprika", "flour, sugar, or baking soda" — never get a
     /// nonsense head grafted on.
-    pub(super) fn recover_shared_head_from_alternatives(&self, parsed: &mut ParsedIngredient) {
+    pub(in crate::parser) fn recover_shared_head_from_alternatives(
+        &self,
+        parsed: &mut ParsedIngredient,
+    ) {
         // Name must be a single bare token that isn't already the head noun.
         let mut name_words = parsed.name.split_whitespace();
         let (Some(name_word), None) = (name_words.next(), name_words.next()) else {

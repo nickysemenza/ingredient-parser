@@ -182,8 +182,10 @@ enum CorpusCommand {
     },
     /// A/B the legacy and segmented parse paths over the corpus: report
     /// committed rows where they diverge (full field diff) and rows the
-    /// segmented path newly gets right. Exit code = committed divergences
-    /// (capped at 100), so zero means the paths agree on every committed row.
+    /// segmented path newly gets right. Exit code = committed rows the
+    /// segmented default parses differently from the LABEL (capped at 100),
+    /// so zero means no real regressions. (Post-cutover, divergences vs the
+    /// repair-less legacy mode are expected and informational.)
     Shadow {
         /// Ingredient corpus to A/B (defaults to the repo's corpus.jsonl)
         #[arg(long, default_value = DEFAULT_CORPUS_PATH)]

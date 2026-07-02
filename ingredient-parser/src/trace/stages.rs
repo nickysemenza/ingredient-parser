@@ -3,12 +3,13 @@
 //! The full trace tree is great for debugging the grammar but drowns the
 //! pipeline story in `alt()` backtracking. [`StageReport`] buckets the root's
 //! direct children into the pipeline stages — normalize → recognize → grammar
-//! → refine → result — so callers (the CLI's `--explain` renderer, the egui
-//! stages view) can show *which stage* shaped a line without re-deriving the
-//! bucketing. See the routing guide in `parser/mod.rs`.
+//! → segment → refine → result — so callers (the CLI's `--explain` renderer,
+//! the egui stages view) can show *which stage* shaped a line without
+//! re-deriving the bucketing. See the routing guide in `parser/mod.rs`.
 
 use super::{TraceNode, TraceOutcome};
 use crate::parser::recognize::RECOGNIZER_TRACE_NAMES;
+use crate::parser::segment::SEGMENT_TRACE_NAMES;
 
 /// The grammar span name (the `traced_parser!` wrapping `parse_ingredient`).
 const GRAMMAR_NAME: &str = "parse_ingredient";
@@ -56,6 +57,9 @@ pub struct StageReport {
     /// Grammar outcome; `None` only for degenerate traces with no
     /// recognizer/grammar nodes at all (e.g. a trace captured mid-parse).
     pub grammar: Option<GrammarOutcome>,
+    /// Segmentation decisions (clause classifications and assembly repairs),
+    /// in order. Empty on the legacy path.
+    pub segment: Vec<StageRewrite>,
     /// Refine passes that changed the ingredient, in order.
     pub refine: Vec<StageRewrite>,
     /// Final result name preview; `None` means the name-only fallback fired.
@@ -118,8 +122,10 @@ pub(super) fn build_report(root: &TraceNode) -> StageReport {
     };
     let normalize = normalize_nodes.iter().map(rewrite_from).collect();
 
-    // recognize + grammar — the core block.
-    let (recognizers, grammar) = match (first_core, last_core) {
+    // recognize + grammar + segment — the core block. Segment decisions
+    // (clause classifications, assembly repairs) nest *inside* the grammar
+    // span on the segmented path.
+    let (recognizers, grammar, segment) = match (first_core, last_core) {
         (Some(i), Some(j)) => {
             let core = &children[i..=j];
             let recognizers = core
@@ -130,16 +136,26 @@ pub(super) fn build_report(root: &TraceNode) -> StageReport {
                     output: success_preview(c).map(str::to_string),
                 })
                 .collect();
-            let grammar = match find_grammar(core) {
+            let grammar_node = find_grammar(core);
+            let grammar = match grammar_node {
                 Some(g) => match success_preview(g) {
                     Some(p) => GrammarOutcome::Parsed(p.to_string()),
                     None => GrammarOutcome::FellBack,
                 },
                 None => GrammarOutcome::Skipped,
             };
-            (recognizers, Some(grammar))
+            let segment = grammar_node
+                .map(|g| {
+                    g.children
+                        .iter()
+                        .filter(|c| SEGMENT_TRACE_NAMES.contains(&c.name.as_str()))
+                        .map(rewrite_from)
+                        .collect()
+                })
+                .unwrap_or_default();
+            (recognizers, Some(grammar), segment)
         }
-        _ => (Vec::new(), None),
+        _ => (Vec::new(), None, Vec::new()),
     };
 
     // refine — every node after the last core node.
@@ -154,6 +170,7 @@ pub(super) fn build_report(root: &TraceNode) -> StageReport {
         normalize,
         recognizers,
         grammar,
+        segment,
         refine,
         result_preview: success_preview(root).map(str::to_string),
     }
