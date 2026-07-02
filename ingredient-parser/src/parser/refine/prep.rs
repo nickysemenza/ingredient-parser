@@ -115,7 +115,12 @@ impl IngredientParser {
         }
         // Longest-match-first, so a two-word adjective is claimed before either of
         // its component words. The driver below takes the *first* match per pass.
-        found_adjectives.sort_by_key(|adj| Reverse(adj.len()));
+        // Ties break on leftmost occurrence in the name: `found_adjectives` comes
+        // out of a HashSet whose iteration order differs between parser
+        // *instances*, so without a full ordering, two same-length adjectives
+        // ("minced sliced") would extract in nondeterministic order and the
+        // modifier string would differ run to run.
+        found_adjectives.sort_by_key(|adj| (Reverse(adj.len()), name_lower.find(adj.as_str())));
         let mut name = parsed.name.clone();
 
         // Count of leading prep adjectives already moved to the front, so several
@@ -355,5 +360,19 @@ mod adjective_guard_tests {
         #[case] expected: &str,
     ) {
         assert_eq!(join_around_span(s, pos, end), expected);
+    }
+
+    /// Same-length adjectives must extract in a deterministic (leftmost-first)
+    /// order. Regression: the candidate list comes out of a HashSet whose
+    /// iteration order differs between parser instances, so the sort needs a
+    /// tiebreak beyond length — found by the segmented-vs-legacy property fuzz
+    /// on "½ cup brushing minced sliced".
+    #[test]
+    fn same_length_adjectives_extract_leftmost_first() {
+        for _ in 0..16 {
+            // Fresh parser each round: each has its own HashSet ordering.
+            let ing = IngredientParser::new().from_str("½ cup brushing minced sliced");
+            assert_eq!(ing.modifier.as_deref(), Some("minced, sliced"));
+        }
     }
 }

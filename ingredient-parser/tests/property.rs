@@ -7,8 +7,13 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-use ingredient::from_str;
+use ingredient::{IngredientParser, SegmentationMode, from_str};
 use proptest::prelude::*;
+
+/// A parser on the clause-segmentation path (the legacy path is `from_str`).
+fn segmented_parser() -> IngredientParser {
+    IngredientParser::new().with_segmentation_mode(SegmentationMode::Segmented)
+}
 
 // Generate arbitrary text strings
 prop_compose! {
@@ -114,6 +119,76 @@ proptest! {
         // Should be able to format
         let _formatted = format!("{ingredient}");
     }
+
+    /// The segmented path never panics on arbitrary (multibyte) input and
+    /// produces the same result as the legacy path — the shadow-migration
+    /// guarantee, fuzzed beyond the corpus.
+    #[test]
+    fn segmented_path_matches_legacy(input in arb_unicode_input()) {
+        let legacy = from_str(&input);
+        let segmented = segmented_parser().from_str(&input);
+        prop_assert_eq!(segmented, legacy, "segmented != legacy for {:?}", input);
+    }
+
+    /// Same guarantee over *vocabulary-triggering* lines: random sentences drawn
+    /// from the words that drive the repair passes (prep participles, "minus",
+    /// "or"-alternatives, shared-head nouns, size words, parentheticals,
+    /// amounts). The character-level fuzz above can't reach these code paths.
+    #[test]
+    fn segmented_path_matches_legacy_on_vocab_lines(input in arb_vocab_line()) {
+        let legacy = from_str(&input);
+        let segmented = segmented_parser().from_str(&input);
+        prop_assert_eq!(segmented, legacy, "segmented != legacy for {:?}", input);
+    }
+}
+
+/// Random ingredient-shaped lines built from the parser's own trigger
+/// vocabulary: an optional amount, then 1..7 tokens (words, separators, or
+/// parentheticals) that exercise prep chains, minus clauses, alternatives,
+/// shared heads, purpose phrases, and paren classification.
+fn arb_vocab_line() -> impl Strategy<Value = String> {
+    let word = prop::sample::select(vec![
+        // prep participles / adverbs / descriptors
+        "chopped", "minced", "seeded", "deribbed", "toasted", "peeled", "sliced", "finely",
+        "roughly", "very", "bone-in", "skin-on", "boneless", "fresh",
+        // heads / foods
+        "walnuts", "chiles", "onion", "garlic", "flour", "oil", "stock", "cabbage", "celery",
+        "lettuce", "clove", "cloves", "stalk", "head", "zest", "lemon",
+        // coordinations / prose leads
+        "or", "and", "and/or", "such", "as", "to", "taste", "for", "the", "serving", "brushing",
+        "garnish", "plus", "more", "then", "minus", // sizes / qualifiers
+        "small", "medium", "large", "extra", "about", "white", "red", "hot", "green",
+    ]);
+    let sep = prop::sample::select(vec![" ", ", ", "; ", " , "]);
+    let paren = prop::sample::select(vec![
+        "(red)",
+        "(about 2 cups)",
+        "(optional)",
+        "(120g)",
+        "(see note)",
+        "(2 sticks minus 1 tablespoon)",
+        "(¼ inch)",
+    ]);
+    let amount = prop::sample::select(vec![
+        "",
+        "1 ",
+        "2 cups ",
+        "½ cup ",
+        "1/2 cup ",
+        "3 ",
+        "1 tablespoon ",
+    ]);
+    let token = prop_oneof![8 => word.prop_map(String::from), 1 => paren.prop_map(String::from)];
+    (amount, prop::collection::vec((sep, token), 1..7)).prop_map(|(amount, tokens)| {
+        let mut line = amount.to_string();
+        for (i, (sep, tok)) in tokens.into_iter().enumerate() {
+            if i > 0 {
+                line.push_str(sep);
+            }
+            line.push_str(&tok);
+        }
+        line
+    })
 }
 
 /// Test with edge case inputs

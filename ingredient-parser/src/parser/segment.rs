@@ -467,7 +467,8 @@ impl IngredientParser {
             .flatten()
             .collect();
         let clauses = self.segmenter().segment(rest);
-        Ok(("", self.assemble(rest, &clauses, amounts, &mp)))
+        let parsed = self.assemble(rest, &clauses, amounts, &mp)?;
+        Ok(("", parsed))
     }
 
     /// Assemble the post-amount clauses into a [`ParsedIngredient`].
@@ -479,13 +480,13 @@ impl IngredientParser {
     /// that, a leading prep-chain (per the clause classification) resolves the
     /// real head noun *here* instead of leaving it to the
     /// `recover_head_noun_from_modifier` repair pass.
-    fn assemble(
+    fn assemble<'a>(
         &self,
-        source: &str,
+        source: &'a str,
         clauses: &[Clause<'_>],
         mut amounts: Vec<Measure>,
         mp: &MeasurementParser<'_>,
-    ) -> ParsedIngredient {
+    ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
         // Head carve: the name is the longest leading run the legacy name
         // grammar would take (stops at ',', '(' and other punctuation).
         let name_end = parse_ingredient_text(source)
@@ -495,11 +496,20 @@ impl IngredientParser {
 
         // The grammar's post-name parenthesized-amounts slot: a paren
         // immediately after the name text hoists when it parses as amounts.
-        if source[after..].starts_with('(')
-            && let Ok((rem, measures)) = mp.parse_parenthesized_amounts(&source[after..])
-        {
-            amounts.extend(measures);
-            after = source.len() - rem.len();
+        // A recoverable parse error falls through (the paren stays modifier
+        // text); a nom `Failure` propagates, exactly as the legacy grammar's
+        // `opt(...)` slot behaved — the whole parse then falls back name-only.
+        if source[after..].starts_with('(') {
+            match mp.parse_parenthesized_amounts(&source[after..]) {
+                Ok((rem, measures)) => {
+                    amounts.extend(measures);
+                    after = source.len() - rem.len();
+                }
+                Err(err @ nom::Err::Failure(_)) | Err(err @ nom::Err::Incomplete(_)) => {
+                    return Err(err);
+                }
+                Err(nom::Err::Error(_)) => {}
+            }
         }
         // The grammar's single `opt(tag(", "))` before the modifier tail.
         if source[after..].starts_with(", ") {
@@ -507,105 +517,42 @@ impl IngredientParser {
         }
 
         let name = source[..name_end].trim();
-        let tail = source[after..].trim();
+        let tail = &source[after..];
 
-        // Leading prep-chain: the first clause is pure preparation tokens and
-        // the head noun lives further right — resolve it now (the segmented
-        // replacement for the `recover_head_noun_from_modifier` repair).
-        if let Some(parsed) = self.assemble_prep_chain_head(name, tail, &amounts) {
-            return parsed;
-        }
+        // Two repair passes scan the *whole* first raw modifier part with
+        // comma-crossing string searches, so their trigger shapes must reach
+        // them as one part (splitting would change what they recover):
+        // - a pure-prep-chain name triggers `recover_head_noun_from_modifier`
+        //   (its head scan skips across `", "`);
+        // - a paren-led tail triggers `recover_parenthetical_alias_from_modifier`
+        //   (its `find(" (")` head cut crosses `", "` too).
+        // Their work moves into assembly at cutover, when the passes are
+        // deleted together with the `fix_leading_prep_phrase` swap that is
+        // order-entangled with them; during shadow migration the pipeline
+        // keeps doing it at the original position.
+        let keep_tail_whole = tail.trim_start().starts_with('(')
+            || (!name.is_empty() && name.split_whitespace().all(token::is_prep_token));
 
-        // Default assembly: name as carved; every remaining clause becomes a
-        // modifier part in source order. `", "`-separated clauses are separate
-        // parts (modifier_string re-joins them with `", "`, so the lowering is
-        // byte-identical to the legacy single-raw tail); any other separator
-        // ("; ", or a mid-clause carve point) is preserved verbatim by merging
-        // into the previous part.
-        let modifier = tail_parts(source, clauses, after)
-            .into_iter()
-            .map(ModifierPart::Raw)
-            .collect();
-        ParsedIngredient {
+        // Otherwise: every remaining clause becomes a modifier part in source
+        // order. `", "`-separated clauses are separate parts (modifier_string
+        // re-joins them with `", "`, so the lowering is byte-identical to the
+        // legacy single-raw tail); any other separator ("; ", or a mid-clause
+        // carve point) is preserved verbatim by merging into the previous part.
+        let modifier = if keep_tail_whole {
+            if tail.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![ModifierPart::Raw(tail.to_string())]
+            }
+        } else {
+            tail_parts(source, clauses, after)
+                .into_iter()
+                .map(ModifierPart::Raw)
+                .collect()
+        };
+        Ok(ParsedIngredient {
             name: name.to_string(),
             amounts,
-            modifier,
-            optional: false,
-        }
-    }
-
-    /// Resolve a head noun that sits to the right of a leading preparation
-    /// chain: `"deribbed, seeded, and roughly chopped fresh hot green chiles,
-    /// such as serrano"` → name `"fresh hot green chiles"`, one `Prep` part
-    /// `"deribbed, seeded, and roughly chopped"`, and the trailing clause as a
-    /// `Raw` part. A faithful port of the legacy
-    /// `recover_head_noun_from_modifier` pass, applied at assembly time.
-    ///
-    /// Gated exactly like the legacy pipeline reaches that pass:
-    /// - the carved name must be a *pure* prep chain (every token a prep
-    ///   token — connectors disqualify, as they did in the legacy name), and
-    /// - the name must not be an exact known adjective phrase (the legacy
-    ///   `fix_leading_prep_phrase` pass would have claimed it first), and
-    /// - a head noun must exist in the tail whose first word is not a
-    ///   modifier stopword.
-    fn assemble_prep_chain_head(
-        &self,
-        name: &str,
-        tail: &str,
-        amounts: &[Measure],
-    ) -> Option<ParsedIngredient> {
-        if name.is_empty() || tail.is_empty() {
-            return None;
-        }
-        if !name.split_whitespace().all(token::is_prep_token) {
-            return None;
-        }
-        // An exact known adjective phrase is the legacy `fix_leading_prep_phrase`
-        // shape — leave it to that pass so the swap semantics stay identical.
-        if self.adjectives.contains(&name.to_lowercase()) {
-            return None;
-        }
-
-        // Find the head noun: the first tail token that is neither a prep token
-        // nor a connector.
-        let head_start = token::offsets(tail)
-            .find(|(_, w)| !token::is_prep_token(w) && !is_connector(w))
-            .map(|(off, _)| off)?;
-        let rest = &tail[head_start..];
-        let first_word = rest.split_whitespace().next().unwrap_or("");
-        if vocab::MODIFIER_STOPWORDS.contains(&token::norm(first_word).as_str()) {
-            return None;
-        }
-
-        // The head noun runs to the next clause boundary.
-        let mut end = rest.len();
-        for pat in vocab::CLAUSE_BOUNDARIES {
-            if let Some(p) = rest.find(pat) {
-                end = end.min(p);
-            }
-        }
-        let head_noun = rest[..end].trim();
-        if head_noun.is_empty() {
-            return None;
-        }
-        let trailing = rest[end..]
-            .trim_start_matches(|c: char| c == ',' || c.is_whitespace())
-            .trim();
-
-        let consumed = tail[..head_start].trim().trim_end_matches(',').trim();
-        let prep = if consumed.is_empty() {
-            name.to_string()
-        } else {
-            format!("{name}, {consumed}")
-        };
-
-        let mut modifier = vec![ModifierPart::Prep(prep)];
-        if !trailing.is_empty() {
-            modifier.push(ModifierPart::Raw(trailing.to_string()));
-        }
-        Some(ParsedIngredient {
-            name: head_noun.to_string(),
-            amounts: amounts.to_vec(),
             modifier,
             optional: false,
         })
@@ -613,27 +560,57 @@ impl IngredientParser {
 }
 
 /// Split the modifier tail (everything from byte `from` on) into one string per
-/// `", "`-separated clause, preserving any *other* separator ("; ", or the
-/// bytes between a mid-clause carve point and the next clause) verbatim inside
-/// a part. Joining the returned parts with `", "` reproduces the source tail
-/// byte-for-byte (modulo end-trimming), which keeps the lowered modifier string
+/// *cleanly separable* `", "`-separated clause. The lowering contract is strict:
+/// `modifier_string` re-joins parts with `", "` (or `" ("` before a
+/// parenthesized part) and strips each part's leading commas, so a clause is
+/// only emitted as its own part when that join reproduces the source verbatim —
+/// it must follow a `", "` separator and its trimmed text must be non-empty and
+/// not start with `'('` or `','`. Everything else ("; " separators, empty
+/// clauses, paren-led or comma-led clauses) is preserved byte-for-byte by
+/// merging into the previous part, which keeps the lowered modifier string
 /// identical to the legacy single-raw capture.
 fn tail_parts(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<String> {
+    let separable = |clause: &Clause<'_>| {
+        if clause.sep != ", " {
+            return false;
+        }
+        let raw = &source[clause.range.clone()];
+        // The join must be reversible under modifier_string's per-part
+        // trimming: no whitespace abutting the separator on either side
+        // ("x , y" must survive verbatim), and the part must not begin with a
+        // '(' (joined with " " instead of ", ") or a ',' (stripped as a stray
+        // grammar artifact).
+        if raw.is_empty()
+            || raw.starts_with(|c: char| c.is_whitespace())
+            || raw.starts_with('(')
+            || raw.starts_with(',')
+        {
+            return false;
+        }
+        let sep_start = clause.range.start - clause.sep.len();
+        !source[..sep_start]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_whitespace)
+    };
     let mut parts: Vec<String> = Vec::new();
     for clause in clauses {
         if clause.range.end <= from {
             continue;
         }
-        if parts.is_empty() {
+        match parts.last_mut() {
             // First part: include everything from the carve point (which may
             // sit mid-clause, or on separator bytes the carve did not consume).
-            parts.push(source[from..clause.range.end].to_string());
-        } else if clause.sep == ", " {
-            parts.push(source[clause.range.clone()].to_string());
-        } else if let Some(prev) = parts.last_mut() {
-            // Non-comma separator: preserve it verbatim inside the part.
-            prev.push_str(clause.sep);
-            prev.push_str(&source[clause.range.clone()]);
+            None => parts.push(source[from..clause.range.end].to_string()),
+            Some(_) if separable(clause) => {
+                parts.push(source[clause.range.clone()].to_string());
+            }
+            // Not cleanly separable: preserve the separator bytes verbatim
+            // inside the previous part.
+            Some(prev) => {
+                prev.push_str(clause.sep);
+                prev.push_str(&source[clause.range.clone()]);
+            }
         }
     }
     parts.retain(|p| !p.trim().is_empty());
@@ -641,6 +618,7 @@ fn tail_parts(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<String> 
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use rstest::rstest;
@@ -783,6 +761,81 @@ mod tests {
         let want: Vec<(String, ClauseKind)> =
             expected.iter().map(|(t, k)| (t.to_string(), *k)).collect();
         assert_eq!(got, want, "source: {source:?}");
+    }
+
+    // ── segmented assembly (positive control) ───────────────────────────────
+
+    /// The segmented path must genuinely run the segmenter: a multi-clause
+    /// tail assembles into one modifier part per clause (the legacy grammar
+    /// captures a single raw string). This pins the assembled IR itself
+    /// (pre-refine), proving the mode plumbing exercises the segmenter rather
+    /// than silently reproducing the legacy carve.
+    #[test]
+    fn assembly_splits_tail_into_clause_parts() {
+        let p = IngredientParser::new();
+        let (_, parsed) = p
+            .parse_ingredient_segmented("1 cup flour, sifted, divided")
+            .expect("segmented parse");
+        assert_eq!(parsed.name, "flour");
+        assert_eq!(
+            parsed.modifier,
+            vec![
+                ModifierPart::Raw("sifted".to_string()),
+                ModifierPart::Raw("divided".to_string()),
+            ]
+        );
+        // The legacy grammar captures the same tail as ONE raw part.
+        let (_, legacy) = p
+            .parse_ingredient("1 cup flour, sifted, divided")
+            .expect("legacy parse");
+        assert_eq!(
+            legacy.modifier,
+            vec![ModifierPart::Raw("sifted, divided".to_string())]
+        );
+    }
+
+    /// The first-part-scanning repair passes need their trigger shapes whole:
+    /// a pure-prep-chain name (recover_head_noun_from_modifier) and a
+    /// paren-led tail (recover_parenthetical_alias_from_modifier) keep the
+    /// tail as a single raw part.
+    #[rstest]
+    #[case(
+        "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano",
+        "deribbed",
+        "seeded, and roughly chopped fresh hot green chiles, such as serrano"
+    )]
+    #[case(
+        "1 medium purple (red) cabbage (about 1 pound), cored",
+        // "medium" stays in the carved name here; the extract_size_unit_from_name
+        // refine pass claims it later.
+        "medium purple",
+        "(red) cabbage (about 1 pound), cored"
+    )]
+    fn assembly_keeps_repair_trigger_tails_whole(
+        #[case] line: &str,
+        #[case] name: &str,
+        #[case] tail: &str,
+    ) {
+        let p = IngredientParser::new();
+        let (_, parsed) = p.parse_ingredient_segmented(line).expect("segmented parse");
+        assert_eq!(parsed.name, name);
+        assert_eq!(parsed.modifier, vec![ModifierPart::Raw(tail.to_string())]);
+    }
+
+    /// Grammar-equivalent head carve: adjacent amounts parenthetical hoists at
+    /// assembly time and the following ", " is consumed.
+    #[test]
+    fn assembly_hoists_name_adjacent_amount_paren() {
+        let p = IngredientParser::new();
+        let (_, parsed) = p
+            .parse_ingredient_segmented("3 tomatoes (about 2 cups), diced")
+            .expect("segmented parse");
+        assert_eq!(parsed.name, "tomatoes");
+        assert_eq!(parsed.amounts.len(), 2, "paren amounts hoisted");
+        assert_eq!(
+            parsed.modifier,
+            vec![ModifierPart::Raw("diced".to_string())]
+        );
     }
 
     // ── segmented path vs legacy path ───────────────────────────────────────

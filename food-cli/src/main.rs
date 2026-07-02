@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use recipe_epub::CookbookRecipeExt; // .parse() / .low_confidence_lines() on CookbookRecipe
 
 mod corpus_lint;
+mod corpus_shadow;
 mod explain;
 mod tables;
 
@@ -12,6 +13,12 @@ mod tables;
 const DEFAULT_CORPUS_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../ingredient-parser/tests/corpus/corpus.jsonl"
+);
+
+/// Default path to the rich-text accuracy corpus, relative to this crate's manifest.
+const DEFAULT_RICH_CORPUS_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../ingredient-parser/tests/corpus/rich_text.jsonl"
 );
 
 #[derive(Parser)]
@@ -172,6 +179,18 @@ enum CorpusCommand {
         /// only validates that rows parse as JSON and prints the row count.
         #[arg(long)]
         report_stages: bool,
+    },
+    /// A/B the legacy and segmented parse paths over the corpus: report
+    /// committed rows where they diverge (full field diff) and rows the
+    /// segmented path newly gets right. Exit code = committed divergences
+    /// (capped at 100), so zero means the paths agree on every committed row.
+    Shadow {
+        /// Ingredient corpus to A/B (defaults to the repo's corpus.jsonl)
+        #[arg(long, default_value = DEFAULT_CORPUS_PATH)]
+        corpus: String,
+        /// Rich-text corpus whose inputs are A/B'd informationally
+        #[arg(long, default_value = DEFAULT_RICH_CORPUS_PATH)]
+        rich_corpus: String,
     },
 }
 
@@ -842,6 +861,12 @@ async fn main() {
             report_stages,
         }) => {
             corpus_lint::run(corpus, *report_stages);
+        }
+        Commands::Corpus(CorpusCommand::Shadow {
+            corpus,
+            rich_corpus,
+        }) => {
+            corpus_shadow::run(corpus, rich_corpus);
         }
         Commands::CorpusTable { corpus, out } => {
             let contents = match std::fs::read_to_string(corpus) {

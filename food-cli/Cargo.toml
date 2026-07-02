@@ -12,6 +12,7 @@ recipe-scraper-fetcher.workspace = true
 recipe-epub.workspace = true
 tokio = { workspace = true, features = ["full"] }
 futures.workspace = true
+serde.workspace = true # corpus-row deserialization for `corpus shadow`
 serde_json.workspace = true
 ingredient.workspace = true
 dotenvy.workspace = true

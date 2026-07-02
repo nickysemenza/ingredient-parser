@@ -226,7 +226,12 @@ fn strip_approximation_prefix(text: &str) -> &str {
             return rest.trim_start();
         }
         // Case-insensitive check without allocating for the common lowercase case.
-        if text.len() >= prefix.len() && text[..prefix.len()].eq_ignore_ascii_case(prefix) {
+        // The boundary guard matters: `prefix.len()` may fall inside a multibyte
+        // char ("丌下r…"), and slicing there panics.
+        if text.len() >= prefix.len()
+            && text.is_char_boundary(prefix.len())
+            && text[..prefix.len()].eq_ignore_ascii_case(prefix)
+        {
             return text[prefix.len()..].trim_start();
         }
     }

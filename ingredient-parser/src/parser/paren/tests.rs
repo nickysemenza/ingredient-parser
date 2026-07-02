@@ -90,6 +90,12 @@ fn classify_edge_cases() {
 
     // Empty inner is Other (fails alias non-empty guard).
     assert_eq!(classify("", u), ParenKind::Other);
+
+    // Multibyte inner must not panic: `strip_approximation_prefix` used to
+    // slice at `prefix.len()` bytes, which can fall inside a multibyte char
+    // (found by the segmented-path property fuzz on "(一一)⅛").
+    assert_eq!(classify("一一", u), ParenKind::Alias);
+    assert_eq!(classify("丌下r;万丂", u), ParenKind::Alias);
 }
 
 /// Ordering: a specific kind wins over Amount even when the inner could parse as

@@ -25,7 +25,7 @@
 // Test-harness code: a malformed corpus line should fail the test loudly.
 #![allow(clippy::panic)]
 
-use ingredient::{IngredientParser, IngredientUsage, from_str, unit::Measure};
+use ingredient::{IngredientParser, IngredientUsage, SegmentationMode, from_str, unit::Measure};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -187,6 +187,29 @@ fn never_empty_name() {
         assert!(
             !ing.name.trim().is_empty(),
             "parsed an empty name for input {input:?}"
+        );
+    }
+}
+
+/// The clause-segmentation path (shadow-migration mode) upholds the same
+/// invariants over every corpus input: `from_str` never fails (name-only
+/// fallback), never yields an empty name, and — until cutover flips the
+/// default — produces exactly the legacy path's result.
+#[test]
+fn segmented_path_invariants_over_corpus() {
+    let segmented = IngredientParser::new().with_segmentation_mode(SegmentationMode::Segmented);
+    for row in load() {
+        let ing = segmented.from_str(&row.input);
+        assert!(
+            !ing.name.trim().is_empty(),
+            "segmented path parsed an empty name for {:?}",
+            row.input
+        );
+        assert_eq!(
+            ing,
+            from_str(&row.input),
+            "segmented path diverged from legacy for {:?}",
+            row.input
         );
     }
 }
