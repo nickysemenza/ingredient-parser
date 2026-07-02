@@ -130,28 +130,120 @@ impl IngredientParser {
         let Some(modifier) = parsed.modifier_string() else {
             return;
         };
-        // The modifier must read as a comma-separated alternatives list joined by
-        // "or" — both signals that the trailing noun is a shared head, not a
-        // standalone alternative ("flour or oil" stays two ingredients).
-        if !modifier.contains(',') || !modifier.to_lowercase().contains(" or ") {
-            return;
-        }
-        // Its final token must be a curated shared head noun the bare alternatives
-        // can all premodify ("oil"), so grafting it produces a real ingredient.
-        // Trim (but don't lowercase) the modifier's last token: the gate lowercases
-        // for the vocab lookup, while the graft below preserves the source casing.
-        let Some(head) = modifier
-            .split_whitespace()
-            .next_back()
-            .map(|t| t.trim_matches(|c: char| !c.is_alphanumeric()))
-        else {
+        let Some(head) = distributable_head(&modifier, SharedHeadContext::CommaOrList) else {
             return;
         };
-        if !crate::parser::vocab::SHARED_HEAD_NOUNS.contains(&head.to_lowercase().as_str()) {
-            return;
-        }
-        parsed.name = format!("{name_word} {head}");
+        parsed.name = graft(name_word, head, GraftMode::AppendTrailingHead);
         parsed.modifier = vec![ModifierPart::Alternative(format!("or {modifier}"))];
+    }
+}
+
+/// Which coordination shape asked "does `right`'s trailing noun distribute onto
+/// the left". Each variant keeps its own EXACT gates in [`distributable_head`];
+/// the two shapes intentionally consult different vocab lists.
+enum SharedHeadContext<'a> {
+    /// A comma+or alternatives list stranded in the modifier
+    /// ("vegetable, or melted coconut oil"), gated on
+    /// [`vocab::SHARED_HEAD_NOUNS`].
+    CommaOrList,
+    /// An inline "A or B `<head>`" right side ("white onion"), gated on
+    /// [`vocab::DISTRIBUTABLE_HEAD_NOUNS`]. Carries the parser's adjective set
+    /// for the "not led by a prep adjective" guard.
+    InlineOr {
+        adjectives: &'a std::collections::HashSet<String>,
+    },
+}
+
+/// Decide whether `right`'s trailing noun is a *shared head* that can be grafted
+/// onto the left conjunct, returning that head token (source casing preserved)
+/// when so. Each context applies its own gates:
+///
+/// - [`SharedHeadContext::CommaOrList`]: `right` must read as a comma-separated
+///   alternatives list joined by "or" (both signals a shared head, not a
+///   standalone alternative), and its final token must be in
+///   [`vocab::SHARED_HEAD_NOUNS`]. Casing note: the last token is trimmed of
+///   surrounding punctuation but *not* lowercased for the graft — only the vocab
+///   lookup lowercases — so the grafted head preserves the source casing.
+/// - [`SharedHeadContext::InlineOr`]: `right` must read as
+///   "`<premodifier> <head noun>`" (at least two tokens, not led by a prep
+///   adjective, free of stopwords) and its trailing head noun must be in
+///   [`vocab::DISTRIBUTABLE_HEAD_NOUNS`].
+fn distributable_head<'a>(right: &'a str, ctx: SharedHeadContext) -> Option<&'a str> {
+    match ctx {
+        SharedHeadContext::CommaOrList => {
+            // The modifier must read as a comma-separated alternatives list
+            // joined by "or" — both signals that the trailing noun is a shared
+            // head, not a standalone alternative ("flour or oil" stays two
+            // ingredients).
+            if !right.contains(',') || !right.to_lowercase().contains(" or ") {
+                return None;
+            }
+            // Its final token must be a curated shared head noun the bare
+            // alternatives can all premodify ("oil"), so grafting it produces a
+            // real ingredient. Trim (but don't lowercase) the last token: the
+            // gate lowercases for the vocab lookup, while the graft preserves the
+            // source casing.
+            let head = right
+                .split_whitespace()
+                .next_back()
+                .map(|t| t.trim_matches(|c: char| !c.is_alphanumeric()))?;
+            crate::parser::vocab::SHARED_HEAD_NOUNS
+                .contains(&head.to_lowercase().as_str())
+                .then_some(head)
+        }
+        SharedHeadContext::InlineOr { adjectives } => {
+            let right_tokens: Vec<&str> = right.split_whitespace().collect();
+            if !right_is_modifier_plus_head(&right_tokens, adjectives) {
+                return None;
+            }
+            // The right's *trailing head noun* must be one that essentially
+            // always carries a variety/type premodifier, so an open-ended (even
+            // multi-word) left distributes onto it: "chicken or vegetable stock"
+            // -> "chicken stock", "Little Gem or Bibb lettuce" -> "Little Gem
+            // lettuce".
+            let head_noun = right_tokens.last().copied()?;
+            crate::parser::vocab::DISTRIBUTABLE_HEAD_NOUNS
+                .contains(&head_noun.to_lowercase().as_str())
+                .then_some(head_noun)
+        }
+    }
+}
+
+/// The right side must read as "`<premodifier> <head noun>`": at least two
+/// tokens, not led by a prep adjective ("basil or chopped parsley" keeps
+/// "chopped" with parsley), and free of stopwords ("pepper to taste" isn't a
+/// shared head). Shared by both [`SharedHeadContext::InlineOr`] reconstruction
+/// paths in [`split_word_alternative`].
+fn right_is_modifier_plus_head(
+    right_tokens: &[&str],
+    adjectives: &std::collections::HashSet<String>,
+) -> bool {
+    right_tokens.len() >= 2
+        && !adjectives.contains(&right_tokens[0].to_lowercase())
+        && !right_tokens
+            .iter()
+            .any(|t| crate::parser::vocab::MODIFIER_STOPWORDS.contains(&t.to_lowercase().as_str()))
+}
+
+/// How a shared head grafts onto the left conjunct.
+enum GraftMode {
+    /// The single left adjective *replaces* `right`'s leading adjective, sharing
+    /// the trailing head noun: "red" + "white onion" -> "red onion". `head` is
+    /// the right side *after* its leading adjective (e.g. "onion").
+    ReplaceLeadingAdjective,
+    /// Append the trailing head noun onto the (possibly multi-word) left: "canola"
+    /// + "oil" -> "canola oil".
+    AppendTrailingHead,
+}
+
+/// Graft a shared `head` onto `left`. Both modes just join with a space — the
+/// distinction is which slice of the right side the caller passes as `head`
+/// (see [`GraftMode`]).
+fn graft(left: &str, head: &str, mode: GraftMode) -> String {
+    match mode {
+        GraftMode::ReplaceLeadingAdjective | GraftMode::AppendTrailingHead => {
+            format!("{left} {head}")
+        }
     }
 }
 
@@ -259,41 +351,98 @@ pub(super) fn split_word_alternative(
     let left_is_premodifier = crate::parser::vocab::is_shared_head_modifier(&left_lower)
         || adjectives.contains(&left_lower);
 
-    // Shared by both reconstruction paths: the right side must read as
-    // "<premodifier> <head noun>" — at least two tokens, not led by a prep
-    // adjective ("basil or chopped parsley" keeps "chopped" with parsley), and
-    // free of stopwords ("pepper to taste" isn't a shared head).
-    let right_is_modifier_plus_head = right_tokens.len() >= 2
-        && !adjectives.contains(&right_tokens[0].to_lowercase())
-        && !right_tokens
-            .iter()
-            .any(|t| crate::parser::vocab::MODIFIER_STOPWORDS.contains(&t.to_lowercase().as_str()));
-
     // Path A — a single known-premodifier left shares the right's head noun:
-    // "red or white onion" -> "red onion".
-    let reconstruct = left_tokens.len() == 1 && left_is_premodifier && right_is_modifier_plus_head;
+    // "red or white onion" -> "red onion". The single left adjective replaces
+    // `right`'s leading adjective, keeping the trailing head noun.
+    let reconstruct = left_tokens.len() == 1
+        && left_is_premodifier
+        && right_is_modifier_plus_head(&right_tokens, adjectives);
 
     // Path B — the right's *trailing head noun* is one that essentially always
     // carries a variety/type premodifier, so an open-ended (even multi-word) left
     // distributes onto it without needing a left-vocab match: "chicken or
     // vegetable stock" -> "chicken stock", "Little Gem or Bibb lettuce" ->
-    // "Little Gem lettuce".
-    let right_head_noun = right_tokens.last().copied().unwrap_or_default();
-    let head_noun_distribute = right_is_modifier_plus_head
-        && crate::parser::vocab::DISTRIBUTABLE_HEAD_NOUNS
-            .contains(&right_head_noun.to_lowercase().as_str());
+    // "Little Gem lettuce". `distributable_head` applies the same
+    // `right_is_modifier_plus_head` guard as Path A plus the head-noun list.
+    let distributed = distributable_head(right, SharedHeadContext::InlineOr { adjectives });
 
     let primary = if reconstruct {
-        // The single left adjective replaces `right`'s leading adjective, sharing
-        // the trailing head noun: "red" + "white onion" -> "red onion".
-        format!("{} {}", left, right_tokens[1..].join(" "))
-    } else if head_noun_distribute {
-        // Graft just the trailing head noun onto the (possibly multi-word) left;
-        // the alternative's own premodifier stays in the "or …" modifier.
-        format!("{left} {right_head_noun}")
+        graft(
+            left,
+            &right_tokens[1..].join(" "),
+            GraftMode::ReplaceLeadingAdjective,
+        )
+    } else if let Some(head) = distributed {
+        graft(left, head, GraftMode::AppendTrailingHead)
     } else {
         left.to_string()
     };
 
     (primary, Some(format!("or {right}")))
+}
+
+#[cfg(test)]
+mod helper_tests {
+    //! Direct coverage for the extracted shared-head decision module. The
+    //! end-to-end behavior is pinned by `refine/tests.rs` and the accuracy
+    //! corpus; these rows exercise the two contexts' gates and both graft modes
+    //! in isolation.
+    use super::*;
+    use rstest::rstest;
+
+    /// `CommaOrList`: fires on a comma+or list ending in a `SHARED_HEAD_NOUNS`
+    /// word, preserving the source casing of the grafted head. The gates
+    /// (comma AND " or " AND curated final noun) each reject when absent.
+    #[rstest]
+    #[case::fires("vegetable, or melted coconut oil", Some("oil"))]
+    // Casing preserved: the vocab lookup lowercases, the returned head does not.
+    #[case::casing_preserved("vegetable, or Coconut Oil", Some("Oil"))]
+    #[case::no_comma("or oil", None)]
+    #[case::no_or("vegetable, coconut oil", None)]
+    #[case::final_not_curated("sugar, or baking soda", None)]
+    fn test_distributable_head_comma_or_list(#[case] right: &str, #[case] expected: Option<&str>) {
+        assert_eq!(
+            distributable_head(right, SharedHeadContext::CommaOrList),
+            expected,
+            "right: {right}"
+        );
+    }
+
+    /// `InlineOr`: fires when the right is "`<premodifier> <head noun>`" whose
+    /// trailing noun is in `DISTRIBUTABLE_HEAD_NOUNS`. The guards reject a
+    /// single-token right, a prep-adjective-led right, a stopword-bearing right,
+    /// and a trailing noun off the curated list.
+    #[rstest]
+    #[case::fires("vegetable stock", Some("stock"))]
+    #[case::single_token("stock", None)]
+    #[case::prep_adj_led("chopped parsley", None)]
+    #[case::stopword("pepper to taste", None)]
+    #[case::not_distributable("olive oil", None)]
+    fn test_distributable_head_inline_or(#[case] right: &str, #[case] expected: Option<&str>) {
+        let adjectives = IngredientParser::new().adjectives;
+        assert_eq!(
+            distributable_head(
+                right,
+                SharedHeadContext::InlineOr {
+                    adjectives: &adjectives
+                }
+            ),
+            expected,
+            "right: {right}"
+        );
+    }
+
+    /// Both graft modes join left + head with a single space; the caller picks
+    /// which slice of the right side is the head.
+    #[rstest]
+    #[case::append("canola", "oil", GraftMode::AppendTrailingHead, "canola oil")]
+    #[case::replace("red", "onion", GraftMode::ReplaceLeadingAdjective, "red onion")]
+    fn test_graft(
+        #[case] left: &str,
+        #[case] head: &str,
+        #[case] mode: GraftMode,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(graft(left, head, mode), expected);
+    }
 }
