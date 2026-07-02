@@ -330,10 +330,8 @@ fn separator_offsets(source: &str) -> Vec<(usize, usize)> {
         match b {
             b'(' => depth += 1,
             b')' => depth = depth.saturating_sub(1),
-            b',' | b';' if depth == 0 => {
-                if bytes.get(i + 1) == Some(&b' ') {
-                    out.push((i, 2));
-                }
+            b',' | b';' if depth == 0 && bytes.get(i + 1) == Some(&b' ') => {
+                out.push((i, 2));
             }
             _ => {}
         }
