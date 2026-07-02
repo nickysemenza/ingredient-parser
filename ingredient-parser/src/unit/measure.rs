@@ -97,9 +97,83 @@ fn serialize_rational<S: Serializer>(value: &Rational64, s: S) -> Result<S::Ok, 
     s.serialize_f64(to_f64(*value))
 }
 
-/// Deserialize a JSON number into an exact rational.
+/// Parse an *exact* fraction string into a `Rational64`.
+///
+/// Accepts `"N/D"` (e.g. `"2/3"`), mixed numbers `"W N/D"` (e.g. `"1 2/3"`),
+/// and bare whole numbers `"2"`. Deliberately REJECTS decimal strings like
+/// `"0.667"`: the whole point of the string form is to author exact fractions
+/// without an f64 round-trip, so a decimal-in-a-string would silently
+/// reintroduce the very footgun this exists to kill (`"0.667"` → 667/1000 ≠
+/// ⅔). Authors wanting a decimal should write a plain JSON *number*, which
+/// still flows through `approximate_float` and recovers cooking fractions.
+fn parse_fraction_str(s: &str) -> Result<Rational64, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("empty amount string".to_string());
+    }
+    let int = |part: &str| -> Result<i64, String> {
+        part.parse::<i64>()
+            .map_err(|_| format!("invalid fraction {s:?}: {part:?} is not an integer"))
+    };
+    let rational = |num_den: &str| -> Result<Rational64, String> {
+        let (n, d) = num_den
+            .split_once('/')
+            .ok_or_else(|| format!("invalid fraction {s:?}: expected N/D"))?;
+        let d = int(d)?;
+        if d == 0 {
+            return Err(format!("invalid fraction {s:?}: zero denominator"));
+        }
+        Ok(Rational64::new(int(n)?, d))
+    };
+
+    match s.split_once(char::is_whitespace) {
+        // Mixed number "W N/D": whole part plus a proper fraction.
+        Some((whole, frac)) => {
+            let whole = Rational64::from_integer(int(whole)?);
+            Ok(whole + rational(frac.trim_start())?)
+        }
+        // No space: a bare fraction "N/D", or a whole number "W". A decimal
+        // string is rejected so the exact-f64 footgun can't return via quoting.
+        None if s.contains('/') => rational(s),
+        None if s.contains('.') => Err(format!(
+            "invalid amount {s:?}: decimal strings are rejected; write a JSON number or a fraction like \"2/3\""
+        )),
+        None => Ok(Rational64::from_integer(int(s)?)),
+    }
+}
+
+/// serde `Visitor` accepting either a JSON number (existing `approximate_float`
+/// behavior, for full backward compatibility) or an exact fraction string
+/// (`"2/3"`, `"1 2/3"`). See [`parse_fraction_str`] for the string grammar.
+struct RationalVisitor;
+
+impl serde::de::Visitor<'_> for RationalVisitor {
+    type Value = Rational64;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a number or an exact fraction string like \"2/3\" or \"1 2/3\"")
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Self::Value, E> {
+        Ok(to_rational(v))
+    }
+
+    fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+        Ok(Rational64::from_integer(v))
+    }
+
+    fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+        Ok(to_rational(v as f64))
+    }
+
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+        parse_fraction_str(v).map_err(E::custom)
+    }
+}
+
+/// Deserialize a JSON number or exact fraction string into an exact rational.
 fn deserialize_rational<'de, D: Deserializer<'de>>(d: D) -> Result<Rational64, D::Error> {
-    Ok(to_rational(f64::deserialize(d)?))
+    d.deserialize_any(RationalVisitor)
 }
 
 fn serialize_rational_opt<S: Serializer>(
@@ -112,7 +186,14 @@ fn serialize_rational_opt<S: Serializer>(
 fn deserialize_rational_opt<'de, D: Deserializer<'de>>(
     d: D,
 ) -> Result<Option<Rational64>, D::Error> {
-    Ok(Option::<f64>::deserialize(d)?.map(to_rational))
+    /// Newtype so we can reuse [`RationalVisitor`] inside an `Option`.
+    struct Wrap(Rational64);
+    impl<'de> Deserialize<'de> for Wrap {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            deserialize_rational(d).map(Wrap)
+        }
+    }
+    Ok(Option::<Wrap>::deserialize(d)?.map(|w| w.0))
 }
 
 // Multiplication factors for unit conversions
@@ -555,6 +636,87 @@ mod tests {
         assert_eq!(to_rational(-1e30), Rational64::from_integer(i64::MIN));
         // NaN has no magnitude, so it maps to 0.
         assert_eq!(to_rational(f64::NAN), Rational64::from_integer(0));
+    }
+
+    // ============================================================================
+    // Rational (de)serialization: numbers stay numbers; strings are exact fractions
+    // ============================================================================
+
+    /// Deserialize a single `Measure`'s `value` from a JSON snippet.
+    fn value_of(json: &str) -> Rational64 {
+        serde_json::from_str::<Measure>(json).unwrap().value
+    }
+
+    /// A JSON *number* must behave EXACTLY as before (the `approximate_float`
+    /// path) and must serialize back to a plain number — the wasm/JSON contract.
+    #[test]
+    fn test_rational_number_roundtrip_unchanged() {
+        let m = Measure::new("cup", 2.5);
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("2.5"), "expected plain number, got {json}");
+        assert_eq!(serde_json::from_str::<Measure>(&json).unwrap(), m);
+        // The old repeating-decimal footgun value still recovers to exactly ⅔.
+        assert_eq!(
+            value_of(r#"{"unit":"cup","value":0.6666666666666666}"#),
+            Rational64::new(2, 3)
+        );
+    }
+
+    /// A fraction *string* constructs the exact rational with no float
+    /// round-trip: "2/3" is precisely 2/3, and "1 1/2" is the mixed number 3/2.
+    #[test]
+    fn test_rational_fraction_strings_are_exact() {
+        assert_eq!(
+            value_of(r#"{"unit":"cup","value":"2/3"}"#),
+            Rational64::new(2, 3)
+        );
+        assert_eq!(
+            value_of(r#"{"unit":"cup","value":"1 1/2"}"#),
+            Rational64::new(3, 2)
+        );
+        assert_eq!(
+            value_of(r#"{"unit":"cup","value":"1 2/3"}"#),
+            Rational64::new(5, 3)
+        );
+        // Bare whole-number string is accepted.
+        assert_eq!(
+            value_of(r#"{"unit":"cup","value":"2"}"#),
+            Rational64::from_integer(2)
+        );
+        // The Option variant (upper_value) accepts fraction strings too.
+        let m =
+            serde_json::from_str::<Measure>(r#"{"unit":"cup","value":"1/3","upper_value":"2/3"}"#)
+                .unwrap();
+        assert_eq!(m.value, Rational64::new(1, 3));
+        assert_eq!(m.upper_value, Some(Rational64::new(2, 3)));
+    }
+
+    /// Decimal *strings* are rejected so the exact-f64 footgun cannot sneak back
+    /// in via quoting: "0.667" would become 667/1000 and silently miss ⅔.
+    #[test]
+    fn test_rational_decimal_string_rejected() {
+        let err = serde_json::from_str::<Measure>(r#"{"unit":"cup","value":"0.667"}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("decimal"),
+            "expected a decimal-rejection error, got {err}"
+        );
+    }
+
+    /// Documents the old/new equivalence: the repeating decimal a corpus author
+    /// used to write and the fraction string that now replaces it are the same
+    /// rational, so the migration cannot move the accuracy needle.
+    #[test]
+    fn test_approximate_float_equals_fraction() {
+        assert_eq!(
+            Rational64::approximate_float(0.6666666666666666).unwrap(),
+            Rational64::new(2, 3)
+        );
+        assert_eq!(
+            Rational64::approximate_float(0.3333333333333333).unwrap(),
+            Rational64::new(1, 3)
+        );
     }
 
     /// A reversed range ("5 to 2 cups") must be stored low→high so downstream

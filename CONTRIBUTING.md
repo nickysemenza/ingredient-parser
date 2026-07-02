@@ -67,7 +67,11 @@ There are two kinds of rows:
    ```bash
    cargo run -p food-cli --quiet -- parse-ingredient "your line here"
    ```
-5. Float values must be exact `f64` (e.g. `⅔` is `0.6666666666666666`).
+5. For fractional amounts, prefer the exact fraction-string form —
+   `"value": "2/3"`, `"1/3"`, or a mixed number `"1 1/2"`. A plain JSON number
+   also works (recovered exactly via `approximate_float`, so `0.6666666666666666`
+   is still `⅔`); use it for terminating decimals like `2.5`. Never write a
+   truncated decimal (`0.667`) — it becomes `667/1000` and won't match.
 
 ### Browsing the corpus
 

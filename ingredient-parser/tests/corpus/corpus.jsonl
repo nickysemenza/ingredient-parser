@@ -4,10 +4,14 @@
 // Rows without `xfail` are committed (must parse exactly — regression guard).
 // Rows with `xfail` are known gaps: the label is the *desired* parse, and the
 // mismatch is reported but tolerated until the parser improves.
-// WARNING: amount `value`/`upper_value` are compared as EXACT rationals (a JSON
-// number is recovered via Rational64::approximate_float). Author repeating
-// decimals at full f64 precision — `0.6666666666666666`, NOT `0.667` (which
-// becomes 667/1000 and silently fails to match ⅔). Terminating decimals are fine.
+// AMOUNTS: `value`/`upper_value` are compared as EXACT rationals. For fractions
+// (⅔, ⅓, ⅙, …) PREFER the fraction-string form — `"value": "2/3"`, `"1/3"`, or a
+// mixed number like `"1 1/2"` — which builds the exact rational with no float
+// round-trip. A plain JSON *number* still works and is recovered via
+// Rational64::approximate_float (so `0.6666666666666666` also equals ⅔), and is
+// the right choice for terminating decimals like 2.5. Do NOT write a truncated
+// decimal (0.667) or a *quoted* decimal ("0.667") — both are footguns: the first
+// becomes 667/1000, the second is rejected outright.
 // See tests/accuracy.rs for scoring. Labels follow the Design Decisions in lib.rs.
 //
 // --- basics: amount + unit + name ---
@@ -115,7 +119,7 @@
 {"input": "14 tablespoons/200 grams unsalted butter, cut into pieces", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 14.0}, {"unit": "g", "value": 200.0}], "modifier": "cut into pieces"}
 {"input": "6 cups vegetable stock, more if needed", "name": "vegetable stock", "amounts": [{"unit": "cup", "value": 6.0}], "modifier": "more if needed"}
 {"input": "1/4 cup crème fraîche", "name": "crème fraîche", "amounts": [{"unit": "cup", "value": 0.25}]}
-{"input": "⅔ cup (167ml) cold water", "name": "cold water", "amounts": [{"unit": "cup", "value": 0.6666666666666666}, {"unit": "ml", "value": 167.0}]}
+{"input": "⅔ cup (167ml) cold water", "name": "cold water", "amounts": [{"unit": "cup", "value": "2/3"}, {"unit": "ml", "value": 167.0}]}
 {"input": "1 tsp freshly ground black pepper", "name": "black pepper", "amounts": [{"unit": "tsp", "value": 1.0}], "modifier": "freshly ground"}
 {"input": "1-2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0, "upper_value": 2.0}]}
 {"input": "2 cups/240 grams confectioners' sugar, sifted", "name": "confectioners' sugar", "amounts": [{"unit": "cup", "value": 2.0}, {"unit": "g", "value": 240.0}], "modifier": "sifted"}
@@ -126,7 +130,7 @@
 {"input": "½ cup sugar", "name": "sugar", "amounts": [{"unit": "cup", "value": 0.5}]}
 {"input": "¼ tsp salt", "name": "salt", "amounts": [{"unit": "tsp", "value": 0.25}]}
 {"input": "¾ cup milk", "name": "milk", "amounts": [{"unit": "cup", "value": 0.75}]}
-{"input": "⅓ cup honey", "name": "honey", "amounts": [{"unit": "cup", "value": 0.3333333333333333}]}
+{"input": "⅓ cup honey", "name": "honey", "amounts": [{"unit": "cup", "value": "1/3"}]}
 {"input": "1½ cups water", "name": "water", "amounts": [{"unit": "cup", "value": 1.5}]}
 {"input": "2¾ cups stock", "name": "stock", "amounts": [{"unit": "cup", "value": 2.75}]}
 {"input": "1 1/2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1.5}]}
@@ -240,7 +244,7 @@
 {"input": "half a cup of milk", "name": "milk", "amounts": [{"unit": "cup", "value": 0.5}]}
 {"input": "half a teaspoon salt", "name": "salt", "amounts": [{"unit": "tsp", "value": 0.5}]}
 {"input": "2 (14.5 oz) cans diced tomatoes", "name": "tomatoes", "amounts": [{"unit": "can", "value": 2}, {"unit": "oz", "value": 14.5}], "modifier": "diced"}
-{"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": 0.6666666666666666}, {"unit": "g", "value": 85}], "modifier": "finely chopped"}
+{"input": "2/3 cup (85 grams) finely chopped, raw pistachios", "name": "raw pistachios", "amounts": [{"unit": "cup", "value": "2/3"}, {"unit": "g", "value": 85}], "modifier": "finely chopped"}
 {"input": "1 cup sifted, cake flour", "name": "cake flour", "amounts": [{"unit": "cup", "value": 1}], "modifier": "sifted"}
 //
 // --- range/separator/multiplier shapes ---
@@ -264,7 +268,7 @@
 {"input": "50 grams /¼ cup granulated sugar", "name": "granulated sugar", "amounts": [{"unit": "g", "value": 50.0}, {"unit": "cup", "value": 0.25}]}
 {"input": "85 grams /6 Tbsp unsalted butter", "name": "unsalted butter", "amounts": [{"unit": "g", "value": 85.0}, {"unit": "tbsp", "value": 6.0}]}
 {"input": "610 grams /2½ cups heavy cream, plus more as needed", "name": "heavy cream", "amounts": [{"unit": "g", "value": 610.0}, {"unit": "cup", "value": 2.5}], "modifier": "plus more as needed"}
-{"input": "160 grams /⅔ cup room-temperature (70° to 80°F) water", "name": "water", "amounts": [{"unit": "g", "value": 160.0}, {"unit": "cup", "value": 0.6666666666666666}], "modifier": "room-temperature, 70° to 80°F"}
+{"input": "160 grams /⅔ cup room-temperature (70° to 80°F) water", "name": "water", "amounts": [{"unit": "g", "value": 160.0}, {"unit": "cup", "value": "2/3"}], "modifier": "room-temperature, 70° to 80°F"}
 {"input": "10 g / 2 tablespoons sliced (¼ inch / 6 mm) green onions", "name": "green onions", "amounts": [{"unit": "g", "value": 10.0}, {"unit": "tbsp", "value": 2.0}], "modifier": "sliced, ¼ inch / 6 mm"}
 {"input": "One 2-inch stick of canela (Mexican cinnamon)", "name": "canela", "amounts": [{"unit": "stick", "value": 1.0}, {"unit": "\"", "value": 2.0}], "modifier": "Mexican cinnamon"}
 {"input": "One 10-ounce disk Pie Dough", "name": "Pie Dough", "amounts": [{"unit": "disk", "value": 1.0}, {"unit": "oz", "value": 10.0}]}
@@ -354,7 +358,7 @@
 // --- harvested (parsed-review pass 2, 2026-06-02): re-parse of prior extraction + Nomad ---
 // committed: gaps the improved parser now handles correctly (regression guards)
 {"input": "3 pieces of star anise", "name": "star anise", "amounts": [{"unit": "piece", "value": 3.0}]}
-{"input": "⅓ cup strained apricot jam (optional), warmed, for glazing", "name": "strained apricot jam", "amounts": [{"unit": "cup", "value": 0.3333333333333333}], "modifier": "warmed, for glazing", "optional": true}
+{"input": "⅓ cup strained apricot jam (optional), warmed, for glazing", "name": "strained apricot jam", "amounts": [{"unit": "cup", "value": "1/3"}], "modifier": "warmed, for glazing", "optional": true}
 {"input": "1 ripe medium Fuyu persimmon (optional), cut into about 8 very thin rounds", "name": "ripe medium Fuyu persimmon", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "cut into about 8 very thin rounds", "optional": true}
 {"input": "½ medium white onion, cut into ¼-inch-thick slices", "name": "white onion", "amounts": [{"unit": "medium", "value": 0.5}], "modifier": "cut into ¼-inch-thick slices"}
 {"input": "2 teaspoons finely grated lemon or orange zest", "name": "lemon zest", "amounts": [{"unit": "tsp", "value": 2.0}], "modifier": "finely grated, or orange zest"}
@@ -386,13 +390,13 @@
 {"input": "500g (1lb 2oz) basmati rice", "name": "basmati rice", "amounts": [{"unit": "g", "value": 500.0}, {"unit": "lb", "value": 1.0}, {"unit": "oz", "value": 2.0}]}
 {"input": "1 x 20g packet of chives, snipped or thinly sliced", "name": "chives", "amounts": [{"unit": "g", "value": 20.0}, {"unit": "packet", "value": 1.0}], "modifier": "snipped or thinly sliced"}
 {"input": "700ml (1¼ pints) vegetable oil", "name": "vegetable oil", "amounts": [{"unit": "ml", "value": 700.0}, {"unit": "pint", "value": 1.25}]}
-{"input": "200ml (1/3 pint) extra virgin olive oil", "name": "extra virgin olive oil", "amounts": [{"unit": "ml", "value": 200.0}, {"unit": "pint", "value": 0.3333333333333333}]}
+{"input": "200ml (1/3 pint) extra virgin olive oil", "name": "extra virgin olive oil", "amounts": [{"unit": "ml", "value": 200.0}, {"unit": "pint", "value": "1/3"}]}
 // --- harvested (Xi'an Famous Foods, 2026-06-03): cross-ref chain stripping + Shaanxi cuisine guards ---
 {"input": "10 uncooked frozen dumplings (this page to this page)", "name": "uncooked frozen dumplings", "amounts": [{"unit": "whole", "value": 10.0}]}
 {"input": "1 recipe dumpling filling (this page, this page, or this page)", "name": "dumpling filling", "amounts": [{"unit": "recipe", "value": 1.0}]}
 {"input": "3 stalks green garlic", "name": "green garlic", "amounts": [{"unit": "stalk", "value": 3.0}]}
 {"input": "10 ounces (280 g) sliced lamb meat", "name": "lamb meat", "amounts": [{"unit": "oz", "value": 10.0}, {"unit": "g", "value": 280.0}], "modifier": "sliced"}
-{"input": "⅓ cup (about 70 g) dried lily flowers", "name": "dried lily flowers", "amounts": [{"unit": "cup", "value": 0.3333333333333333}, {"unit": "g", "value": 70.0}]}
+{"input": "⅓ cup (about 70 g) dried lily flowers", "name": "dried lily flowers", "amounts": [{"unit": "cup", "value": "1/3"}, {"unit": "g", "value": 70.0}]}
 {"input": "2 tablespoons XFF Chili Oil", "name": "XFF Chili Oil", "amounts": [{"unit": "tbsp", "value": 2.0}]}
 {"input": "8 cups (2 L) lamb broth", "name": "lamb broth", "amounts": [{"unit": "cup", "value": 8.0}, {"unit": "l", "value": 2.0}]}
 {"input": "1 teaspoon XFF Chili Oil (this page; optional)", "name": "XFF Chili Oil", "amounts": [{"unit": "tsp", "value": 1.0}], "optional": true}
@@ -492,7 +496,7 @@
 {"input": "2 tablespoons amaretto or dark rum", "name": "amaretto", "amounts": [{"unit": "tbsp", "value": 2.0}], "modifier": "or dark rum"}
 // A comma+or alternatives list sharing a trailing head noun ("oil") recovers the
 // head onto the first option and keeps the rest as an "or …" modifier.
-{"input": "1/3 cup (80ml) canola, vegetable, or melted coconut oil", "name": "canola oil", "amounts": [{"unit": "cup", "value": 0.3333333333333333}, {"unit": "ml", "value": 80.0}], "modifier": "or vegetable, or melted coconut oil"}
+{"input": "1/3 cup (80ml) canola, vegetable, or melted coconut oil", "name": "canola oil", "amounts": [{"unit": "cup", "value": "1/3"}, {"unit": "ml", "value": 80.0}], "modifier": "or vegetable, or melted coconut oil"}
 // guard: a comma+or list of *complete* ingredients gets no head grafted on.
 {"input": "1 teaspoon salt, pepper, or paprika", "name": "salt", "amounts": [{"unit": "tsp", "value": 1.0}], "modifier": "pepper, or paprika"}
 // "shredded" is a prep word → modifier; "(see note)" + trailing "*" are stripped.
