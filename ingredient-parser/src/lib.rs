@@ -396,7 +396,7 @@ pub struct IngredientParser {
     /// Set of recognized adjectives that get moved to modifier field
     adjectives: HashSet<String>,
     /// Which post-amount pipeline to run (crate-internal migration switch;
-    /// defaults to [`SegmentationMode::Legacy`]).
+    /// defaults to [`SegmentationMode::Segmented`]).
     segmentation: SegmentationMode,
 }
 impl IngredientParser {
