@@ -362,11 +362,14 @@ fn extract_corpus_rows(corpus: &str) -> Vec<CorpusEntry> {
     out
 }
 
-/// Render a JSON number trimmed (no trailing `.0`): `2` not `2.0`, `14.5`, `0.5`.
+/// Render a corpus amount value: a JSON number trimmed (no trailing `.0`):
+/// `2` not `2.0`, `14.5`, `0.5` — or an exact fraction string (`"2/3"`)
+/// passed through as-is, since corpus rows may author values in either form.
 fn fmt_num(v: &serde_json::Value) -> String {
     match v {
         serde_json::Value::Number(n) if n.as_i64().is_some() => n.to_string(),
         serde_json::Value::Number(n) => n.as_f64().map(|f| format!("{f}")).unwrap_or_default(),
+        serde_json::Value::String(s) => s.clone(),
         _ => String::new(),
     }
 }
@@ -982,6 +985,7 @@ mod tests {
 {"input": "2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 2}]}
 
 {"input": "2-3 cups <broth>", "name": "broth", "amounts": [{"unit": "cup", "value": 2, "upper_value": 3}]}
+{"input": "2/3 cup milk", "name": "milk", "amounts": [{"unit": "cup", "value": "2/3"}]}
 // --- gaps ---
 {"input": "1 pint berries", "name": "berries", "amounts": [{"unit": "pint", "value": 1}], "xfail": "pint range"}
 not valid json
@@ -990,23 +994,24 @@ not valid json
     #[test]
     fn extract_skips_comments_and_tracks_sections() {
         let rows = extract_corpus_rows(SAMPLE);
-        // 3 valid rows + 1 malformed = 4 entries; comments/blanks dropped.
-        assert_eq!(rows.len(), 4);
+        // 4 valid rows + 1 malformed = 5 entries; comments/blanks dropped.
+        assert_eq!(rows.len(), 5);
         assert_eq!(rows[0].section, "basics");
         assert_eq!(rows[1].section, "basics");
-        assert_eq!(rows[2].section, "gaps");
-        assert!(rows[2].row.get("xfail").is_some());
+        assert_eq!(rows[2].section, "basics");
+        assert_eq!(rows[3].section, "gaps");
+        assert!(rows[3].row.get("xfail").is_some());
         // The malformed line is tolerated, not panicked on.
-        assert!(rows[3].error.is_some());
+        assert!(rows[4].error.is_some());
     }
 
     #[test]
     fn render_escapes_and_counts() {
         let (html, rows) = render_corpus_html(SAMPLE);
-        assert_eq!(rows, 4);
+        assert_eq!(rows, 5);
         assert!(html.contains("<table>"));
-        // Summary: 4 entries, 1 has xfail, the malformed one counts as committed.
-        assert!(html.contains("4 rows · 3 committed · 1 xfail"));
+        // Summary: 5 entries, 1 has xfail, the malformed one counts as committed.
+        assert!(html.contains("5 rows · 4 committed · 1 xfail"));
         // Section headings rendered.
         assert!(html.contains("<h2>basics</h2>"));
         assert!(html.contains("<h2>gaps</h2>"));
@@ -1015,6 +1020,9 @@ not valid json
         assert!(!html.contains("<broth>"));
         // Range chip uses an en dash.
         assert!(html.contains("2–3 cup"));
+        // A fraction-string value renders as the fraction, not a blank quantity.
+        assert!(html.contains("2/3 cup"));
+        assert!(!html.contains("> cup<"));
         // xfail reason surfaces.
         assert!(html.contains("pint range"));
     }

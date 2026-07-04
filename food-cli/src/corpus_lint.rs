@@ -75,26 +75,43 @@ pub fn report_stages(rows: &[String]) -> StageCoverage {
         refine: FireCounts::new(),
     };
 
+    // The report counts ROWS per pass, so a label that fires several times on
+    // one line (e.g. two `prep_chain` clause decisions in a multi-clause
+    // modifier) must still count that row once — otherwise percentages can
+    // exceed 100. Collect each row's fired labels into a set before tallying.
+    fn tally_once<'a>(counts: &mut FireCounts, names: impl Iterator<Item = &'a str>) {
+        let fired: std::collections::BTreeSet<&str> = names.collect();
+        for name in fired {
+            *counts.entry(name.to_string()).or_default() += 1;
+        }
+    }
+
     for input in rows {
         let stages = parser.parse_with_trace(input).trace.stages();
         // A normalize rewrite / refine pass appears in the report only when it
         // changed the line, so mere presence == it fired. A recognizer appears
         // for every attempt, so it fired only when it produced output. Segment
         // nodes appear per clause decision / assembly repair that fired.
-        for rw in &stages.normalize {
-            *cov.normalize.entry(rw.name.clone()).or_default() += 1;
-        }
-        for rec in &stages.recognizers {
-            if rec.output.is_some() {
-                *cov.recognize.entry(rec.name.clone()).or_default() += 1;
-            }
-        }
-        for seg in &stages.segment {
-            *cov.segment.entry(seg.name.clone()).or_default() += 1;
-        }
-        for pass in &stages.refine {
-            *cov.refine.entry(pass.name.clone()).or_default() += 1;
-        }
+        tally_once(
+            &mut cov.normalize,
+            stages.normalize.iter().map(|rw| rw.name.as_str()),
+        );
+        tally_once(
+            &mut cov.recognize,
+            stages
+                .recognizers
+                .iter()
+                .filter(|rec| rec.output.is_some())
+                .map(|rec| rec.name.as_str()),
+        );
+        tally_once(
+            &mut cov.segment,
+            stages.segment.iter().map(|seg| seg.name.as_str()),
+        );
+        tally_once(
+            &mut cov.refine,
+            stages.refine.iter().map(|pass| pass.name.as_str()),
+        );
     }
     cov
 }
@@ -252,6 +269,32 @@ mod tests {
             "expected optional_wrapped recognizer to fire; got {:?}",
             cov.recognize
         );
+    }
+
+    #[test]
+    fn report_stages_counts_rows_not_trace_nodes() {
+        // A multi-clause line can fire the same segment label more than once
+        // (two prep-chain clauses here). The report is rows-per-pass, so no
+        // count may ever exceed the row total.
+        let rows = vec![
+            "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano"
+                .to_string(),
+        ];
+        let cov = report_stages(&rows);
+        for (stage, counts) in [
+            ("normalize", &cov.normalize),
+            ("recognize", &cov.recognize),
+            ("segment", &cov.segment),
+            ("refine", &cov.refine),
+        ] {
+            for (name, n) in counts {
+                assert!(
+                    *n <= cov.total_rows,
+                    "{stage} pass {name} counted {n} > {} rows",
+                    cov.total_rows
+                );
+            }
+        }
     }
 
     #[test]
