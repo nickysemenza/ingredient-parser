@@ -10,7 +10,7 @@ use ingredient::trace::ParseTrace;
 use poll_promise::Promise;
 use rand::RngExt;
 use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
-use tabs::{CookbookTab, TestTab};
+use tabs::{CookbookTab, CorpusAction, CorpusTab, TestTab};
 use tabs::{show_debug_tab, show_parsed, show_raw};
 
 #[derive(PartialEq, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
@@ -20,6 +20,7 @@ enum Tab {
     Debug,
     Test,
     Cookbook,
+    Corpus,
 }
 
 struct Wrapper {
@@ -39,6 +40,8 @@ pub struct MyApp {
     test: TestTab,
     // Cookbook (EPUB) tab state
     cookbook: CookbookTab,
+    // Corpus QA tab state
+    corpus: CorpusTab,
 }
 
 impl Default for MyApp {
@@ -52,6 +55,7 @@ impl Default for MyApp {
             selected_ingredient_idx: None,
             test: TestTab::default(),
             cookbook: CookbookTab::default(),
+            corpus: CorpusTab::default(),
         }
     }
 }
@@ -127,6 +131,11 @@ impl eframe::App for MyApp {
                     &mut self.current_tab,
                     Tab::Cookbook,
                     format!("{} Cookbook", theme::icon::COOKBOOK),
+                );
+                ui.selectable_value(
+                    &mut self.current_tab,
+                    Tab::Corpus,
+                    format!("{} Corpus", theme::icon::CORPUS),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let icon = match self.theme {
@@ -282,6 +291,18 @@ impl eframe::App for MyApp {
             }
             Tab::Cookbook => {
                 self.cookbook.show(ui);
+            }
+            Tab::Corpus => {
+                // The Corpus tab can hand a row's input to the Test tab; that
+                // cross-tab write lives here since the app owns both structs.
+                if let Some(action) = self.corpus.show(ui) {
+                    match action {
+                        CorpusAction::SendToTest(input) => {
+                            self.test.set_input(input);
+                            self.current_tab = Tab::Test;
+                        }
+                    }
+                }
             }
         });
     }

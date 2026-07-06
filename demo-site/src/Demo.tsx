@@ -233,6 +233,11 @@ const ParseNotesBadges: React.FC<{
   );
 };
 
+// `usage` is a declared role from the line (e.g. "oil, for frying" →
+// "frying_medium"); "normal" is the unmarked default and gets no chip. The
+// snake_case wire value is humanized for display.
+const formatUsage = (usage: string) => usage.replace(/_/g, " ");
+
 const IngredientResult: React.FC<{
   parsed: ReturnType<typeof wasm.parse_ingredient> | undefined;
 }> = ({ parsed }) => {
@@ -244,6 +249,7 @@ const IngredientResult: React.FC<{
     );
   }
   const amounts = parsed.amounts ?? [];
+  const showUsage = parsed.usage !== "normal";
   return (
     <div>
       <div className="flex items-start justify-between gap-3">
@@ -252,6 +258,27 @@ const IngredientResult: React.FC<{
         </h4>
         <ParseNotesBadges notes={parsed.parse_notes} />
       </div>
+
+      {(showUsage || parsed.optional) && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {showUsage && (
+            <span
+              className="rounded-md bg-accent-100 px-2 py-0.5 text-xs font-medium capitalize text-accent-700"
+              title={`Declared usage: ${parsed.usage}`}
+            >
+              {formatUsage(parsed.usage)}
+            </span>
+          )}
+          {parsed.optional && (
+            <span
+              className="rounded-md bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700"
+              title="This ingredient is marked optional"
+            >
+              optional
+            </span>
+          )}
+        </div>
+      )}
 
       {amounts.length > 0 && (
         <div className="mt-2.5 flex flex-wrap gap-1.5">

@@ -14,10 +14,6 @@ readme = "readme.md"
 
 [features]
 default = []
-# No-op kept for backward compatibility: serde support used to be optional
-# behind this feature, but the crate's types always required serde in practice
-# (serde_json is a hard dependency), so serde is now unconditional.
-serde-derive = []
 bench = ["dep:criterion"]
 
 [dependencies]

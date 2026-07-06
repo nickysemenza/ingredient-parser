@@ -109,6 +109,14 @@ impl Default for TestTab {
 }
 
 impl TestTab {
+    /// Replace the input with `line` and parse it immediately, so switching to
+    /// this tab (e.g. from the Corpus tab's "Send to Test") shows results
+    /// without a manual Parse click.
+    pub fn set_input(&mut self, line: String) {
+        self.input = line;
+        self.parse();
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui) {
         ui.heading("Test Ingredient Parser");
         ui.separator();
@@ -329,7 +337,8 @@ fn confidence_badge(ui: &mut egui::Ui, diagnostics: &ParseNotes) {
 }
 
 /// Render a [`StageReport`] as one card per pipeline stage, mirroring the
-/// CLI's `--explain` view: normalize → recognize → grammar → refine → result.
+/// CLI's `--explain` view: normalize → recognize → grammar → segment → refine
+/// → result.
 fn show_stages(ui: &mut egui::Ui, report: &StageReport) {
     stage_card(ui, "input", |ui| {
         ui.monospace(format!("\"{}\"", report.input));
@@ -380,6 +389,14 @@ fn show_stages(ui: &mut egui::Ui, report: &StageReport) {
             }
             GrammarOutcome::Skipped => {
                 ui.label(RichText::new("(skipped — recognizer produced the result)").weak());
+            }
+        });
+    }
+
+    if !report.segment.is_empty() {
+        stage_card(ui, "segment", |ui| {
+            for r in &report.segment {
+                ui.monospace(format!("{}  \"{}\" → {}", r.name, r.before, r.after));
             }
         });
     }

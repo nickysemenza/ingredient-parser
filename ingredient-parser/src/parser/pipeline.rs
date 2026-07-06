@@ -134,7 +134,7 @@ impl IngredientParser {
         // "(190 grams)" stay hoisted as amounts and "4 (½-inch) slices" (count +
         // size) is untouched.
         if let Some((cleaned, aside)) = lift_inline_descriptive_paren(input) {
-            let (_, mut parsed) = self.parse_ingredient(&cleaned).ok()?;
+            let (_, mut parsed) = self.parse_ingredient_ir(&cleaned).ok()?;
             // Refine first, then append the lifted aside as the trailing modifier
             // part — so it lands *after* any prep adjective the refine passes
             // extract (e.g. "sliced, ¼ inch / 6 mm"), and is joined/finalized
@@ -144,9 +144,29 @@ impl IngredientParser {
             return Some(parsed.into());
         }
 
-        self.parse_ingredient(input)
+        self.parse_ingredient_ir(input)
             .ok()
             .map(|(_, ingredient)| self.postprocess_ingredient(ingredient))
+    }
+
+    /// Parse the raw grammar shape via the mode-selected path: the legacy
+    /// carve-at-first-comma grammar, or the clause-segmentation path (see
+    /// [`crate::SegmentationMode`]). Both feed the same refine pipeline.
+    ///
+    /// The segmented arm opens the same `"parse_ingredient"` trace span the
+    /// legacy grammar does, so the stage report's grammar bucket works
+    /// unchanged; the per-clause `segment` nodes nest inside it.
+    fn parse_ingredient_ir<'a>(&self, input: &'a str) -> Res<&'a str, ParsedIngredient> {
+        match self.segmentation {
+            crate::SegmentationMode::Legacy => self.parse_ingredient(input),
+            crate::SegmentationMode::Segmented => traced_parser!(
+                "parse_ingredient",
+                input,
+                self.parse_ingredient_segmented(input),
+                |i: &ParsedIngredient| i.name.clone(),
+                "parse failed"
+            ),
+        }
     }
 
     /// Parse a complete ingredient line including amounts, name, and modifiers.
@@ -174,6 +194,25 @@ impl IngredientParser {
     /// [`FieldSpan`](crate::FieldSpan) per amount region / name / modifier the
     /// grammar carved. `spans` is empty when a whole-line recognizer or the
     /// name-only fallback produced the result (no core-grammar carving to show).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ingredient::IngredientParser;
+    /// use ingredient::Field;
+    ///
+    /// let parser = IngredientParser::new();
+    /// let decomp = parser.decompose("2 cups flour, sifted");
+    ///
+    /// assert_eq!(decomp.source, "2 cups flour, sifted");
+    /// assert_eq!(decomp.spans.len(), 3);
+    /// assert_eq!(decomp.spans[0].field, Field::Amount);
+    /// assert_eq!(decomp.spans[0].text, "2 cups");
+    /// assert_eq!(decomp.spans[1].field, Field::Name);
+    /// assert_eq!(decomp.spans[1].text, "flour");
+    /// assert_eq!(decomp.spans[2].field, Field::Modifier);
+    /// assert_eq!(decomp.spans[2].text, "sifted");
+    /// ```
     pub fn decompose(&self, raw: &str) -> crate::Decomposition {
         let normalized = normalize_input(raw);
         let (cleaned, _optional) = strip_optional_note(normalized.as_ref());
@@ -190,11 +229,13 @@ impl IngredientParser {
         }
     }
 
-    /// Grammar-stage field spans from the shared grammar shape. Empty vec if the
-    /// grammar doesn't parse. Uses `consumed` wrappers to recover byte ranges;
-    /// only runs after the value grammar succeeds (see `parse_ingredient_grammar_values`)
-    /// because `consumed` around optional measurements can panic on malformed input.
+    /// Grammar-stage field spans, mode-selected: the segmented path derives
+    /// them from the clause byte ranges; the legacy path uses `consumed`
+    /// wrappers over the grammar. Empty vec if the parse fails.
     fn grammar_field_spans(&self, input: &str) -> Vec<crate::FieldSpan> {
+        if self.segmentation == crate::SegmentationMode::Segmented {
+            return self.segmented_field_spans(input);
+        }
         let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
         if parse_ingredient_grammar_values(&mp, input).is_err() {
             return Vec::new();
@@ -407,6 +448,17 @@ mod decompose_tests {
         &[(Field::Amount, "2"), (Field::Name, "chopped fresh basil")]
     )]
     #[case("salt", &[(Field::Name, "salt")])]
+    // A multi-clause tail yields one modifier span per clause on the
+    // segmented path (the legacy grammar produced a single span here).
+    #[case(
+        "1 cup flour, sifted, divided",
+        &[
+            (Field::Amount, "1 cup"),
+            (Field::Name, "flour"),
+            (Field::Modifier, "sifted"),
+            (Field::Modifier, "divided"),
+        ]
+    )]
     fn decompose_carves_fields(#[case] input: &str, #[case] expected: Expected) {
         let parser = IngredientParser::new();
         let decomp = parser.decompose(input);

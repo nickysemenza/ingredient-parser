@@ -81,11 +81,9 @@ fn strip_leading_bullet(input: &str) -> Cow<'_, str> {
 /// page ref with real content ("(from Lamb Meat Soup, this page)") is left for
 /// the modifier — only pure navigation cruft is dropped.
 fn strip_cross_reference(input: &str) -> Cow<'_, str> {
-    crate::lazy_regex!(
-        CROSS_REF,
-        r"(?i)\s*\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*\s*\)"
-    );
-    CROSS_REF.replace_all(input, "")
+    // Classifier + regex definition live in `parser::paren`; this site keeps the
+    // strip action (`replace_all`) but shares the CROSS_REF definition.
+    crate::parser::paren::CROSS_REF.replace_all(input, "")
 }
 
 /// Drop a "(see note)" / "(note)" cross-reference parenthetical — a pointer to
@@ -94,8 +92,7 @@ fn strip_cross_reference(input: &str) -> Cow<'_, str> {
 /// exactly an optional "see" plus "note"/"notes", so a paren carrying real
 /// content ("(note the color)") is left for the modifier.
 fn strip_note_reference(input: &str) -> Cow<'_, str> {
-    crate::lazy_regex!(NOTE_REF, r"(?i)\s*\(\s*(?:see\s+)?notes?\s*\)");
-    NOTE_REF.replace_all(input, "")
+    crate::parser::paren::NOTE_REF.replace_all(input, "")
 }
 
 /// Rewrite a leading "N batch(es) of <recipe>" into "N recipe <recipe>" so the
@@ -119,11 +116,7 @@ fn rewrite_batch_of_to_recipe(input: &str) -> Cow<'_, str> {
 /// the modifier. Running before `strip_cross_reference`, this peels off the ref
 /// and leaves the bare "(optional)" for `strip_optional_note` to flag.
 fn split_crossref_optional(input: &str) -> Cow<'_, str> {
-    crate::lazy_regex!(
-        CROSS_REF_OPTIONAL,
-        r"(?i)\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*[\s,;]+optional\s*\)"
-    );
-    CROSS_REF_OPTIONAL.replace_all(input, "(optional)")
+    crate::parser::paren::CROSS_REF_OPTIONAL.replace_all(input, "(optional)")
 }
 
 /// Strip a leading determiner ("the") sitting in front of a quantity, e.g.
@@ -149,8 +142,10 @@ fn strip_leading_determiner(input: &str) -> Cow<'_, str> {
 /// quantity, it's kept — dropping it would silently zero the amount, whereas
 /// leaving the digit lets the parse surface `unparsed_digit` for review instead.
 fn strip_minus_equivalence(input: &str) -> Cow<'_, str> {
-    crate::lazy_regex!(MINUS_PAREN, r"\s*\([^)]*\bminus\b[^)]*\)");
-    let stripped = MINUS_PAREN.replace_all(input, "");
+    // Classified as MinusEquivalence by `paren::classify`, but this site adds a
+    // whole-line guard (only strip when a quantity survives elsewhere) that the
+    // inner-only classifier can't express — so it keeps its own control flow.
+    let stripped = crate::parser::paren::MINUS_PAREN.replace_all(input, "");
     // `replace_all` borrows unchanged when nothing matched.
     if matches!(stripped, Cow::Borrowed(_)) {
         return stripped;
@@ -310,7 +305,7 @@ crate::define_stage_pipeline! {
     struct RewriteEntry,
     const REWRITES: &[RewriteEntry],
     type Rewrite = Rewrite,
-    trace: none,
+    trace: pub(crate) REWRITE_TRACE_NAMES,
     (StripNbsp, "strip_nbsp", strip_nbsp),
     (StripLeadingBullet, "strip_leading_bullet", strip_leading_bullet),
     (StripFootnoteMarkers, "strip_footnote_markers", strip_footnote_markers),
@@ -440,43 +435,9 @@ pub(super) fn lift_inline_descriptive_paren(input: &str) -> Option<(String, Stri
     }
 
     // Only lift descriptive asides: a temperature (°) or a distance unit token.
-    // The ambiguous bases "in" (the English preposition) and "m" only count
-    // when number-adjacent, so "(packed in oil)" is not mistaken for a
-    // dimension while "(1 in thick)" still is.
-    let number_adjacent = |token_start: usize| {
-        inner[..token_start]
-            .chars()
-            .rev()
-            .find(|c| !c.is_whitespace() && *c != '-' && *c != '/')
-            .is_some_and(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
-    };
-    let is_distance_token = |token_start: usize, w: &str| {
-        crate::parser::is_distance_unit(w)
-            && (!matches!(w.to_lowercase().as_str(), "in" | "m") || number_adjacent(token_start))
-    };
-    let has_distance_token = || {
-        let mut token_start = 0usize;
-        let mut in_token = false;
-        for (i, c) in inner
-            .char_indices()
-            .chain(std::iter::once((inner.len(), ' ')))
-        {
-            if c.is_alphabetic() {
-                if !in_token {
-                    token_start = i;
-                    in_token = true;
-                }
-            } else if in_token {
-                if is_distance_token(token_start, &inner[token_start..i]) {
-                    return true;
-                }
-                in_token = false;
-            }
-        }
-        false
-    };
-    let looks_descriptive = inner.contains('°') || has_distance_token();
-    if !looks_descriptive {
+    // The inner-content test is shared with `paren::classify` (ParenKind::Descriptive);
+    // this site keeps the surrounding "name (aside) name" position guard above.
+    if !crate::parser::paren::is_descriptive(inner) {
         return None;
     }
 

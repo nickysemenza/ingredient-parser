@@ -1,6 +1,5 @@
 ---
 source: ingredient-parser/tests/snapshots.rs
-assertion_line: 50
 expression: traced.trace.format_tree(false)
 ---
 └─ parse_line "2 cups flour, sifted" ✓ → flour
@@ -89,4 +88,5 @@ expression: traced.trace.format_tree(false)
       │  └─ parse_unit_only "flour, sifted" ✗
       │     └─ unit_extra "flour, sifted" ✗
       ├─ bracketed_amounts "flour, sifted" ✗
-      └─ parenthesized_amounts ", sifted" ✗
+      ├─ head_candidate "flour" ✓ → flour
+      └─ prep_chain "sifted" ✓ → sifted

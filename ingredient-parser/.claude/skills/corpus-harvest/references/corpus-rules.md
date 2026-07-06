@@ -28,18 +28,26 @@ Row schema:
   garbage (OCR/PUA glyphs, pure cross-ref, non-food) → drop it.
 </committed_vs_xfail>
 
-<exact_f64_rule>
-`amounts` values are compared with bitwise f64 `==` — NO rounding.
-- NEVER hand-type a value like `2.333`. It will not match.
-- For a COMMITTED row, copy the value from the parser's OWN serialized output
-  (`food-cli parse-ingredient "<line>"` or `parse-lines`). That guarantees round-trip
-  equality.
-- Repeating fractions need the full shortest round-trip form: ⅓ → `0.3333333333333333`,
-  ⅔ → `0.6666666666666666`. ¼ → `0.25`, ⅛ → `0.125` (terminating, fine).
-- Footgun: a value that "looks right" from a calculator (e.g. 1⅔ = 1.6666666666666667)
-  can differ from how the parser computes it. Always copy the parser's emitted value.
-  (A prior committed row had to be dropped for exactly this reason.)
-</exact_f64_rule>
+<exact_amount_rule>
+`amounts` values are compared as EXACT rationals — NO rounding.
+- Prefer the exact fraction-string form for fractions: ⅓ → `"1/3"`, ⅔ → `"2/3"`,
+  mixed numbers like 1½ → `"1 1/2"`. This builds the exact rational with no float
+  round-trip, so it can't drift. This is the recommended form for repeating
+  fractions.
+- A plain JSON number still works (recovered via `Rational64::approximate_float`,
+  so `0.6666666666666666` also equals ⅔). Use it for terminating decimals:
+  ¼ → `0.25`, ⅛ → `0.125`.
+- NEVER hand-type a truncated decimal like `2.333` or `0.667` — it becomes
+  `2333/1000` / `667/1000` and won't match. A *quoted* decimal (`"0.667"`) is
+  rejected outright, by design.
+- When in doubt for a COMMITTED row, copy the value from the parser's OWN
+  serialized output (`food-cli parse-ingredient "<line>"` or `parse-lines`), then
+  rewrite any repeating decimal as its fraction string.
+- EASIEST for a COMMITTED row: `food-cli parse-ingredient "<line>" --emit-corpus-row`
+  builds the whole row for you — keys in corpus order, optional keys omitted, and
+  repeating decimals already written as exact fraction strings (⅔ → `"2/3"`). It
+  refuses fell-back / low-confidence parses, so it only ever emits a sound row.
+</exact_amount_rule>
 
 <labeling_rules>
 Apply the Design Decisions from `ingredient-parser/src/lib.rs` (the doc comment):

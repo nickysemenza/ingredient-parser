@@ -19,6 +19,7 @@ pub(crate) struct PersistedState {
     pub cookbooks_only: bool,
     pub use_ai_fallback: bool,
     pub library_grid: bool,
+    pub corpus_path: String,
 }
 
 impl Default for PersistedState {
@@ -41,6 +42,7 @@ impl PersistedState {
             cookbooks_only: app.cookbook.cookbooks_only,
             use_ai_fallback: app.cookbook.use_ai_fallback,
             library_grid: app.cookbook.library_grid,
+            corpus_path: app.corpus.path.clone(),
         }
     }
 
@@ -58,6 +60,7 @@ impl PersistedState {
         app.cookbook.cookbooks_only = self.cookbooks_only;
         app.cookbook.use_ai_fallback = self.use_ai_fallback;
         app.cookbook.library_grid = self.library_grid;
+        app.corpus.path = self.corpus_path;
     }
 }
 
@@ -81,6 +84,7 @@ mod tests {
         app.cookbook.cookbooks_only = false;
         app.cookbook.use_ai_fallback = true;
         app.cookbook.library_grid = false;
+        app.corpus.path = "some/other/corpus.jsonl".to_string();
 
         let ron = ron::to_string(&PersistedState::capture(&app)).unwrap();
         let restored: PersistedState = ron::from_str(&ron).unwrap();
@@ -96,6 +100,7 @@ mod tests {
         assert!(!fresh.cookbook.cookbooks_only);
         assert!(fresh.cookbook.use_ai_fallback);
         assert!(!fresh.cookbook.library_grid);
+        assert_eq!(fresh.corpus.path, app.corpus.path);
     }
 
     /// An older/empty snapshot must fall back to the app's defaults (per-field

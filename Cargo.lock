@@ -1867,6 +1867,7 @@ dependencies = [
  "recipe-epub",
  "recipe-scraper-fetcher",
  "rstest",
+ "serde",
  "serde_json",
  "tabled",
  "tokio",

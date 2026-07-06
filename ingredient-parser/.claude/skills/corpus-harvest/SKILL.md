@@ -48,8 +48,14 @@ Require 0 REGRESSION. Confirm a single line with: `food-cli parse-ingredient "<l
    sub-agents, each given a slice + the corpus-rules.md content.
 
 4. VALIDATE every candidate against the LIVE parser (`food-cli parse-ingredient "<line>"`):
-   - parser already correct → COMMITTED row (copy its exact output, incl. full-precision f64).
-   - parser wrong but desired parse is clear → `xfail` row (label = desired, add a terse reason).
+   - parser already correct → COMMITTED row. PREFER `food-cli parse-ingredient "<line>"
+     --emit-corpus-row`: it prints exactly one ready-to-append JSONL row with keys in
+     corpus order, optional keys omitted, and non-terminating values as exact fraction
+     strings (⅔ → `"2/3"`). It refuses (stderr + non-zero exit) when the parse fell back
+     or is low-confidence, so it can't emit a garbage committed row.
+   - parser wrong but desired parse is clear → `xfail` row (label = desired, add a terse
+     reason). `--emit-corpus-row` refuses these; hand-author the row (desired label) and
+     add the `xfail` key.
    - garbage → drop.
    When you go to FIX an xfail (vs just record it), run `food-cli parse-ingredient
    --explain "<line>"` to see which pipeline stage (normalize/recognize/grammar/refine)

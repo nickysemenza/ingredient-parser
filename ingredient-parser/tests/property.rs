@@ -7,8 +7,14 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-use ingredient::from_str;
+use ingredient::{IngredientParser, SegmentationMode, from_str};
 use proptest::prelude::*;
+
+/// A parser on the legacy carve-then-repair path (`from_str` is the segmented
+/// default since the cutover).
+fn legacy_parser() -> IngredientParser {
+    IngredientParser::new().with_segmentation_mode(SegmentationMode::Legacy)
+}
 
 // Generate arbitrary text strings
 prop_compose! {
@@ -114,6 +120,85 @@ proptest! {
         // Should be able to format
         let _formatted = format!("{ingredient}");
     }
+
+    /// Both parse paths stay panic-free and structurally valid on arbitrary
+    /// (multibyte) input. (During the shadow migration this asserted exact
+    /// equality; since the cutover deleted the legacy repair passes, the two
+    /// modes legitimately diverge on repair-shaped lines — the corpus ratchet
+    /// now pins the segmented default's accuracy.)
+    #[test]
+    fn both_paths_robust_on_unicode(input in arb_unicode_input()) {
+        for ing in [from_str(&input), legacy_parser().from_str(&input)] {
+            if let Some(modifier) = &ing.modifier {
+                prop_assert!(!modifier.is_empty());
+            }
+            let _display = format!("{ing}");
+        }
+    }
+
+    /// Same robustness over *vocabulary-triggering* lines: random sentences
+    /// drawn from the words that drive the structural repairs (prep
+    /// participles, "minus", "or"-alternatives, shared-head nouns, size words,
+    /// parentheticals, amounts). The character-level fuzz above can't reach
+    /// these code paths. Also pins the never-empty-name funnel invariant.
+    #[test]
+    fn both_paths_robust_on_vocab_lines(input in arb_vocab_line()) {
+        for ing in [from_str(&input), legacy_parser().from_str(&input)] {
+            if let Some(modifier) = &ing.modifier {
+                prop_assert!(!modifier.is_empty());
+            }
+            let _display = format!("{ing}");
+        }
+    }
+}
+
+/// Random ingredient-shaped lines built from the parser's own trigger
+/// vocabulary: an optional amount, then 1..7 tokens (words, separators, or
+/// parentheticals) that exercise prep chains, minus clauses, alternatives,
+/// shared heads, purpose phrases, and paren classification.
+fn arb_vocab_line() -> impl Strategy<Value = String> {
+    let word = prop::sample::select(vec![
+        // prep participles / adverbs / descriptors
+        "chopped", "minced", "seeded", "deribbed", "toasted", "peeled", "sliced", "finely",
+        "roughly", "very", "bone-in", "skin-on", "boneless", "fresh",
+        // heads / foods
+        "walnuts", "chiles", "onion", "garlic", "flour", "oil", "stock", "cabbage", "celery",
+        "lettuce", "clove", "cloves", "stalk", "head", "zest", "lemon",
+        // coordinations / prose leads
+        "or", "and", "and/or", "such", "as", "to", "taste", "for", "the", "serving", "brushing",
+        "garnish", "plus", "more", "then", "minus", // sizes / qualifiers
+        "small", "medium", "large", "extra", "about", "white", "red", "hot", "green",
+    ]);
+    let sep = prop::sample::select(vec![" ", ", ", "; ", " , "]);
+    let paren = prop::sample::select(vec![
+        "(red)",
+        "(about 2 cups)",
+        "(optional)",
+        "(120g)",
+        "(see note)",
+        "(2 sticks minus 1 tablespoon)",
+        "(¼ inch)",
+    ]);
+    let amount = prop::sample::select(vec![
+        "",
+        "1 ",
+        "2 cups ",
+        "½ cup ",
+        "1/2 cup ",
+        "3 ",
+        "1 tablespoon ",
+    ]);
+    let token = prop_oneof![8 => word.prop_map(String::from), 1 => paren.prop_map(String::from)];
+    (amount, prop::collection::vec((sep, token), 1..7)).prop_map(|(amount, tokens)| {
+        let mut line = amount.to_string();
+        for (i, (sep, tok)) in tokens.into_iter().enumerate() {
+            if i > 0 {
+                line.push_str(sep);
+            }
+            line.push_str(&tok);
+        }
+        line
+    })
 }
 
 /// Test with edge case inputs

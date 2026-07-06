@@ -6,6 +6,10 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Removed
+
+- `serde-derive` feature: this no-op feature was deprecated and is no longer supported.
+
 ### Added
 
 - `IngredientParser::parse_with_diagnostics` returning non-failing parse

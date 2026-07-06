@@ -11,7 +11,7 @@ impl IngredientParser {
     /// name is restored. The exact-match guard keeps descriptive names (e.g.
     /// "raw pistachios, finely chopped", where the name isn't a prep phrase) from
     /// ever being touched.
-    pub(super) fn fix_leading_prep_phrase(&self, parsed: &mut ParsedIngredient) {
+    pub(in crate::parser) fn fix_leading_prep_phrase(&self, parsed: &mut ParsedIngredient) {
         let name = parsed.name.trim();
         if name.is_empty() || !self.adjectives.contains(&name.to_lowercase()) {
             return;
@@ -30,7 +30,7 @@ impl IngredientParser {
     /// followed by a parseable measurement, move "minus <measure>" into the
     /// modifier and restore the real name ("flour"). The primary amount is left
     /// as stated (the subtraction isn't applied numerically).
-    pub(super) fn fix_leading_minus_clause(&self, parsed: &mut ParsedIngredient) {
+    pub(in crate::parser) fn fix_leading_minus_clause(&self, parsed: &mut ParsedIngredient) {
         // Borrow for the prefix guard; only allocate once we've confirmed a match.
         let Some(rest) = parsed
             .name
@@ -77,33 +77,10 @@ impl IngredientParser {
     /// "chopped, toasted walnuts" is already resolved and never reaches here) and
     /// before `extract_adjectives_from_name` (so the recovered name still gets the
     /// normal adjective scan).
-    pub(super) fn recover_head_noun_from_modifier(&self, parsed: &mut ParsedIngredient) {
-        // A "prep" token: a preparation participle ("-ed"), an "-ly" adverb
-        // ("roughly"/"finely"), or a known intensifier. Deliberately NOT the broad
-        // adjective set — a descriptive adjective like "fresh" must lead the head
-        // noun, not be swallowed as prep.
-        let is_prep = |w: &str| {
-            // `trim_matches` strips leading/trailing non-alphanumerics only, so an
-            // internal hyphen ("bone-in") survives for the suffix checks below.
-            let wl = w
-                .trim_matches(|c: char| !c.is_alphanumeric())
-                .to_lowercase();
-            wl.ends_with("ed")
-                || wl.ends_with("ly")
-                // Hyphenless adjectives ("boneless", "skinless", "seedless") and
-                // hyphenated meat/prep descriptors ("bone-in", "skin-on",
-                // "sugar-free") that the grammar's first-comma carve strands as a
-                // leading chain ("bone-in, skin-on chicken legs").
-                || wl.ends_with("less")
-                || wl
-                    .rsplit_once('-')
-                    .is_some_and(|(_, suf)| matches!(suf, "in" | "on" | "out" | "off" | "free" | "style"))
-                || crate::parser::vocab::INTENSIFIER_ADVERBS.contains(&wl.as_str())
-        };
+    pub(in crate::parser) fn recover_head_noun_from_modifier(&self, parsed: &mut ParsedIngredient) {
+        use crate::parser::token::{is_prep_token as is_prep, norm, offsets};
         let is_connector = |w: &str| {
-            let wl = w
-                .trim_matches(|c: char| !c.is_alphanumeric())
-                .to_lowercase();
+            let wl = norm(w);
             wl == "and" || wl == "&"
         };
 
@@ -122,9 +99,7 @@ impl IngredientParser {
 
         // Walk tokens, skipping leading preps/connectors, to find the head noun's
         // byte offset within `modtext`.
-        let head_start = modtext
-            .split_whitespace()
-            .map(|w| (w.as_ptr() as usize - modtext.as_ptr() as usize, w))
+        let head_start = offsets(&modtext)
             .find(|(_, w)| !is_prep(w) && !is_connector(w))
             .map(|(off, _)| off);
         let Some(head_start) = head_start else {
@@ -133,20 +108,19 @@ impl IngredientParser {
 
         let rest = &modtext[head_start..];
         let first_word = rest.split_whitespace().next().unwrap_or("");
-        let first_lower = first_word
-            .trim_matches(|c: char| !c.is_alphanumeric())
-            .to_lowercase();
+        let first_lower = norm(first_word);
         // Stopwords that, as the would-be head noun's first word, mean the modifier
         // is a prose clause, not "<preps> <head noun>".
         if crate::parser::vocab::MODIFIER_STOPWORDS.contains(&first_lower.as_str()) {
             return;
         }
 
-        // The head noun runs to the next clause boundary. " (" ends it at a
-        // trailing parenthetical aside ("chicken thighs (8 to 12 thighs, …)"),
-        // before the comma *inside* that aside can truncate the noun.
+        // The head noun runs to the next clause boundary (see
+        // `vocab::CLAUSE_BOUNDARIES`). " (" ends it at a trailing parenthetical
+        // aside ("chicken thighs (8 to 12 thighs, …)"), before the comma *inside*
+        // that aside can truncate the noun.
         let mut end = rest.len();
-        for pat in [", ", " such as ", " or ", " to taste", " ("] {
+        for pat in crate::parser::vocab::CLAUSE_BOUNDARIES {
             if let Some(p) = rest.find(pat) {
                 end = end.min(p);
             }
@@ -187,7 +161,10 @@ impl IngredientParser {
     /// name="purple" and modifier="(red) cabbage (about 1 pound)". Move the
     /// leading "(red) cabbage" back into the name and leave later modifier text
     /// for the normal secondary-amount pass.
-    pub(super) fn recover_parenthetical_alias_from_modifier(&self, parsed: &mut ParsedIngredient) {
+    pub(in crate::parser) fn recover_parenthetical_alias_from_modifier(
+        &self,
+        parsed: &mut ParsedIngredient,
+    ) {
         let Some(ModifierPart::Raw(raw)) = parsed.modifier.first() else {
             return;
         };
@@ -196,15 +173,14 @@ impl IngredientParser {
         if !trimmed.starts_with('(') {
             return;
         }
-        let Some(close) = matching_close_paren(trimmed) else {
+        let Some(close) = crate::parser::token::matching_close_paren(trimmed) else {
             return;
         };
         let inner = trimmed[1..close].trim();
-        if inner.is_empty()
-            || inner
-                .chars()
-                .any(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
-        {
+        // The "is this a bare alias?" test (non-empty, no digits/vulgar fractions)
+        // is shared with `paren::classify` (ParenKind::Alias); this site keeps its
+        // own position and head-noun recovery logic below.
+        if !crate::parser::paren::is_alias(inner) {
             return;
         }
 
@@ -235,21 +211,4 @@ impl IngredientParser {
             *raw = remainder;
         }
     }
-}
-
-fn matching_close_paren(input: &str) -> Option<usize> {
-    let mut depth = 0usize;
-    for (index, character) in input.char_indices() {
-        match character {
-            '(' => depth += 1,
-            ')' => {
-                depth = depth.checked_sub(1)?;
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }

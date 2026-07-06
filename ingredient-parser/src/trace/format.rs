@@ -139,6 +139,16 @@ pub(super) fn format_stages(report: &StageReport, colored: bool) -> String {
         line("grammar:", &grammar_body);
     }
 
+    // Segment decisions (clause classifications + assembly repairs); absent on
+    // the legacy path and when the grammar fell back.
+    for (idx, n) in report.segment.iter().enumerate() {
+        let label = if idx == 0 { "segment:" } else { "" };
+        line(
+            label,
+            &format!("{}  \"{}\" → {}", n.name, n.before, n.after),
+        );
+    }
+
     if report.refine.is_empty() {
         line("refine:", "(no passes changed it)");
     } else {

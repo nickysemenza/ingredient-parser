@@ -290,6 +290,7 @@ pub mod icon {
     pub const RECIPE: &str = icons::ICON_MENU_BOOK.codepoint;
     pub const DEBUG: &str = icons::ICON_SEARCH.codepoint;
     pub const COOKBOOK: &str = icons::ICON_AUTO_STORIES.codepoint;
+    pub const CORPUS: &str = icons::ICON_FACT_CHECK.codepoint;
     pub const YIELD: &str = icons::ICON_SCALE.codepoint;
     pub const SERVINGS: &str = icons::ICON_RESTAURANT.codepoint;
     pub const TIME: &str = icons::ICON_SCHEDULE.codepoint;

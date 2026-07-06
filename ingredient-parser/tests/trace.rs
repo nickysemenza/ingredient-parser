@@ -373,13 +373,45 @@ fn test_stages_recognizer_match(parser: IngredientParser) {
     assert_eq!(report.result_preview.as_deref(), Some("lemon"));
 }
 
-/// Refine pass: the word-alternative split shows up in the refine bucket.
+/// Refine pass: the merged alternatives extraction (here the no-quantity
+/// word-alternative split) shows up in the refine bucket.
 #[rstest]
 fn test_stages_refine_pass(parser: IngredientParser) {
     let report = parser.parse_with_trace("red or white onion").trace.stages();
     assert_eq!(report.refine.len(), 1);
-    assert_eq!(report.refine[0].name, "extract_word_alternative_from_name");
+    assert_eq!(report.refine[0].name, "extract_alternatives_from_name");
     assert_eq!(report.result_preview.as_deref(), Some("red onion"));
+}
+
+/// The segment bucket carries the clause decisions and the assembly repairs
+/// that fired, in emit order (nested inside the grammar span on the segmented
+/// default path).
+#[rstest]
+fn test_stages_segment_bucket(parser: IngredientParser) {
+    let report = parser
+        .parse_with_trace("1 cup flour, sifted, divided")
+        .trace
+        .stages();
+    let names: Vec<&str> = report.segment.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["head_candidate", "prep_chain", "prep_chain"],
+        "clause decisions in source order"
+    );
+
+    // An assembly repair (the minus-clause split) also lands in the bucket.
+    let report = parser
+        .parse_with_trace("½ cup minus 1 tablespoon flour")
+        .trace
+        .stages();
+    assert!(
+        report
+            .segment
+            .iter()
+            .any(|s| s.name == "fix_leading_minus_clause"),
+        "assembly repair missing from segment bucket: {:?}",
+        report.segment
+    );
 }
 
 /// Synthetic trees pin the bucketing variants real parses can't reach:

@@ -25,7 +25,7 @@
 // Test-harness code: a malformed corpus line should fail the test loudly.
 #![allow(clippy::panic)]
 
-use ingredient::{IngredientParser, IngredientUsage, from_str, unit::Measure};
+use ingredient::{IngredientParser, IngredientUsage, SegmentationMode, from_str, unit::Measure};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -187,6 +187,25 @@ fn never_empty_name() {
         assert!(
             !ing.name.trim().is_empty(),
             "parsed an empty name for input {input:?}"
+        );
+    }
+}
+
+/// The legacy carve-then-repair path — kept as the `corpus shadow` A/B
+/// baseline after the cutover — still upholds the funnel invariants over every
+/// corpus input: `from_str` never fails (name-only fallback) and never yields
+/// an empty name. (Exact-output parity with the segmented default ended at
+/// cutover, when the repair passes it depended on were absorbed into the
+/// segmenter and deleted.)
+#[test]
+fn legacy_path_invariants_over_corpus() {
+    let legacy = IngredientParser::new().with_segmentation_mode(SegmentationMode::Legacy);
+    for row in load() {
+        let ing = legacy.from_str(&row.input);
+        assert!(
+            !ing.name.trim().is_empty(),
+            "legacy path parsed an empty name for {:?}",
+            row.input
         );
     }
 }
