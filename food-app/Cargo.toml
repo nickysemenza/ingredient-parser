@@ -11,11 +11,11 @@ publish = false
 [dependencies]
 # Theme is hand-applied in src/theme.rs (Catppuccin Mocha palette): the
 # catppuccin-egui crate only supports egui <=0.33, and we're on 0.34.
-egui_extras = { version = "0.34.0", features = ["image", "http"] }
-egui_material_icons = "0.6"
+egui_extras = { version = "0.35.0", features = ["image", "http"] }
+egui_material_icons = "0.7"
 # `persistence` enables eframe storage (App::save/get_value) — last tab,
 # inputs, view toggles, and window geometry survive restarts.
-eframe = { version = "0.34.0", features = ["persistence"] }
+eframe = { version = "0.35.0", features = ["persistence"] }
 ehttp = "0.7.0"
 image = { version = "0.25.1", default-features = false, features = ["jpeg", "png"] }
 poll-promise = "0.3"
@@ -23,7 +23,7 @@ recipe-scraper.workspace = true
 ingredient.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-egui_ltreeview = "0.7"
+egui_ltreeview = "0.8"
 rand = "0.10.0"
 tracing.workspace = true
 tracing-subscriber = "0.3"
@@ -33,7 +33,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 # Load AI gateway creds from a repo-root .env on startup.
 dotenvy.workspace = true
 # Recipe-reference digraph in the Cookbook tab.
-egui_graphs = "0.30"
+egui_graphs = "0.31"
 petgraph = "0.8"
 # Native file/folder pickers for the Cookbook tab (pick an EPUB, pick a library).
 rfd = "0.17"
