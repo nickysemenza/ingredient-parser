@@ -491,3 +491,88 @@ fn show_detail(ui: &mut egui::Ui, row: &ScoredRow) -> Option<CorpusAction> {
     });
     action
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds a `CorpusRow` the same way `load_from_source` does — from a
+    /// corpus.jsonl-shaped JSON line — so these tests exercise the exact same
+    /// deserialization path as the real corpus file.
+    fn row(json: &str) -> CorpusRow {
+        serde_json::from_str(json).unwrap()
+    }
+
+    /// A committed row (no `xfail`) whose labels match the parser's actual
+    /// output scores as `Exact` — mirrors `accuracy_corpus`'s `exact` bucket.
+    #[test]
+    fn matching_committed_row_is_exact() {
+        let scored = ScoredRow::score(row(
+            r#"{"input": "1 cup flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1}]}"#,
+        ));
+        assert!(scored.status == Status::Exact);
+        assert!(scored.diffs.iter().all(|d| d.ok));
+    }
+
+    /// A committed row (no `xfail`) whose labels DON'T match the parser's
+    /// output scores as `Regression` — this is exactly what `accuracy_corpus`
+    /// fails the test suite on.
+    #[test]
+    fn mismatching_committed_row_is_regression() {
+        let scored = ScoredRow::score(row(
+            r#"{"input": "1 cup flour", "name": "sugar", "amounts": [{"unit": "cup", "value": 1}]}"#,
+        ));
+        assert!(scored.status == Status::Regression);
+        assert!(scored.diffs.iter().any(|d| !d.ok));
+    }
+
+    /// A known-gap row (`xfail` set) whose labels still don't match scores as
+    /// `Xfail` — the mismatch is tolerated, never a regression.
+    #[test]
+    fn mismatching_xfail_row_is_xfail() {
+        let scored = ScoredRow::score(row(
+            r#"{"input": "1 cup flour", "name": "sugar", "amounts": [{"unit": "cup", "value": 1}], "xfail": "known gap"}"#,
+        ));
+        assert!(scored.status == Status::Xfail);
+        assert_eq!(scored.xfail_reason.as_deref(), Some("known gap"));
+    }
+
+    /// An `xfail` row whose labels now match the parser's output (the gap has
+    /// been closed) scores as `Promote` — the hint to remove the `xfail`
+    /// marker, mirroring `accuracy_corpus`'s `promotable` list.
+    #[test]
+    fn matching_xfail_row_is_promote() {
+        let scored = ScoredRow::score(row(
+            r#"{"input": "1 cup flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1}], "xfail": "fixed now"}"#,
+        ));
+        assert!(scored.status == Status::Promote);
+        assert!(scored.diffs.iter().all(|d| d.ok));
+    }
+
+    /// `xfail` only changes classification, never the underlying field
+    /// comparison: an xfail row scored identically to its non-xfail twin
+    /// produces the same per-field diffs either way.
+    #[test]
+    fn xfail_does_not_change_field_comparison() {
+        let base =
+            r#"{"input": "1 cup flour", "name": "sugar", "amounts": [{"unit": "cup", "value": 1}]"#;
+        let committed = ScoredRow::score(row(&format!("{base}}}")));
+        let xfailed = ScoredRow::score(row(&format!("{base}, \"xfail\": \"reason\"}}")));
+
+        let committed_oks: Vec<bool> = committed.diffs.iter().map(|d| d.ok).collect();
+        let xfailed_oks: Vec<bool> = xfailed.diffs.iter().map(|d| d.ok).collect();
+        assert_eq!(committed_oks, xfailed_oks);
+    }
+
+    #[test]
+    fn filter_matches_each_status() {
+        assert!(Filter::All.matches(Status::Exact));
+        assert!(Filter::All.matches(Status::Regression));
+        assert!(Filter::Regressions.matches(Status::Regression));
+        assert!(!Filter::Regressions.matches(Status::Exact));
+        assert!(Filter::Promotes.matches(Status::Promote));
+        assert!(!Filter::Promotes.matches(Status::Xfail));
+        assert!(Filter::Xfails.matches(Status::Xfail));
+        assert!(!Filter::Xfails.matches(Status::Regression));
+    }
+}

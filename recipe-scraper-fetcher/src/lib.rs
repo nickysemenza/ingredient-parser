@@ -1,3 +1,12 @@
+//! Network fetch layer for recipe scraping: downloads a recipe page's HTML
+//! and hands it to `recipe-scraper` for extraction.
+//!
+//! [`Fetcher`] wraps a `reqwest` client (with a descriptive bot user-agent so
+//! recipe sites don't block it) and an optional URL → HTML cache for
+//! offline/replay testing (`Fetcher::new_with_cache`). [`Fetcher::scrape_url`]
+//! is the one entry point most callers need — it fetches (or reads from
+//! cache) then calls `recipe_scraper::scrape`.
+
 use std::collections::HashMap;
 
 use recipe_scraper::ScrapeError;
@@ -23,7 +32,7 @@ impl Fetcher {
             cache: Some(m),
         }
     }
-    #[tracing::instrument(name = "scrape_url")]
+    #[tracing::instrument(name = "scrape_url", skip(self))]
     pub async fn scrape_url(
         &self,
         url: &str,
@@ -32,7 +41,7 @@ impl Fetcher {
         recipe_scraper::scrape(body.as_ref(), url)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn fetch_html(&self, url: &str) -> Result<String, ScrapeError> {
         if let Some(cache) = &self.cache
             && let Some(cached) = cache.get(url)

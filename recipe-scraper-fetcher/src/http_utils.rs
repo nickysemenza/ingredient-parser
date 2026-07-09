@@ -13,7 +13,6 @@ use tracing::Span;
 
 pub struct TimeTrace;
 
-#[allow(unexpected_cfgs)]
 impl ReqwestOtelSpanBackend for TimeTrace {
     fn on_request_start(req: &Request, extension: &mut Extensions) -> Span {
         extension.insert(Instant::now());
@@ -50,4 +49,33 @@ pub fn http_client() -> ClientWithMiddleware {
     ClientBuilder::new(client)
         .with(reqwest_tracing::TracingMiddleware::<TimeTrace>::new())
         .build()
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::http_client;
+    use std::time::Duration;
+
+    /// The client `http_client()` builds is bounded by the configured timeouts:
+    /// a request to a non-routable address must resolve (with an error) rather
+    /// than hang forever. `192.0.2.1` is TEST-NET-1 (RFC 5737), reserved and
+    /// non-routable, so no live network is needed — either the connect is
+    /// blackholed and the 10s connect-timeout fires, or (in a network-isolated
+    /// sandbox) it fails immediately. Either way the future completes well
+    /// within the 30s overall timeout; the outer bound asserts the client can
+    /// never hang unbounded, which is the whole reason the timeouts exist.
+    #[tokio::test]
+    async fn http_client_request_is_bounded_by_timeouts() {
+        let client = http_client();
+        let fut = client.get("http://192.0.2.1/").send();
+        let result = tokio::time::timeout(Duration::from_secs(25), fut).await;
+        // Did not exceed the outer bound (i.e. the built-in timeouts kicked in).
+        assert!(
+            result.is_ok(),
+            "request should complete within the configured timeouts, not hang"
+        );
+        // And it errored rather than somehow connecting to a reserved address.
+        assert!(result.unwrap().is_err());
+    }
 }

@@ -55,7 +55,14 @@ impl<'a> MeasurementParser<'a> {
                         period_consumed,
                     ) = res;
 
-                    let final_value = multiplier.map_or(value.0, |multiplier| value.0 * multiplier);
+                    // A multiplier ("3 x") scales the whole quantity, so both bounds
+                    // of a ranged value must scale: "3 x 100-120 g" is 300-360 g, not
+                    // 300 g with a stray unscaled 120 upper (which `ordered_bounds`
+                    // would then flip to a nonsensical 120-300).
+                    let (final_value, final_upper) = match multiplier {
+                        Some(m) => (value.0 * m, value.1.map(|upper| upper * m)),
+                        None => (value.0, value.1),
+                    };
                     let (final_next_input, final_unit) = self.resolve_single_measurement_unit(
                         input,
                         next_input,
@@ -65,7 +72,7 @@ impl<'a> MeasurementParser<'a> {
 
                     Ok((
                         final_next_input,
-                        Measure::from_parts(final_unit.as_ref(), final_value, value.1),
+                        Measure::from_parts(final_unit.as_ref(), final_value, final_upper),
                     ))
                 }),
             |m: &Measure| m.to_string(),

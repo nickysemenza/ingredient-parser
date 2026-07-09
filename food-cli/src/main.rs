@@ -257,6 +257,9 @@ fn build_corpus_row(ip: &ingredient::IngredientParser, input: &str) -> Result<St
     if notes.confidence == Confidence::Low {
         return Err("low-confidence parse (a digit produced no amount)".to_string());
     }
+    if ing.name.trim().is_empty() {
+        return Err("parse produced an empty name".to_string());
+    }
 
     // Assemble by hand so key order is stable without the serde_json
     // `preserve_order` feature. Each `to_string` value is valid JSON already.
@@ -539,7 +542,10 @@ async fn main() {
             escalate_model,
             no_cache,
         } => {
-            let bytes = std::fs::read(path).unwrap();
+            let bytes = std::fs::read(path).unwrap_or_else(|e| {
+                eprintln!("failed to read {path}: {e}");
+                std::process::exit(1);
+            });
             let opts = recipe_epub::Options {
                 model: model.clone(),
                 escalate_model: escalate_model.clone(),
@@ -648,7 +654,7 @@ async fn main() {
                     println!("  title hint: {h}");
                 }
                 if c.truncated {
-                    println!("  ⚠ truncated (hit the {} token limit)", 16000);
+                    println!("  ⚠ truncated (hit the model's output token limit)");
                 }
                 // A "invalid type: string …" serde error inlines the entire
                 // offending payload; truncate so the report stays readable
@@ -689,6 +695,10 @@ async fn main() {
             bottom,
             concurrency,
         } => {
+            if !std::path::Path::new(dir).is_dir() {
+                eprintln!("error: '{dir}' is not a directory");
+                std::process::exit(1);
+            }
             let mut epubs = recipe_epub::find_epubs(std::path::Path::new(dir));
             epubs.sort();
             epubs.truncate(*limit);

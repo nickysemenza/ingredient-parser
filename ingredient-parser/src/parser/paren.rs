@@ -35,15 +35,6 @@
 //!   guard (no digits, no vulgar fractions); the site keeps its position and
 //!   head-noun logic.
 
-// This module is a shared classification primitive. Its narrow predicates
-// (`is_descriptive`, `is_alias`) and regex statics are wired into normalize/refine
-// sites today; the higher-level `classify`/`spans`/`ParenKind` surface is the
-// single-source-of-truth entry point exercised by the unit-test table here and
-// intended for the remaining sites as the consolidation proceeds. Allow the
-// not-yet-called-from-production arms rather than gating them behind `#[cfg(test)]`
-// (which would make the primitive un-callable from production when a site adopts it).
-#![allow(dead_code)]
-
 use std::collections::HashSet;
 
 use crate::parser::token::matching_close_paren;

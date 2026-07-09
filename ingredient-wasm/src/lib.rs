@@ -1,3 +1,13 @@
+//! `wasm-bindgen` bindings that expose the `ingredient` crate (and a slice of
+//! `recipe-scraper`) to JavaScript/TypeScript consumers, notably `demo-site`.
+//!
+//! Wraps native types in `W`-prefixed wrappers (e.g. `WIngredient`,
+//! `WDecomposition`) that convert byte offsets to UTF-16 indices where JS
+//! strings need them, and re-derives serde/Tsify so the generated
+//! `.d.ts` stays in sync. Key entry points: [`parse_ingredient`] (`from_str`),
+//! [`decompose_ingredient`] (the `--explain` stage view), the `conv_amount_*`
+//! family (unit conversion), and [`scrape`] (recipe-scraper passthrough).
+
 use std::{collections::HashSet, str::FromStr};
 
 use ingredient::{
@@ -492,7 +502,7 @@ pub fn conv_amount_to_nutrients(
 
 #[wasm_bindgen]
 pub fn graph_unit_mappings(mappings: WUnitMappings) -> String {
-    print_graph(make_graph(&mappings.to_pairs()))
+    print_graph(&make_graph(&mappings.to_pairs()))
 }
 
 #[wasm_bindgen]

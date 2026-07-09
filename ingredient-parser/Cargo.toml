@@ -10,6 +10,8 @@ repository = "https://github.com/nickysemenza/ingredient-parser"
 # NOTE: git tracks the file as lowercase `readme.md`; the path must match
 # exactly or `cargo package`/`publish` fails on case-sensitive filesystems.
 readme = "readme.md"
+keywords = ["recipe", "ingredient", "parser", "cooking", "nlp"]
+categories = ["parsing", "text-processing"]
 
 
 [features]

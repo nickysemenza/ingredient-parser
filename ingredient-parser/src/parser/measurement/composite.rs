@@ -122,9 +122,24 @@ impl<'a> MeasurementParser<'a> {
             let close = find_matching_paren(rest).ok_or_else(reject)?;
             (&rest[1..close], rest[close + 1..].trim_start())
         } else {
-            // Bare hyphenated size adjective: "10-ounce", "1½-inch". Take the
-            // first whitespace-delimited token; require it to contain a hyphen so
-            // a normal "2 cups flour" doesn't match here.
+            // Bare hyphenated size adjective: "10-ounce", "1½-inch" (or "-inch"
+            // when the count already consumed the fraction as its value). Such a
+            // token always begins with a digit, a vulgar fraction, or the hyphen
+            // itself, so gate on the first char in O(1) BEFORE scanning for the
+            // token boundary. Without this gate, input with no whitespace — e.g.
+            // each element of a long slash-separated amount list "1/1/1/…" — makes
+            // `find(char::is_whitespace)` walk to the end on every element,
+            // turning the whole list parse quadratic. The gate rejects those
+            // (they can't be a numeric size adjective) at the first character.
+            let starts_size_adjective = rest
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit() || c == '-' || crate::fraction::is_vulgar(c));
+            if !starts_size_adjective {
+                return Err(reject());
+            }
+            // The first whitespace-delimited token; require it to contain a hyphen
+            // so a normal "2 cups flour" doesn't match here.
             let tok_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
             let size = &rest[..tok_end];
             if !size.contains('-') {

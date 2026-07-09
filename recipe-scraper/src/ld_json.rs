@@ -197,6 +197,9 @@ fn extract_yield_from_wrapper(
                 )
             })
         }
+        // An unrecognized structured shape (e.g. a `QuantitativeValue` object)
+        // degrades to "no yield extracted" rather than failing the whole parse.
+        ld_schema::RecipeYieldWrapper::Other(_) => (None, None),
     }
 }
 
@@ -215,7 +218,9 @@ fn normalize_root_recipe(
                 match i {
                     ld_schema::BOrWrapper::B(b) => {
                         let texts = b.item_list_element.iter().filter_map(|i| i.text.clone());
-                        if is_notes_heading(&b.name) {
+                        // A nameless section (schema.org allows it) is treated as
+                        // ordinary steps, not notes.
+                        if is_notes_heading(b.name.as_deref().unwrap_or("")) {
                             notes.extend(texts);
                         } else {
                             instructions.extend(texts);
@@ -679,6 +684,12 @@ mod tests {
         Some(RecipeYield { value: 1e30, unit: "serving".to_string() }),
         None
     )]
+    // A structured/unknown shape degrades to "no yield" rather than failing.
+    #[case::other_object(
+        RecipeYieldWrapper::Other(serde_json::json!({ "@type": "QuantitativeValue", "value": 4 })),
+        None,
+        None
+    )]
     fn test_extract_yield_from_wrapper(
         #[case] wrapper: RecipeYieldWrapper,
         #[case] expected_yield: Option<RecipeYield>,
@@ -801,6 +812,50 @@ mod tests {
         let instructions: Vec<&str> = recipe.instructions().collect();
         assert_eq!(instructions, vec!["Mix everything"]);
         assert_eq!(recipe.notes, vec!["Store airtight"]);
+    }
+
+    /// Regression: a `HowToSection` with no `name` key (schema.org marks it
+    /// optional) must keep its steps rather than silently deserializing as a
+    /// bare `ItemListElement` and dropping every step.
+    #[test]
+    fn test_scrape_keeps_nameless_howtosection_steps() {
+        let json = r#"{
+            "name": "Test",
+            "recipeIngredient": [],
+            "recipeInstructions": [
+                { "@type": "HowToSection",
+                  "itemListElement": [
+                      { "@type": "HowToStep", "text": "Mix everything" },
+                      { "@type": "HowToStep", "text": "Bake" }
+                  ] }
+            ]
+        }"#;
+
+        let recipe = scrape_from_ld_json(json, "https://example.com").unwrap();
+        let instructions: Vec<&str> = recipe.instructions().collect();
+        assert_eq!(instructions, vec!["Mix everything", "Bake"]);
+        assert!(recipe.notes.is_empty());
+    }
+
+    /// Regression: a structured `recipeYield` (e.g. a `QuantitativeValue`
+    /// object) must degrade to "no yield" rather than failing the whole LD+JSON
+    /// parse and dropping every other field to the HTML fallback.
+    #[test]
+    fn test_scrape_tolerates_object_recipe_yield() {
+        let json = r#"{
+            "name": "Object Yield",
+            "recipeYield": { "@type": "QuantitativeValue", "value": 4 },
+            "recipeIngredient": ["1 cup flour", "2 eggs"],
+            "recipeInstructions": [{ "@type": "HowToStep", "text": "Mix" }]
+        }"#;
+
+        let recipe = scrape_from_ld_json(json, "https://example.com").unwrap();
+        assert_eq!(recipe.name, "Object Yield");
+        assert_eq!(recipe.ingredients().count(), 2);
+        assert_eq!(recipe.instructions().collect::<Vec<_>>(), vec!["Mix"]);
+        // The unrecognized structured shape yields nothing, but the rest survives.
+        assert_eq!(recipe.recipe_yield, None);
+        assert_eq!(recipe.servings, None);
     }
 
     /// HTML entities in JSON-LD text are decoded — including the *double*-encoding

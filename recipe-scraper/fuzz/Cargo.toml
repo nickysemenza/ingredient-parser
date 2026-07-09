@@ -1,0 +1,23 @@
+[package]
+name = "recipe-scraper-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+recipe-scraper = { path = ".." }
+
+[[bin]]
+name = "scrape"
+path = "fuzz_targets/scrape.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone workspace: keeps the fuzz crate (and libfuzzer-sys) out of the main
+# workspace's build, clippy, and MSRV scope.
+[workspace]

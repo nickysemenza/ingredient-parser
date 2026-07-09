@@ -1,3 +1,17 @@
+//! Extracts a structured recipe (ingredients, instructions, yield, times) from
+//! a recipe web page's raw HTML.
+//!
+//! Sits between `recipe-scraper-fetcher` (network fetch) and `ingredient`
+//! (per-line parsing) in the workspace: [`scrape`] tries schema.org LD+JSON
+//! first, then falls back to site-specific HTML scraping (ChefSteps, Jetpack
+//! recipe markup) when a page has no usable LD+JSON. [`parse_sections`] runs
+//! each scraped ingredient line through `ingredient`'s parser.
+//!
+//! Several items are `pub` beyond what this workspace itself needs because
+//! cubby's `recipebridge` crate (a separate, external repo) depends on this
+//! crate directly and calls them — see the `parse_yield_string` re-export
+//! below for the canonical example; don't narrow visibility without checking.
+
 use chefsteps::parse_chefsteps;
 use html::scrape_from_html;
 use html_escape::decode_html_entities;

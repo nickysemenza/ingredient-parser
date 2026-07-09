@@ -207,6 +207,12 @@ pub struct ExtractionStats {
     pub chunks_total: usize,
     /// Chunks served from the on-disk cache (no API call).
     pub chunks_cached: usize,
+    /// Chunks whose extraction failed (network error or unparseable model
+    /// output, after retries/escalation) and were skipped, contributing zero
+    /// recipes. Distinguishes "the model found nothing here" from "this
+    /// content was silently dropped" — a non-zero count means the returned
+    /// recipe list is incomplete.
+    pub chunks_failed: usize,
     /// Summed token usage across the API calls actually made.
     pub usage: Usage,
 }
@@ -231,8 +237,19 @@ impl ExtractionStats {
         let cost = self
             .cost_usd()
             .map_or_else(|| "cost: n/a".to_string(), |c| format!("~${c:.4}"));
+        // Only called out when non-zero, so a clean run's summary is unchanged
+        // — but a lossy one can't be mistaken for "the book just had fewer
+        // recipes than expected".
+        let failed = if self.chunks_failed > 0 {
+            format!(
+                " · {} chunk(s) FAILED (recipes missing)",
+                self.chunks_failed
+            )
+        } else {
+            String::new()
+        };
         format!(
-            "{}/{} chunks cached · {} in / {} out tok · {} cache-read tok · {cost}",
+            "{}/{} chunks cached · {} in / {} out tok · {} cache-read tok · {cost}{failed}",
             self.chunks_cached,
             self.chunks_total,
             u.input_tokens,
@@ -700,6 +717,7 @@ mod tests {
                 cache_creation_input_tokens: 0,
                 cache_read_input_tokens: 0,
             },
+            ..Default::default()
         };
         assert!((stats.cost_usd().unwrap() - 6.0).abs() < 1e-9);
 
@@ -720,6 +738,29 @@ mod tests {
             ..Default::default()
         };
         assert!(unknown.cost_usd().is_none());
+    }
+
+    #[test]
+    fn summary_calls_out_failed_chunks_only_when_nonzero() {
+        // A clean run's summary must not mention failures at all.
+        let clean = ExtractionStats {
+            model: "claude-haiku-4-5".to_string(),
+            chunks_total: 5,
+            chunks_cached: 2,
+            ..Default::default()
+        };
+        assert!(!clean.summary().contains("FAILED"));
+
+        // A lossy run must surface the count so it can't be mistaken for "the
+        // book just had fewer recipes than expected".
+        let lossy = ExtractionStats {
+            model: "claude-haiku-4-5".to_string(),
+            chunks_total: 5,
+            chunks_cached: 2,
+            chunks_failed: 2,
+            ..Default::default()
+        };
+        assert!(lossy.summary().contains("2 chunk(s) FAILED"));
     }
 
     #[test]

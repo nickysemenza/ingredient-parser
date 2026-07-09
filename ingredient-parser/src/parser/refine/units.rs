@@ -105,11 +105,12 @@ impl IngredientParser {
             return;
         }
 
-        // Both "extra large" and "extra-large" canonicalize to "extra large".
-        let unit_str = if size.starts_with("extra") {
-            "extra large"
-        } else {
-            size
+        // Only the two "extra large" spellings canonicalize to "extra large".
+        // Match them exactly rather than on an "extra" prefix, so a future
+        // SIZE_UNIT_WORDS entry like "extra small" is never mis-mapped to large.
+        let unit_str = match size {
+            "extra large" | "extra-large" => "extra large",
+            other => other,
         };
         let m = &parsed.amounts[idx];
         parsed.amounts[idx] = Measure::from_parts(unit_str, m.value(), m.upper_value());

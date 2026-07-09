@@ -1,3 +1,13 @@
+//! An `egui`/`eframe` desktop app for exercising the `ingredient` parser and
+//! `recipe-scraper` end to end: paste a recipe URL, see it scraped and each
+//! ingredient line parsed, and inspect the parse trace stage-by-stage.
+//!
+//! [`MyApp`] is the crate root and the `eframe::App` implementation; its tabs
+//! (Recipe/Debug/Test/Cookbook/Corpus, in `tabs/`) cover live scraping,
+//! per-ingredient trace inspection, batch corpus-style testing against pasted
+//! lines, EPUB cookbook extraction, and a live view of the accuracy corpus.
+//! `main.rs` is just the native binary entry point that constructs [`MyApp`].
+
 // UI code uses unwrap for display purposes where panics are acceptable
 #![allow(clippy::unwrap_used)]
 
@@ -189,6 +199,10 @@ impl eframe::App for MyApp {
                         ctx.request_repaint();
                     });
                     self.promise = Some(promise);
+                    // The new promise's traces belong to a different recipe —
+                    // a stale index would highlight/blank the wrong ingredient
+                    // in the Debug tab until the user clicks a new row.
+                    self.selected_ingredient_idx = None;
                 };
             });
         }
@@ -318,5 +332,58 @@ fn parse_response(response: ehttp::Response) -> Result<ScrapedRecipe, String> {
     match recipe_scraper::scrape(text, &response.url) {
         Ok(r) => Ok(r),
         Err(x) => Err(format!("failed to get recipe {x:?}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response(url: &str, bytes: Vec<u8>) -> ehttp::Response {
+        ehttp::Response {
+            url: url.to_string(),
+            ok: true,
+            status: 200,
+            status_text: "OK".to_string(),
+            headers: ehttp::Headers::default(),
+            bytes,
+        }
+    }
+
+    /// A body with valid ld+json recipe markup parses through to `Ok`.
+    #[test]
+    fn parse_response_success() {
+        let html = r#"<html><head><script type="application/ld+json">
+            {"name": "Chocolate Cake", "recipeIngredient": ["2 cups flour", "1 cup sugar"], "recipeInstructions": []}
+        </script></head><body></body></html>"#;
+        let resp = response("https://example.com/cake", html.as_bytes().to_vec());
+
+        let recipe = parse_response(resp).unwrap();
+        assert_eq!(recipe.name, "Chocolate Cake");
+        assert_eq!(recipe.ingredients().count(), 2);
+    }
+
+    /// Non-UTF-8 bytes (e.g. an image mistakenly fetched as the URL) must
+    /// surface as an `Err`, not panic — this is the doc comment's must-not-panic
+    /// path (`response.text()` returning `None`).
+    #[test]
+    fn parse_response_non_utf8_body_is_error() {
+        let resp = response("https://example.com/photo.jpg", vec![0xFF, 0xFE, 0x00]);
+
+        let err = parse_response(resp).unwrap_err();
+        assert!(err.contains("non-text response"));
+    }
+
+    /// Valid UTF-8 that has no recognizable recipe content still surfaces as
+    /// an `Err` from `recipe_scraper::scrape`, not a panic.
+    #[test]
+    fn parse_response_unscrapable_body_is_error() {
+        let resp = response(
+            "https://example.com/not-a-recipe",
+            b"<html><body>hello</body></html>".to_vec(),
+        );
+
+        let err = parse_response(resp).unwrap_err();
+        assert!(err.contains("failed to get recipe"));
     }
 }

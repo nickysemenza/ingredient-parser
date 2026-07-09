@@ -9,3 +9,10 @@ deploy-demo-site:
 
 dev-ui:
 	RUST_BACKTRACE=1 cargo watch -x 'run --bin food-app'
+
+# Mirrors the `deny` job in .github/workflows/rust.yml: unmaintained-crate
+# advisories are informational (see deny.toml), so they're allow-listed on
+# the command line rather than failing local runs; a security vulnerability
+# still fails.
+deny:
+	cargo deny check -A unmaintained

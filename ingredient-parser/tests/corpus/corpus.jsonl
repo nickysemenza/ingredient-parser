@@ -188,6 +188,8 @@
 {"input": "pinch of salt", "name": "salt", "amounts": [{"unit": "pinch", "value": 1.0}]}
 {"input": "2 x 100g flour", "name": "flour", "amounts": [{"unit": "g", "value": 200.0}]}
 {"input": "3 x 50g butter", "name": "butter", "amounts": [{"unit": "g", "value": 150.0}]}
+{"input": "3 x 100-120 g nuts", "name": "nuts", "amounts": [{"unit": "g", "value": 300.0, "upper_value": 360.0}]}
+{"input": "2 x 3-4 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 6.0, "upper_value": 8.0}]}
 {"input": "flour (1 cup; 120g)", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}, {"unit": "g", "value": 120.0}]}
 {"input": "flour (2 cups)", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}]}
 {"input": "2 cups flour (240g)", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}, {"unit": "g", "value": 240.0}]}

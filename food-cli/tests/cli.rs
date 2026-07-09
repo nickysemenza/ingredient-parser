@@ -95,6 +95,119 @@ fn emit_corpus_row_refuses_fallback() {
 }
 
 #[test]
+fn scrape_epub_missing_path_exits_cleanly() {
+    // A missing/unreadable EPUB path must produce a clean error + non-zero
+    // exit, not a raw panic — the path is read (and can fail) before any
+    // network call, so this is exercisable offline.
+    let output = food_cli()
+        .args(["scrape-epub", "/tmp/does-not-exist-food-cli-test.epub"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "must be a clean error, not a raw panic: {stderr}"
+    );
+    assert!(
+        stderr.contains("failed to read"),
+        "stderr should explain the read failure"
+    );
+}
+
+#[test]
+fn scan_cookbooks_nonexistent_dir_errors() {
+    let output = food_cli()
+        .args(["scan-cookbooks", "/tmp/does-not-exist-food-cli-test-dir"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("not a directory"),
+        "stderr should explain the directory doesn't exist"
+    );
+}
+
+#[test]
+fn emit_corpus_row_refuses_empty_name() {
+    // A parse that keeps a digit (so it isn't a fallback and isn't low-
+    // confidence) but leaves nothing for the name must still be refused —
+    // an empty-name row would violate tests/accuracy.rs::never_empty_name.
+    let output = food_cli()
+        .args([
+            "parse-ingredient",
+            "1 (5½-ounce) piece",
+            "--emit-corpus-row",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty(), "must not print a row on refusal");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("empty name"),
+        "stderr should explain the refusal"
+    );
+}
+
+#[test]
+fn validate_unit_valid_and_invalid() {
+    let output = food_cli().args(["validate-unit", "cup"]).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "valid");
+
+    let output = food_cli()
+        .args(["validate-unit", "banana"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "invalid");
+}
+
+#[test]
+fn parse_lines_emits_jsonl_per_line() {
+    let path = std::env::temp_dir().join(format!(
+        "food-cli-parse-lines-test-{}.txt",
+        std::process::id()
+    ));
+    std::fs::write(&path, "1 cup flour\n2 tbsp sugar\n").unwrap();
+
+    let output = food_cli()
+        .args(["parse-lines", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 2);
+    for line in lines {
+        let json: serde_json::Value = serde_json::from_str(line).expect("line should be JSON");
+        assert!(json.get("name").is_some());
+        assert!(json.get("amounts").is_some());
+    }
+}
+
+#[test]
+fn corpus_shadow_exits_zero_on_clean_corpus() {
+    // Default corpus paths resolve relative to the crate manifest, so a bare
+    // `corpus shadow` A/Bs the committed corpus against itself.
+    let output = food_cli().args(["corpus", "shadow"]).output().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("shadow:"));
+    assert!(stdout.contains("rows"));
+    assert!(stdout.contains("0 segmented regression(s)"));
+}
+
+#[test]
 fn corpus_lint_report_stages_runs() {
     // The default corpus path resolves relative to the crate manifest, so a bare
     // `corpus lint --report-stages` produces the coverage report and exits 0.

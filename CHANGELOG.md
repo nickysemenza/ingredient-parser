@@ -12,10 +12,9 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
-- `IngredientParser::parse_with_diagnostics` returning non-failing parse
-  diagnostics (`Diagnostics { confidence, fell_back, unparsed_digit }` with the
-  `Confidence` enum) — surfaces whether a line parsed cleanly or quietly fell
-  back to a name-only ingredient.
+- `Ingredient::parse_notes`, a non-failing `ParseNotes { confidence, fell_back,
+  unparsed_digit }` field (with the `Confidence` enum) — surfaces whether a
+  line parsed cleanly or quietly fell back to a name-only ingredient.
 - `ParseTrace::stages` returning a structured `StageReport` (normalize rewrites,
   recognizer attempts, grammar outcome, refine passes, result preview) — the
   data behind the `--explain` stage view, for programmatic consumers.
@@ -29,8 +28,9 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   (e.g. `1 cup packed brown sugar` → name `brown sugar`, modifier `packed`).
 - `impl FromStr for Ingredient` (error type `Infallible`), enabling
   `"2 cups flour".parse::<Ingredient>()` alongside the existing `From<&str>`.
-- `IngredientParser::clear_units` and `clear_adjectives` builder methods to drop
-  the defaults and recognize only a custom set.
+- `Measure` now derives `Eq` and `Hash` (its fields are all exact — `Unit`,
+  `Rational64`, `Option<Rational64>`), so `Measure` can be used as a `HashMap`
+  key or in a `HashSet`. `PartialOrd` is retained.
 - Runnable examples under `ingredient-parser/examples/` (`parse`,
   `custom_parser`, `rich_text`).
 - `CONTRIBUTING.md` and this `CHANGELOG.md`.
@@ -47,8 +47,7 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   displays `1 cup`, not `1 tsp`), and second/hour/day pluralize like minute.
 - `serde` is now a required dependency: the optional `serde-derive` feature
   never compiled when disabled (unit/measure types used serde unconditionally)
-  and `serde_json` was required anyway. The `serde-derive` feature name remains
-  as an empty no-op for compatibility.
+  and `serde_json` was required anyway.
 - Range endpoints compare by canonical unit, not spelling: `2 tsp to 3
   teaspoons` folds into one ranged measure, `1g-2G` parses as `1-2 g`.
 - More count units recognize their plurals (`packets`, `heads`, `bunches`,
@@ -69,8 +68,23 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   units are still lowercased and singularized.
 - Trailing parenthesized modifiers are unwrapped (`1 cup flour (sifted)` →
   modifier `sifted`).
+- **Breaking:** `RichParser::parse` now returns `Result<Rich, RichParseError>`
+  instead of `Result<Rich, String>`. `RichParseError` is a `thiserror` enum
+  (matching `IngredientError`); its `Display` message is unchanged, so callers
+  that only format or `.ok()` the error need no change.
+- **Breaking:** `unit::print_graph` now takes `&MeasureGraph` instead of
+  consuming the graph by value, so callers can keep using the graph afterward.
+  Update call sites from `print_graph(g)` to `print_graph(&g)`.
 
 ### Fixed
+
+- A leading multiplier (`N x`) applied to a *ranged* quantity now scales **both**
+  bounds: `3 x 100-120 g` is `300-360 g` (previously only the lower bound scaled,
+  yielding a nonsensical `120-300 g` after the range was reordered).
+- Adversarial slash-heavy input (e.g. a long `1/1/1/…` run) no longer parses in
+  near-quadratic time: the count-with-hyphenated-size parser gated a per-element
+  whitespace scan behind an O(1) first-character check, so parsing a long
+  separator-delimited amount list is now linear.
 
 - Fluid-ounce conversions were 3× off: the fl oz → tsp factor was 2.0 (the
   tablespoons-per-fl-oz value); 1 fl oz now correctly normalizes to 6 tsp.

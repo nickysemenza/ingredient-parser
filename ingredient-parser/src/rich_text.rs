@@ -17,6 +17,21 @@ pub enum Chunk {
     Ing(String),
 }
 pub type Rich = Vec<Chunk>;
+
+/// Error returned by [`RichParser::parse`] when the underlying nom grammar fails
+/// to consume the input.
+///
+/// In practice `parse` is effectively infallible on real prose — the grammar's
+/// `text_chunk` fallback accepts any character — but the nom combinator surface
+/// is fallible, so the failure is surfaced as a typed error (matching the crate's
+/// `thiserror`-based [`IngredientError`](crate::IngredientError)) rather than a
+/// bare `String`.
+#[derive(thiserror::Error, Debug, Clone, PartialEq)]
+pub enum RichParseError {
+    /// The rich-text grammar failed on `input`; `reason` carries the nom error.
+    #[error("unable to parse '{input}': {reason}")]
+    Parse { input: String, reason: String },
+}
 fn condense_text(r: Rich) -> Rich {
     let mut result = Vec::with_capacity(r.len());
     for chunk in r {
@@ -334,7 +349,7 @@ impl RichParser {
     }
 
     #[tracing::instrument]
-    pub fn parse(&self, input: &str) -> Result<Rich, String> {
+    pub fn parse(&self, input: &str) -> Result<Rich, RichParseError> {
         let units = self.ip.units();
         match context(
             "amts",
@@ -349,7 +364,10 @@ impl RichParser {
                     &self.ingredient_names,
                 ))
             }
-            Err(e) => Err(format!("unable to parse '{input}': {e}")),
+            Err(e) => Err(RichParseError::Parse {
+                input: input.to_string(),
+                reason: e.to_string(),
+            }),
         }
     }
 }
@@ -373,6 +391,19 @@ mod tests {
     // ============================================================================
     // RichParser Basic Tests
     // ============================================================================
+
+    #[rstest]
+    fn test_rich_parse_error_display() {
+        // The Display text is public API (callers were promised the old
+        // Result<_, String> message verbatim) — pin it. The Err branch in
+        // parse() itself is practically unreachable (many0 + a catch-all
+        // text_chunk), matching the old String-error behavior.
+        let err = RichParseError::Parse {
+            input: "2 cups flour".into(),
+            reason: "boom".into(),
+        };
+        assert_eq!(err.to_string(), "unable to parse '2 cups flour': boom");
+    }
 
     #[rstest]
     fn test_rich_parser_basic(parser: RichParser) {

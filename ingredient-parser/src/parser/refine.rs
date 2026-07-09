@@ -30,6 +30,8 @@ mod units;
 use std::cmp::Reverse;
 
 use super::ir::{ModifierPart, ParsedIngredient};
+// Re-exported to the child refine submodules via their `use super::*;` glob
+// (`amounts`, `recover`), which call it to tidy names they rewrite.
 use super::normalize::collapse_whitespace;
 use crate::parser::{MeasurementMode, MeasurementParser};
 use crate::unit::{self, Measure};
@@ -74,13 +76,6 @@ impl IngredientParser {
         );
     }
 
-    /// Collapse runs of whitespace left in the name by earlier passes. A pass in
-    /// its own right so the ordered [`REFINE_PIPELINE`] list stays the single
-    /// source of truth for the sequence.
-    pub(super) fn collapse_name(&self, parsed: &mut ParsedIngredient) {
-        parsed.name = collapse_whitespace(&parsed.name);
-    }
-
     /// Run the refine passes in an arbitrary caller-supplied order. Test-only:
     /// [`ORDER_CONSTRAINTS`] uses this to run a witness once in declared order and
     /// once with two passes swapped, proving the edge changes the result.
@@ -95,6 +90,10 @@ impl IngredientParser {
 type Pass = fn(&IngredientParser, &mut ParsedIngredient);
 
 crate::define_stage_pipeline! {
+    // Every pass is an `Extract*` step (the lone non-`Extract` variant,
+    // `CollapseName`, was removed as dead), so the shared prefix is intrinsic to
+    // the pipeline rather than a naming smell.
+    #[allow(clippy::enum_variant_names)]
     pub(super) enum PassId,
     pub(super) struct RefinePass,
     pub(super) const REFINE_PIPELINE: &[RefinePass],
@@ -125,7 +124,6 @@ crate::define_stage_pipeline! {
         "extract_adjectives_from_name",
         IngredientParser::extract_adjectives_from_name
     ),
-    (CollapseName, "collapse_name", IngredientParser::collapse_name),
     (
         ExtractPurposeGerund,
         "extract_purpose_gerund",

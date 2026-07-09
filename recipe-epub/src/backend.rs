@@ -262,10 +262,15 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor>(
 
     // Extract each chunk concurrently (bounded), preserving document order and
     // each recipe's originating doc. A single failing chunk is logged and
-    // skipped rather than failing the whole book. `done`/`cached` are shared
-    // atomics so each completing task can emit a consistent, monotonic snapshot.
+    // skipped rather than failing the whole book — but the skip is counted
+    // (`failed`) and surfaced via `ExtractionStats::chunks_failed`, so a
+    // caller can tell "the model found nothing here" from "this chunk's
+    // recipes were silently dropped". `done`/`cached`/`failed` are shared
+    // atomics so each completing task can emit a consistent, monotonic
+    // snapshot.
     let done = AtomicUsize::new(0);
     let cached = AtomicUsize::new(0);
+    let failed = AtomicUsize::new(0);
     let per_chunk: Vec<(Chunk, ChunkOutcome)> = stream::iter(chunks.iter())
         .map(|chunk| async {
             let empty = || ChunkOutcome {
@@ -290,15 +295,20 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor>(
                             o
                         }
                         Err(esc_err) => {
-                            tracing::warn!(
-                                "chunk {} failed on primary ({primary_err}) and escalation ({esc_err}); skipping",
+                            failed.fetch_add(1, Ordering::Relaxed);
+                            tracing::error!(
+                                "chunk {} failed on primary ({primary_err}) and escalation ({esc_err}); skipping — its recipes are lost",
                                 chunk.doc_path
                             );
                             empty()
                         }
                     },
                     None => {
-                        tracing::warn!("chunk {} extraction failed: {primary_err}", chunk.doc_path);
+                        failed.fetch_add(1, Ordering::Relaxed);
+                        tracing::error!(
+                            "chunk {} extraction failed: {primary_err}; skipping — its recipes are lost",
+                            chunk.doc_path
+                        );
                         empty()
                     }
                 },
@@ -323,6 +333,7 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor>(
     let mut stats = ExtractionStats {
         model: extractor.model().to_string(),
         chunks_total: per_chunk.len(),
+        chunks_failed: failed.load(Ordering::Relaxed),
         ..Default::default()
     };
     let recipes_by_chunk: Vec<(Chunk, Vec<ExtractedRecipe>)> = per_chunk
@@ -1238,6 +1249,102 @@ mod tests {
             payload.recipes[0].sections[0].ingredients,
             vec!["1 cup flour", "2 eggs"]
         );
+    }
+
+    /// Inner extractor that always fails, for [`chunks_failed`] accounting tests.
+    struct FailingExtractor;
+
+    impl RecipeExtractor for FailingExtractor {
+        async fn extract(&self, _chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
+            Err(EpubError::Api {
+                status: 500,
+                body: "boom".to_string(),
+            })
+        }
+    }
+
+    /// Smallest possible valid EPUB (zip) with one spine doc, enough for
+    /// `chunk_epub` to yield exactly one chunk.
+    fn minimal_epub() -> Vec<u8> {
+        use std::io::{Cursor, Write};
+        use zip::write::SimpleFileOptions;
+        use zip::{CompressionMethod, ZipWriter};
+
+        const CONTAINER: &str = r#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+        const OPF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Failing Book</dc:title>
+    <dc:identifier id="bookid">urn:uuid:failing-book</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="chap" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="chap"/>
+  </spine>
+</package>"#;
+        const NCX: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head/>
+  <docTitle><text>Failing Book</text></docTitle>
+  <navMap>
+    <navPoint id="n1" playOrder="1"><navLabel><text>Chapter</text></navLabel><content src="chapter.xhtml"/></navPoint>
+  </navMap>
+</ncx>"#;
+        const CHAPTER: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body>
+  <p class="rt">Some Recipe</p>
+  <p class="ril">1 cup flour</p>
+  <p class="rp">Mix it.</p>
+</body></html>"#;
+
+        let mut zw = ZipWriter::new(Cursor::new(Vec::new()));
+        let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        let deflated = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        zw.start_file("mimetype", stored).unwrap();
+        zw.write_all(b"application/epub+zip").unwrap();
+        for (name, body) in [
+            ("META-INF/container.xml", CONTAINER),
+            ("OEBPS/content.opf", OPF),
+            ("OEBPS/toc.ncx", NCX),
+            ("OEBPS/chapter.xhtml", CHAPTER),
+        ] {
+            zw.start_file(name, deflated).unwrap();
+            zw.write_all(body.as_bytes()).unwrap();
+        }
+        zw.finish().unwrap().into_inner()
+    }
+
+    /// A chunk whose extraction fails (no escalation configured) must be
+    /// counted in `chunks_failed` and NOT silently treated as "found nothing
+    /// here" — the whole point of the counter (see the `backend.rs:300`
+    /// finding: a failed chunk was previously indistinguishable from an empty
+    /// one).
+    #[tokio::test]
+    async fn failed_chunk_is_counted_and_recipes_stay_empty() {
+        let bytes = minimal_epub();
+        let (recipes, stats) = extract_cookbook_with_stats(
+            &bytes,
+            "failing.epub",
+            &Options::default(),
+            &FailingExtractor,
+            None,
+            &|_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(recipes.is_empty());
+        assert_eq!(stats.chunks_total, 1);
+        assert_eq!(stats.chunks_failed, 1);
+        assert!(stats.summary().contains("1 chunk(s) FAILED"));
     }
 
     #[test]

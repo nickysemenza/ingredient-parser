@@ -199,7 +199,7 @@ fn dot_escape(s: &str) -> String {
         .replace(['\n', '\r'], " ")
 }
 
-pub fn print_graph(g: MeasureGraph) -> String {
+pub fn print_graph(g: &MeasureGraph) -> String {
     use petgraph::visit::EdgeRef;
     use std::collections::HashSet;
     use std::fmt::Write as _;
@@ -601,7 +601,7 @@ mod tests {
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
 
         let graph = make_graph(&mappings);
-        let dot = print_graph(graph);
+        let dot = print_graph(&graph);
 
         assert!(dot.contains("digraph"));
     }
@@ -612,7 +612,7 @@ mod tests {
         // Unescaped, it would terminate the DOT label early and yield invalid
         // DOT that the renderer rejects. It must be emitted as `\"`.
         let mappings = vec![(Measure::new("1\" cube", 1.0), Measure::new("g", 30.0))];
-        let dot = print_graph(make_graph(&mappings));
+        let dot = print_graph(&make_graph(&mappings));
 
         assert!(
             dot.contains("label = \"1\\\" cube\""),
@@ -630,7 +630,7 @@ mod tests {
         // 1 cup = 120 g. A cup normalizes to tsp (48 tsp/cup), so the graph holds
         // tsp, g, and the synthesized ml bridge.
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
-        let dot = print_graph(make_graph(&mappings));
+        let dot = print_graph(&make_graph(&mappings));
 
         // Nodes are tagged with their MeasureKind so the host can theme them.
         assert!(
