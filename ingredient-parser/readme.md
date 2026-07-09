@@ -17,7 +17,7 @@
 
 ## Parsing pipeline
 
-Each ingredient line flows through four stages. Ordered tables in the codebase (`REWRITES`, `RECOGNIZERS`, `REFINE_PIPELINE`) are the single source of truth for each stage — add a row to extend.
+Each ingredient line flows through five stages. Ordered tables in the codebase (`REWRITES`, `RECOGNIZERS`, `REFINE_PIPELINE`, plus the `segment` module's `CLASSIFIER`/`ASSEMBLY_REPAIRS`) are the single source of truth for each stage — add a row to extend.
 
 ```mermaid
 flowchart TD
@@ -26,6 +26,7 @@ flowchart TD
     optNote["strip optional note"]
     tryRec["recognize · RECOGNIZERS"]
     tryCore["grammar · nom parse"]
+    segment["segment · CLASSIFIER + ASSEMBLY_REPAIRS"]
     refine["refine · REFINE_PIPELINE"]
     fallback["name-only fallback"]
     classify["classify usage"]
@@ -34,7 +35,7 @@ flowchart TD
     input --> normalize --> optNote --> tryRec
     tryRec -->|match| classify
     tryRec -->|no match| tryCore
-    tryCore --> refine --> classify
+    tryCore --> segment --> refine --> classify
     tryCore -->|fail| fallback --> classify
     classify --> output
 ```
@@ -44,7 +45,8 @@ flowchart TD
 | **normalize** | Pre-parse string rewrites | Strip footnote markers, lift dimensional asides |
 | **recognize** | Whole-line special forms (first match wins) | `"Juice of 1 lemon"`, `"Flour — 2 cups"` |
 | **grammar** | Nom combinators capture amounts, name, modifier | New unit token in measurement grammar |
-| **refine** | Post-parse passes recover misplaced text | Move `"chopped"` from name into modifier |
+| **segment** | Clause segmentation + assembly of name/modifier | Re-attach an alias parenthetical, hoist a secondary amount |
+| **refine** | Post-parse passes recover misplaced text inside the name | Move `"chopped"` from name into modifier |
 
 To see which stage shaped a line: `cargo run -p food-cli --quiet -- parse-ingredient --explain "<line>"`
 

@@ -188,3 +188,54 @@ fn test_decompose_ingredient() {
     assert_eq!(decomp.source, "2 cups flour, sifted");
     assert!(!decomp.segments.is_empty());
 }
+
+/// `WDecomposition::from` slices `d.source` by upstream byte-range spans (see
+/// the doc comment on `WSegment` in src/lib.rs) — the whole reason it exists is
+/// that Rust spans are UTF-8 byte ranges, not JS UTF-16 indices. Assert the
+/// segments reconstruct the exact source string, and that no segment is empty
+/// (an empty segment would mean a zero-width or misaligned slice slipped
+/// through the byte-offset walk), across multibyte-heavy inputs: a 4-byte
+/// emoji + variation selector, a ZWJ family emoji, stacked combining marks, and
+/// multibyte characters sitting right at a clause boundary.
+fn assert_segments_reconstruct(source: &str) {
+    let decomp = ingredient_wasm::decompose_ingredient(source);
+    assert_eq!(decomp.source, source);
+
+    let joined: String = decomp.segments.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(
+        joined, source,
+        "segments must reconstruct the source exactly"
+    );
+
+    let texts: Vec<&str> = decomp.segments.iter().map(|s| s.text.as_str()).collect();
+    assert!(
+        texts.iter().all(|t| !t.is_empty()),
+        "no segment should be empty: {texts:?}"
+    );
+}
+
+#[wasm_bindgen_test]
+fn test_decompose_ingredient_emoji() {
+    // 🌶️ = U+1F336 (4-byte) HOT PEPPER + U+FE0F (3-byte) variation selector.
+    assert_segments_reconstruct("2 cups 🌶️ pepper flakes");
+}
+
+#[wasm_bindgen_test]
+fn test_decompose_ingredient_zwj_sequence() {
+    // 👨‍👩‍👧‍👦 = four 4-byte emoji joined by three U+200D ZWJ (3-byte) codepoints.
+    assert_segments_reconstruct("1 lb 👨‍👩‍👧‍👦 family-size ground beef, thawed");
+}
+
+#[wasm_bindgen_test]
+fn test_decompose_ingredient_combining_marks() {
+    // "cafe\u{0301}" spells "café" with a combining acute accent (U+0301, 2-byte)
+    // rather than the precomposed é, so the grapheme spans two codepoints.
+    assert_segments_reconstruct("1 tsp cafe\u{0301} powder, finely ground");
+}
+
+#[wasm_bindgen_test]
+fn test_decompose_ingredient_multibyte_at_segment_boundaries() {
+    // ½ (2-byte) opens the amount span; ñ and é (2-byte each) sit right at the
+    // name/modifier boundary carved by the comma.
+    assert_segments_reconstruct("½ jalapeño, émincé");
+}

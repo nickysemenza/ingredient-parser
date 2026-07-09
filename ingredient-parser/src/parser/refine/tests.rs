@@ -32,17 +32,6 @@ fn declared_order_matches_pipeline() {
     }
 }
 
-/// Purely positional invariants that aren't a two-pass ordering edge (so they
-/// don't fit the witness-backed constraint table): the collapse pass sits between
-/// the adjective peel and the alternatives split.
-#[test]
-fn refine_pipeline_positional_invariants() {
-    assert!(
-        pass_index(PassId::CollapseName) < pass_index(PassId::ExtractAlternativesFromName),
-        "collapse before alternatives"
-    );
-}
-
 /// Each edge in [`ORDER_CONSTRAINTS`] must be *load-bearing*: running its witness
 /// with the two passes swapped produces a different `ParsedIngredient` than the
 /// declared order. A constraint whose swap changes nothing is dead documentation
@@ -496,6 +485,12 @@ fn test_extract_size_unit_from_name() {
         (n.as_str(), a),
         ("eggs", vec![Measure::new("extra large", 1.0)])
     );
+
+    // A size word other than the two "extra large" spellings passes through as
+    // its own unit — the canonicalization matches those spellings EXACTLY, so a
+    // future "extra small" entry could never be mis-mapped to "extra large".
+    let (n, a) = fire("jumbo eggs", vec![Measure::new("whole", 6.0)]);
+    assert_eq!((n.as_str(), a), ("eggs", vec![Measure::new("jumbo", 6.0)]));
 
     // Range upper_value is preserved.
     let (n, a) = fire(

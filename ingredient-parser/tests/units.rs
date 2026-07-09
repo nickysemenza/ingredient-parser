@@ -523,7 +523,7 @@ fn test_graph_creation_and_printing() {
     // `dir = "both"` edge, factors round to 3 sig figs, and the synthesized
     // volume bridge is `dashed`.
     assert_eq!(
-        print_graph(g),
+        print_graph(&g),
         r#"digraph {
     0 [ label = "tsp", class = "volume" ]
     1 [ label = "cent", class = "money" ]

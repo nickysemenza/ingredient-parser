@@ -116,7 +116,7 @@ pub use super::conversion::{MeasureGraph, make_graph, print_graph};
 // Crate-internal: the public entry point is the `Measure::convert_measure_via_mappings` method.
 use super::conversion::convert_measure_via_mappings;
 
-#[derive(Clone, PartialEq, PartialOrd, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Debug, Serialize, Deserialize)]
 pub struct Measure {
     #[serde(
         serialize_with = "serialize_unit",
@@ -796,6 +796,29 @@ mod tests {
             Rational64::approximate_float(0.3333333333333333).unwrap(),
             Rational64::new(1, 3)
         );
+    }
+
+    /// `Measure` derives `Eq`/`Hash` (all fields are exact: `Unit`, `Rational64`,
+    /// `Option<Rational64>`), so equal measures collapse in a `HashSet`. Guards
+    /// against a refactor that reintroduces a non-`Eq` field (e.g. a bare `f64`).
+    #[test]
+    fn test_measure_eq_hash_dedup() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(Measure::new("cup", 2.0));
+        set.insert(Measure::new("cups", 2.0)); // singularizes to the same Measure
+        set.insert(Measure::with_range("g", 100.0, 120.0));
+        set.insert(Measure::with_range("g", 100.0, 120.0)); // exact duplicate
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&Measure::new("cup", 2.0)));
+        // ⅓ and ⅓ hash equal (exact rationals), but ⅓ ≠ ½.
+        assert_eq!(
+            Measure::new("cup", 1.0 / 3.0),
+            Measure::new("cup", 1.0 / 3.0)
+        );
+        set.insert(Measure::new("cup", 1.0 / 3.0));
+        set.insert(Measure::new("cup", 1.0 / 3.0));
+        assert_eq!(set.len(), 3);
     }
 
     /// A reversed range ("5 to 2 cups") must be stored low→high so downstream
