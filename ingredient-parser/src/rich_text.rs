@@ -393,6 +393,19 @@ mod tests {
     // ============================================================================
 
     #[rstest]
+    fn test_rich_parse_error_display() {
+        // The Display text is public API (callers were promised the old
+        // Result<_, String> message verbatim) — pin it. The Err branch in
+        // parse() itself is practically unreachable (many0 + a catch-all
+        // text_chunk), matching the old String-error behavior.
+        let err = RichParseError::Parse {
+            input: "2 cups flour".into(),
+            reason: "boom".into(),
+        };
+        assert_eq!(err.to_string(), "unable to parse '2 cups flour': boom");
+    }
+
+    #[rstest]
     fn test_rich_parser_basic(parser: RichParser) {
         let result = parser.parse("hello 1 cup foo bar").unwrap();
         assert_eq!(result.len(), 3);
