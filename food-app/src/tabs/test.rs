@@ -155,7 +155,7 @@ impl TestTab {
             egui::Panel::bottom("test_detail")
                 .resizable(true)
                 .default_size(280.0)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.selectable_value(detail, DetailView::Stages, "Stages");
                         ui.selectable_value(detail, DetailView::Tree, "Trace tree");

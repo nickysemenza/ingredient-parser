@@ -253,7 +253,7 @@ impl CookbookTab {
             egui::Panel::left("library_browser")
                 .resizable(true)
                 .default_size(320.0)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     if let Some(scan) = &self.scan {
                         // Disjoint field borrows: `scan` (shared) vs the
                         // filter/toggle fields (mutable) — distinct `self` fields.
@@ -425,7 +425,7 @@ impl CookbookTab {
                 egui::Panel::left("cookbook_list")
                     .resizable(true)
                     .default_size(240.0)
-                    .show_inside(ui, |ui| {
+                    .show(ui, |ui| {
                         let mut nav_selected = Some(*selected);
                         let nav_changed = super::arrow_nav(ui, &mut nav_selected, recipes.len());
                         if let (true, Some(s)) = (nav_changed, nav_selected) {
@@ -440,7 +440,7 @@ impl CookbookTab {
                             }
                         });
                     });
-                egui::CentralPanel::default().show_inside(ui, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     if *show_graph {
                         // Build the graph lazily; rebuild when the recipe set
                         // changes (node count won't line up otherwise).
