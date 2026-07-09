@@ -21,11 +21,30 @@ export const safeParseRichText = (text: string, names: string[]): RichItem[] => 
   }
 };
 
-export const scaleAmount = (amount: Measure, scale: number): Measure => ({
-  ...amount,
-  value: amount.value * scale,
-  upper_value: amount.upper_value ? amount.upper_value * scale : undefined,
-});
+// Kinds that don't grow with the recipe (mirrors Rust's canonical
+// `MeasureKind::is_scalable()` in ingredient-parser/src/unit/kind.rs, which
+// allows only Weight/Volume/Other). Classification is delegated to the wasm
+// boundary's `amount_kind` rather than reimplemented here so the two can't
+// drift apart.
+const isScalableKind = (kind: string): boolean =>
+  kind === "weight" || kind === "volume" || kind.startsWith("other:");
+
+export const scaleAmount = (amount: Measure, scale: number): Measure => {
+  try {
+    if (!isScalableKind(wasm.amount_kind(amount))) {
+      return amount;
+    }
+  } catch {
+    // Unclassifiable amount — leave it as-is rather than risk scaling
+    // something (e.g. a future non-scalable kind) that shouldn't grow.
+    return amount;
+  }
+  return {
+    ...amount,
+    value: amount.value * scale,
+    upper_value: amount.upper_value ? amount.upper_value * scale : undefined,
+  };
+};
 
 export const formatRichText = (text: RichItem[]) => {
   return text.map((t, index) => {
