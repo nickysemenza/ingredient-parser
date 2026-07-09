@@ -109,7 +109,7 @@ impl eframe::App for MyApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Top panel with tab bar (always visible)
-        egui::Panel::top("tab_bar").show_inside(ui, |ui| {
+        egui::Panel::top("tab_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(
                     &mut self.current_tab,
@@ -162,7 +162,7 @@ impl eframe::App for MyApp {
 
         // URL bar panel (only shown for the web-scraping Recipe/Debug tabs)
         if matches!(self.current_tab, Tab::Recipe | Tab::Debug) {
-            egui::Panel::top("url_panel").show_inside(ui, |ui| {
+            egui::Panel::top("url_panel").show(ui, |ui| {
                 let trigger_fetch = ui_url(ui, &mut self.url);
 
                 if trigger_fetch || self.promise.is_none() {
@@ -193,7 +193,7 @@ impl eframe::App for MyApp {
             });
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| match self.current_tab {
+        egui::CentralPanel::default().show(ui, |ui| match self.current_tab {
             Tab::Test => {
                 self.test.show(ui);
             }

@@ -70,6 +70,9 @@ jobs:
           files: lcov.info
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
+          # The `latest` CLI channel can serve a checksum/signature pair that
+          # fails GPG verification (CDN skew); pin so uploads are reproducible.
+          version: v11.3.0
   msrv:
     name: MSRV (1.88)
     runs-on: ubuntu-latest
