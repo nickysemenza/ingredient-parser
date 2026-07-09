@@ -13,6 +13,12 @@ pub enum RecipeYieldWrapper {
     StringArray(Vec<String>),
     /// Array of numbers
     NumberArray(Vec<f64>),
+    /// Any other shape (e.g. a structured `QuantitativeValue` object). The
+    /// catch-all keeps this untagged enum **total** so a surprising `recipeYield`
+    /// shape never fails `RootRecipe` deserialization — which would silently
+    /// regress an otherwise-good LD+JSON recipe into the weaker HTML fallback.
+    /// Mirrors [`StringOrList::Other`].
+    Other(Value),
 }
 
 /// A schema.org value that may be a single string, a list of strings, or some
@@ -95,7 +101,12 @@ pub struct RecipeInstructionA {
 pub struct RecipeInstructionB {
     #[serde(rename = "@type")]
     pub type_field: String,
-    pub name: String,
+    /// Optional: schema.org marks `name` optional on `HowToSection`. A nameless
+    /// section must still deserialize as `B` (keeping its `item_list_element`
+    /// steps) rather than silently falling through the untagged enum to
+    /// `Wrapper(ItemListElement)`, which would drop every step.
+    #[serde(default)]
+    pub name: Option<String>,
     pub item_list_element: Vec<ItemListElement>,
 }
 
