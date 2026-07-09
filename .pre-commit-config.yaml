@@ -1,10 +1,12 @@
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.0.1
+    rev: v6.0.0
     hooks:
     -   id: trailing-whitespace
     -   id: end-of-file-fixer
     -   id: check-yaml
+# v1.0 is the latest tag this repo has cut (last pushed 2024-08); it isn't
+# archived, just low-churn. No newer rev exists to bump to.
 -   repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:

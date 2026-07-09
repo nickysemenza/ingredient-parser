@@ -1,0 +1,67 @@
+# Supply-chain policy for `cargo deny check`, run in CI by the `deny` job in
+# .github/workflows/rust.yml (EmbarkStudios/cargo-deny-action).
+# Full field reference: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+
+[output]
+feature-depth = 1
+
+# https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
+[advisories]
+yanked = "deny"
+ignore = [
+    # Both are quadratic/unbounded-allocation DoS advisories against
+    # quick-xml, pulled in transitively only via wayland-scanner (a
+    # build-time proc-macro that codegens bindings from vendored, trusted
+    # Wayland protocol XML shipped with smithay/winit — not runtime parsing
+    # of untrusted input). Only reachable building food-app on Linux;
+    # never in the published `ingredient` crate. Re-check when winit/egui
+    # next bump their wayland stack.
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml quadratic parsing, build-time-only via wayland-scanner codegen of trusted protocol XML" },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml unbounded namespace allocation, build-time-only via wayland-scanner codegen of trusted protocol XML" },
+]
+
+# https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "BSL-1.0",
+    "MPL-2.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+    # `epub` (a transitive dep of recipe-epub, used only by the unpublished
+    # food-app/food-cli binaries, never by the published `ingredient` crate)
+    # is GPL-3.0-licensed. Allowed here so the scan reflects the real tree,
+    # but a GPL dependency in a binary you distribute carries copyleft
+    # obligations — worth a maintainer decision (replace it, or accept and
+    # document the obligation) rather than silently allow-listing forever.
+    "GPL-3.0",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+ignore = true
+
+# https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html
+[bans]
+multiple-versions = "warn"
+# Internal workspace crates are depended on via `path`, so they show up as
+# "wildcard" requirements — that's intentional, not a supply-chain risk.
+wildcards = "allow"
+
+# https://embarkstudios.github.io/cargo-deny/checks/sources/cfg.html
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -1,8 +1,0 @@
-ignore:
-  - "bin/"
-  - "food-app/"
-  - "food-cli/"
-  - "ingredient-wasm/"
-  - "ingredient-parser/benches/"
-  - "ingredient-parser/tests/"
-  - "recipe-scraper/tests/"

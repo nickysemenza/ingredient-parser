@@ -9,3 +9,16 @@ coverage:
     patch:
       default:
         threshold: 0.2%
+
+# Paths that shouldn't count toward coverage: CLI/UI/wasm-bindgen glue already
+# excluded from the `cargo llvm-cov` run in rust.yml, plus test/bench harness
+# code itself. (Codecov reads a single repo-level config and this file at the
+# root wins over .github/codecov.yml in its lookup order, so the ignore list
+# lives here now instead of being split across two files.)
+ignore:
+  - "food-app/"
+  - "food-cli/"
+  - "ingredient-wasm/"
+  - "ingredient-parser/benches/"
+  - "ingredient-parser/tests/"
+  - "recipe-scraper/tests/"
