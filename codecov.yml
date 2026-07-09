@@ -1,0 +1,11 @@
+# Allow tiny coverage fluctuations (e.g. deps-only PRs where instrumentation
+# noise moves the total by a few hundredths of a percent) without failing the
+# project status check.
+coverage:
+  status:
+    project:
+      default:
+        threshold: 0.2%
+    patch:
+      default:
+        threshold: 0.2%
