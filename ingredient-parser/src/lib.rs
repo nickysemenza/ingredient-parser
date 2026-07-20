@@ -280,7 +280,7 @@ pub enum Confidence {
 /// [`Ingredient::parse_notes`] and across the wasm boundary as `WParseNotes`.
 ///
 /// It reports **parse fidelity** (did the parse fall back, or leave a digit
-/// unparsed), *not* costability: "a pinch of salt" is a clean parse whose
+/// unparsed), *not* costability: "a handful of parsley" is a clean parse whose
 /// uncostable quantity a consumer derives from the unit, not from here.
 ///
 /// Review-queue consumers should key off the discrete [`fell_back`] /

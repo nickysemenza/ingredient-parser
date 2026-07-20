@@ -264,6 +264,15 @@ const TSP_TO_FL_OZ: f64 = TSP_TO_TBSP * 2.0;
 // 1 US tsp = 4.92892 ml (keeps cup = 48 tsp = 236.59 ml consistent). Seeded into the
 // conversion graph so US and metric volumes interconvert; see conversion.rs make_graph.
 pub(crate) const TSP_TO_ML: f64 = 4.92892;
+// The tiny volumetric kitchen units, in teaspoons. Like tsp↔ml these are fixed
+// conventions, not densities: the standard US mini-measuring-spoon set defines a
+// halving ladder where each unit is half the one above it (dash = ½ tsp/4,
+// pinch = ½ dash). That internal consistency is why a pinch is 1/16 tsp here and
+// not the 1/8 sometimes quoted — 1/8 tsp is the *dash*. Applied in
+// conversion.rs's convert path, not seeded as graph nodes; see
+// `tiny_volume_in_tsp`.
+pub(crate) const DASH_TO_TSP: f64 = 1.0 / 8.0;
+pub(crate) const PINCH_TO_TSP: f64 = 1.0 / 16.0;
 const G_TO_K: f64 = 1000.0;
 const CUP_TO_QUART: f64 = 4.0;
 const QUART_TO_GALLON: f64 = 4.0;

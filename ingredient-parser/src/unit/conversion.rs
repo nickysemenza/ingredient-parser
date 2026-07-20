@@ -6,7 +6,12 @@
 
 use std::collections::HashMap;
 
-use super::{Unit, kind::MeasureKind, measure::Measure, measure::TSP_TO_ML};
+use super::{
+    Unit,
+    kind::MeasureKind,
+    measure::Measure,
+    measure::{DASH_TO_TSP, PINCH_TO_TSP, TSP_TO_ML},
+};
 use petgraph::Graph;
 use petgraph::graph::NodeIndex;
 use tracing::debug;
@@ -293,6 +298,21 @@ pub struct ConversionStep {
     pub factor: f64,
 }
 
+/// A tiny volumetric unit's size in teaspoons, if `unit` is one.
+///
+/// `unit` must already be normalized (lowercase + singular), which is how every
+/// caller has it — so `"Pinches"` arrives here as `Other("pinch")`.
+fn tiny_volume_in_tsp(unit: &Unit) -> Option<f64> {
+    match unit {
+        Unit::Other(s) => match s.as_str() {
+            "pinch" => Some(PINCH_TO_TSP),
+            "dash" => Some(DASH_TO_TSP),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Convert a measure to a target kind using a pre-built conversion graph.
 ///
 /// This uses the A* algorithm to find the shortest path in the conversion graph
@@ -346,8 +366,38 @@ pub fn convert_measure_with_graph_explained(
     // nutrient works. The source side was already singularized via
     // `measure.normalize()`, but normalizing it through the same function keeps
     // the two endpoints symmetric and order-independent.
-    let unit_a = input.unit().normalize();
+    let mut input = input;
+    let mut unit_a = input.unit().normalize();
     let unit_b = target.unit().normalize();
+
+    // A pinch or dash is a fixed volumetric convention (see DASH_TO_TSP /
+    // PINCH_TO_TSP), not a density — "1 pinch = 1/16 tsp" holds for salt, cayenne,
+    // and everything else alike. Like the oz→g identity below, that makes it a
+    // fact the engine owns rather than something a mapping has to supply, so
+    // rescale into teaspoons and enter the graph at the tsp node. Doing it here
+    // instead of seeding `pinch`/`dash` nodes in `make_graph` keeps them out of
+    // every volume graph: `make_graph` never sees the source measure, so it would
+    // have to add them unconditionally, polluting the graph viz and island
+    // detection with nodes no mapping mentions.
+    //
+    // An explicit `pinch` node wins — if the caller mapped "1 pinch = 0.4 g" for
+    // this product, that measured value beats the convention.
+    let mut steps: Vec<ConversionStep> = Vec::new();
+    if let Some(tsp) = tiny_volume_in_tsp(&unit_a)
+        && !graph.node_indices().any(|i| graph[i] == unit_a)
+    {
+        steps.push(ConversionStep {
+            from_unit: unit_a,
+            to_unit: Unit::Teaspoon,
+            factor: tsp,
+        });
+        input = Measure::new_with_upper(
+            Unit::Teaspoon,
+            input.value() * tsp,
+            input.upper_value().map(|u| u * tsp),
+        );
+        unit_a = Unit::Teaspoon;
+    }
 
     // Identity: once normalized, the measure may already sit in the target kind's
     // base unit (every mass unit normalizes to grams, and Weight targets grams).
@@ -364,7 +414,9 @@ pub fn convert_measure_with_graph_explained(
         let lo = input.value().round();
         let hi = input.upper_value().map(f64::round).filter(|&u| u > lo);
         let resolved = Measure::new_with_upper(unit_b, lo, hi);
-        return Some((resolved.denormalize(), Vec::new()));
+        // `steps` is empty unless a pinch/dash rescale landed us on the target
+        // node, in which case that one synthetic hop IS the whole path.
+        return Some((resolved.denormalize(), steps));
     }
 
     let n_a = graph.node_indices().find(|i| graph[*i] == unit_a)?;
@@ -386,7 +438,7 @@ pub fn convert_measure_with_graph_explained(
     };
     let mut factor_lo: f64 = 1.0;
     let mut factor_hi: f64 = 1.0;
-    let mut steps = Vec::with_capacity(path.len().saturating_sub(1));
+    steps.reserve(path.len().saturating_sub(1));
     for x in 0..path.len() - 1 {
         let (n_from, n_to) = (*path.get(x)?, *path.get(x + 1)?);
         let edge = graph.find_edge(n_from, n_to)?;
@@ -705,12 +757,126 @@ mod tests {
 
     #[test]
     fn test_convert_measure_no_source_node() {
-        let measure = Measure::new("pinch", 1.0);
+        // A genuinely-unknown unit — not a pinch/dash, which the engine bridges
+        // into teaspoons on its own (see `pinch_and_dash_bridge_to_tsp`).
+        let measure = Measure::new("clove", 1.0);
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
 
         let result = convert_measure_via_mappings(&measure, MeasureKind::Weight, &mappings);
 
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn pinch_and_dash_bridge_to_tsp() {
+        // A pinch/dash is a fixed fraction of a teaspoon, so a product that has
+        // any volume→weight density resolves them with no pinch-specific mapping.
+        // 1 cup = 120 g ⇒ 1 tsp = 2.5 g ⇒ 1 pinch (1/16 tsp) = 0.15625 g → 0 g
+        // rounded, so use a denser mapping to keep the assertion off the rounding
+        // floor: 1 cup = 480 g ⇒ 1 tsp = 10 g.
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 480.0))];
+
+        // 1 pinch = 1/16 tsp = 0.625 g → 1 g.
+        let pinch = convert_measure_via_mappings(
+            &Measure::new("pinch", 1.0),
+            MeasureKind::Weight,
+            &mappings,
+        );
+        assert_eq!(pinch.map(|m| m.value()), Some(1.0));
+
+        // 16 pinches = 1 tsp = 10 g exactly.
+        let pinches = convert_measure_via_mappings(
+            &Measure::new("pinches", 16.0),
+            MeasureKind::Weight,
+            &mappings,
+        );
+        assert_eq!(pinches.map(|m| m.value()), Some(10.0));
+
+        // A dash is twice a pinch: 8 dashes = 1 tsp = 10 g.
+        let dashes = convert_measure_via_mappings(
+            &Measure::new("dashes", 8.0),
+            MeasureKind::Weight,
+            &mappings,
+        );
+        assert_eq!(dashes.map(|m| m.value()), Some(10.0));
+    }
+
+    #[test]
+    fn pinch_bridge_shows_in_the_explain_path() {
+        // The synthetic hop must appear in the explained steps, so a costing
+        // explanation reads "pinch —×0.0625→ tsp —×10→ g" rather than starting
+        // mid-path at teaspoons.
+        let graph = make_graph(&[(Measure::new("cup", 1.0), Measure::new("g", 480.0))]);
+        let (_, steps) = convert_measure_with_graph_explained(
+            &Measure::new("pinch", 1.0),
+            MeasureKind::Weight,
+            &graph,
+        )
+        .unwrap();
+
+        assert_eq!(
+            steps.first().map(|s| s.from_unit.clone()),
+            Some(pinch_unit())
+        );
+        assert_eq!(
+            steps.first().map(|s| s.to_unit.clone()),
+            Some(Unit::Teaspoon)
+        );
+        assert_eq!(steps.first().map(|s| s.factor), Some(1.0 / 16.0));
+        assert_eq!(steps.last().map(|s| s.to_unit.clone()), Some(Unit::Gram));
+    }
+
+    #[test]
+    fn explicit_pinch_mapping_beats_the_convention() {
+        // "1 pinch = 5 g" for this product is a measurement; the 1/16-tsp
+        // convention is a default. The measurement wins, and no synthetic hop is
+        // emitted.
+        let graph = make_graph(&[
+            (Measure::new("cup", 1.0), Measure::new("g", 480.0)),
+            (Measure::new("pinch", 1.0), Measure::new("g", 5.0)),
+        ]);
+        let (converted, steps) = convert_measure_with_graph_explained(
+            &Measure::new("pinch", 2.0),
+            MeasureKind::Weight,
+            &graph,
+        )
+        .unwrap();
+
+        assert_eq!(converted.value(), 10.0);
+        assert_eq!(steps.len(), 1);
+        assert_eq!(
+            steps.first().map(|s| s.from_unit.clone()),
+            Some(pinch_unit())
+        );
+    }
+
+    #[test]
+    fn pinch_converts_to_volume_and_carries_a_range() {
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 480.0))];
+
+        // Volume targets ml, reached via the seeded tsp↔ml bridge:
+        // 16 pinches = 1 tsp = 4.92892 ml → 5 ml.
+        let ml = convert_measure_via_mappings(
+            &Measure::new("pinch", 16.0),
+            MeasureKind::Volume,
+            &mappings,
+        );
+        assert_eq!(ml.map(|m| m.value()), Some(5.0));
+
+        // A ranged amount ("1–2 pinches") scales both bounds.
+        let ranged = convert_measure_via_mappings(
+            &Measure::with_range("pinch", 16.0, 32.0),
+            MeasureKind::Weight,
+            &mappings,
+        );
+        let ranged = ranged.unwrap();
+        assert_eq!(ranged.value(), 10.0);
+        assert_eq!(ranged.upper_value(), Some(20.0));
+    }
+
+    /// The normalized graph unit for a pinch, spelled once.
+    fn pinch_unit() -> Unit {
+        Unit::Other("pinch".to_string())
     }
 
     #[test]
