@@ -348,7 +348,7 @@ impl RichParser {
         }
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub fn parse(&self, input: &str) -> Result<Rich, RichParseError> {
         let units = self.ip.units();
         match context(

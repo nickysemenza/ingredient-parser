@@ -174,7 +174,7 @@ impl IngredientParser {
     /// This method only captures the raw grammar shape. Cleanup such as adjective
     /// extraction, alternative extraction, and secondary amount extraction happens
     /// in the higher-level ingredient pipeline.
-    #[tracing::instrument(name = "parse_ingredient")]
+    #[tracing::instrument(name = "parse_ingredient", level = "trace", skip_all)]
     pub(crate) fn parse_ingredient<'a>(&self, input: &'a str) -> Res<&'a str, ParsedIngredient> {
         let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
 

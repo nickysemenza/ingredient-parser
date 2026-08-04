@@ -542,7 +542,7 @@ impl IngredientParser {
     ///    vec![Measure::new("grams",120.0),Measure::new("cup", 1.0),Measure::new("whole", 1.0)]
     ///  );
     /// ```
-    #[tracing::instrument(name = "parse_amount")]
+    #[tracing::instrument(name = "parse_amount", level = "trace", skip_all)]
     pub fn parse_amount(&self, input: &str) -> IngredientResult<Vec<Measure>> {
         let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
         match mp.parse_measurement_list(input) {

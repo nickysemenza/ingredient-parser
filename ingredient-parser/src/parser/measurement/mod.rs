@@ -111,7 +111,7 @@ impl<'a> MeasurementParser<'a> {
     /// - "120 grams / 1 cup"
     /// - "150 grams | 1 cup" (Bouchon format: metric | volume)
     /// - "1 tsp, 2 tbsp"
-    #[tracing::instrument(name = "many_amount", skip(self))]
+    #[tracing::instrument(name = "many_amount", level = "trace", skip_all)]
     pub fn parse_measurement_list<'b>(&self, input: &'b str) -> Res<&'b str, Vec<Measure>> {
         // Define the separators between measurements
         let amount_separators = alt((
