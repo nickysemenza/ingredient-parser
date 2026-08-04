@@ -368,10 +368,12 @@ fn test_gallon_converts_to_volume_ml() {
 }
 
 #[rstest]
+// Money rounds at the cent, so these carry the true imperial-mass factors
+// (1 lb = 453.592 g) rather than a whole-cent approximation of them.
 #[case::gram_to_dollar("grams", 2.0, 2.0)]
-#[case::oz_to_dollar("oz", 2.0, 56.7)]
-#[case::half_lb_to_dollar("lb", 0.5, 226.8)]
-#[case::lb_to_dollar("lb", 1.0, 453.59)]
+#[case::oz_to_dollar("oz", 2.0, 56.699)]
+#[case::half_lb_to_dollar("lb", 0.5, 226.796)]
+#[case::lb_to_dollar("lb", 1.0, 453.592)]
 fn test_weight_to_money_conversion(
     #[case] unit: &str,
     #[case] amount: f64,
