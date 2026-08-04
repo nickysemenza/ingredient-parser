@@ -87,9 +87,9 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
         // Full-precision interval factors. Point mappings collapse to
         // lower == upper; a ranged mapping yields a genuine interval. Interval
         // division [b]/[a] with all-positive bounds: lower = b_lo/a_hi,
-        // upper = b_hi/a_lo (the inverse flips the bounds). The conversion
-        // result is integer-rounded at the end, so full precision here only
-        // avoids compounding drift over multi-hop paths.
+        // upper = b_hi/a_lo (the inverse flips the bounds). Kept full-precision
+        // so multi-hop paths don't compound rounding drift; the result is
+        // rounded once at the end (see `RESULT_SIG_FIGS`).
         //
         // Assumes strictly-positive bounds (the prior scalar code did too): a 0
         // mapping value yields inf/NaN factors. Not asserted because a legitimate
@@ -161,8 +161,32 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
     g
 }
 
-/// Round `x` to `sig` significant figures, for display only — the graph keeps
-/// full-precision factors. Zero and non-finite values pass through unchanged.
+/// Significant figures a conversion result is rounded to.
+///
+/// This is deliberately NOT an integer round. Rounding a result to a whole
+/// number of the target kind's base unit annihilates any value below half of
+/// that unit, and the base unit for `MeasureKind::Other(_)` is a whole COUNT
+/// (`Unit::Whole`) — so "825 g of a 5 lb bag" (0.36 bags) became 0 bags, and a
+/// consumer multiplying that by a package price got exactly zero. Sub-gram
+/// weights and sub-kcal nutrients vanished the same way.
+///
+/// Significant figures are scale-relative, so a small value keeps its precision
+/// instead of collapsing: 0.36 stays 0.36, 0.15625 g stays 0.15625 g. Six is far
+/// below f64 noise but far above any real recipe tolerance, and it still absorbs
+/// artifacts like `24 × (1/6) == 3.9999999999999996`, which keeps the
+/// `upper > lower` range suppression below from fabricating hairline ranges.
+///
+/// (Before commit `be4be71` the crate kept two decimals of the base unit; that
+/// commit — a nom v8 upgrade — silently replaced it with a bare `.round()`.)
+const RESULT_SIG_FIGS: i32 = 6;
+
+/// Round `x` to `sig` significant figures. Zero and non-finite values pass
+/// through unchanged.
+///
+/// Used for two things: graph labels (at 3 sig figs, so the viz isn't buried in
+/// noise) and the final conversion result (at [`RESULT_SIG_FIGS`]). Rounding to
+/// significant figures rather than to a fixed number of decimals is what keeps
+/// the result scale-relative — see [`RESULT_SIG_FIGS`].
 fn round_sig(x: f64, sig: i32) -> f64 {
     if x == 0.0 || !x.is_finite() {
         return x;
@@ -406,13 +430,15 @@ pub fn convert_measure_with_graph_explained(
     // a bare "8½ oz" with no product mapping can't reach Weight even though oz→g is
     // constant, and an empty graph fails even g→Weight.
     if unit_a == unit_b {
-        // Round like the graph path below (the result is integer-rounded there),
-        // so identity and multi-hop conversions agree to the unit. Apply the same
-        // `upper > lower` suppression as the graph path so a ranged input whose
-        // bounds round equal doesn't return a degenerate range here while the
-        // graph path returns a point.
-        let lo = input.value().round();
-        let hi = input.upper_value().map(f64::round).filter(|&u| u > lo);
+        // Round like the graph path below, so identity and multi-hop conversions
+        // agree. Apply the same `upper > lower` suppression as the graph path so a
+        // ranged input whose bounds round equal doesn't return a degenerate range
+        // here while the graph path returns a point.
+        let lo = round_sig(input.value(), RESULT_SIG_FIGS);
+        let hi = input
+            .upper_value()
+            .map(|u| round_sig(u, RESULT_SIG_FIGS))
+            .filter(|&u| u > lo);
         let resolved = Measure::new_with_upper(unit_b, lo, hi);
         // `steps` is empty unless a pinch/dash rescale landed us on the target
         // node, in which case that one synthetic hop IS the whole path.
@@ -461,8 +487,11 @@ pub fn convert_measure_with_graph_explained(
     // amount never fabricates a range.
     let input_val = input.value();
     let input_upper = input.upper_value();
-    let lower = (input_val * factor_lo).round();
-    let upper = (input_upper.unwrap_or(input_val) * factor_hi).round();
+    let lower = round_sig(input_val * factor_lo, RESULT_SIG_FIGS);
+    let upper = round_sig(
+        input_upper.unwrap_or(input_val) * factor_hi,
+        RESULT_SIG_FIGS,
+    );
     let result = Measure::new_with_upper(unit_b, lower, (upper > lower).then_some(upper));
     debug!("{:?} -> {:?} ({} hops)", input, result, path.len());
     Some((result.denormalize(), steps))
@@ -613,8 +642,8 @@ mod tests {
             result.is_some(),
             "plural nutrient descriptor failed to convert"
         );
-        // 27 g * (67.7 / 100) = 18.279 -> 18
-        assert_eq!(result.unwrap().value(), 18.0);
+        // 27 g * (67.7 / 100) = 18.279, kept to 6 significant figures
+        assert_eq!(result.unwrap().value(), 18.279);
     }
 
     #[test]
@@ -631,7 +660,7 @@ mod tests {
             MeasureKind::Nutrient("g carbs".to_string()),
             &mappings,
         );
-        assert_eq!(result.unwrap().value(), 18.0);
+        assert_eq!(result.unwrap().value(), 18.279);
     }
 
     #[test]
@@ -771,18 +800,16 @@ mod tests {
     fn pinch_and_dash_bridge_to_tsp() {
         // A pinch/dash is a fixed fraction of a teaspoon, so a product that has
         // any volume→weight density resolves them with no pinch-specific mapping.
-        // 1 cup = 120 g ⇒ 1 tsp = 2.5 g ⇒ 1 pinch (1/16 tsp) = 0.15625 g → 0 g
-        // rounded, so use a denser mapping to keep the assertion off the rounding
-        // floor: 1 cup = 480 g ⇒ 1 tsp = 10 g.
+        // 1 cup = 480 g ⇒ 1 tsp = 10 g.
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 480.0))];
 
-        // 1 pinch = 1/16 tsp = 0.625 g → 1 g.
+        // 1 pinch = 1/16 tsp = 0.625 g.
         let pinch = convert_measure_via_mappings(
             &Measure::new("pinch", 1.0),
             MeasureKind::Weight,
             &mappings,
         );
-        assert_eq!(pinch.map(|m| m.value()), Some(1.0));
+        assert_eq!(pinch.map(|m| m.value()), Some(0.625));
 
         // 16 pinches = 1 tsp = 10 g exactly.
         let pinches = convert_measure_via_mappings(
@@ -855,13 +882,13 @@ mod tests {
         let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 480.0))];
 
         // Volume targets ml, reached via the seeded tsp↔ml bridge:
-        // 16 pinches = 1 tsp = 4.92892 ml → 5 ml.
+        // 16 pinches = 1 tsp = 4.92892 ml.
         let ml = convert_measure_via_mappings(
             &Measure::new("pinch", 16.0),
             MeasureKind::Volume,
             &mappings,
         );
-        assert_eq!(ml.map(|m| m.value()), Some(5.0));
+        assert_eq!(ml.map(|m| m.value()), Some(4.92892));
 
         // A ranged amount ("1–2 pinches") scales both bounds.
         let ranged = convert_measure_via_mappings(
@@ -977,6 +1004,40 @@ mod tests {
             .unwrap();
         assert_eq!(r.value(), 240.0);
         assert_eq!(r.upper_value(), None);
+    }
+
+    #[test]
+    fn fractional_count_target_keeps_its_fraction() {
+        // `each` normalizes to `Unit::Whole`, the coarsest base unit any target
+        // has, so an integer-rounded result annihilated anything under half a
+        // package: 825 g out of a 5 lb bag is 0.36 bags, which became 0 bags. A
+        // caller multiplying that by the bag's price got exactly $0.00 — this is
+        // how a focaccia's 825 g of bread flour came out free.
+        let mappings = vec![(Measure::new("each", 1.0), Measure::new("lb", 5.0))];
+        let graph = make_graph(&mappings);
+        let r = convert_measure_with_graph(
+            &Measure::new("g", 825.0),
+            MeasureKind::Other("each".to_string()),
+            &graph,
+        )
+        .unwrap();
+        // 825 / (5 × 453.59237) = 0.3637627…
+        assert_eq!(r.value(), 0.363763);
+    }
+
+    #[test]
+    fn sub_gram_weight_is_not_annihilated() {
+        // 1 cup = 120 g ⇒ 1 tsp = 2.5 g ⇒ 1 pinch (1/16 tsp) = 0.15625 g, which an
+        // integer round flattened to 0 g. Anything summing converted weights (a
+        // recipe's gram basis, a baker's-percentage denominator) silently lost the
+        // row.
+        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+        let r = convert_measure_via_mappings(
+            &Measure::new("pinch", 1.0),
+            MeasureKind::Weight,
+            &mappings,
+        );
+        assert_eq!(r.map(|m| m.value()), Some(0.15625));
     }
 
     #[test]

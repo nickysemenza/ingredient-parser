@@ -37,6 +37,20 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Changed
 
+- **Unit conversions no longer round their result to a whole number.**
+  `convert_measure_with_graph`, `convert_measure_with_graph_explained`, and
+  `Measure::convert_measure_via_mappings` now round to 6 significant figures
+  instead of to an integer of the target kind's base unit. The integer round
+  annihilated any value below half a base unit, which was worst for
+  `MeasureKind::Other(_)` targets — their base unit is a whole count, so
+  converting 825 g against `1 each = 5 lb` returned **0 each** instead of
+  `0.363763`, and a caller multiplying by a package price got exactly zero.
+  Sub-gram weights (`1 pinch` → `0.15625 g`, previously `0 g`) and sub-kcal
+  nutrients were lost the same way. Callers that want whole numbers should round
+  at their display boundary; `Display for Measure` already formats to 2 decimals,
+  so rendered output is unchanged for typical values. This restores the
+  precision the crate had before `be4be71`, which replaced two-decimal rounding
+  with `.round()` as an undocumented side effect of a nom v8 upgrade.
 - `Measure` stores quantities as **exact rationals** internally (`⅓ == ⅓`
   exactly; same-unit addition is exact). The public API and JSON wire format
   are unchanged: `value()`/`upper_value()` still return `f64`, serde still
