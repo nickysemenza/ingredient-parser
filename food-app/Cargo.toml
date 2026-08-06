@@ -11,11 +11,11 @@ publish = false
 [dependencies]
 # Theme is hand-applied in src/theme.rs (Catppuccin Mocha palette): the
 # catppuccin-egui crate only supports egui <=0.33, and we're on 0.34.
-egui_extras = { version = "0.35.0", features = ["image", "http"] }
-egui_material_icons = "0.7"
+egui_extras = { version = "0.36.0", features = ["image", "http"] }
+egui_material_icons = "0.8"
 # `persistence` enables eframe storage (App::save/get_value) — last tab,
 # inputs, view toggles, and window geometry survive restarts.
-eframe = { version = "0.35.0", features = ["persistence"] }
+eframe = { version = "0.36.0", features = ["persistence"] }
 ehttp = "0.7.0"
 image = { version = "0.25.1", default-features = false, features = ["jpeg", "png"] }
 poll-promise = "0.3"
