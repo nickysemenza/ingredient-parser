@@ -531,10 +531,18 @@ impl Measure {
     }
     /// Scale this measure by `factor`, keeping the value exact.
     ///
-    /// This is recipe scaling: `⅓ cup × 3` is exactly `1 cup`, not
-    /// `0.9999999999999998`. The multiply happens on the stored [`Rational64`],
-    /// so there is no `f64` round trip — which is why scaling belongs here
-    /// rather than at each caller.
+    /// The multiply happens on the stored [`Rational64`], so the result is the
+    /// exact rational rather than an `f64` approximation of it: `⅓ cup` scaled
+    /// by 7 and then by 3 is exactly `7`, where the same arithmetic in `f64`
+    /// lands on `6.999999999999999`.
+    ///
+    /// Note this is not usually visible in rendered output — [`format_quantity`]
+    /// matches vulgar fractions within a tolerance, so it prints "7 cups"
+    /// either way. Exactness matters for the things with no tolerance:
+    /// `PartialEq`/`Hash` (so scaled measures dedup and compare), and
+    /// [`value_as_fraction_str`](Self::value_as_fraction_str), which declines
+    /// past [`MAX_COOKING_DENOM`] and so decides whether a scaled value can be
+    /// authored back into the corpus as a clean fraction.
     ///
     /// Measures whose kind is not scalable — length, time, temperature, money,
     /// calories, nutrients (see [`MeasureKind::is_scalable`]) — come back
@@ -1220,9 +1228,9 @@ mod tests {
 
     /// Scaling a cooking fraction lands on the exact rational, not an f64
     /// neighbour. These assert on the private `value` field deliberately: the
-    /// public `value()` returns f64, where `1.9999999999999998` and `2.0` both
-    /// pass an `assert_eq!(…, 2.0)` only by luck of rounding — the whole point
-    /// of `scale` is that the denominator collapses.
+    /// public `value()` returns f64, and an f64 comparison passes for anything
+    /// within a rounding step, so it cannot distinguish "the denominator
+    /// collapsed to 1" from "the product happened to round near 2".
     #[rstest]
     #[case::two_thirds_tripled(2.0 / 3.0, 3.0, Rational64::from_integer(2))]
     #[case::one_third_tripled(1.0 / 3.0, 3.0, Rational64::from_integer(1))]

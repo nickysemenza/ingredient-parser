@@ -427,12 +427,17 @@ pub fn amount_kind(amount: WAmount) -> Result<WAmountKind, String> {
 
 /// Scale an amount for a resized recipe.
 ///
-/// Callers should reach for this rather than multiplying `value` themselves:
-/// the multiply happens on the exact rational inside `Measure`, so ⅔ cup at 3×
-/// comes back as `2`, not `1.9999999999999998`. Amounts whose kind does not
-/// scale — a pan dimension, an oven temperature, a resting time — are returned
-/// unchanged, so a caller can map this over every amount in a recipe without
-/// first deciding which ones are quantities.
+/// The reason to call this rather than multiply `value` yourself: amounts whose
+/// kind does not scale — a pan dimension, an oven temperature, a resting time —
+/// come back unchanged, so a caller can map it over every amount in a recipe
+/// without first deciding which ones are quantities. Deciding that at the call
+/// site means hand-copying the kind table, which is how a doubled recipe ends
+/// up calling for an 18-inch pie crust.
+///
+/// Secondarily, the multiply happens on the exact rational inside `Measure`
+/// rather than on the f64 view, so repeated scaling does not drift. That
+/// difference is below `format_amount`'s rounding, so it is not usually visible
+/// on screen — it matters for equality and for exact-fraction round-tripping.
 #[wasm_bindgen]
 pub fn scale_amount(amount: WAmount, factor: f64) -> WAmount {
     amount.to_measure().scale(factor).into()
@@ -554,9 +559,8 @@ mod tests {
     }
 
     /// The exactness survives the boundary. Asserted as strict equality, not a
-    /// tolerance: the whole point of `scale_amount` is that JS stops seeing
-    /// `1.9999999999999998` for ⅔ × 3. (Contrast the conversion tests below,
-    /// which use a tolerance because conversion genuinely is approximate.)
+    /// tolerance — contrast the conversion tests below, which need one because
+    /// conversion genuinely is approximate.
     #[test]
     fn scale_amount_is_exact_across_the_boundary() {
         let scaled = scale_amount(amount("cup", 2.0 / 3.0), 3.0);
