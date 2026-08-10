@@ -118,40 +118,6 @@ impl<'a> Clause<'a> {
     }
 }
 
-/// A soft boundary *inside* a clause — a coordination or purpose seam that does
-/// not split the clause, but that assembly may consult (e.g. the trailing
-/// or-clause of a shared-head alternatives list, a "for <gerund>" purpose
-/// tail).
-///
-/// Not consumed by production assembly yet: the name-internal "or"/purpose
-/// handling stayed with the kept refine passes at cutover. This detector (unit
-/// tested below) is the seed for absorbing `extract_alternatives_from_name` /
-/// `extract_purpose_gerund` into clause-native logic — a follow-up.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SoftBoundaryKind {
-    /// Word-boundary " or ".
-    Or,
-    /// Word-boundary " and/or ".
-    AndOr,
-    /// " such as ".
-    SuchAs,
-    /// " to taste" (at a word boundary).
-    ToTaste,
-    /// " for " followed by a gerund (≥5 chars ending "ing") or "the" —
-    /// mirroring `refine::prep::extract_purpose_gerund`'s guards.
-    ForPurpose,
-}
-
-/// A soft boundary occurrence: `at` is the byte offset in the examined text
-/// where the boundary's *separator* starts (i.e. the space before "or"/"for"/…).
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SoftBoundary {
-    pub at: usize,
-    pub kind: SoftBoundaryKind,
-}
-
 /// The clause segmenter: borrows the parser's vocab sets so classification
 /// matches the refine passes it replaces.
 pub(crate) struct Segmenter<'p> {
@@ -383,52 +349,6 @@ impl Segmenter<'_> {
         ClauseKind::HeadCandidate
     }
 }
-
-// --- Soft boundaries --------------------------------------------------------------
-
-/// Find the soft boundaries inside a clause's text: word-boundary " or " /
-/// " and/or " / " such as " / " to taste", and " for " when followed by a
-/// gerund or "the" (see [`SoftBoundaryKind`]). Purely informational — soft
-/// boundaries do not split a clause. (See the note on [`SoftBoundaryKind`]:
-/// unit-tested seed for a follow-up, not yet consumed by assembly.)
-#[allow(dead_code)]
-pub(crate) fn soft_boundaries(text: &str) -> Vec<SoftBoundary> {
-    crate::lazy_regex!(SOFT, r"(?i)\s+(and/or|or|such\s+as|to\s+taste|for)(\s+|$)");
-    let mut out = Vec::new();
-    let mut cursor = 0usize;
-    while let Some(m) = SOFT.captures_at(text, cursor) {
-        let Some(whole) = m.get(0) else { break };
-        let Some(word) = m.get(1) else { break };
-        cursor = word.end();
-        let keyword = word.as_str().to_lowercase();
-        let kind = match keyword.as_str() {
-            "and/or" => Some(SoftBoundaryKind::AndOr),
-            "or" => Some(SoftBoundaryKind::Or),
-            "to taste" => Some(SoftBoundaryKind::ToTaste),
-            "for" => {
-                // Only a purpose "for": followed by a gerund or "the".
-                let next = text[whole.end()..].split_whitespace().next().unwrap_or("");
-                (is_gerund(next) || next.eq_ignore_ascii_case("the"))
-                    .then_some(SoftBoundaryKind::ForPurpose)
-            }
-            s if s.split_whitespace().collect::<Vec<_>>() == ["such", "as"] => {
-                Some(SoftBoundaryKind::SuchAs)
-            }
-            s if s.split_whitespace().collect::<Vec<_>>() == ["to", "taste"] => {
-                Some(SoftBoundaryKind::ToTaste)
-            }
-            _ => None,
-        };
-        if let Some(kind) = kind {
-            out.push(SoftBoundary {
-                at: whole.start(),
-                kind,
-            });
-        }
-    }
-    out
-}
-
 // --- Segmented parse path -------------------------------------------------------
 
 /// The result of the grammar-equivalent head carve over the post-amount text:
@@ -532,6 +452,34 @@ impl IngredientParser {
         Ok(parsed)
     }
 
+    /// Whether the modifier tail must stay a single raw part.
+    ///
+    /// Two assembly repairs scan the *whole* first raw modifier part with
+    /// comma-crossing string searches, so their trigger shapes must reach them
+    /// as one part (splitting would change what they recover):
+    /// - a prep-chain head triggers `recover_head_noun_from_modifier` (its head
+    ///   scan skips across `", "`);
+    /// - a paren-led tail triggers `recover_parenthetical_alias_from_modifier`
+    ///   (its `find(" (")` head cut crosses `", "` too).
+    ///
+    /// The head test routes through [`Segmenter::classify`] rather than
+    /// re-deriving "is this a prep chain" inline, so this decision and the
+    /// clause kind `--explain` reports are one judgement instead of two that
+    /// can drift.
+    ///
+    /// The predicate is slightly wider than the inline version it replaced:
+    /// `PrepChain` allows "and"/"&" between prep tokens ("peeled and
+    /// deveined"), where `all(is_prep_token)` did not. No corpus row and no
+    /// probe line changes output as a result, so this is a consolidation rather
+    /// than a behaviour change.
+    ///
+    /// Assembly and the decomposition spans must agree on this, which is why it
+    /// is one function and not two copies kept in sync by comment.
+    fn keep_tail_whole(&self, name: &str, tail: &str) -> bool {
+        tail.trim_start().starts_with('(')
+            || (!name.is_empty() && self.segmenter().classify(name) == ClauseKind::PrepChain)
+    }
+
     /// The assembly proper, before [`ASSEMBLY_REPAIRS`] run. Split out so the
     /// order-constraint tests can replay the repairs over the same starting IR
     /// in a different order.
@@ -558,8 +506,7 @@ impl IngredientParser {
         //   (its head scan skips across `", "`);
         // - a paren-led tail triggers `recover_parenthetical_alias_from_modifier`
         //   (its `find(" (")` head cut crosses `", "` too).
-        let keep_tail_whole = tail.trim_start().starts_with('(')
-            || (!name.is_empty() && name.split_whitespace().all(token::is_prep_token));
+        let keep_tail_whole = self.keep_tail_whole(name, tail);
 
         // Otherwise: every remaining clause becomes a modifier part in source
         // order. `", "`-separated clauses are separate parts (modifier_string
@@ -685,8 +632,7 @@ impl IngredientParser {
         // keep-whole / split decision so spans match the parts).
         let name = rest[..carve.name_end].trim();
         let tail = &rest[carve.tail_from..];
-        let keep_tail_whole = tail.trim_start().starts_with('(')
-            || (!name.is_empty() && name.split_whitespace().all(token::is_prep_token));
+        let keep_tail_whole = self.keep_tail_whole(name, tail);
         if keep_tail_whole {
             spans.extend(span_of(
                 base + carve.tail_from..input.len(),
@@ -1413,30 +1359,5 @@ mod tests {
             !(ing.name.trim().is_empty() && has_modifier),
             "stranded name for {line:?}: {ing:?}"
         );
-    }
-
-    // ── soft boundaries ─────────────────────────────────────────────────────
-
-    #[rstest]
-    #[case("red or white onion", &[(3, SoftBoundaryKind::Or)])]
-    #[case("thyme and/or rosemary", &[(5, SoftBoundaryKind::AndOr)])]
-    #[case("chiles such as serrano", &[(6, SoftBoundaryKind::SuchAs)])]
-    #[case("salt to taste", &[(4, SoftBoundaryKind::ToTaste)])]
-    #[case("olive oil for brushing the bread", &[(9, SoftBoundaryKind::ForPurpose)])]
-    #[case("butter for the pans", &[(6, SoftBoundaryKind::ForPurpose)])]
-    // "for" without a gerund/article is not a purpose boundary.
-    #[case("flour for bread", &[])]
-    // No boundary at all.
-    #[case("plain flour", &[])]
-    // Multiple boundaries report in order.
-    #[case("red or white onion for serving",
-           &[(3, SoftBoundaryKind::Or), (18, SoftBoundaryKind::ForPurpose)])]
-    fn finds_soft_boundaries(#[case] text: &str, #[case] expected: &[(usize, SoftBoundaryKind)]) {
-        let got: Vec<(usize, SoftBoundaryKind)> = soft_boundaries(text)
-            .into_iter()
-            .map(|b| (b.at, b.kind))
-            .collect();
-        let want: Vec<(usize, SoftBoundaryKind)> = expected.to_vec();
-        assert_eq!(got, want, "text: {text:?}");
     }
 }
