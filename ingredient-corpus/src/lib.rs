@@ -316,11 +316,17 @@ pub fn render_authored(amounts: &[Measure]) -> String {
 }
 
 /// One authored value: the exact fraction string when the rational is
-/// non-terminating (`"2/3"`), else the plain number with no trailing `.0`.
+/// non-terminating (`"2/3"`), else the number exactly as `f64`'s `Display`
+/// writes it — `2` not `2.0`, but `0.125` in full.
+///
+/// Deliberately NOT [`ingredient::util::num_without_zeroes`], which rounds to
+/// two decimals: that is a *display* helper, and using it here silently
+/// rewrote `0.125 tsp` as `0.12 tsp` in the corpus viewer. The viewer must
+/// show what the file says.
 fn authored_value(fraction: Option<String>, val: f64) -> String {
     match fraction {
         Some(s) => s,
-        None => ingredient::util::num_without_zeroes(val),
+        None => format!("{val}"),
     }
 }
 
@@ -379,6 +385,37 @@ mod tests {
             .map(|(line_no, r)| format!("{line_no}\t{}\t{}", r.input, render_authored(&r.amounts)))
             .collect();
         insta::assert_snapshot!(lines.join("\n"));
+    }
+
+    /// Line handling: comments and blanks dropped, `// --- Name ---` headers
+    /// opening sections, malformed lines kept rather than panicked on. Ported
+    /// from the corpus-table renderer, which used to own this logic.
+    #[test]
+    fn skips_comments_and_tracks_sections() {
+        const SAMPLE: &str = r#"// header comment, ignored
+//
+// --- basics ---
+{"input": "2 cups flour", "name": "flour"}
+
+{"input": "2-3 cups broth", "name": "broth"}
+// --- gaps ---
+{"input": "1 pint berries", "name": "berries", "xfail": "pint range"}
+not valid json
+"#;
+        let corpus = parse(SAMPLE);
+        // 3 valid rows + 1 malformed = 4 entries; comments and blanks dropped.
+        assert_eq!(corpus.entries.len(), 4);
+        assert_eq!(corpus.sections, ["(ungrouped)", "basics", "gaps"]);
+
+        let section_of = |i: usize| corpus.sections[corpus.entries[i].section].as_str();
+        assert_eq!(section_of(0), "basics");
+        assert_eq!(section_of(1), "basics");
+        assert_eq!(section_of(2), "gaps");
+        assert_eq!(corpus.problems().count(), 1);
+
+        // by_section groups consecutive runs, so the viewer gets one heading each.
+        let groups: Vec<(&str, usize)> = corpus.by_section().map(|(n, e)| (n, e.len())).collect();
+        assert_eq!(groups, [("basics", 2), ("gaps", 2)]);
     }
 
     /// The corpus file's own shape, so a loader drift breaks loudly and in one

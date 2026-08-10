@@ -4,10 +4,12 @@
 use clap::{Parser, Subcommand};
 use recipe_epub::CookbookRecipeExt; // .parse() / .low_confidence_lines() on CookbookRecipe
 
-mod corpus_lint;
 mod corpus_shadow;
-mod explain;
-mod tables;
+
+// The corpus/diagnostic verbs live in the library half so tests and other
+// crates can call them; this binary is argument parsing, printing and exit
+// codes. See src/lib.rs.
+use food_cli::{corpus_lint, corpus_table, explain, tables};
 
 /// Default path to the accuracy corpus, relative to this crate's manifest.
 const DEFAULT_CORPUS_PATH: &str = concat!(
@@ -316,184 +318,6 @@ fn null_paths(v: &serde_json::Value, path: &str, out: &mut Vec<String>) {
         }
         _ => {}
     }
-}
-
-/// One renderable corpus entry: a parsed JSON row plus the section it falls
-/// under (the most recent `// --- … ---` header). `error` is set instead of
-/// panicking when a line is malformed, so the viewer survives a bad row.
-struct CorpusEntry {
-    section: String,
-    row: serde_json::Value,
-    error: Option<String>,
-}
-
-/// Parse the corpus text into entries. Mirrors `accuracy.rs::load`'s line
-/// handling (skip `//` comments and blanks) but additionally tracks section
-/// headers and tolerates malformed lines.
-fn extract_corpus_rows(corpus: &str) -> Vec<CorpusEntry> {
-    let mut section = String::from("(ungrouped)");
-    let mut out = Vec::new();
-    for raw in corpus.lines() {
-        let line = raw.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("//") {
-            // A `// --- Section name --- ` header updates the current section;
-            // other `//` comments are ignored.
-            if let Some(inner) = rest.trim().strip_prefix("---") {
-                let name = inner.trim_end_matches('-').trim();
-                if !name.is_empty() {
-                    section = name.to_string();
-                }
-            }
-            continue;
-        }
-        match serde_json::from_str::<serde_json::Value>(line) {
-            Ok(row) => out.push(CorpusEntry {
-                section: section.clone(),
-                row,
-                error: None,
-            }),
-            Err(e) => out.push(CorpusEntry {
-                section: section.clone(),
-                row: serde_json::json!({ "input": line }),
-                error: Some(e.to_string()),
-            }),
-        }
-    }
-    out
-}
-
-/// Render a corpus amount value: a JSON number trimmed (no trailing `.0`):
-/// `2` not `2.0`, `14.5`, `0.5` — or an exact fraction string (`"2/3"`)
-/// passed through as-is, since corpus rows may author values in either form.
-fn fmt_num(v: &serde_json::Value) -> String {
-    match v {
-        serde_json::Value::Number(n) if n.as_i64().is_some() => n.to_string(),
-        serde_json::Value::Number(n) => n.as_f64().map(|f| format!("{f}")).unwrap_or_default(),
-        serde_json::Value::String(s) => s.clone(),
-        _ => String::new(),
-    }
-}
-
-/// Format a corpus `amounts` array into compact chips: `2 cup`, `14.5 oz`,
-/// range `3–4 oz` when `upper_value` is set, bare count for the `whole` unit.
-fn fmt_amounts(amounts: &serde_json::Value) -> String {
-    let Some(arr) = amounts.as_array() else {
-        return String::new();
-    };
-    arr.iter()
-        .map(|m| {
-            let unit = m.get("unit").and_then(|u| u.as_str()).unwrap_or("");
-            let value = m.get("value").map(fmt_num).unwrap_or_default();
-            let upper = m
-                .get("upper_value")
-                .filter(|v| !v.is_null())
-                .map(fmt_num)
-                .filter(|s| !s.is_empty());
-            let qty = match upper {
-                Some(u) => format!("{value}–{u}"),
-                None => value,
-            };
-            if unit.is_empty() || unit == "whole" {
-                qty
-            } else {
-                format!("{qty} {unit}")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-const CORPUS_STYLE: &str = "\
-body { font-family: -apple-system, system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
-h1 { font-size: 1.4rem; }
-h2 { font-size: 1.05rem; margin-top: 2rem; color: #444; border-bottom: 1px solid #ddd; padding-bottom: .2rem; }
-.summary { color: #666; }
-table { border-collapse: collapse; width: 100%; font-size: .85rem; margin-bottom: 1rem; }
-th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #eee; vertical-align: top; }
-thead th { position: sticky; top: 0; background: #fff; border-bottom: 2px solid #ccc; }
-tbody tr:nth-child(even) { background: #fafafa; }
-td code { font-family: ui-monospace, monospace; white-space: pre-wrap; }
-tr.xfail, tr.xfail:nth-child(even) { background: #fff8e1; }
-tr.err, tr.err:nth-child(even) { background: #fdecea; }
-.opt { text-align: center; color: #2e7d32; }";
-
-/// Render the corpus as a self-contained static HTML doc: one `<h2>` + `<table>`
-/// per section. No JS. Returns `(html, row_count)`. `maud` auto-escapes every
-/// interpolated value, so no manual escaping is needed.
-fn render_corpus_html(corpus: &str) -> (String, usize) {
-    use maud::{DOCTYPE, PreEscaped, html};
-
-    let entries = extract_corpus_rows(corpus);
-    let total = entries.len();
-    let xfail = entries
-        .iter()
-        .filter(|e| e.row.get("xfail").map(|v| !v.is_null()).unwrap_or(false))
-        .count();
-    let committed = total - xfail;
-
-    // Group consecutive entries by section (preserving corpus order) so each
-    // section renders as one `<h2>` + `<table>`.
-    let mut sections: Vec<(&str, Vec<&CorpusEntry>)> = Vec::new();
-    for e in &entries {
-        match sections.last_mut() {
-            Some((name, rows)) if *name == e.section.as_str() => rows.push(e),
-            _ => sections.push((e.section.as_str(), vec![e])),
-        }
-    }
-
-    let markup = html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="utf-8";
-                title { "Ingredient parser corpus" }
-                style { (PreEscaped(CORPUS_STYLE)) }
-            }
-            body {
-                h1 { "Ingredient parser corpus" }
-                p.summary { (total) " rows · " (committed) " committed · " (xfail) " xfail" }
-                @for (name, rows) in &sections {
-                    h2 { (name) }
-                    table {
-                        thead { tr {
-                            th { "input" } th { "name" } th { "amounts" }
-                            th { "modifier" } th { "optional" } th { "xfail" }
-                        } }
-                        tbody {
-                            @for e in rows {
-                                @let g = |k: &str| e.row.get(k).and_then(|v| v.as_str()).unwrap_or("");
-                                @let amounts = e.row.get("amounts").map(fmt_amounts).unwrap_or_default();
-                                @let optional = e.row.get("optional").and_then(|v| v.as_bool()) == Some(true);
-                                @let note: std::borrow::Cow<'_, str> = match &e.error {
-                                    Some(err) => format!("malformed: {err}").into(),
-                                    None => g("xfail").into(),
-                                };
-                                @let row_class = if e.error.is_some() {
-                                    Some("err")
-                                } else if !note.is_empty() {
-                                    Some("xfail")
-                                } else {
-                                    None
-                                };
-                                tr class=[row_class] {
-                                    td { code { (g("input")) } }
-                                    td { (g("name")) }
-                                    td { (amounts) }
-                                    td { (g("modifier")) }
-                                    td.opt { @if optional { "✓" } }
-                                    td { (note) }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    };
-    (markup.into_string(), total)
 }
 
 #[tokio::main]
@@ -891,7 +715,7 @@ async fn main() {
                     std::process::exit(1);
                 }
             };
-            let (html, rows) = render_corpus_html(&contents);
+            let (html, rows) = corpus_table::render_html(&ingredient_corpus::parse(&contents));
             match out.as_deref() {
                 Some("-") => print!("{html}"),
                 Some(path) => {
@@ -982,58 +806,5 @@ async fn main() {
             println!("{}", if is_valid { "valid" } else { "invalid" });
             std::process::exit(if is_valid { 0 } else { 1 });
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SAMPLE: &str = r#"// header comment, ignored
-//
-// --- basics ---
-{"input": "2 cups flour", "name": "flour", "amounts": [{"unit": "cup", "value": 2}]}
-
-{"input": "2-3 cups <broth>", "name": "broth", "amounts": [{"unit": "cup", "value": 2, "upper_value": 3}]}
-{"input": "2/3 cup milk", "name": "milk", "amounts": [{"unit": "cup", "value": "2/3"}]}
-// --- gaps ---
-{"input": "1 pint berries", "name": "berries", "amounts": [{"unit": "pint", "value": 1}], "xfail": "pint range"}
-not valid json
-"#;
-
-    #[test]
-    fn extract_skips_comments_and_tracks_sections() {
-        let rows = extract_corpus_rows(SAMPLE);
-        // 4 valid rows + 1 malformed = 5 entries; comments/blanks dropped.
-        assert_eq!(rows.len(), 5);
-        assert_eq!(rows[0].section, "basics");
-        assert_eq!(rows[1].section, "basics");
-        assert_eq!(rows[2].section, "basics");
-        assert_eq!(rows[3].section, "gaps");
-        assert!(rows[3].row.get("xfail").is_some());
-        // The malformed line is tolerated, not panicked on.
-        assert!(rows[4].error.is_some());
-    }
-
-    #[test]
-    fn render_escapes_and_counts() {
-        let (html, rows) = render_corpus_html(SAMPLE);
-        assert_eq!(rows, 5);
-        assert!(html.contains("<table>"));
-        // Summary: 5 entries, 1 has xfail, the malformed one counts as committed.
-        assert!(html.contains("5 rows · 4 committed · 1 xfail"));
-        // Section headings rendered.
-        assert!(html.contains("<h2>basics</h2>"));
-        assert!(html.contains("<h2>gaps</h2>"));
-        // Angle brackets in input are escaped, not emitted raw.
-        assert!(html.contains("&lt;broth&gt;"));
-        assert!(!html.contains("<broth>"));
-        // Range chip uses an en dash.
-        assert!(html.contains("2–3 cup"));
-        // A fraction-string value renders as the fraction, not a blank quantity.
-        assert!(html.contains("2/3 cup"));
-        assert!(!html.contains("> cup<"));
-        // xfail reason surfaces.
-        assert!(html.contains("pint range"));
     }
 }

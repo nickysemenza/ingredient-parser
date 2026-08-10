@@ -17,37 +17,6 @@ use ingredient::IngredientParser;
 use ingredient::trace::pipeline_stage_names;
 use tabled::{builder::Builder, settings::Style};
 
-/// One corpus row for the stage report — only `input` is needed here (accuracy is
-/// the concern of `tests/accuracy.rs`, not this lint).
-struct Row {
-    input: String,
-}
-
-/// Load corpus rows, skipping blank lines and `//` comments (matching
-/// `accuracy.rs::load`). In strict mode a malformed line is an error; the
-/// returned `Vec<String>` collects those messages so the caller can report and
-/// set an exit code.
-fn load_rows(corpus: &str) -> (Vec<Row>, Vec<String>) {
-    let mut rows = Vec::new();
-    let mut errors = Vec::new();
-    for raw in corpus.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with("//") {
-            continue;
-        }
-        match serde_json::from_str::<serde_json::Value>(line) {
-            Ok(v) => match v.get("input").and_then(|i| i.as_str()) {
-                Some(input) => rows.push(Row {
-                    input: input.to_string(),
-                }),
-                None => errors.push(format!("row missing string `input`: {line}")),
-            },
-            Err(e) => errors.push(format!("invalid JSON: {e}: {line}")),
-        }
-    }
-    (rows, errors)
-}
-
 /// Fire counts for one stage's passes: pass name → number of rows it fired on.
 /// A `BTreeMap` keeps the "zero coverage" listing deterministic; ordering for the
 /// main table is taken from the pass universe instead (pipeline order).
@@ -142,29 +111,33 @@ fn zero_coverage<'a>(universe: &[&'a str], counts: &FireCounts) -> Vec<&'a str> 
         .collect()
 }
 
-/// Print the full pass-coverage report (the three stage tables plus the
+/// Render the full pass-coverage report (the four stage tables plus the
 /// zero-coverage section) for an already-tallied [`StageCoverage`].
-fn print_report(cov: &StageCoverage) {
+///
+/// Returns the text rather than printing it: this is a library verb, and the
+/// binary owns stdout. That also makes the report assertable in a test.
+pub fn render_report(cov: &StageCoverage) -> String {
+    use std::fmt::Write as _;
+
     let universe = pipeline_stage_names();
     let total = cov.total_rows;
+    let mut out = String::new();
 
-    println!("Pass-coverage report over {total} corpus row(s)\n");
-    println!(
-        "{}\n",
-        stage_table("normalize", universe.normalize, &cov.normalize, total)
-    );
-    println!(
-        "{}\n",
-        stage_table("recognize", universe.recognizers, &cov.recognize, total)
-    );
-    println!(
-        "{}\n",
-        stage_table("segment", universe.segment, &cov.segment, total)
-    );
-    println!(
-        "{}\n",
-        stage_table("refine", universe.refine, &cov.refine, total)
-    );
+    // Writing into a String is infallible, so the `let _ =` discards a Result
+    // that cannot be Err rather than unwrapping (denied by the workspace lints).
+    let _ = writeln!(out, "Pass-coverage report over {total} corpus row(s)\n");
+    for (name, universe_names, counts) in [
+        ("normalize", universe.normalize, &cov.normalize),
+        ("recognize", universe.recognizers, &cov.recognize),
+        ("segment", universe.segment, &cov.segment),
+        ("refine", universe.refine, &cov.refine),
+    ] {
+        let _ = writeln!(
+            out,
+            "{}\n",
+            stage_table(name, universe_names, counts, total)
+        );
+    }
 
     let dead: Vec<(&str, &str)> = zero_coverage(universe.normalize, &cov.normalize)
         .into_iter()
@@ -186,14 +159,15 @@ fn print_report(cov: &StageCoverage) {
         )
         .collect();
 
-    println!("ZERO CORPUS COVERAGE (possible dead rule)");
+    let _ = writeln!(out, "ZERO CORPUS COVERAGE (possible dead rule)");
     if dead.is_empty() {
-        println!("  none — every pass fired on at least one corpus row");
+        let _ = writeln!(out, "  none — every pass fired on at least one corpus row");
     } else {
         for (stage, name) in dead {
-            println!("  [{stage}] {name}");
+            let _ = writeln!(out, "  [{stage}] {name}");
         }
     }
+    out
 }
 
 /// Entry point for the `corpus lint` subcommand. Reads `corpus_path`; with
@@ -209,12 +183,16 @@ pub fn run(corpus_path: &str, report_stages_flag: bool) {
         }
     };
 
-    let (rows, errors) = load_rows(&contents);
+    let corpus = ingredient_corpus::parse(&contents);
+    let errors: Vec<String> = corpus
+        .problems()
+        .map(|(e, p)| format!("line {}: {}: {}", e.line_no, p.message, p.line))
+        .collect();
 
     if !report_stages_flag {
         // Cheap sanity mode: report row count and fail loudly on malformed rows.
         if errors.is_empty() {
-            println!("{} corpus row(s) parse as JSON", rows.len());
+            println!("{} corpus row(s) parse as JSON", corpus.rows().count());
         } else {
             eprintln!("{} malformed corpus row(s):", errors.len());
             for e in &errors {
@@ -234,9 +212,7 @@ pub fn run(corpus_path: &str, report_stages_flag: bool) {
         );
     }
 
-    let inputs: Vec<String> = rows.into_iter().map(|r| r.input).collect();
-    let cov = report_stages(&inputs);
-    print_report(&cov);
+    print!("{}", render_report(&report_stages(&corpus.inputs())));
 }
 
 #[cfg(test)]
@@ -306,12 +282,21 @@ mod tests {
         assert_eq!(zero_coverage(&universe, &counts), vec!["b", "c"]);
     }
 
+    // The loader this module used to own now lives in `ingredient-corpus`;
+    // its comment/blank/malformed handling is tested there, once, for all five
+    // former copies. See `skips_comments_and_tracks_sections`.
+
+    /// The report renders every stage table and the zero-coverage section, and
+    /// returns the text rather than printing it — the property that makes this
+    /// verb callable from somewhere other than `main`.
     #[test]
-    fn load_rows_skips_comments_and_flags_bad_json() {
-        let corpus = "// header\n\n{\"input\": \"2 cups flour\"}\nnot json\n";
-        let (rows, errors) = load_rows(corpus);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].input, "2 cups flour");
-        assert_eq!(errors.len(), 1);
+    fn render_report_covers_every_stage() {
+        let cov = report_stages(&["2 cups flour, sifted".to_string()]);
+        let report = render_report(&cov);
+        assert!(report.contains("Pass-coverage report over 1 corpus row(s)"));
+        for stage in ["normalize", "recognize", "segment", "refine"] {
+            assert!(report.contains(stage), "missing {stage} table");
+        }
+        assert!(report.contains("ZERO CORPUS COVERAGE"));
     }
 }

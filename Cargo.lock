@@ -1848,6 +1848,7 @@ dependencies = [
  "dotenvy",
  "futures",
  "ingredient",
+ "ingredient-corpus",
  "maud",
  "miette",
  "open",
