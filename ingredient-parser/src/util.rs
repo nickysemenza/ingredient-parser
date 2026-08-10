@@ -9,29 +9,14 @@ pub fn num_without_zeroes(val: f64) -> String {
 }
 
 /// Map a fractional part (0..1) to a Unicode vulgar fraction glyph, if it is one
-/// of the common cooking fractions. Mirrors the set the parser accepts.
+/// of the cooking fractions the parser accepts.
+///
+/// Delegates to [`crate::fraction::glyph_for`] so this is the *same* table the
+/// parser reads glyphs from. It used to be a second list of 15 under a comment
+/// claiming it mirrored the parser's 18 — so `⅐ ⅑ ⅒` parsed in and rendered as
+/// decimals.
 fn vulgar_fraction_glyph(frac: f64) -> Option<&'static str> {
-    const TABLE: &[(f64, &str)] = &[
-        (1.0 / 2.0, "½"),
-        (1.0 / 3.0, "⅓"),
-        (2.0 / 3.0, "⅔"),
-        (1.0 / 4.0, "¼"),
-        (3.0 / 4.0, "¾"),
-        (1.0 / 5.0, "⅕"),
-        (2.0 / 5.0, "⅖"),
-        (3.0 / 5.0, "⅗"),
-        (4.0 / 5.0, "⅘"),
-        (1.0 / 6.0, "⅙"),
-        (5.0 / 6.0, "⅚"),
-        (1.0 / 8.0, "⅛"),
-        (3.0 / 8.0, "⅜"),
-        (5.0 / 8.0, "⅝"),
-        (7.0 / 8.0, "⅞"),
-    ];
-    TABLE
-        .iter()
-        .find(|(value, _)| (frac - value).abs() < 1e-6)
-        .map(|(_, glyph)| *glyph)
+    crate::fraction::glyph_for(frac, 1e-6)
 }
 
 /// Format a measurement quantity, rendering a Unicode fraction when the value is
