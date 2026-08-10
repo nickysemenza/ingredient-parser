@@ -24,7 +24,7 @@
 //!
 //! [`Rational64`]: https://docs.rs/num-rational/latest/num_rational/type.Rational64.html
 
-use ingredient::{Ingredient, IngredientUsage, unit::Measure};
+use ingredient::{IngredientUsage, unit::Measure};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use std::path::Path;
@@ -32,25 +32,6 @@ use std::path::Path;
 /// Where the corpus lives relative to the workspace root — for a CLI `--corpus`
 /// default or a GUI path field, which resolve against the process's cwd.
 pub const CORPUS_RELATIVE_PATH: &str = "ingredient-parser/tests/corpus/corpus.jsonl";
-
-/// Rich-text sibling of [`CORPUS_RELATIVE_PATH`].
-pub const RICH_CORPUS_RELATIVE_PATH: &str = "ingredient-parser/tests/corpus/rich_text.jsonl";
-
-/// This checkout's absolute path to the corpus, resolved at compile time.
-pub fn source_path() -> &'static Path {
-    Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../ingredient-parser/tests/corpus/corpus.jsonl"
-    ))
-}
-
-/// This checkout's absolute path to the rich-text corpus.
-pub fn rich_source_path() -> &'static Path {
-    Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../ingredient-parser/tests/corpus/rich_text.jsonl"
-    ))
-}
 
 /// The corpus compiled into the binary. The only `include_str!` of the corpus
 /// in the workspace; rustc records the dependency, so editing the file triggers
@@ -171,11 +152,12 @@ pub fn parse(source: &str) -> Corpus<CorpusRow> {
 }
 
 /// Parse corpus text into rows of any shape — the rich-text corpus shares this
-/// line handling rather than reimplementing it.
+/// line handling rather than reimplementing it. Crate-internal: the two row
+/// shapes that exist have their own entry points.
 ///
 /// Blank lines are skipped. A `// --- Name ---` line opens a section; any other
 /// `//` line is an ordinary comment. Everything else is a row.
-pub fn parse_as<T: DeserializeOwned>(source: &str) -> Corpus<T> {
+pub(crate) fn parse_as<T: DeserializeOwned>(source: &str) -> Corpus<T> {
     let mut sections = vec!["(ungrouped)".to_string()];
     let mut current = 0usize;
     let mut entries = Vec::new();
@@ -236,16 +218,6 @@ pub enum Status {
 }
 
 impl Status {
-    /// All five fields agreed, xfail or not.
-    pub fn is_match(self) -> bool {
-        matches!(self, Status::Exact | Status::Promote)
-    }
-
-    /// The only thing that should fail a build.
-    pub fn is_regression(self) -> bool {
-        matches!(self, Status::Regression)
-    }
-
     pub fn label(self) -> &'static str {
         match self {
             Status::Exact => "EXACT",
@@ -267,14 +239,6 @@ pub enum LabeledField {
 }
 
 impl LabeledField {
-    pub const ALL: [LabeledField; 5] = [
-        LabeledField::Name,
-        LabeledField::Amounts,
-        LabeledField::Modifier,
-        LabeledField::Optional,
-        LabeledField::Usage,
-    ];
-
     pub fn as_str(self) -> &'static str {
         match self {
             LabeledField::Name => "name",
@@ -295,17 +259,20 @@ pub struct FieldDiff {
     pub got: String,
 }
 
-/// A scored row: its label, the parse it produced, and the per-field diff.
-/// `got` is retained so a detail view costs nothing extra.
+/// A scored row: how it classified, and the per-field diff.
+///
+/// Deliberately does not carry the row or the parsed `Ingredient` back: both
+/// were here "so a detail view costs nothing extra", and neither consumer ever
+/// read them — the detail view uses the pre-rendered `want`/`got` strings, and
+/// callers already hold the row they passed in. Dropping them also drops the
+/// lifetime parameter.
 #[derive(Debug, Clone)]
-pub struct Scored<'a> {
-    pub row: &'a CorpusRow,
-    pub got: Ingredient,
+pub struct Scored {
     pub status: Status,
     pub fields: [FieldDiff; 5],
 }
 
-impl Scored<'_> {
+impl Scored {
     /// Only the fields that disagreed, in corpus order.
     pub fn mismatches(&self) -> impl Iterator<Item = &FieldDiff> {
         self.fields.iter().filter(|d| !d.ok)
@@ -313,13 +280,9 @@ impl Scored<'_> {
 }
 
 /// Score a row against `ingredient::from_str` — what every consumer does today.
-pub fn score(row: &CorpusRow) -> Scored<'_> {
-    score_with(row, ingredient::from_str(&row.input))
-}
+pub fn score(row: &CorpusRow) -> Scored {
+    let got = ingredient::from_str(&row.input);
 
-/// Score a row against a parse you already have — a traced parse, or one from a
-/// custom-configured parser.
-pub fn score_with(row: &CorpusRow, got: Ingredient) -> Scored<'_> {
     let diff = |field: LabeledField, ok: bool, want: String, got: String| FieldDiff {
         field,
         ok,
@@ -367,12 +330,7 @@ pub fn score_with(row: &CorpusRow, got: Ingredient) -> Scored<'_> {
         (false, true) => Status::Xfail,
     };
 
-    Scored {
-        row,
-        got,
-        status,
-        fields,
-    }
+    Scored { status, fields }
 }
 
 /// Running counts over a scored corpus.
@@ -383,12 +341,12 @@ pub struct Tally {
     pub regression: usize,
     pub xfail: usize,
     pub promote: usize,
-    /// Per-field match counts, in [`LabeledField::ALL`] order.
+    /// Per-field match counts, in [`LabeledField`] declaration order.
     pub per_field: [usize; 5],
 }
 
 impl Tally {
-    pub fn add(&mut self, scored: &Scored<'_>) {
+    pub fn add(&mut self, scored: &Scored) {
         self.total += 1;
         match scored.status {
             Status::Exact => self.exact += 1,
@@ -467,10 +425,11 @@ pub mod rich {
 /// ranges `X - Y`, and pluralizes unit words.
 ///
 /// This is the lens for got-vs-want diffs, where both sides must go through the
-/// same transformation. It is deliberately NOT how the corpus file itself is
+/// same transformation; `score` pre-renders with it, so no caller needs it
+/// directly. It is deliberately NOT how the corpus file itself is
 /// displayed — see `render_authored` in the corpus-table renderer, and the
 /// `divergent_lenses` test that pins the difference.
-pub fn render_parsed(amounts: &[Measure]) -> String {
+pub(crate) fn render_parsed(amounts: &[Measure]) -> String {
     amounts
         .iter()
         .map(ToString::to_string)

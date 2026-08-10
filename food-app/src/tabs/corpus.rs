@@ -37,8 +37,8 @@ fn status_color(status: Status) -> egui::Color32 {
     }
 }
 
-/// An owned scored row. The tab keeps these in its state across frames, so it
-/// cannot hold an `ingredient_corpus::Scored<'_>`, which borrows its row.
+/// A scored row plus the bits of the corpus row the tab renders. `Scored`
+/// itself carries only the classification and the per-field diff.
 struct ScoredRow {
     input: String,
     status: Status,
