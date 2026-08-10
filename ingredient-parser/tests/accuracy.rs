@@ -25,47 +25,28 @@
 // Test-harness code: a malformed corpus line should fail the test loudly.
 #![allow(clippy::panic)]
 
-use ingredient::{IngredientParser, IngredientUsage, SegmentationMode, from_str, unit::Measure};
-use serde::Deserialize;
+use ingredient::{IngredientParser, SegmentationMode, from_str};
+use ingredient_corpus::{CorpusRow, render_parsed as fmt_amounts};
 
-#[derive(Deserialize)]
-struct CorpusRow {
-    input: String,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    amounts: Vec<Measure>,
-    #[serde(default)]
-    modifier: Option<String>,
-    #[serde(default)]
-    optional: bool,
-    /// Expected usage classification. Absent means `Normal` — a test-side
-    /// ergonomic default only; the `Ingredient.usage` field itself has none.
-    #[serde(default)]
-    usage: IngredientUsage,
-    /// When set, documents a known parser gap. A mismatch is reported but does
-    /// not fail the test; the string explains the gap.
-    #[serde(default)]
-    xfail: Option<String>,
-}
-
+/// Every well-formed row. A malformed line fails the suite loudly here — the
+/// ratchet is meaningless if a row can go missing by typo. Other consumers of
+/// `ingredient_corpus` choose softer policies over the same parse.
 fn load() -> Vec<CorpusRow> {
-    include_str!("corpus/corpus.jsonl")
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with("//"))
-        .map(|l| {
-            serde_json::from_str(l).unwrap_or_else(|e| panic!("invalid corpus row:\n  {l}\n  {e}"))
-        })
+    let corpus = ingredient_corpus::parse(ingredient_corpus::embedded());
+    let problems: Vec<String> = corpus
+        .problems()
+        .map(|(e, p)| format!("  line {}: {}\n    {}", e.line_no, p.message, p.line))
+        .collect();
+    assert!(
+        problems.is_empty(),
+        "invalid corpus row(s):\n{}",
+        problems.join("\n")
+    );
+    corpus
+        .entries
+        .into_iter()
+        .filter_map(|e| e.parsed.ok())
         .collect()
-}
-
-fn fmt_amounts(amounts: &[Measure]) -> String {
-    amounts
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 #[test]

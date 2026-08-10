@@ -1,0 +1,17 @@
+[package]
+name = "ingredient-corpus"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+# Test infrastructure for the workspace, not part of the published `ingredient`
+# crate. See docs/adr/0003.
+publish = false
+
+[dependencies]
+ingredient.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

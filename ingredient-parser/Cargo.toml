@@ -12,6 +12,11 @@ repository = "https://github.com/nickysemenza/ingredient-parser"
 readme = "readme.md"
 keywords = ["recipe", "ingredient", "parser", "cooking", "nlp"]
 categories = ["parsing", "text-processing"]
+# The integration tests dev-depend on the unpublished `ingredient-corpus`, so
+# shipping `tests/` would give the published tarball a `cargo test` that cannot
+# resolve its dependency. `benches/` must NOT be excluded — `[[bench]]` below
+# names a file, and packaging fails if it is missing.
+exclude = ["/tests"]
 
 
 [features]
@@ -40,6 +45,7 @@ features = ["alloc"]
 proptest = "1.5"
 rstest.workspace = true
 insta = "1"
+ingredient-corpus.workspace = true
 
 [[bench]]
 name = "parser_benchmarks"

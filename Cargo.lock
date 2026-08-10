@@ -2631,6 +2631,7 @@ name = "ingredient"
 version = "0.4.0"
 dependencies = [
  "criterion",
+ "ingredient-corpus",
  "insta",
  "nom",
  "nom-language",
@@ -2644,6 +2645,15 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "ingredient-corpus"
+version = "0.1.0"
+dependencies = [
+ "ingredient",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
