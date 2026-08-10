@@ -282,3 +282,145 @@ pub fn render_parsed(amounts: &[Measure]) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
+
+/// Render amounts the way the CORPUS FILE AUTHORED them: the literal unit with
+/// no pluralization, an EN DASH range, no unit suffix for a bare count, and the
+/// exact fraction spelling when the value is a non-terminating rational.
+///
+/// This is the lens for *viewing* the corpus, where re-spelling a human's row
+/// is a bug. It must not be merged with [`render_parsed`]: on today's corpus
+/// they differ four ways — range punctuation, fraction glyphs, unit
+/// denormalization (`30 tsp` → `⅝ cup`) and pluralization. See the
+/// `divergent_lenses` test, which pins both sides.
+pub fn render_authored(amounts: &[Measure]) -> String {
+    amounts
+        .iter()
+        .map(|m| {
+            let unit = m.unit().to_str();
+            let value = authored_value(m.value_as_fraction_str(), m.value());
+            let qty = match m.upper_value() {
+                Some(upper) => {
+                    let upper = authored_value(m.upper_value_as_fraction_str(), upper);
+                    format!("{value}–{upper}")
+                }
+                None => value,
+            };
+            if unit.is_empty() || unit == "whole" {
+                qty
+            } else {
+                format!("{qty} {unit}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// One authored value: the exact fraction string when the rational is
+/// non-terminating (`"2/3"`), else the plain number with no trailing `.0`.
+fn authored_value(fraction: Option<String>, val: f64) -> String {
+    match fraction {
+        Some(s) => s,
+        None => ingredient::util::num_without_zeroes(val),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    fn measures(json: &str) -> Vec<Measure> {
+        serde_json::from_str(json).unwrap()
+    }
+
+    /// Two lenses on the same measures, deliberately different, and this test
+    /// exists so that stays true.
+    ///
+    /// `render_authored` shows the corpus AS WRITTEN — it backs the corpus
+    /// viewer, where re-spelling a human's row is a bug. `render_parsed` shows
+    /// it as the parser would print it — it backs got-vs-want diffs, where both
+    /// sides must go through the same transformation.
+    ///
+    /// Merging them would silently re-spell 42 range rows, 9 fraction rows, and
+    /// every row whose unit denormalizes.
+    #[test]
+    fn divergent_lenses() {
+        let range = measures(r#"[{"unit":"cup","value":2,"upper_value":3}]"#);
+        assert_eq!(render_authored(&range), "2–3 cup"); // EN DASH, literal unit
+        assert_eq!(render_parsed(&range), "2 - 3 cups"); // ASCII, pluralized
+
+        let frac = measures(r#"[{"unit":"cup","value":"2/3"}]"#);
+        assert_eq!(render_authored(&frac), "2/3 cup"); // ASCII fraction
+        assert_eq!(render_parsed(&frac), "⅔ cup"); // vulgar glyph
+
+        // corpus.jsonl authors teaspoons; Display denormalizes them into cups.
+        let tsp30 = measures(r#"[{"unit":"tsp","value":30}]"#);
+        assert_eq!(render_authored(&tsp30), "30 tsp");
+        assert_eq!(render_parsed(&tsp30), "⅝ cup");
+
+        // A bare count agrees — by design, not by coincidence.
+        let whole = measures(r#"[{"unit":"whole","value":2}]"#);
+        assert_eq!(render_authored(&whole), "2");
+        assert_eq!(render_parsed(&whole), "2");
+    }
+
+    /// Characterization snapshot over every real corpus row that has amounts.
+    /// It does not assert the spelling is *right* — it asserts it does not
+    /// *change*, which is what makes swapping the corpus-table renderer onto
+    /// `render_authored` provably a no-op.
+    #[test]
+    fn authored_rendering_over_the_real_corpus() {
+        let corpus = parse(embedded());
+        let lines: Vec<String> = corpus
+            .entries
+            .iter()
+            .filter_map(|e| e.parsed.as_ref().ok().map(|r| (e.line_no, r)))
+            .filter(|(_, r)| !r.amounts.is_empty())
+            .map(|(line_no, r)| format!("{line_no}\t{}\t{}", r.input, render_authored(&r.amounts)))
+            .collect();
+        insta::assert_snapshot!(lines.join("\n"));
+    }
+
+    /// The corpus file's own shape, so a loader drift breaks loudly and in one
+    /// place rather than as a quietly shorter corpus.
+    #[test]
+    fn corpus_file_shape() {
+        let corpus = parse(embedded());
+        assert_eq!(corpus.problems().count(), 0, "corpus has malformed rows");
+        assert!(corpus.rows().count() > 400, "corpus unexpectedly small");
+        assert_eq!(
+            corpus.rows().filter(|r| r.xfail.is_some()).count(),
+            0,
+            "corpus has xfail rows; update this test if that becomes intended"
+        );
+        assert_eq!(corpus.sections[0], "(ungrouped)");
+        assert!(corpus.sections.len() > 30, "section headers not picked up");
+        for entry in &corpus.entries {
+            assert!(
+                corpus.sections.get(entry.section).is_some(),
+                "entry {} has an unresolvable section index",
+                entry.line_no
+            );
+        }
+    }
+
+    /// Amount equality at this layer is exact rational, never f64: a fraction
+    /// string and the f64 that recovers to the same rational are equal, a
+    /// truncated decimal is not, and a quoted decimal is rejected outright.
+    #[test]
+    fn exact_rationals_at_the_corpus_boundary() {
+        let from_fraction = measures(r#"[{"unit":"cup","value":"2/3"}]"#);
+        let from_number = measures(r#"[{"unit":"cup","value":0.6666666666666666}]"#);
+        assert_eq!(from_fraction, from_number);
+
+        let truncated = measures(r#"[{"unit":"cup","value":0.667}]"#);
+        assert_ne!(from_fraction, truncated);
+
+        let quoted_decimal = parse(r#"{"input":"x","amounts":[{"unit":"cup","value":"0.667"}]}"#);
+        assert_eq!(
+            quoted_decimal.problems().count(),
+            1,
+            "a quoted decimal must be rejected, not silently reinterpreted"
+        );
+    }
+}

@@ -13,5 +13,10 @@ ingredient.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+# Characterization snapshot of render_authored over every real corpus row, so a
+# change to the viewer's spelling shows up as a reviewable diff.
+insta = "1"
+
 [lints]
 workspace = true
