@@ -45,6 +45,47 @@ pub fn embedded_rich() -> &'static str {
     include_str!("../../ingredient-parser/tests/corpus/rich_text.jsonl")
 }
 
+/// One amount as the corpus authored it: the exact [`Measure`] that scoring
+/// compares, plus the `value` / `upper_value` tokens verbatim when the file
+/// spelled them as strings.
+///
+/// The tokens exist because deserialization is lossy for *display*: `"1 1/2"`
+/// and `"3/2"` and `1.5` all land on the same rational, and
+/// `value_as_fraction_str` only offers a fraction back for NON-terminating
+/// values. So a viewer rebuilding the text from the `Measure` alone rewrites
+/// `"1 1/2"` as `1.5` and `"1/4"` as `0.25` — silently re-spelling a form
+/// CONTRIBUTING.md explicitly invites contributors to use.
+#[derive(Debug, Clone)]
+pub struct CorpusAmount {
+    pub measure: Measure,
+    /// The `value` token exactly as written, when authored as a string.
+    value_token: Option<String>,
+    /// The `upper_value` token exactly as written, when authored as a string.
+    upper_token: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for CorpusAmount {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        // Capture the raw JSON first so the authored spelling survives, then let
+        // `Measure`'s own deserializer do the exact-rational work (and reject a
+        // quoted decimal, which it must keep doing).
+        let raw = serde_json::Value::deserialize(d)?;
+        let token = |key: &str| {
+            raw.get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        };
+        let value_token = token("value");
+        let upper_token = token("upper_value");
+        let measure = Measure::deserialize(raw).map_err(serde::de::Error::custom)?;
+        Ok(CorpusAmount {
+            measure,
+            value_token,
+            upper_token,
+        })
+    }
+}
+
 /// One labeled corpus row: an ingredient line and the parse it must produce.
 ///
 /// `xfail` documents a known gap — the labels describe the parse we *want*, and
@@ -56,7 +97,7 @@ pub struct CorpusRow {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
-    pub amounts: Vec<Measure>,
+    pub amounts: Vec<CorpusAmount>,
     #[serde(default)]
     pub modifier: Option<String>,
     #[serde(default)]
@@ -68,6 +109,14 @@ pub struct CorpusRow {
     /// When set, documents a known parser gap; the string explains it.
     #[serde(default)]
     pub xfail: Option<String>,
+}
+
+impl CorpusRow {
+    /// The labeled amounts as plain measures — what scoring compares against a
+    /// parse. Drops the authored spelling, which only the viewer wants.
+    pub fn measures(&self) -> Vec<Measure> {
+        self.amounts.iter().map(|a| a.measure.clone()).collect()
+    }
 }
 
 /// A line that did not deserialize, kept rather than dropped so a caller can
@@ -298,8 +347,8 @@ pub fn score(row: &CorpusRow) -> Scored {
         ),
         diff(
             LabeledField::Amounts,
-            got.amounts == row.amounts,
-            format!("[{}]", render_parsed(&row.amounts)),
+            got.amounts == row.measures(),
+            format!("[{}]", render_parsed(&row.measures())),
             format!("[{}]", render_parsed(&got.amounts)),
         ),
         diff(
@@ -446,15 +495,24 @@ pub(crate) fn render_parsed(amounts: &[Measure]) -> String {
 /// they differ four ways — range punctuation, fraction glyphs, unit
 /// denormalization (`30 tsp` → `⅝ cup`) and pluralization. See the
 /// `divergent_lenses` test, which pins both sides.
-pub fn render_authored(amounts: &[Measure]) -> String {
+pub fn render_authored(amounts: &[CorpusAmount]) -> String {
     amounts
         .iter()
-        .map(|m| {
+        .map(|a| {
+            let m = &a.measure;
             let unit = m.unit().to_str();
-            let value = authored_value(m.value_as_fraction_str(), m.value());
+            let value = authored_value(
+                a.value_token.clone().or_else(|| m.value_as_fraction_str()),
+                m.value(),
+            );
             let qty = match m.upper_value() {
                 Some(upper) => {
-                    let upper = authored_value(m.upper_value_as_fraction_str(), upper);
+                    let upper = authored_value(
+                        a.upper_token
+                            .clone()
+                            .or_else(|| m.upper_value_as_fraction_str()),
+                        upper,
+                    );
                     format!("{value}–{upper}")
                 }
                 None => value,
@@ -469,9 +527,9 @@ pub fn render_authored(amounts: &[Measure]) -> String {
         .join(", ")
 }
 
-/// One authored value: the exact fraction string when the rational is
-/// non-terminating (`"2/3"`), else the number exactly as `f64`'s `Display`
-/// writes it — `2` not `2.0`, but `0.125` in full.
+/// One authored value: the token the file spelled if it spelled one, else the
+/// exact fraction string for a non-terminating rational, else the number
+/// exactly as `f64`'s `Display` writes it — `2` not `2.0`, but `0.125` in full.
 ///
 /// Deliberately NOT [`ingredient::util::num_without_zeroes`], which rounds to
 /// two decimals: that is a *display* helper, and using it here silently
@@ -490,6 +548,10 @@ mod tests {
     use super::*;
 
     fn measures(json: &str) -> Vec<Measure> {
+        authored(json).iter().map(|a| a.measure.clone()).collect()
+    }
+
+    fn authored(json: &str) -> Vec<CorpusAmount> {
         serde_json::from_str(json).unwrap()
     }
 
@@ -505,23 +567,72 @@ mod tests {
     /// every row whose unit denormalizes.
     #[test]
     fn divergent_lenses() {
-        let range = measures(r#"[{"unit":"cup","value":2,"upper_value":3}]"#);
-        assert_eq!(render_authored(&range), "2–3 cup"); // EN DASH, literal unit
+        let range_json = r#"[{"unit":"cup","value":2,"upper_value":3}]"#;
+        let (range, authored_range) = (measures(range_json), authored(range_json));
+        assert_eq!(render_authored(&authored_range), "2–3 cup"); // EN DASH, literal unit
         assert_eq!(render_parsed(&range), "2 - 3 cups"); // ASCII, pluralized
 
-        let frac = measures(r#"[{"unit":"cup","value":"2/3"}]"#);
-        assert_eq!(render_authored(&frac), "2/3 cup"); // ASCII fraction
+        let frac_json = r#"[{"unit":"cup","value":"2/3"}]"#;
+        let (frac, authored_frac) = (measures(frac_json), authored(frac_json));
+        assert_eq!(render_authored(&authored_frac), "2/3 cup"); // ASCII fraction
         assert_eq!(render_parsed(&frac), "⅔ cup"); // vulgar glyph
 
         // corpus.jsonl authors teaspoons; Display denormalizes them into cups.
-        let tsp30 = measures(r#"[{"unit":"tsp","value":30}]"#);
-        assert_eq!(render_authored(&tsp30), "30 tsp");
+        let tsp30_json = r#"[{"unit":"tsp","value":30}]"#;
+        let (tsp30, authored_tsp30) = (measures(tsp30_json), authored(tsp30_json));
+        assert_eq!(render_authored(&authored_tsp30), "30 tsp");
         assert_eq!(render_parsed(&tsp30), "⅝ cup");
 
         // A bare count agrees — by design, not by coincidence.
-        let whole = measures(r#"[{"unit":"whole","value":2}]"#);
-        assert_eq!(render_authored(&whole), "2");
+        let whole_json = r#"[{"unit":"whole","value":2}]"#;
+        let (whole, authored_whole) = (measures(whole_json), authored(whole_json));
+        assert_eq!(render_authored(&authored_whole), "2");
         assert_eq!(render_parsed(&whole), "2");
+    }
+
+    /// The viewer must show a row's amounts EXACTLY as the file spells them.
+    ///
+    /// Every form CONTRIBUTING.md invites (`"2/3"`, `"1/3"`, the mixed `"1 1/2"`,
+    /// and a plain number) has to survive the round trip. The mixed and
+    /// terminating string forms are the ones that regressed when this lens moved
+    /// off `serde_json::Value`: deserialization erases the spelling, and
+    /// `value_as_fraction_str` declines for terminating rationals, so `"1 1/2"`
+    /// rendered as `1.5` and `"1/4"` as `0.25`. Today's corpus authors only
+    /// non-terminating strings, which is why nothing caught it.
+    #[test]
+    fn authored_spelling_survives_every_documented_form() {
+        for (json, want) in [
+            // non-terminating strings — these already worked
+            (r#"[{"unit":"cup","value":"2/3"}]"#, "2/3 cup"),
+            (r#"[{"unit":"cup","value":"1/3"}]"#, "1/3 cup"),
+            // mixed number — CONTRIBUTING.md:70-74 explicitly invites this
+            (r#"[{"unit":"cup","value":"1 1/2"}]"#, "1 1/2 cup"),
+            // terminating fraction strings
+            (r#"[{"unit":"cup","value":"3/2"}]"#, "3/2 cup"),
+            (r#"[{"unit":"cup","value":"1/4"}]"#, "1/4 cup"),
+            // plain numbers keep rendering as numbers
+            (r#"[{"unit":"cup","value":1.5}]"#, "1.5 cup"),
+            (r#"[{"unit":"cup","value":2}]"#, "2 cup"),
+            (r#"[{"unit":"cup","value":0.125}]"#, "0.125 cup"),
+            // an authored range, both bounds
+            (
+                r#"[{"unit":"cup","value":"1 1/2","upper_value":"1/4"}]"#,
+                "1 1/2–1/4 cup",
+            ),
+        ] {
+            assert_eq!(render_authored(&authored(json)), want, "for {json}");
+        }
+    }
+
+    /// Retaining the token must not weaken the exactness contract: the parsed
+    /// side still compares as rationals, and a quoted decimal is still rejected.
+    #[test]
+    fn authored_token_does_not_affect_the_measure() {
+        let mixed = authored(r#"[{"unit":"cup","value":"1 1/2"}]"#);
+        let plain = authored(r#"[{"unit":"cup","value":1.5}]"#);
+        assert_eq!(mixed[0].measure, plain[0].measure);
+        // …but they still show differently, which is the whole point.
+        assert_ne!(render_authored(&mixed), render_authored(&plain));
     }
 
     /// Characterization snapshot over every real corpus row that has amounts.
