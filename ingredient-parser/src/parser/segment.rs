@@ -524,6 +524,21 @@ impl IngredientParser {
         &self,
         source: &'a str,
         clauses: &[Clause<'_>],
+        amounts: Vec<Measure>,
+        mp: &MeasurementParser<'_>,
+    ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
+        let mut parsed = self.assemble_unrepaired(source, clauses, amounts, mp)?;
+        self.run_assembly_repairs(&mut parsed);
+        Ok(parsed)
+    }
+
+    /// The assembly proper, before [`ASSEMBLY_REPAIRS`] run. Split out so the
+    /// order-constraint tests can replay the repairs over the same starting IR
+    /// in a different order.
+    fn assemble_unrepaired<'a>(
+        &self,
+        source: &'a str,
+        clauses: &[Clause<'_>],
         mut amounts: Vec<Measure>,
         mp: &MeasurementParser<'_>,
     ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
@@ -563,37 +578,55 @@ impl IngredientParser {
                 .map(|r| ModifierPart::Raw(source[r].to_string()))
                 .collect()
         };
-        let mut parsed = ParsedIngredient {
+        let parsed = ParsedIngredient {
             name: name.to_string(),
             amounts,
             modifier,
             optional: false,
         };
-        self.run_assembly_repairs(&mut parsed);
         Ok(parsed)
     }
 
     /// Run the ordered clause-structure repairs on the freshly assembled IR
-    /// (see [`ASSEMBLY_REPAIRS`]). Mirrors `run_refine_pass`'s
-    /// trace-on-change so `--explain` shows which repairs fired.
+    /// (see [`ASSEMBLY_REPAIRS`]). Mirrors `run_refine_pass`'s trace-on-change
+    /// so `--explain` shows which repairs fired.
     fn run_assembly_repairs(&self, parsed: &mut ParsedIngredient) {
-        for (label, repair) in ASSEMBLY_REPAIRS {
-            if !crate::trace::is_tracing_enabled() {
-                repair(self, parsed);
-                continue;
-            }
-            let before = parsed.clone();
-            repair(self, parsed);
-            crate::trace::trace_on_change(
-                label,
-                &before.name,
-                &format!(
-                    "{} | {}",
-                    parsed.name,
-                    parsed.modifier_string().as_deref().unwrap_or("-")
-                ),
-                *parsed != before,
-            );
+        for repair in ASSEMBLY_REPAIRS {
+            self.run_assembly_repair(repair, parsed);
+        }
+    }
+
+    fn run_assembly_repair(&self, repair: &AssemblyRepair, parsed: &mut ParsedIngredient) {
+        let AssemblyRepair { run, .. } = *repair;
+        if !crate::trace::is_tracing_enabled() {
+            run(self, parsed);
+            return;
+        }
+        let before = parsed.clone();
+        run(self, parsed);
+        crate::trace::trace_on_change(
+            repair.id().as_str(),
+            &before.name,
+            &format!(
+                "{} | {}",
+                parsed.name,
+                parsed.modifier_string().as_deref().unwrap_or("-")
+            ),
+            *parsed != before,
+        );
+    }
+
+    /// Run the repairs in an arbitrary caller-supplied order. Test-only:
+    /// [`REPAIR_ORDER_CONSTRAINTS`] uses this to run a witness once in declared
+    /// order and once with two repairs swapped, proving the edge matters.
+    #[cfg(test)]
+    pub(crate) fn run_assembly_repairs_with_order(
+        &self,
+        order: &[&AssemblyRepair],
+        parsed: &mut ParsedIngredient,
+    ) {
+        for repair in order {
+            self.run_assembly_repair(repair, parsed);
         }
     }
 
@@ -707,47 +740,116 @@ fn paren_kind_label(kind: ParenKind) -> &'static str {
     }
 }
 
-/// A clause-structure repair applied at assembly time.
+/// A clause-structure repair applied at assembly time. Identical signature to
+/// [`refine::Pass`](crate::parser::refine) — the two stages run the same shape
+/// of function, so they share `define_stage_pipeline!`.
 type Repair = fn(&IngredientParser, &mut ParsedIngredient);
 
-/// The ordered clause-structure repairs the segmentation stage owns — the
-/// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`. The
-/// functions still live in `refine::{recover, alternatives, amounts}` (their
-/// guards and unit tests are unchanged); only the caller moved: they now run
-/// once at assembly, before the name-internal refine passes, in the same
-/// relative order they held in the old pipeline.
-const ASSEMBLY_REPAIRS: &[(&str, Repair)] = &[
+crate::define_stage_pipeline! {
+    /// The ordered clause-structure repairs the segmentation stage owns — the
+    /// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`. The
+    /// functions still live in `refine::{recover, alternatives, amounts}` (their
+    /// guards and unit tests are unchanged); only the caller moved: they now run
+    /// once at assembly, before the name-internal refine passes, in the same
+    /// relative order they held in the old pipeline.
+    ///
+    /// That order is load-bearing — see [`REPAIR_ORDER_CONSTRAINTS`].
+    pub(crate) enum RepairId,
+    pub(crate) struct AssemblyRepair,
+    pub(crate) const ASSEMBLY_REPAIRS: &[AssemblyRepair],
+    type Repair = Repair,
+    trace: pub(crate) REPAIR_TRACE_NAMES,
     (
+        FixLeadingPrepPhrase,
         "fix_leading_prep_phrase",
-        IngredientParser::fix_leading_prep_phrase,
+        IngredientParser::fix_leading_prep_phrase
     ),
     (
+        FixLeadingMinusClause,
         "fix_leading_minus_clause",
-        IngredientParser::fix_leading_minus_clause,
+        IngredientParser::fix_leading_minus_clause
     ),
     (
+        RecoverHeadNounFromModifier,
         "recover_head_noun_from_modifier",
-        IngredientParser::recover_head_noun_from_modifier,
+        IngredientParser::recover_head_noun_from_modifier
     ),
     (
+        RecoverParentheticalAliasFromModifier,
         "recover_parenthetical_alias_from_modifier",
-        IngredientParser::recover_parenthetical_alias_from_modifier,
+        IngredientParser::recover_parenthetical_alias_from_modifier
     ),
     (
+        RecoverSharedHeadFromAlternatives,
         "recover_shared_head_from_alternatives",
-        IngredientParser::recover_shared_head_from_alternatives,
+        IngredientParser::recover_shared_head_from_alternatives
     ),
     (
+        ExtractSecondaryAmountsFromModifier,
         "extract_secondary_amounts_from_modifier",
-        IngredientParser::extract_secondary_amounts_from_modifier,
+        IngredientParser::extract_secondary_amounts_from_modifier
     ),
+}
+
+/// A load-bearing ordering edge in [`ASSEMBLY_REPAIRS`]: `before` must run
+/// before `after`, for the reason given, and `witness` is a line that proves
+/// it — it assembles correctly in declared order and differently (wrong) when
+/// the two are swapped. Mirrors `refine::OrderConstraint`; exists only for the
+/// tests below.
+#[cfg(test)]
+pub(crate) struct RepairOrderConstraint {
+    pub before: RepairId,
+    pub after: RepairId,
+    pub reason: &'static str,
+    pub witness: &'static str,
+}
+
+/// The ordering edges assembly actually depends on.
+///
+/// Derived by brute force rather than by reasoning: every pair of repairs was
+/// swapped over all 412 corpus lines, and exactly three pairs changed a result
+/// — all three of them "the secondary-amount hoist runs last". The relative
+/// order of the first five repairs is *not* load-bearing on today's corpus, so
+/// it is deliberately not asserted here; claiming edges that no input exercises
+/// is the dead documentation `repair_constraints_are_load_bearing` exists to
+/// reject.
+#[cfg(test)]
+pub(crate) const REPAIR_ORDER_CONSTRAINTS: &[RepairOrderConstraint] = &[
+    RepairOrderConstraint {
+        before: RepairId::FixLeadingPrepPhrase,
+        after: RepairId::ExtractSecondaryAmountsFromModifier,
+        reason: "the leading-prep fix rotates the clause structure the \
+                 secondary-amount hoist then reads; hoisting first consumes the \
+                 parenthetical out from under it",
+        witness: SECONDARY_LAST_WITNESS,
+    },
+    RepairOrderConstraint {
+        before: RepairId::FixLeadingMinusClause,
+        after: RepairId::ExtractSecondaryAmountsFromModifier,
+        reason: "same shape as the leading-prep edge: the minus-clause fix must \
+                 settle the modifier parts before an amount is lifted out of them",
+        witness: SECONDARY_LAST_WITNESS,
+    },
+    RepairOrderConstraint {
+        before: RepairId::RecoverHeadNounFromModifier,
+        after: RepairId::ExtractSecondaryAmountsFromModifier,
+        reason: "recover the head noun out of modifier[0] before the hoist \
+                 consumes a measurement parenthetical from the same slot, or the \
+                 head noun is stranded behind an amount",
+        witness: SECONDARY_LAST_WITNESS,
+    },
 ];
 
-/// Every label the `segment` stage can emit in a trace — the clause-kind
-/// decisions (classifier order) followed by the assembly repairs — the
-/// stage's label universe for tooling (mirrors the per-stage `*_TRACE_NAMES`
-/// slices).
-pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &[
+/// The one corpus line that distinguishes every load-bearing repair edge: a
+/// prep-chain-led name with a trailing "such as" prose clause AND a trailing
+/// count parenthetical, so the head-noun recovery and the amount hoist compete
+/// for the same modifier slot.
+#[cfg(test)]
+const SECONDARY_LAST_WITNESS: &str = "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano (2 to 4)";
+
+/// Clause-kind labels, in classifier order. Mirrors [`ClauseKind::as_str`];
+/// `clause_kind_labels_are_exhaustive` pins the two together.
+const CLAUSE_KIND_TRACE_NAMES: &[&str] = &[
     "prep_chain",
     "known_prep_phrase",
     "minus_measure",
@@ -756,13 +858,29 @@ pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &[
     "parenthetical",
     "prose",
     "head_candidate",
-    "fix_leading_prep_phrase",
-    "fix_leading_minus_clause",
-    "recover_head_noun_from_modifier",
-    "recover_parenthetical_alias_from_modifier",
-    "recover_shared_head_from_alternatives",
-    "extract_secondary_amounts_from_modifier",
 ];
+
+/// Every label the `segment` stage can emit in a trace — the clause-kind
+/// decisions followed by the assembly repairs — the stage's label universe for
+/// tooling (mirrors the per-stage `*_TRACE_NAMES` slices).
+///
+/// The repair half is generated from [`ASSEMBLY_REPAIRS`] by the stage macro,
+/// so adding a repair cannot silently drop it from `--explain`; that half used
+/// to be hand-copied here.
+pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &{
+    let mut out = [""; CLAUSE_KIND_TRACE_NAMES.len() + REPAIR_TRACE_NAMES.len()];
+    let mut i = 0;
+    while i < CLAUSE_KIND_TRACE_NAMES.len() {
+        out[i] = CLAUSE_KIND_TRACE_NAMES[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < REPAIR_TRACE_NAMES.len() {
+        out[CLAUSE_KIND_TRACE_NAMES.len() + j] = REPAIR_TRACE_NAMES[j];
+        j += 1;
+    }
+    out
+};
 
 /// Split the modifier tail (everything from byte `from` on) into one byte range
 /// per *cleanly separable* `", "`-separated clause. The lowering contract is
@@ -826,6 +944,148 @@ fn tail_part_ranges(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<Ra
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+
+    // --- Assembly-repair ordering contract -----------------------------------
+    //
+    // The same guarantees `REFINE_PIPELINE` has had all along. These repairs
+    // moved out of that pipeline at the cutover and arrived as a bare tuple
+    // slice, losing the id enum, the uniqueness check, the order constraints
+    // and the idempotency table on the way — while remaining the stage where
+    // ordering matters most, since two of the six mutate `modifier[0]`.
+
+    #[test]
+    fn assembly_repair_ids_are_unique() {
+        crate::assert_stage_pipeline!(ASSEMBLY_REPAIRS);
+    }
+
+    fn repair_index(id: RepairId) -> usize {
+        ASSEMBLY_REPAIRS
+            .iter()
+            .position(|r| r.id() == id)
+            .expect("ASSEMBLY_REPAIRS missing expected repair")
+    }
+
+    /// Every declared edge holds positionally.
+    #[test]
+    fn declared_repair_order_matches_pipeline() {
+        for c in REPAIR_ORDER_CONSTRAINTS {
+            assert!(
+                repair_index(c.before) < repair_index(c.after),
+                "{:?} must run before {:?}: {}",
+                c.before,
+                c.after,
+                c.reason
+            );
+        }
+    }
+
+    /// The pre-repair IR for a witness line: segment it, then assemble without
+    /// running the repairs, so a test can replay them in any order.
+    fn unrepaired(parser: &IngredientParser, line: &str) -> ParsedIngredient {
+        let mp = MeasurementParser::new(&parser.units, MeasurementMode::IngredientList);
+        let (rest, (primary, _, bracketed, _)) = (
+            opt(|a| mp.parse_measurement_list(a)),
+            space0,
+            opt(|a| mp.parse_bracketed_amounts(a)),
+            space0,
+        )
+            .parse(line)
+            .expect("witness should parse its leading amounts");
+        let amounts: Vec<Measure> = [primary, bracketed]
+            .into_iter()
+            .flatten()
+            .flatten()
+            .collect();
+        let clauses = parser.segmenter().segment(rest);
+        parser
+            .assemble_unrepaired(rest, &clauses, amounts, &mp)
+            .expect("witness should assemble")
+    }
+
+    /// Each edge must be *load-bearing*: running its witness with the two
+    /// repairs swapped produces a different IR. An edge whose swap changes
+    /// nothing is dead documentation and fails here, naming itself.
+    #[test]
+    fn repair_constraints_are_load_bearing() {
+        let parser = IngredientParser::new();
+        for c in REPAIR_ORDER_CONSTRAINTS {
+            let base = unrepaired(&parser, c.witness);
+
+            let declared: Vec<&AssemblyRepair> = ASSEMBLY_REPAIRS.iter().collect();
+            let mut in_order = base.clone();
+            parser.run_assembly_repairs_with_order(&declared, &mut in_order);
+
+            let mut swapped_repairs = declared.clone();
+            swapped_repairs.swap(repair_index(c.before), repair_index(c.after));
+            let mut swapped = base.clone();
+            parser.run_assembly_repairs_with_order(&swapped_repairs, &mut swapped);
+
+            assert_ne!(
+                in_order, swapped,
+                "constraint {:?} < {:?} is NOT load-bearing for witness {:?}: \
+                 swapping the two repairs did not change the result, so the edge \
+                 is dead documentation. reason on file: {}",
+                c.before, c.after, c.witness, c.reason
+            );
+        }
+    }
+
+    /// Running the repairs a second time on their own output must change
+    /// nothing. This is the invariant the load-bearing order rests on: a repair
+    /// that isn't a fixpoint would silently corrupt results the moment a later
+    /// edit reorders the table.
+    #[rstest]
+    #[case::plain("2 cups flour")]
+    #[case::simple_modifier("1 cup flour, sifted")]
+    #[case::multi_clause("1 cup flour, sifted, divided")]
+    #[case::leading_prep_phrase("grated zest of 1 lemon")]
+    #[case::paren_alias("1 cup gochujang (Korean chile paste)")]
+    #[case::secondary_amount("1 stick butter (8 tablespoons)")]
+    #[case::shared_head("canola, vegetable, or melted coconut oil")]
+    #[case::head_behind_prep(
+        "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano"
+    )]
+    #[case::minus_clause("2 cups flour, minus 1 tablespoon")]
+    fn assembly_repairs_are_idempotent(#[case] line: &str) {
+        let parser = IngredientParser::new();
+        let mut once = unrepaired(&parser, line);
+        parser.run_assembly_repairs(&mut once);
+        let mut twice = once.clone();
+        parser.run_assembly_repairs(&mut twice);
+        assert_eq!(
+            once, twice,
+            "assembly repairs are not idempotent for {line:?}"
+        );
+    }
+
+    /// The clause-kind half of the trace-label universe must cover every
+    /// `ClauseKind`. The repair half is macro-generated, so only this half can
+    /// drift.
+    #[test]
+    fn clause_kind_labels_are_exhaustive() {
+        let kinds = [
+            ClauseKind::PrepChain,
+            ClauseKind::KnownPrepPhrase,
+            ClauseKind::MinusMeasure,
+            ClauseKind::Purpose,
+            ClauseKind::Alternative,
+            ClauseKind::Parenthetical(ParenKind::Alias),
+            ClauseKind::Prose,
+            ClauseKind::HeadCandidate,
+        ];
+        let labels: Vec<&str> = kinds.iter().map(|k| k.as_str()).collect();
+        assert_eq!(labels, CLAUSE_KIND_TRACE_NAMES);
+        // And the assembled universe is exactly the two halves, in order.
+        assert_eq!(
+            SEGMENT_TRACE_NAMES.len(),
+            CLAUSE_KIND_TRACE_NAMES.len() + REPAIR_TRACE_NAMES.len()
+        );
+        assert_eq!(
+            &SEGMENT_TRACE_NAMES[CLAUSE_KIND_TRACE_NAMES.len()..],
+            REPAIR_TRACE_NAMES
+        );
+    }
+
     use rstest::rstest;
 
     fn parser() -> IngredientParser {
