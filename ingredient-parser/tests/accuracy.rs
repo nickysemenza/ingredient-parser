@@ -26,7 +26,7 @@
 #![allow(clippy::panic)]
 
 use ingredient::{IngredientParser, SegmentationMode, from_str};
-use ingredient_corpus::{CorpusRow, render_parsed as fmt_amounts};
+use ingredient_corpus::{CorpusRow, Status, Tally};
 
 /// Every well-formed row. A malformed line fails the suite loudly here — the
 /// ratchet is meaningless if a row can go missing by typo. Other consumers of
@@ -52,77 +52,41 @@ fn load() -> Vec<CorpusRow> {
 #[test]
 fn accuracy_corpus() {
     let rows = load();
-    let total = rows.len();
-    assert!(total > 0, "corpus is empty");
+    assert!(!rows.is_empty(), "corpus is empty");
 
-    let (mut name_ok, mut amt_ok, mut mod_ok, mut opt_ok, mut use_ok, mut exact) =
-        (0, 0, 0, 0, 0, 0);
-    let mut known_gaps = 0usize;
+    let mut tally = Tally::default();
     let mut regressions: Vec<(&str, Vec<String>)> = Vec::new();
     let mut promotable: Vec<&str> = Vec::new();
 
     for row in &rows {
-        let got = from_str(&row.input);
-        let (n, a, m, o, u) = (
-            got.name == row.name,
-            got.amounts == row.amounts,
-            got.modifier == row.modifier,
-            got.optional == row.optional,
-            got.usage == row.usage,
-        );
-        name_ok += n as usize;
-        amt_ok += a as usize;
-        mod_ok += m as usize;
-        opt_ok += o as usize;
-        use_ok += u as usize;
+        let scored = ingredient_corpus::score(row);
+        tally.add(&scored);
 
-        if n && a && m && o && u {
-            exact += 1;
-            if row.xfail.is_some() {
-                promotable.push(&row.input);
-            }
-            continue;
-        }
-
-        let mut diff = Vec::new();
-        if !n {
-            diff.push(format!("name: got {:?}, want {:?}", got.name, row.name));
-        }
-        if !a {
-            diff.push(format!(
-                "amounts: got [{}], want [{}]",
-                fmt_amounts(&got.amounts),
-                fmt_amounts(&row.amounts)
-            ));
-        }
-        if !m {
-            diff.push(format!(
-                "modifier: got {:?}, want {:?}",
-                got.modifier, row.modifier
-            ));
-        }
-        if !o {
-            diff.push(format!(
-                "optional: got {}, want {}",
-                got.optional, row.optional
-            ));
-        }
-        if !u {
-            diff.push(format!("usage: got {:?}, want {:?}", got.usage, row.usage));
-        }
-
-        if row.xfail.is_some() {
-            known_gaps += 1;
-        } else {
-            regressions.push((&row.input, diff));
+        match scored.status {
+            Status::Promote => promotable.push(&row.input),
+            Status::Regression => regressions.push((
+                &row.input,
+                scored
+                    .mismatches()
+                    .map(|d| format!("{}: got {}, want {}", d.field.as_str(), d.got, d.want))
+                    .collect(),
+            )),
+            Status::Exact | Status::Xfail => {}
         }
     }
 
+    let total = tally.total;
+    let [name_ok, amt_ok, mod_ok, opt_ok, use_ok] = tally.per_field;
+    // `matched()`, NOT `tally.exact`: a passing xfail row is a match, and this
+    // line has always counted it. With zero xfail rows in the corpus the two
+    // are equal, so reading the wrong one would move the headline number
+    // silently — see `matched_counts_promoted_rows` in ingredient-corpus.
+    let matched = tally.matched();
     let pct = |n: usize| 100.0 * n as f64 / total as f64;
     eprintln!("\n========== Parser accuracy corpus ==========");
     eprintln!("rows:           {total}");
-    eprintln!("exact matches:  {exact} ({:.1}%)", pct(exact));
-    eprintln!("known gaps:     {known_gaps} (xfail)");
+    eprintln!("exact matches:  {matched} ({:.1}%)", pct(matched));
+    eprintln!("known gaps:     {} (xfail)", tally.xfail);
     eprintln!(
         "per-field:      name {name_ok}/{total}  amounts {amt_ok}/{total}  modifier {mod_ok}/{total}  optional {opt_ok}/{total}  usage {use_ok}/{total}"
     );

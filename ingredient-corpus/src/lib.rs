@@ -24,7 +24,7 @@
 //!
 //! [`Rational64`]: https://docs.rs/num-rational/latest/num_rational/type.Rational64.html
 
-use ingredient::{IngredientUsage, unit::Measure};
+use ingredient::{Ingredient, IngredientUsage, unit::Measure};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use std::path::Path;
@@ -218,6 +218,201 @@ pub fn read(path: &Path) -> std::io::Result<Corpus<CorpusRow>> {
     Ok(parse(&std::fs::read_to_string(path)?))
 }
 
+/// How one corpus row scored.
+///
+/// `xfail` NEVER changes how fields are compared — only how a mismatch is
+/// named. `Exact`/`Regression` are committed rows; `Promote`/`Xfail` are xfail
+/// rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    /// Committed row, all five fields agreed.
+    Exact,
+    /// Committed row, something disagreed. The only status that fails CI.
+    Regression,
+    /// xfail row, still failing — the gap it documents is still open.
+    Xfail,
+    /// xfail row that now passes; the marker can be removed.
+    Promote,
+}
+
+impl Status {
+    /// All five fields agreed, xfail or not.
+    pub fn is_match(self) -> bool {
+        matches!(self, Status::Exact | Status::Promote)
+    }
+
+    /// The only thing that should fail a build.
+    pub fn is_regression(self) -> bool {
+        matches!(self, Status::Regression)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Status::Exact => "EXACT",
+            Status::Regression => "REGRESSION",
+            Status::Xfail => "XFAIL",
+            Status::Promote => "PROMOTE",
+        }
+    }
+}
+
+/// The five fields a corpus row labels, in corpus order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabeledField {
+    Name,
+    Amounts,
+    Modifier,
+    Optional,
+    Usage,
+}
+
+impl LabeledField {
+    pub const ALL: [LabeledField; 5] = [
+        LabeledField::Name,
+        LabeledField::Amounts,
+        LabeledField::Modifier,
+        LabeledField::Optional,
+        LabeledField::Usage,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LabeledField::Name => "name",
+            LabeledField::Amounts => "amounts",
+            LabeledField::Modifier => "modifier",
+            LabeledField::Optional => "optional",
+            LabeledField::Usage => "usage",
+        }
+    }
+}
+
+/// One field's expected-vs-actual comparison, pre-rendered for reporting.
+#[derive(Debug, Clone)]
+pub struct FieldDiff {
+    pub field: LabeledField,
+    pub ok: bool,
+    pub want: String,
+    pub got: String,
+}
+
+/// A scored row: its label, the parse it produced, and the per-field diff.
+/// `got` is retained so a detail view costs nothing extra.
+#[derive(Debug, Clone)]
+pub struct Scored<'a> {
+    pub row: &'a CorpusRow,
+    pub got: Ingredient,
+    pub status: Status,
+    pub fields: [FieldDiff; 5],
+}
+
+impl Scored<'_> {
+    /// Only the fields that disagreed, in corpus order.
+    pub fn mismatches(&self) -> impl Iterator<Item = &FieldDiff> {
+        self.fields.iter().filter(|d| !d.ok)
+    }
+}
+
+/// Score a row against `ingredient::from_str` — what every consumer does today.
+pub fn score(row: &CorpusRow) -> Scored<'_> {
+    score_with(row, ingredient::from_str(&row.input))
+}
+
+/// Score a row against a parse you already have — a traced parse, or one from a
+/// custom-configured parser.
+pub fn score_with(row: &CorpusRow, got: Ingredient) -> Scored<'_> {
+    let diff = |field: LabeledField, ok: bool, want: String, got: String| FieldDiff {
+        field,
+        ok,
+        want,
+        got,
+    };
+    let fields = [
+        diff(
+            LabeledField::Name,
+            got.name == row.name,
+            format!("{:?}", row.name),
+            format!("{:?}", got.name),
+        ),
+        diff(
+            LabeledField::Amounts,
+            got.amounts == row.amounts,
+            format!("[{}]", render_parsed(&row.amounts)),
+            format!("[{}]", render_parsed(&got.amounts)),
+        ),
+        diff(
+            LabeledField::Modifier,
+            got.modifier == row.modifier,
+            format!("{:?}", row.modifier),
+            format!("{:?}", got.modifier),
+        ),
+        diff(
+            LabeledField::Optional,
+            got.optional == row.optional,
+            row.optional.to_string(),
+            got.optional.to_string(),
+        ),
+        diff(
+            LabeledField::Usage,
+            got.usage == row.usage,
+            format!("{:?}", row.usage),
+            format!("{:?}", got.usage),
+        ),
+    ];
+
+    let all_ok = fields.iter().all(|d| d.ok);
+    let status = match (all_ok, row.xfail.is_some()) {
+        (true, false) => Status::Exact,
+        (true, true) => Status::Promote,
+        (false, false) => Status::Regression,
+        (false, true) => Status::Xfail,
+    };
+
+    Scored {
+        row,
+        got,
+        status,
+        fields,
+    }
+}
+
+/// Running counts over a scored corpus.
+#[derive(Debug, Clone, Default)]
+pub struct Tally {
+    pub total: usize,
+    pub exact: usize,
+    pub regression: usize,
+    pub xfail: usize,
+    pub promote: usize,
+    /// Per-field match counts, in [`LabeledField::ALL`] order.
+    pub per_field: [usize; 5],
+}
+
+impl Tally {
+    pub fn add(&mut self, scored: &Scored<'_>) {
+        self.total += 1;
+        match scored.status {
+            Status::Exact => self.exact += 1,
+            Status::Regression => self.regression += 1,
+            Status::Xfail => self.xfail += 1,
+            Status::Promote => self.promote += 1,
+        }
+        for (slot, diff) in self.per_field.iter_mut().zip(&scored.fields) {
+            *slot += diff.ok as usize;
+        }
+    }
+
+    /// Rows where all five fields agreed — `exact + promote`, NOT `exact`.
+    ///
+    /// This is the headline "exact matches" number, and the distinction is a
+    /// live footgun: a passing xfail row is a *match* even though its status is
+    /// `Promote`. With zero xfail rows in the corpus today the two are equal, so
+    /// getting it wrong would move the project's north-star metric silently and
+    /// no test would notice. Hence this method rather than reading `.exact`.
+    pub fn matched(&self) -> usize {
+        self.exact + self.promote
+    }
+}
+
 /// The rich-text corpus: instruction prose and the chunk sequence the
 /// highlighter must produce for it.
 ///
@@ -385,6 +580,71 @@ mod tests {
             .map(|(line_no, r)| format!("{line_no}\t{}\t{}", r.input, render_authored(&r.amounts)))
             .collect();
         insta::assert_snapshot!(lines.join("\n"));
+    }
+
+    fn row(json: &str) -> CorpusRow {
+        serde_json::from_str(json).unwrap()
+    }
+
+    /// The four status arms. Only `Exact` and `Regression` are reachable from
+    /// the real corpus (it has zero xfail rows), so `Xfail` and `Promote` would
+    /// rot without these — and they are exactly the pair the headline count
+    /// depends on. Ported from food-app, which had the only copy.
+    #[test]
+    fn status_arms() {
+        let committed =
+            r#"{"input":"2 cups flour","name":"flour","amounts":[{"unit":"cup","value":2}]}"#;
+        assert_eq!(score(&row(committed)).status, Status::Exact);
+
+        let wrong =
+            r#"{"input":"2 cups flour","name":"WRONG","amounts":[{"unit":"cup","value":2}]}"#;
+        assert_eq!(score(&row(wrong)).status, Status::Regression);
+
+        let xfail_failing = r#"{"input":"2 cups flour","name":"WRONG","xfail":"gap"}"#;
+        assert_eq!(score(&row(xfail_failing)).status, Status::Xfail);
+
+        let xfail_passing = r#"{"input":"2 cups flour","name":"flour","amounts":[{"unit":"cup","value":2}],"xfail":"gap"}"#;
+        assert_eq!(score(&row(xfail_passing)).status, Status::Promote);
+    }
+
+    /// `xfail` reclassifies; it must never change which fields compare equal.
+    #[test]
+    fn xfail_does_not_change_field_comparison() {
+        let without =
+            r#"{"input":"2 cups flour","name":"WRONG","amounts":[{"unit":"cup","value":2}]}"#;
+        let with = r#"{"input":"2 cups flour","name":"WRONG","amounts":[{"unit":"cup","value":2}],"xfail":"gap"}"#;
+        let (without, with) = (row(without), row(with));
+        let a = score(&without);
+        let b = score(&with);
+        let oks_a: Vec<bool> = a.fields.iter().map(|d| d.ok).collect();
+        let oks_b: Vec<bool> = b.fields.iter().map(|d| d.ok).collect();
+        assert_eq!(oks_a, oks_b);
+        assert_ne!(a.status, b.status);
+    }
+
+    /// The headline count is `exact + promote`, not `exact`. A passing xfail row
+    /// is a match. Nothing in the real corpus exercises this today, which is
+    /// precisely why it needs a test.
+    #[test]
+    fn matched_counts_promoted_rows() {
+        let exact =
+            row(r#"{"input":"2 cups flour","name":"flour","amounts":[{"unit":"cup","value":2}]}"#);
+        let promote = row(
+            r#"{"input":"1 teaspoon salt","name":"salt","amounts":[{"unit":"tsp","value":1}],"xfail":"gap"}"#,
+        );
+        let regression = row(r#"{"input":"2 cups flour","name":"WRONG"}"#);
+
+        let mut tally = Tally::default();
+        for r in [&exact, &promote, &regression] {
+            tally.add(&score(r));
+        }
+
+        assert_eq!(tally.total, 3);
+        assert_eq!(tally.exact, 1);
+        assert_eq!(tally.promote, 1);
+        assert_eq!(tally.regression, 1);
+        assert_eq!(tally.matched(), 2, "a passing xfail row is still a match");
+        assert_ne!(tally.matched(), tally.exact);
     }
 
     /// Line handling: comments and blanks dropped, `// --- Name ---` headers

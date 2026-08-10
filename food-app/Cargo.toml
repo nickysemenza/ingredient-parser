@@ -21,6 +21,7 @@ image = { version = "0.25.1", default-features = false, features = ["jpeg", "png
 poll-promise = "0.3"
 recipe-scraper.workspace = true
 ingredient.workspace = true
+ingredient-corpus.workspace = true # corpus schema, loader, and scoring — shared with tests/accuracy.rs
 serde.workspace = true
 serde_json.workspace = true
 egui_ltreeview = "0.8"
