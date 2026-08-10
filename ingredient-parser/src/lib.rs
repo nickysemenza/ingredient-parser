@@ -610,3 +610,60 @@ impl IngredientParser {
         }
     }
 }
+
+#[cfg(test)]
+mod review_reason_tests {
+    use super::*;
+
+    /// The review policy had only a doctest, which `cargo llvm-cov` does not
+    /// count — so the whole `ReviewReason` surface reported as untested. It is
+    /// the single definition of "needs review" for four surfaces, so it gets
+    /// real tests.
+    #[test]
+    fn clean_parse_has_no_review_reasons() {
+        assert!(
+            from_str("2 cups flour")
+                .parse_notes
+                .review_reasons()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn unparsed_digit_is_reported() {
+        let notes = from_str("mystery 5 xyz qqq").parse_notes;
+        assert!(notes.unparsed_digit);
+        assert_eq!(notes.review_reasons(), [ReviewReason::UnparsedDigit]);
+    }
+
+    /// Both flags set: the reasons come back in report order, fallback first.
+    #[test]
+    fn reasons_are_ordered_fallback_then_digit() {
+        let notes = ParseNotes {
+            confidence: Confidence::Low,
+            fell_back: true,
+            unparsed_digit: true,
+        };
+        assert_eq!(
+            notes.review_reasons(),
+            [ReviewReason::FellBack, ReviewReason::UnparsedDigit]
+        );
+    }
+
+    /// The tag is the stable machine key a caller branches on; the Display
+    /// string is what every surface shows. Both are part of the contract — four
+    /// surfaces used to author the sentence themselves.
+    #[test]
+    fn tag_and_message_are_the_published_pair() {
+        assert_eq!(ReviewReason::FellBack.tag(), "fell_back");
+        assert_eq!(ReviewReason::UnparsedDigit.tag(), "unparsed_digit");
+        assert_eq!(
+            ReviewReason::FellBack.to_string(),
+            "fell back to a name-only ingredient"
+        );
+        assert_eq!(
+            ReviewReason::UnparsedDigit.to_string(),
+            "contains a digit that produced no amount (likely missed quantity)"
+        );
+    }
+}

@@ -679,4 +679,82 @@ not valid json
             "a quoted decimal must be rejected, not silently reinterpreted"
         );
     }
+
+    /// `inputs`, `read` and `Status::label` are reached only from `food-cli` /
+    /// `food-app`, which the coverage job excludes; `LabeledField::as_str`,
+    /// `mismatches` and the `Xfail` tally arm are reached only when a row FAILS,
+    /// which a healthy corpus never does. All of them run in production — so
+    /// they get tests here rather than an exclusion.
+    #[test]
+    fn inputs_returns_the_lines_in_file_order() {
+        let corpus = parse(
+            "// --- s ---\n{\"input\":\"2 cups flour\"}\nnot json\n{\"input\":\"1 tsp salt\"}\n",
+        );
+        assert_eq!(corpus.inputs(), ["2 cups flour", "1 tsp salt"]);
+    }
+
+    #[test]
+    fn read_parses_a_file_from_disk() {
+        let path = std::env::temp_dir().join(format!(
+            "ingredient-corpus-read-{}.jsonl",
+            std::process::id()
+        ));
+        std::fs::write(&path, "{\"input\":\"2 cups flour\",\"name\":\"flour\"}\n").unwrap();
+        let corpus = read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(corpus.rows().count(), 1);
+        assert_eq!(corpus.inputs(), ["2 cups flour"]);
+        assert!(read(std::path::Path::new("/definitely/not/here.jsonl")).is_err());
+    }
+
+    #[test]
+    fn status_and_field_labels() {
+        assert_eq!(Status::Exact.label(), "EXACT");
+        assert_eq!(Status::Regression.label(), "REGRESSION");
+        assert_eq!(Status::Xfail.label(), "XFAIL");
+        assert_eq!(Status::Promote.label(), "PROMOTE");
+
+        let labels: Vec<&str> = [
+            LabeledField::Name,
+            LabeledField::Amounts,
+            LabeledField::Modifier,
+            LabeledField::Optional,
+            LabeledField::Usage,
+        ]
+        .iter()
+        .map(|f| f.as_str())
+        .collect();
+        assert_eq!(labels, ["name", "amounts", "modifier", "optional", "usage"]);
+    }
+
+    /// `mismatches` yields only the fields that disagreed, in corpus order —
+    /// the report line a regression prints.
+    #[test]
+    fn mismatches_lists_only_failing_fields() {
+        let clean =
+            row(r#"{"input":"2 cups flour","name":"flour","amounts":[{"unit":"cup","value":2}]}"#);
+        assert_eq!(score(&clean).mismatches().count(), 0);
+
+        let wrong = row(r#"{"input":"2 cups flour","name":"WRONG"}"#);
+        let scored = score(&wrong);
+        let failed: Vec<&str> = scored.mismatches().map(|d| d.field.as_str()).collect();
+        assert_eq!(failed, ["name", "amounts"]);
+        // The rendered sides are what the report prints verbatim.
+        let name_diff = scored.mismatches().next().unwrap();
+        assert_eq!(name_diff.want, "\"WRONG\"");
+        assert_eq!(name_diff.got, "\"flour\"");
+    }
+
+    /// The `Xfail` arm of the tally — unreachable from the real corpus, which
+    /// has no xfail rows.
+    #[test]
+    fn tally_counts_a_still_failing_xfail_row() {
+        let gap = row(r#"{"input":"2 cups flour","name":"WRONG","xfail":"known gap"}"#);
+        let mut tally = Tally::default();
+        tally.add(&score(&gap));
+        assert_eq!(tally.xfail, 1);
+        assert_eq!(tally.regression, 0);
+        assert_eq!(tally.matched(), 0);
+    }
 }

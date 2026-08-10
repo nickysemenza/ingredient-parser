@@ -197,7 +197,7 @@ mod tests {
     use nom_language::error::{VerboseError, VerboseErrorKind};
     use rstest::rstest;
 
-    use super::{VULGAR_FRACTIONS, fraction_number, glyph_for, v_frac_to_num};
+    use super::{VULGAR_FRACTIONS, VULGAR_TABLE, fraction_number, glyph_for, v_frac_to_num};
 
     // ============================================================================
     // Unicode Vulgar Fraction Character Tests
@@ -359,37 +359,52 @@ mod tests {
         );
     }
 
-    /// Every accepted glyph must render back as itself. This is the property
-    /// the old two-list arrangement failed: `⅐ ⅑ ⅒` parsed in and came out as
-    /// `0.14` / `0.11` / `0.1`, with every test still green because each list
-    /// was only ever checked against itself.
+    /// The two constants must describe the same glyph set. `VULGAR_FRACTIONS`
+    /// is what the regexes build their character class from; `VULGAR_TABLE` is
+    /// what parses and renders.
+    #[test]
+    fn vulgar_fractions_matches_the_table() {
+        let mut from_table: Vec<char> = VULGAR_TABLE.iter().map(|(c, _, _)| *c).collect();
+        let mut from_const: Vec<char> = VULGAR_FRACTIONS.chars().collect();
+        from_table.sort_unstable();
+        from_const.sort_unstable();
+        assert_eq!(from_table, from_const);
+    }
+
+    /// Every glyph must parse to its value and render back as itself, through
+    /// both `glyph_for` and the public formatter `Measure`'s `Display` uses.
+    ///
+    /// This is the property the old two-list arrangement failed: the renderer
+    /// listed 15 of the 18 accepted glyphs, so `⅐ ⅑ ⅒` parsed in and came out
+    /// as `0.14` / `0.11` / `0.1` — with every test green, because each list was
+    /// only ever checked against itself.
+    ///
+    /// Iterates the table rather than the string so there is no "glyph failed
+    /// to parse" branch to leave uncovered; `vulgar_fractions_matches_the_table`
+    /// above pins the two together.
     #[test]
     fn fraction_glyphs_round_trip() {
-        for glyph in VULGAR_FRACTIONS.chars() {
-            let Some(value) = v_frac_to_num(glyph) else {
-                unreachable!("VULGAR_FRACTIONS glyph {glyph} must parse")
-            };
+        for &(glyph, n, d) in VULGAR_TABLE {
+            let value = n as f64 / d as f64;
+            let as_string = glyph.to_string();
+            assert_eq!(v_frac_to_num(glyph), Some(value), "{glyph} parsed wrong");
             assert_eq!(
                 glyph_for(value, 1e-6),
-                Some(glyph.to_string().as_str()),
-                "{glyph} parses to {value} but does not render back as itself"
+                Some(as_string.as_str()),
+                "{glyph} did not render back as itself"
+            );
+            assert_eq!(
+                crate::util::format_quantity(value),
+                as_string,
+                "format_quantity lost {glyph}"
             );
         }
     }
 
-    /// And the round trip holds through the public formatter a `Measure`'s
-    /// `Display` actually uses — the surface where the gap was visible.
+    /// A value that is not a cooking fraction has no glyph.
     #[test]
-    fn every_glyph_survives_format_quantity() {
-        for glyph in VULGAR_FRACTIONS.chars() {
-            let Some(value) = v_frac_to_num(glyph) else {
-                unreachable!("VULGAR_FRACTIONS glyph {glyph} must parse")
-            };
-            assert_eq!(
-                crate::util::format_quantity(value),
-                glyph.to_string(),
-                "format_quantity lost {glyph}"
-            );
-        }
+    fn non_fraction_values_have_no_glyph() {
+        assert_eq!(glyph_for(0.123_456, 1e-6), None);
+        assert_eq!(glyph_for(0.0, 1e-6), None);
     }
 }
