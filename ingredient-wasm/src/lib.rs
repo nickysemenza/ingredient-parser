@@ -425,6 +425,19 @@ pub fn amount_kind(amount: WAmount) -> Result<WAmountKind, String> {
     to_js(&kind.to_str(), "amount kind").map(Into::into)
 }
 
+/// Scale an amount for a resized recipe.
+///
+/// Callers should reach for this rather than multiplying `value` themselves:
+/// the multiply happens on the exact rational inside `Measure`, so ⅔ cup at 3×
+/// comes back as `2`, not `1.9999999999999998`. Amounts whose kind does not
+/// scale — a pan dimension, an oven temperature, a resting time — are returned
+/// unchanged, so a caller can map this over every amount in a recipe without
+/// first deciding which ones are quantities.
+#[wasm_bindgen]
+pub fn scale_amount(amount: WAmount, factor: f64) -> WAmount {
+    amount.to_measure().scale(factor).into()
+}
+
 #[wasm_bindgen]
 pub fn is_valid_unit(unit: &str, extra_units: Vec<String>) -> bool {
     is_valid(&HashSet::from_iter(extra_units), unit)
@@ -531,6 +544,40 @@ pub fn parse_rich_text(text: &str, ingredient_names: Vec<String>) -> Result<Rich
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    fn amount(unit: &str, value: f64) -> WAmount {
+        WAmount {
+            unit: unit.to_string(),
+            value,
+            upper_value: None,
+        }
+    }
+
+    /// The exactness survives the boundary. Asserted as strict equality, not a
+    /// tolerance: the whole point of `scale_amount` is that JS stops seeing
+    /// `1.9999999999999998` for ⅔ × 3. (Contrast the conversion tests below,
+    /// which use a tolerance because conversion genuinely is approximate.)
+    #[test]
+    fn scale_amount_is_exact_across_the_boundary() {
+        let scaled = scale_amount(amount("cup", 2.0 / 3.0), 3.0);
+        assert_eq!(scaled.value, 2.0);
+        assert_eq!(scaled.unit, "cup");
+    }
+
+    /// The f64 round trip back through the boundary is lossless, so a scaled
+    /// amount re-enters `Measure` as the same exact rational it left as.
+    #[test]
+    fn scale_then_format_round_trips() {
+        let scaled = scale_amount(amount("cup", 2.0 / 3.0), 3.0);
+        assert_eq!(format_amount(scaled), "2 cups");
+    }
+
+    /// The pan does not resize when the recipe doubles — the bug this export
+    /// exists to make unrepresentable at the call site.
+    #[test]
+    fn scale_amount_leaves_dimensions_alone() {
+        assert_eq!(scale_amount(amount("\"", 9.0), 2.0).value, 9.0);
+    }
 
     /// The hand-authored `AmountKind` TS union must stay in lockstep with
     /// `MeasureKind::to_str()`. The parameterized kinds render as
