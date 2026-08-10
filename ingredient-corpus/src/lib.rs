@@ -218,6 +218,55 @@ pub fn read(path: &Path) -> std::io::Result<Corpus<CorpusRow>> {
     Ok(parse(&std::fs::read_to_string(path)?))
 }
 
+/// The rich-text corpus: instruction prose and the chunk sequence the
+/// highlighter must produce for it.
+///
+/// A different row shape and a different scoring rule (chunk-sequence equality,
+/// not per-field comparison), but the same file format — so it shares
+/// [`parse_as`] rather than becoming a sixth copy of the line handling.
+pub mod rich {
+    use ingredient::rich_text::Chunk;
+    use ingredient::unit::Measure;
+    use serde::Deserialize;
+
+    /// One expected chunk, disambiguated by its key: `{"text": …}`,
+    /// `{"measure": [...]}`, or `{"ing": …}`.
+    #[derive(Debug, Clone, Deserialize)]
+    #[serde(untagged)]
+    pub enum ExpectedChunk {
+        Measure { measure: Vec<Measure> },
+        Ing { ing: String },
+        Text { text: String },
+    }
+
+    impl From<ExpectedChunk> for Chunk {
+        fn from(e: ExpectedChunk) -> Self {
+            match e {
+                ExpectedChunk::Measure { measure } => Chunk::Measure(measure),
+                ExpectedChunk::Ing { ing } => Chunk::Ing(ing),
+                ExpectedChunk::Text { text } => Chunk::Text(text),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct RichRow {
+        pub input: String,
+        /// Ingredient names to highlight as `Ing` chunks (default: none).
+        #[serde(default)]
+        pub ingredients: Vec<String>,
+        pub chunks: Vec<ExpectedChunk>,
+        /// When set, documents a known gap: a mismatch is reported, not failed.
+        #[serde(default)]
+        pub xfail: Option<String>,
+    }
+
+    /// Parse rich-text corpus text.
+    pub fn parse(source: &str) -> super::Corpus<RichRow> {
+        super::parse_as(source)
+    }
+}
+
 /// Render amounts the way the PARSER prints them: `Measure`'s `Display`, which
 /// denormalizes units (`30 tsp` → `⅝ cup`), uses vulgar-fraction glyphs, spells
 /// ranges `X - Y`, and pluralizes unit words.
