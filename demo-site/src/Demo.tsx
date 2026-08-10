@@ -207,11 +207,10 @@ const CONFIDENCE_STYLES: Record<"high" | "medium" | "low", string> = {
 const ParseNotesBadges: React.FC<{
   notes: ReturnType<typeof wasm.parse_ingredient>["parse_notes"];
 }> = ({ notes }) => {
-  const reviewReasons = [
-    notes.fell_back && "Fell back to a name-only ingredient",
-    notes.unparsed_digit &&
-      "Contains a digit that produced no amount (likely missed quantity)",
-  ].filter(Boolean) as string[];
+  // The reasons and their wording come from the parser; this file decides only
+  // how they look. It used to hand-author the same English the CLI and the
+  // desktop app had each written separately.
+  const reviewReasons = notes.review_reasons.map((r) => r.message);
 
   return (
     <div className="mt-0.5 flex shrink-0 items-center gap-1.5">

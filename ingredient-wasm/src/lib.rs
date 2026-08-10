@@ -97,6 +97,21 @@ pub struct WParseNotes {
     pub fell_back: bool,
     /// A digit was present but no amount was parsed — a likely missed quantity.
     pub unparsed_digit: bool,
+    /// Why this parse is worth a human look, in report order; empty when it
+    /// isn't. Each entry is `{tag, message}` — branch on `tag`, show `message`.
+    ///
+    /// Carried across the boundary so a JS review queue reads the parser's
+    /// policy instead of re-deriving it from the booleans above, which is how
+    /// four surfaces ended up hand-authoring the same English.
+    pub review_reasons: Vec<WReviewReason>,
+}
+
+/// One reason a parse needs review: a stable machine tag plus its message.
+#[derive(Tsify, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct WReviewReason {
+    pub tag: String,
+    pub message: String,
 }
 
 impl From<&ingredient::ParseNotes> for WParseNotes {
@@ -105,6 +120,14 @@ impl From<&ingredient::ParseNotes> for WParseNotes {
             confidence: n.confidence,
             fell_back: n.fell_back,
             unparsed_digit: n.unparsed_digit,
+            review_reasons: n
+                .review_reasons()
+                .into_iter()
+                .map(|r| WReviewReason {
+                    tag: r.tag().to_string(),
+                    message: r.to_string(),
+                })
+                .collect(),
         }
     }
 }

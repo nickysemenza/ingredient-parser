@@ -308,7 +308,75 @@ pub struct ParseNotes {
     pub unparsed_digit: bool,
 }
 
+/// A reason a parse is worth a human look, in report order.
+///
+/// This exists because the *policy* — which flags mean "needs review", in what
+/// order, described how — was being decided independently by every surface that
+/// showed a parse (the CLI's `--explain`, its corpus-row emitter, the desktop
+/// app, and the web demo), which had each arrived at near-identical English by
+/// hand. The rule belongs with the parse that produced it; how it is coloured
+/// or ranked stays with each surface, since a terminal severity, an egui
+/// palette entry and a CSS class are not the same axis.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReviewReason {
+    /// No recognizer or core parse succeeded; the whole line became the name.
+    FellBack,
+    /// The line contains a digit that produced no amount — a likely missed
+    /// quantity, and the corpus-harvest signal.
+    UnparsedDigit,
+}
+
+impl ReviewReason {
+    /// A stable machine tag, for a caller that wants to branch rather than
+    /// print (the wasm boundary, a filter, a test).
+    pub fn tag(self) -> &'static str {
+        match self {
+            ReviewReason::FellBack => "fell_back",
+            ReviewReason::UnparsedDigit => "unparsed_digit",
+        }
+    }
+}
+
+impl std::fmt::Display for ReviewReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ReviewReason::FellBack => "fell back to a name-only ingredient",
+            ReviewReason::UnparsedDigit => {
+                "contains a digit that produced no amount (likely missed quantity)"
+            }
+        };
+        f.write_str(s)
+    }
+}
+
 impl ParseNotes {
+    /// Why this parse is worth a human look, in report order. Empty when it
+    /// isn't.
+    ///
+    /// Prefer this to reading the booleans: it is the single definition of
+    /// "needs review", and of how each reason reads.
+    ///
+    /// ```
+    /// use ingredient::{from_str, ReviewReason};
+    ///
+    /// assert!(from_str("2 cups flour").parse_notes.review_reasons().is_empty());
+    ///
+    /// let notes = from_str("3 whole large eggs beaten with a fork").parse_notes;
+    /// for reason in notes.review_reasons() {
+    ///     println!("{}: {reason}", reason.tag());
+    /// }
+    /// ```
+    pub fn review_reasons(&self) -> Vec<ReviewReason> {
+        let mut out = Vec::new();
+        if self.fell_back {
+            out.push(ReviewReason::FellBack);
+        }
+        if self.unparsed_digit {
+            out.push(ReviewReason::UnparsedDigit);
+        }
+        out
+    }
+
     /// Derive notes from the raw input line, the parsed result, and whether the
     /// parse fell back to name-only. Pure bookkeeping — no reparsing.
     pub(crate) fn derive(input: &str, ingredient: &Ingredient, fell_back: bool) -> Self {

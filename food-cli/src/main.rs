@@ -227,15 +227,11 @@ fn corpus_amount_json(m: &ingredient::unit::Measure) -> String {
 /// name-only row). Returns the row string, or `Err` describing why the parse is
 /// unfit to author (fell back, or low confidence) so the caller can refuse it.
 fn build_corpus_row(ip: &ingredient::IngredientParser, input: &str) -> Result<String, String> {
-    use ingredient::Confidence;
-
     let ing = ip.from_str(input);
-    let notes = ing.parse_notes;
-    if notes.fell_back {
-        return Err("parse fell back to a name-only ingredient".to_string());
-    }
-    if notes.confidence == Confidence::Low {
-        return Err("low-confidence parse (a digit produced no amount)".to_string());
+    // Refuse whatever the parser says needs review, rather than re-deriving the
+    // rule here — this used to test the same booleans in its own words.
+    if let Some(reason) = ing.parse_notes.review_reasons().first() {
+        return Err(reason.to_string());
     }
     if ing.name.trim().is_empty() {
         return Err("parse produced an empty name".to_string());
