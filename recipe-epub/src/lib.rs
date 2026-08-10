@@ -25,7 +25,7 @@ mod library;
 // response parsing (`parse_recipes_payload`), and assembly (`assemble_recipes`).
 pub use epub_text::chunk_epub;
 pub use extractor::{
-    CallResult, ChunkOutcome, ChunkRequest, DrivenChunk, ExtractedRecipe, MockExtractor,
+    CallResult, ChunkOutcome, ChunkRequest, DrivenChunk, ExtractedRecipe, MockExtractor, MockMatch,
     PARSE_RETRIES, RecipeExtractor, RecipeMeta, Usage, build_chunk_request, parse_recipes_payload,
     recipes_tool_schema, try_extract_chunk,
 };
@@ -322,16 +322,26 @@ pub(crate) fn assemble(
     for (chunk, recipes) in per_chunk {
         for r in recipes {
             let title = r.meta.title.trim().to_string();
+            if title.is_empty() {
+                continue;
+            }
+            let title_lower = title.to_lowercase();
+            let known = index.get(&title_lower).copied();
+            // An ingredient-less recipe is model noise — UNLESS it is the
+            // continuation of a title we already have. A hard chunk split leaves
+            // the ingredients in the head chunk, so the tail legitimately
+            // re-emits with instructions and notes only; dropping it here threw
+            // away exactly the "Do Ahead"/footnote text the title_hint mechanism
+            // exists to rescue.
             let has_ingredients = r.sections.iter().any(|s| !s.ingredients.is_empty());
-            if title.is_empty() || !has_ingredients {
+            if known.is_none() && !has_ingredients {
                 continue;
             }
             // The hero photo is whichever image in this chunk sits nearest the
             // recipe's title line (see `hero_for`); `None` for most recipes.
             let hero = hero_for(&chunk, &title);
-            let title_lower = title.to_lowercase();
-            match index.get(&title_lower) {
-                Some(&i) => merge_recipe(&mut out[i], r, hero),
+            match known {
+                Some(i) => merge_recipe(&mut out[i], r, hero),
                 None => {
                     index.insert(title_lower, out.len());
                     let mut meta = r.meta;

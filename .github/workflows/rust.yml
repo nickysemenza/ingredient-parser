@@ -43,6 +43,12 @@ jobs:
         run: cargo nextest run --workspace --profile ci
       - name: Run doctests
         run: cargo test -p ingredient --doc
+      # cubby's recipebridge builds recipe-epub with `default-features = false`
+      # and drives extraction in the browser (docs/adr/0001). Nothing in THIS
+      # repo calls that half, so only this check stops a `native`-only import
+      # from silently breaking a downstream with no version gate (ADR-0002).
+      - name: Check recipe-epub's pure (non-native) half still compiles
+        run: cargo check -p recipe-epub --no-default-features
   wasm-tests:
     name: wasm tests (headless)
     runs-on: ubuntu-latest

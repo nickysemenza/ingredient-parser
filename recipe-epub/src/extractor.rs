@@ -328,16 +328,51 @@ pub(crate) struct RecipesPayload {
     pub(crate) recipes: Vec<ExtractedRecipe>,
 }
 
-/// Deterministic test extractor: a chunk returns the recipes of every `needle`
-/// its text contains. Lets tests drive the whole pipeline with no network.
+/// What a [`MockExtractor`] rule matches on.
+#[derive(Debug, Clone)]
+pub enum MockMatch {
+    /// The chunk's text contains this needle.
+    Text(String),
+    /// The chunk carries this continuation [`Chunk::title_hint`].
+    ///
+    /// This is the half a mock could not see before: a real model is *asked*,
+    /// via the hint prefixed onto the request, to re-emit a recipe that a hard
+    /// chunk split cut in two, so `assemble` can merge the halves by title.
+    /// Without a rule form for it, the hint → re-emit → merge contract — three
+    /// modules, each with its own passing test, and the source of the dropped
+    /// and mis-attributed-note bugs — could not be driven offline at all.
+    TitleHint(String),
+}
+
+impl MockMatch {
+    fn matches(&self, chunk: &Chunk) -> bool {
+        match self {
+            MockMatch::Text(needle) => chunk.text.contains(needle.as_str()),
+            MockMatch::TitleHint(title) => chunk.title_hint.as_deref() == Some(title.as_str()),
+        }
+    }
+}
+
+/// Deterministic test extractor: a chunk returns the recipes of every rule it
+/// matches. Lets tests drive the whole pipeline with no network.
 pub struct MockExtractor {
-    rules: Vec<(String, Vec<ExtractedRecipe>)>,
+    rules: Vec<(MockMatch, Vec<ExtractedRecipe>)>,
 }
 
 impl MockExtractor {
-    /// `rules` is a list of `(needle, recipes)`; for a given chunk, the recipes
-    /// of every needle contained in `chunk.text` are returned (in rule order).
+    /// Text-matching rules: for a given chunk, the recipes of every needle
+    /// contained in `chunk.text` are returned (in rule order).
     pub fn new(rules: Vec<(String, Vec<ExtractedRecipe>)>) -> Self {
+        Self::with_rules(
+            rules
+                .into_iter()
+                .map(|(needle, recipes)| (MockMatch::Text(needle), recipes))
+                .collect(),
+        )
+    }
+
+    /// Rules that may match on text *or* on the continuation title hint.
+    pub fn with_rules(rules: Vec<(MockMatch, Vec<ExtractedRecipe>)>) -> Self {
         Self { rules }
     }
 }
@@ -345,8 +380,8 @@ impl MockExtractor {
 impl RecipeExtractor for MockExtractor {
     async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
         let mut out = Vec::new();
-        for (needle, recipes) in &self.rules {
-            if chunk.text.contains(needle.as_str()) {
+        for (rule, recipes) in &self.rules {
+            if rule.matches(chunk) {
                 out.extend(recipes.iter().cloned());
             }
         }
