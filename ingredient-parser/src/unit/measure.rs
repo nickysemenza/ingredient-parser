@@ -3,7 +3,7 @@ use crate::unit::{Unit, kind::MeasureKind};
 use crate::util::{format_quantity, num_without_zeroes};
 use crate::{IngredientError, IngredientResult};
 use num_rational::Rational64;
-use num_traits::{CheckedAdd, ToPrimitive};
+use num_traits::{CheckedAdd, CheckedMul, ToPrimitive};
 use serde::{Deserialize, Serialize, de::Deserializer, ser::Serializer};
 use std::fmt;
 use std::str::FromStr;
@@ -39,7 +39,11 @@ fn to_rational(value: f64) -> Rational64 {
 /// `value <= upper_value`; swap so that invariant always holds. The upper-bound
 /// -only form `(0.0, Some(upper))` ("up to 5") is already ordered, so it is left
 /// untouched.
-fn ordered_bounds(value: f64, upper_value: Option<f64>) -> (f64, Option<f64>) {
+///
+/// Generic over the bound type so [`Measure::scale`] can re-order exact
+/// `Rational64` bounds without a lossy trip through `f64`; the constructors
+/// still call it with `f64`.
+fn ordered_bounds<T: PartialOrd + Copy>(value: T, upper_value: Option<T>) -> (T, Option<T>) {
     match upper_value {
         Some(upper) if upper < value => (upper, Some(value)),
         other => (value, other),
@@ -525,6 +529,63 @@ impl Measure {
             },
         })
     }
+    /// Scale this measure by `factor`, keeping the value exact.
+    ///
+    /// This is recipe scaling: `⅓ cup × 3` is exactly `1 cup`, not
+    /// `0.9999999999999998`. The multiply happens on the stored [`Rational64`],
+    /// so there is no `f64` round trip — which is why scaling belongs here
+    /// rather than at each caller.
+    ///
+    /// Measures whose kind is not scalable — length, time, temperature, money,
+    /// calories, nutrients (see [`MeasureKind::is_scalable`]) — come back
+    /// unchanged: doubling a recipe leaves a 9-inch pan at 9 inches. A
+    /// non-finite `factor` is likewise a no-op, since [`to_rational`] would
+    /// clamp it and silently turn "2 cups" into `i64::MAX` cups.
+    ///
+    /// Both bounds of a range scale, and the low→high invariant holds even
+    /// under a negative factor.
+    ///
+    /// Exact for any result representable as `i64/i64`; beyond that the
+    /// operation degrades to `f64` precision rather than wrapping or panicking,
+    /// matching [`Measure::add`].
+    ///
+    /// # Example
+    /// ```
+    /// use ingredient::unit::Measure;
+    /// let third = Measure::new("cup", 1.0 / 3.0);
+    /// assert_eq!(third.scale(3.0).to_string(), "1 cup");
+    ///
+    /// // A dimension is not a quantity, so it does not scale.
+    /// let pan = Measure::new("inch", 9.0);
+    /// assert_eq!(pan.scale(2.0), pan);
+    /// ```
+    pub fn scale(&self, factor: f64) -> Measure {
+        if !factor.is_finite() || factor == 1.0 || !self.kind().is_scalable() {
+            return self.clone();
+        }
+
+        let f = to_rational(factor);
+        // Same overflow policy as `add`: `num_rational`'s `*` panics (debug) /
+        // wraps (release), and a wrapped quantity is worse than an imprecise
+        // one. `checked_mul` gcd-reduces the cross terms before multiplying, so
+        // this fallback is only reachable for values already derived from f64
+        // noise (see `MAX_COOKING_DENOM`).
+        let mul = |a: Rational64| -> Rational64 {
+            a.checked_mul(&f)
+                .unwrap_or_else(|| to_rational(to_f64(a) * factor))
+        };
+
+        // Deliberately NOT `normalize()`: it would re-unit `1 cup × 2` as
+        // `96 tsp`, and it round-trips through f64, discarding the exactness
+        // this method exists to provide.
+        let (value, upper_value) = ordered_bounds(mul(self.value), self.upper_value.map(mul));
+        Measure {
+            unit: self.unit.clone(),
+            value,
+            upper_value,
+        }
+    }
+
     /// Create a new measure from a unit string and value
     ///
     /// # Arguments
@@ -1151,5 +1212,148 @@ mod tests {
 
         let no_upper = Measure::new("cup", 2.0 / 3.0);
         assert_eq!(no_upper.upper_value_as_fraction_str(), None);
+    }
+
+    // ============================================================================
+    // Scaling: exact rational multiply, non-scalable kinds pass through
+    // ============================================================================
+
+    /// Scaling a cooking fraction lands on the exact rational, not an f64
+    /// neighbour. These assert on the private `value` field deliberately: the
+    /// public `value()` returns f64, where `1.9999999999999998` and `2.0` both
+    /// pass an `assert_eq!(…, 2.0)` only by luck of rounding — the whole point
+    /// of `scale` is that the denominator collapses.
+    #[rstest]
+    #[case::two_thirds_tripled(2.0 / 3.0, 3.0, Rational64::from_integer(2))]
+    #[case::one_third_tripled(1.0 / 3.0, 3.0, Rational64::from_integer(1))]
+    #[case::one_third_doubled(1.0 / 3.0, 2.0, Rational64::new(2, 3))]
+    #[case::half_tripled(0.5, 3.0, Rational64::new(3, 2))]
+    #[case::halved(1.0, 0.5, Rational64::new(1, 2))]
+    fn scale_is_exact_for_cooking_fractions(
+        #[case] value: f64,
+        #[case] factor: f64,
+        #[case] expected: Rational64,
+    ) {
+        assert_eq!(Measure::new("cup", value).scale(factor).value, expected);
+    }
+
+    /// A factor computed by a single division (`target / original`, which is what
+    /// a scale-to-yield UI produces) recovers exactly through
+    /// `approximate_float`. Pins the reason `scale` takes an `f64` factor rather
+    /// than a rational or a newtype.
+    #[rstest]
+    #[case::seven_thirds(3.0, 7.0 / 3.0, Rational64::from_integer(7))]
+    #[case::four_thirds(3.0, 8.0 / 6.0, Rational64::from_integer(4))]
+    fn scale_factor_recovers_simple_ratio(
+        #[case] value: f64,
+        #[case] factor: f64,
+        #[case] expected: Rational64,
+    ) {
+        assert_eq!(Measure::new("cup", value).scale(factor).value, expected);
+    }
+
+    /// Scale up then back down is the identity. This is the assertion an
+    /// f64-based scale cannot pass, and the shortest statement of what exact
+    /// rational multiplication buys.
+    #[test]
+    fn scale_round_trip_is_identity() {
+        let m = Measure::new("cup", 1.0 / 3.0);
+        assert_eq!(m.scale(3.0).scale(1.0 / 3.0), m);
+    }
+
+    /// `1.0` is a no-op and `0.0` zeroes the value without disturbing the unit.
+    #[test]
+    fn scale_identity_and_zero() {
+        let m = Measure::new("cup", 2.0 / 3.0);
+        assert_eq!(m.scale(1.0), m);
+
+        let zeroed = m.scale(0.0);
+        assert_eq!(zeroed.value, Rational64::from_integer(0));
+        assert_eq!(zeroed.unit(), &Unit::Cup);
+    }
+
+    /// A non-finite factor returns the measure untouched. Without the guard
+    /// `to_rational` would clamp infinity to `i64::MAX` and silently turn
+    /// "2 cups" into an astronomical quantity.
+    #[rstest]
+    #[case(f64::NAN)]
+    #[case(f64::INFINITY)]
+    #[case(f64::NEG_INFINITY)]
+    fn scale_non_finite_is_identity(#[case] factor: f64) {
+        let m = Measure::new("cup", 2.0);
+        assert_eq!(m.scale(factor), m);
+    }
+
+    /// Both bounds of a range scale — scaling one and not the other would make
+    /// "2-3 cups" doubled read as "4-3 cups".
+    #[test]
+    fn scale_scales_both_range_bounds() {
+        let scaled = Measure::with_range("g", 100.0, 120.0).scale(0.5);
+        assert_eq!(scaled.value, Rational64::from_integer(50));
+        assert_eq!(scaled.upper_value, Some(Rational64::from_integer(60)));
+    }
+
+    /// The upper-bound-only form ("up to 5 cups") keeps its shape: `0` stays
+    /// `0`, the bound scales.
+    #[test]
+    fn scale_upper_only_range() {
+        let scaled = Measure::new_with_upper(Unit::Cup, 0.0, Some(5.0)).scale(2.0);
+        assert_eq!(scaled.value, Rational64::from_integer(0));
+        assert_eq!(scaled.upper_value, Some(Rational64::from_integer(10)));
+    }
+
+    /// A negative factor inverts the bounds, so `scale` re-orders them — the
+    /// crate-wide `value <= upper_value` invariant must survive.
+    #[test]
+    fn scale_keeps_bounds_ordered() {
+        let scaled = Measure::with_range("g", 100.0, 120.0).scale(-1.0);
+        assert!(
+            scaled.value <= scaled.upper_value.unwrap(),
+            "bounds inverted: {scaled:?}"
+        );
+    }
+
+    /// Scaling must not re-unit. If `scale` ever called `normalize()`, this
+    /// would read "96 tsp" instead of "2 cups".
+    #[test]
+    fn scale_preserves_unit() {
+        let scaled = Measure::new("cup", 1.0).scale(2.0);
+        assert_eq!(scaled.unit(), &Unit::Cup);
+        assert_eq!(scaled.to_string(), "2 cups");
+    }
+
+    /// Overflow falls back to f64 rather than panicking or wrapping, matching
+    /// `add`'s policy. The "never panics" contract outranks exactness here.
+    #[test]
+    fn scale_overflow_falls_back_to_f64() {
+        let huge = Measure::new("g", 1e17);
+        let scaled = huge.scale(1e17);
+        assert!(to_f64(scaled.value).is_finite());
+        assert!(to_f64(scaled.value) > 0.0);
+    }
+
+    /// The kinds that do not scale come back byte-identical, and the ones that
+    /// do actually move. Doubling a recipe must not resize the pan, reheat the
+    /// oven, or lengthen the rest — but it must double the flour, and a bare
+    /// count (`Unit::Whole` → `other:whole`) counts as a quantity.
+    #[rstest]
+    #[case::inch("\"", false)]
+    #[case::fahrenheit("°F", false)]
+    #[case::minute("minute", false)]
+    #[case::calories("kcal", false)]
+    #[case::money("$", false)]
+    #[case::gram("g", true)]
+    #[case::cup("cup", true)]
+    #[case::custom_unit("clove", true)]
+    #[case::bare_count("whole", true)]
+    fn scale_respects_kind(#[case] unit: &str, #[case] expect_scaled: bool) {
+        let m = Measure::new(unit, 9.0);
+        let scaled = m.scale(2.0);
+        if expect_scaled {
+            assert_ne!(scaled, m, "{unit} should have scaled");
+            assert_eq!(scaled.value, Rational64::from_integer(18));
+        } else {
+            assert_eq!(scaled, m, "{unit} must not scale");
+        }
     }
 }

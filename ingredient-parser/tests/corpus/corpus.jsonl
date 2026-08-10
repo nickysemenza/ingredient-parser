@@ -276,6 +276,7 @@
 {"input": "One 10-ounce disk Pie Dough", "name": "Pie Dough", "amounts": [{"unit": "disk", "value": 1.0}, {"unit": "oz", "value": 10.0}]}
 {"input": "One 8-ounce package cream cheese, room temperature", "name": "cream cheese", "amounts": [{"unit": "package", "value": 1.0}, {"unit": "oz", "value": 8.0}], "modifier": "room temperature"}
 {"input": "1 (8-ounce) ball burrata", "name": "burrata", "amounts": [{"unit": "ball", "value": 1.0}, {"unit": "oz", "value": 8.0}]}
+{"input": "1 (9-inch) pie crust", "name": "pie crust", "amounts": [{"unit": "whole", "value": 1}, {"unit": "\"", "value": 9}]}
 {"input": "1 (11-ounce) box Nilla wafers or graham crackers", "name": "Nilla wafers", "amounts": [{"unit": "box", "value": 1.0}, {"unit": "oz", "value": 11.0}], "modifier": "or graham crackers"}
 {"input": "2-inch piece ginger", "name": "ginger", "amounts": [{"unit": "\"", "value": 2.0}, {"unit": "piece", "value": 1.0}]}
 {"input": "3-inch cinnamon stick", "name": "cinnamon stick", "amounts": [{"unit": "\"", "value": 3.0}]}

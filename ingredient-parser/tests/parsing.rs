@@ -6,7 +6,7 @@ use ingredient::{
     IngredientParser, from_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
-    unit::{Measure, MeasureKind},
+    unit::{Measure, MeasureKind, Unit},
 };
 use rstest::{fixture, rstest};
 
@@ -510,10 +510,49 @@ fn test_rich_text_dimension_is_non_scalable() {
         })
         .unwrap();
     assert_eq!(inch.value(), 2.0);
-    assert!(
-        !inch.kind().is_scalable(),
+    // Assert the guarantee, not the mechanism: scaling is what callers do, and
+    // `is_scalable` is the rule `Measure::scale` enforces on their behalf.
+    assert_eq!(
+        inch.scale(2.0),
+        *inch,
         "dimensions must not scale with the recipe"
     );
+}
+
+/// The regression this API exists for. `"1 (9-inch) pie crust"` parses to *two*
+/// amounts — a bare count and a Length — and a consumer that multiplies both
+/// (as the downstream TypeScript did) turns a doubled recipe into an 18-inch
+/// pie crust. Both halves matter: the dimension must hold still AND the count
+/// must move, since the bug is "the wrong one scaled", not "nothing scaled".
+#[test]
+fn pie_crust_dimension_is_not_scaled() {
+    let parsed = from_str("1 (9-inch) pie crust");
+
+    // The (9-inch) parenthetical must surface as a Length amount.
+    let dimension = parsed
+        .amounts
+        .iter()
+        .find(|m| m.kind() == MeasureKind::Length)
+        .unwrap();
+    assert_eq!(dimension.value(), 9.0);
+    assert_eq!(dimension.scale(2.0).value(), 9.0, "the pan did not resize");
+
+    let count = parsed
+        .amounts
+        .iter()
+        .find(|m| *m.unit() == Unit::Whole)
+        .unwrap();
+    assert_eq!(count.value(), 1.0);
+    assert_eq!(
+        count.scale(2.0).value(),
+        2.0,
+        "the count should have doubled"
+    );
+
+    // And the whole-ingredient sweep does both at once.
+    let doubled = parsed.scale(2.0);
+    assert_eq!(doubled.amounts.len(), parsed.amounts.len());
+    assert!(doubled.amounts.contains(dimension), "dimension changed");
 }
 
 // ============================================================================
