@@ -186,9 +186,6 @@ use std::sync::LazyLock;
 
 pub use crate::error::{IngredientError, IngredientResult};
 pub use crate::ingredient::Ingredient;
-// Crate-internal migration switch; public only for the food-cli shadow harness.
-#[doc(hidden)]
-pub use crate::parser::segment::SegmentationMode;
 pub use crate::usage::{IngredientUsage, classify_usage};
 use parser::{MeasurementMode, MeasurementParser};
 use unit::Measure;
@@ -395,10 +392,8 @@ pub struct IngredientParser {
     units: HashSet<String>,
     /// Set of recognized adjectives that get moved to modifier field
     adjectives: HashSet<String>,
-    /// Which post-amount pipeline to run (crate-internal migration switch;
-    /// defaults to [`SegmentationMode::Segmented`]).
-    segmentation: SegmentationMode,
 }
+
 impl IngredientParser {
     /// Create a new ingredient parser with default units and adjectives
     ///
@@ -434,19 +429,7 @@ impl IngredientParser {
             .map(|&s| s.to_string())
             .collect();
 
-        IngredientParser {
-            units,
-            adjectives,
-            segmentation: SegmentationMode::default(),
-        }
-    }
-
-    /// Select the post-amount pipeline (chainable). Hidden: a migration-time
-    /// switch for the shadow A/B harness, not a supported public API.
-    #[doc(hidden)]
-    pub fn with_segmentation_mode(mut self, mode: SegmentationMode) -> Self {
-        self.segmentation = mode;
-        self
+        IngredientParser { units, adjectives }
     }
 
     /// Add custom units to the parser (chainable)

@@ -7,14 +7,8 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-use ingredient::{IngredientParser, SegmentationMode, from_str};
+use ingredient::from_str;
 use proptest::prelude::*;
-
-/// A parser on the legacy carve-then-repair path (`from_str` is the segmented
-/// default since the cutover).
-fn legacy_parser() -> IngredientParser {
-    IngredientParser::new().with_segmentation_mode(SegmentationMode::Legacy)
-}
 
 // Generate arbitrary text strings
 prop_compose! {
@@ -121,19 +115,18 @@ proptest! {
         let _formatted = format!("{ingredient}");
     }
 
-    /// Both parse paths stay panic-free and structurally valid on arbitrary
-    /// (multibyte) input. (During the shadow migration this asserted exact
-    /// equality; since the cutover deleted the legacy repair passes, the two
-    /// modes legitimately diverge on repair-shaped lines — the corpus ratchet
-    /// now pins the segmented default's accuracy.)
+    /// Parsing stays panic-free and structurally valid on arbitrary (multibyte)
+    /// input. This once ran both the legacy and segmented paths and asserted
+    /// exact equality; the cutover ended that parity and the legacy path is now
+    /// gone, so accuracy is pinned by the corpus ratchet and this property
+    /// covers only robustness.
     #[test]
-    fn both_paths_robust_on_unicode(input in arb_unicode_input()) {
-        for ing in [from_str(&input), legacy_parser().from_str(&input)] {
-            if let Some(modifier) = &ing.modifier {
-                prop_assert!(!modifier.is_empty());
-            }
-            let _display = format!("{ing}");
+    fn parse_robust_on_unicode(input in arb_unicode_input()) {
+        let ing = from_str(&input);
+        if let Some(modifier) = &ing.modifier {
+            prop_assert!(!modifier.is_empty());
         }
+        let _display = format!("{ing}");
     }
 
     /// Same robustness over *vocabulary-triggering* lines: random sentences
@@ -142,13 +135,12 @@ proptest! {
     /// parentheticals, amounts). The character-level fuzz above can't reach
     /// these code paths. Also pins the never-empty-name funnel invariant.
     #[test]
-    fn both_paths_robust_on_vocab_lines(input in arb_vocab_line()) {
-        for ing in [from_str(&input), legacy_parser().from_str(&input)] {
-            if let Some(modifier) = &ing.modifier {
-                prop_assert!(!modifier.is_empty());
-            }
-            let _display = format!("{ing}");
+    fn parse_robust_on_vocab_lines(input in arb_vocab_line()) {
+        let ing = from_str(&input);
+        if let Some(modifier) = &ing.modifier {
+            prop_assert!(!modifier.is_empty());
         }
+        let _display = format!("{ing}");
     }
 }
 

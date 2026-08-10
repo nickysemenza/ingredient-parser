@@ -541,13 +541,13 @@ impl Measure {
     /// either way. Exactness matters for the things with no tolerance:
     /// `PartialEq`/`Hash` (so scaled measures dedup and compare), and
     /// [`value_as_fraction_str`](Self::value_as_fraction_str), which declines
-    /// past [`MAX_COOKING_DENOM`] and so decides whether a scaled value can be
+    /// past a cooking-fraction denominator cap and so decides whether a scaled value can be
     /// authored back into the corpus as a clean fraction.
     ///
     /// Measures whose kind is not scalable — length, time, temperature, money,
     /// calories, nutrients (see [`MeasureKind::is_scalable`]) — come back
     /// unchanged: doubling a recipe leaves a 9-inch pan at 9 inches. A
-    /// non-finite `factor` is likewise a no-op, since [`to_rational`] would
+    /// non-finite `factor` is likewise a no-op, since the f64→rational conversion would
     /// clamp it and silently turn "2 cups" into `i64::MAX` cups.
     ///
     /// Both bounds of a range scale, and the low→high invariant holds even

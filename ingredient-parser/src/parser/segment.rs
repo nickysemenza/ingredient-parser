@@ -20,9 +20,6 @@
 //! Splitting and classification are pure over the source text; byte ranges into
 //! the source are preserved on every clause, and the decomposition view's
 //! field spans derive from them ([`IngredientParser::segmented_field_spans`]).
-//!
-//! The legacy path survives behind [`SegmentationMode::Legacy`] purely as the
-//! `food-cli corpus shadow` A/B baseline.
 
 use std::ops::Range;
 
@@ -153,24 +150,6 @@ pub(crate) enum SoftBoundaryKind {
 pub(crate) struct SoftBoundary {
     pub at: usize,
     pub kind: SoftBoundaryKind,
-}
-
-/// Which post-amount pipeline [`IngredientParser`] runs.
-///
-/// Crate-internal migration switch (exposed `#[doc(hidden)]` so the food-cli
-/// shadow harness can construct a `Segmented` parser). `Legacy` is the
-/// grammar's carve-at-first-comma tail + the full repair-pass pipeline;
-/// `Segmented` is the clause-segmentation path in this module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SegmentationMode {
-    /// The historical path: grammar carves name/modifier at the first `", "`,
-    /// refine passes repair the damage. Kept as the A/B baseline for the
-    /// `corpus shadow` harness.
-    Legacy,
-    /// The clause-segmentation path (the default): amounts grammar +
-    /// [`Segmenter::segment`] + assembly, followed by the refine passes.
-    #[default]
-    Segmented,
 }
 
 /// The clause segmenter: borrows the parser's vocab sets so classification
@@ -991,11 +970,9 @@ mod tests {
 
     // ── segmented assembly (positive control) ───────────────────────────────
 
-    /// The segmented path must genuinely run the segmenter: a multi-clause
-    /// tail assembles into one modifier part per clause (the legacy grammar
-    /// captures a single raw string). This pins the assembled IR itself
-    /// (pre-refine), proving the mode plumbing exercises the segmenter rather
-    /// than silently reproducing the legacy carve.
+    /// The segmenter genuinely splits: a multi-clause tail assembles into one
+    /// modifier part per clause, not a single raw string. This pins the
+    /// assembled IR itself (pre-refine).
     #[test]
     fn assembly_splits_tail_into_clause_parts() {
         let p = IngredientParser::new();
@@ -1009,14 +986,6 @@ mod tests {
                 ModifierPart::Raw("sifted".to_string()),
                 ModifierPart::Raw("divided".to_string()),
             ]
-        );
-        // The legacy grammar captures the same tail as ONE raw part.
-        let (_, legacy) = p
-            .parse_ingredient("1 cup flour, sifted, divided")
-            .expect("legacy parse");
-        assert_eq!(
-            legacy.modifier,
-            vec![ModifierPart::Raw("sifted, divided".to_string())]
         );
     }
 
@@ -1174,8 +1143,7 @@ mod tests {
     #[case("(")]
     #[case("))((")]
     fn segmented_never_panics_or_strands_name(#[case] line: &str) {
-        let segmented =
-            IngredientParser::new().with_segmentation_mode(crate::SegmentationMode::Segmented);
+        let segmented = IngredientParser::new();
         let ing = segmented.from_str(line);
         let has_modifier = ing
             .modifier
