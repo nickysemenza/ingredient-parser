@@ -192,7 +192,7 @@ impl Ingredient {
 
     /// Scale every amount by `factor`, leaving everything else alone.
     ///
-    /// Amounts whose kind does not scale — a pan dimension, an oven
+    /// Measures whose kind does not scale — a pan's length, an oven
     /// temperature, a resting time — pass through untouched; see
     /// [`Measure::scale`], which owns that rule.
     ///

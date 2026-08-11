@@ -17,7 +17,7 @@ use crate::theme;
 use eframe::egui::{self, RichText};
 use egui_extras::{Column, TableBuilder};
 use ingredient::util::truncate_str;
-use ingredient_corpus::{CorpusRow, FieldDiff, Status};
+use ingredient_corpus::{CorpusRow, FieldDiff, Status, Tally};
 
 /// Default corpus path, relative to the workspace root (the app's cwd under
 /// `cargo run --bin food-app`). Editable in the tab's path field.
@@ -224,16 +224,13 @@ impl CorpusTab {
 
     /// Status counts + filter buttons.
     fn show_summary(&mut self, ui: &mut egui::Ui) {
-        let (mut exact, mut regr, mut xfail, mut promote) = (0, 0, 0, 0);
+        let mut tally = Tally::default();
         for r in &self.rows {
-            match r.status {
-                Status::Exact => exact += 1,
-                Status::Regression => regr += 1,
-                Status::Xfail => xfail += 1,
-                Status::Promote => promote += 1,
-            }
+            tally.count(r.status);
         }
-        let total = self.rows.len();
+        let (exact, regr, xfail, promote) =
+            (tally.exact, tally.regression, tally.xfail, tally.promote);
+        let total = tally.total;
 
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(format!("{total} rows")).strong());

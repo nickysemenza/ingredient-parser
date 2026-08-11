@@ -50,8 +50,8 @@ _Avoid_: warnings, errors, flags
 ### The pipeline
 
 **Stage**:
-One of the five ordered phases a line passes through: normalize, recognize, grammar,
-segment, refine.
+One of the five ordered parts of the pipeline a line passes through: normalize,
+recognize, grammar, segment, refine.
 _Avoid_: step, phase, layer
 
 **Clause**:

@@ -34,7 +34,7 @@ pub struct StageCoverage {
 /// Parse each row through the traced path and tally, per stage, how many rows
 /// each pass fired on. Pure over the input rows so it can be unit-tested without
 /// touching the filesystem.
-pub fn report_stages(rows: &[String]) -> StageCoverage {
+pub fn report_stages_over(rows: &[String]) -> StageCoverage {
     let parser = IngredientParser::new();
     let mut cov = StageCoverage {
         total_rows: rows.len(),
@@ -170,49 +170,30 @@ pub fn render_report(cov: &StageCoverage) -> String {
     out
 }
 
-/// Entry point for the `corpus lint` subcommand. Reads `corpus_path`; with
-/// `report_stages` prints the pass-coverage report, otherwise just validates
-/// rows and prints the count. Always exits 0 (report-only); a malformed corpus in
-/// sanity mode exits non-zero.
-pub fn run(corpus_path: &str, report_stages_flag: bool) {
-    let contents = match std::fs::read_to_string(corpus_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("failed to read {corpus_path}: {e}");
-            std::process::exit(1);
-        }
-    };
+/// What `corpus lint` found. Returned, not printed: the binary owns stdout and
+/// the exit code (see `lib.rs`).
+pub struct LintOutcome {
+    /// Text for stdout — the row count, or the full coverage report.
+    pub report: String,
+    /// Malformed rows. Fatal in sanity mode, a warning in report mode.
+    pub problems: Vec<String>,
+}
 
-    let corpus = ingredient_corpus::parse(&contents);
-    let errors: Vec<String> = corpus
+/// Lint an already-loaded corpus. With `report_stages`, build the pass-coverage
+/// report; otherwise just count the rows.
+pub fn lint(corpus: &ingredient_corpus::Corpus, report_stages: bool) -> LintOutcome {
+    let problems: Vec<String> = corpus
         .problems()
         .map(|(e, p)| format!("line {}: {}: {}", e.line_no, p.message, p.line))
         .collect();
 
-    if !report_stages_flag {
-        // Cheap sanity mode: report row count and fail loudly on malformed rows.
-        if errors.is_empty() {
-            println!("{} corpus row(s) parse as JSON", corpus.rows().count());
-        } else {
-            eprintln!("{} malformed corpus row(s):", errors.len());
-            for e in &errors {
-                eprintln!("  {e}");
-            }
-            std::process::exit(1);
-        }
-        return;
-    }
+    let report = if report_stages {
+        render_report(&report_stages_over(&corpus.inputs()))
+    } else {
+        format!("{} corpus row(s) parse as JSON\n", corpus.rows().count())
+    };
 
-    // Report mode tolerates malformed rows (skips them with a warning) so the
-    // coverage report is still useful mid-edit.
-    if !errors.is_empty() {
-        eprintln!(
-            "warning: skipping {} malformed corpus row(s) for the report",
-            errors.len()
-        );
-    }
-
-    print!("{}", render_report(&report_stages(&corpus.inputs())));
+    LintOutcome { report, problems }
 }
 
 #[cfg(test)]
@@ -229,7 +210,7 @@ mod tests {
             "(1 cup walnuts)".to_string(),
             "2 cups flour".to_string(),
         ];
-        let cov = report_stages(&rows);
+        let cov = report_stages_over(&rows);
         assert_eq!(cov.total_rows, 3);
         assert!(
             cov.refine
@@ -256,7 +237,7 @@ mod tests {
             "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano"
                 .to_string(),
         ];
-        let cov = report_stages(&rows);
+        let cov = report_stages_over(&rows);
         for (stage, counts) in [
             ("normalize", &cov.normalize),
             ("recognize", &cov.recognize),
@@ -291,7 +272,7 @@ mod tests {
     /// verb callable from somewhere other than `main`.
     #[test]
     fn render_report_covers_every_stage() {
-        let cov = report_stages(&["2 cups flour, sifted".to_string()]);
+        let cov = report_stages_over(&["2 cups flour, sifted".to_string()]);
         let report = render_report(&cov);
         assert!(report.contains("Pass-coverage report over 1 corpus row(s)"));
         for stage in ["normalize", "recognize", "segment", "refine"] {

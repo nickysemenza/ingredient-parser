@@ -294,6 +294,15 @@ fn null_paths(v: &serde_json::Value, path: &str, out: &mut Vec<String>) {
     }
 }
 
+/// Read a file or exit — the binary owns process termination, so library verbs
+/// never do.
+fn read_or_exit(path: &str) -> String {
+    std::fs::read_to_string(path).unwrap_or_else(|e| {
+        eprintln!("failed to read {path}: {e}");
+        std::process::exit(1);
+    })
+}
+
 #[tokio::main]
 async fn main() {
     // Surface the extractor's tracing (chunk skips, escalation, truncation) on
@@ -673,7 +682,25 @@ async fn main() {
             corpus,
             report_stages,
         }) => {
-            corpus_lint::run(corpus, *report_stages);
+            let contents = read_or_exit(corpus);
+            let outcome = corpus_lint::lint(&ingredient_corpus::parse(&contents), *report_stages);
+            if !outcome.problems.is_empty() {
+                // Sanity mode treats a malformed row as fatal; the report is
+                // still useful mid-edit, so there it is only a warning.
+                let label = if *report_stages {
+                    "warning: skipping"
+                } else {
+                    "malformed"
+                };
+                eprintln!("{label} {} corpus row(s):", outcome.problems.len());
+                for p in &outcome.problems {
+                    eprintln!("  {p}");
+                }
+                if !*report_stages {
+                    std::process::exit(1);
+                }
+            }
+            print!("{}", outcome.report);
         }
         Commands::CorpusTable { corpus, out } => {
             let contents = match std::fs::read_to_string(corpus) {

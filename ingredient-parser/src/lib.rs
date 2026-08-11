@@ -323,25 +323,27 @@ pub enum ReviewReason {
 }
 
 impl ReviewReason {
-    /// A stable machine tag, for a caller that wants to branch rather than
-    /// print (the wasm boundary, a filter, a test).
-    pub fn tag(self) -> &'static str {
+    /// The stable machine tag and the human sentence, in one place so they
+    /// cannot drift apart.
+    const fn parts(self) -> (&'static str, &'static str) {
         match self {
-            ReviewReason::FellBack => "fell_back",
-            ReviewReason::UnparsedDigit => "unparsed_digit",
+            ReviewReason::FellBack => ("fell_back", "fell back to a name-only ingredient"),
+            ReviewReason::UnparsedDigit => (
+                "unparsed_digit",
+                "contains a digit that produced no amount (likely missed quantity)",
+            ),
         }
+    }
+
+    /// A stable machine tag, for a caller that branches rather than prints.
+    pub const fn tag(self) -> &'static str {
+        self.parts().0
     }
 }
 
 impl std::fmt::Display for ReviewReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            ReviewReason::FellBack => "fell back to a name-only ingredient",
-            ReviewReason::UnparsedDigit => {
-                "contains a digit that produced no amount (likely missed quantity)"
-            }
-        };
-        f.write_str(s)
+        f.write_str(self.parts().1)
     }
 }
 
@@ -625,7 +627,7 @@ mod review_reason_tests {
         assert_eq!(notes.review_reasons(), [ReviewReason::UnparsedDigit]);
     }
 
-    /// Both flags set: the reasons come back in report order, fallback first.
+    /// Both notes set: the reasons come back in report order, fallback first.
     #[test]
     fn reasons_are_ordered_fallback_then_digit() {
         let notes = ParseNotes {

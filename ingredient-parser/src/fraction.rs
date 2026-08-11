@@ -19,38 +19,39 @@ use crate::Res;
 /// lockstep with `v_frac_to_num` by `tests::vulgar_fractions_match_is_vulgar`.
 pub const VULGAR_FRACTIONS: &str = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞";
 
-/// The glyph ↔ (numerator, denominator) table. ONE table, read in both
-/// directions: [`v_frac_to_num`] parses a glyph, [`glyph_for`] renders one.
+/// The glyph ↔ (numerator, denominator) table — the one enumeration.
+/// [`v_frac_to_num`] reads it one way, [`glyph_for`] the other. Glyphs are
+/// `&str` so rendering can hand one back without a second match.
 ///
 /// Before this was shared, the renderer in `util.rs` kept its own list of 15
 /// under a comment claiming it mirrored the parser's — which accepted 18. The
 /// three it lacked (`⅐ ⅑ ⅒`) parsed in and came back out as `0.14`, and
 /// nothing failed. `fraction_glyphs_round_trip` now closes that.
-const VULGAR_TABLE: &[(char, i32, i32)] = &[
-    ('¼', 1, 4),
-    ('½', 1, 2),
-    ('¾', 3, 4),
-    ('⅐', 1, 7),
-    ('⅑', 1, 9),
-    ('⅒', 1, 10),
-    ('⅓', 1, 3),
-    ('⅔', 2, 3),
-    ('⅕', 1, 5),
-    ('⅖', 2, 5),
-    ('⅗', 3, 5),
-    ('⅘', 4, 5),
-    ('⅙', 1, 6),
-    ('⅚', 5, 6),
-    ('⅛', 1, 8),
-    ('⅜', 3, 8),
-    ('⅝', 5, 8),
-    ('⅞', 7, 8),
+const VULGAR_TABLE: &[(&str, i32, i32)] = &[
+    ("¼", 1, 4),
+    ("½", 1, 2),
+    ("¾", 3, 4),
+    ("⅐", 1, 7),
+    ("⅑", 1, 9),
+    ("⅒", 1, 10),
+    ("⅓", 1, 3),
+    ("⅔", 2, 3),
+    ("⅕", 1, 5),
+    ("⅖", 2, 5),
+    ("⅗", 3, 5),
+    ("⅘", 4, 5),
+    ("⅙", 1, 6),
+    ("⅚", 5, 6),
+    ("⅛", 1, 8),
+    ("⅜", 3, 8),
+    ("⅝", 5, 8),
+    ("⅞", 7, 8),
 ];
 
 fn v_frac_to_num(input: char) -> Option<f64> {
     VULGAR_TABLE
         .iter()
-        .find(|(c, _, _)| *c == input)
+        .find(|(g, _, _)| g.chars().eq(std::iter::once(input)))
         .map(|(_, n, d)| *n as f64 / *d as f64)
 }
 
@@ -61,30 +62,7 @@ pub fn glyph_for(frac: f64, tolerance: f64) -> Option<&'static str> {
     VULGAR_TABLE
         .iter()
         .find(|(_, n, d)| (frac - (*n as f64 / *d as f64)).abs() < tolerance)
-        .map(|(c, _, _)| -> &'static str {
-            // Each glyph is a single char; return it as a &'static str without
-            // allocating by slicing the const table's own storage.
-            match c {
-                '¼' => "¼",
-                '½' => "½",
-                '¾' => "¾",
-                '⅐' => "⅐",
-                '⅑' => "⅑",
-                '⅒' => "⅒",
-                '⅓' => "⅓",
-                '⅔' => "⅔",
-                '⅕' => "⅕",
-                '⅖' => "⅖",
-                '⅗' => "⅗",
-                '⅘' => "⅘",
-                '⅙' => "⅙",
-                '⅚' => "⅚",
-                '⅛' => "⅛",
-                '⅜' => "⅜",
-                '⅝' => "⅝",
-                _ => "⅞",
-            }
-        })
+        .map(|(glyph, _, _)| *glyph)
 }
 
 /// Whether `c` is a unicode vulgar-fraction glyph (½, ⅓, ¼, …).
@@ -364,7 +342,10 @@ mod tests {
     /// what parses and renders.
     #[test]
     fn vulgar_fractions_matches_the_table() {
-        let mut from_table: Vec<char> = VULGAR_TABLE.iter().map(|(c, _, _)| *c).collect();
+        let mut from_table: Vec<char> = VULGAR_TABLE
+            .iter()
+            .filter_map(|(g, _, _)| g.chars().next())
+            .collect();
         let mut from_const: Vec<char> = VULGAR_FRACTIONS.chars().collect();
         from_table.sort_unstable();
         from_const.sort_unstable();
@@ -386,16 +367,16 @@ mod tests {
     fn fraction_glyphs_round_trip() {
         for &(glyph, n, d) in VULGAR_TABLE {
             let value = n as f64 / d as f64;
-            let as_string = glyph.to_string();
-            assert_eq!(v_frac_to_num(glyph), Some(value), "{glyph} parsed wrong");
+            let ch = glyph.chars().next().unwrap();
+            assert_eq!(v_frac_to_num(ch), Some(value), "{glyph} parsed wrong");
             assert_eq!(
                 glyph_for(value, 1e-6),
-                Some(as_string.as_str()),
-                "{glyph} did not render back as itself"
+                Some(glyph),
+                "{glyph} lost on render"
             );
             assert_eq!(
                 crate::util::format_quantity(value),
-                as_string,
+                glyph,
                 "format_quantity lost {glyph}"
             );
         }

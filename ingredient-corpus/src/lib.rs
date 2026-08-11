@@ -42,7 +42,7 @@ pub fn embedded_rich() -> &'static str {
 /// values — so a viewer rebuilding from the `Measure` alone re-spells forms
 /// CONTRIBUTING.md invites.
 #[derive(Debug, Clone)]
-pub struct CorpusAmount {
+pub struct AuthoredMeasure {
     pub measure: Measure,
     /// The `value` token exactly as written, when authored as a string.
     value_token: Option<String>,
@@ -50,7 +50,7 @@ pub struct CorpusAmount {
     upper_token: Option<String>,
 }
 
-impl<'de> Deserialize<'de> for CorpusAmount {
+impl<'de> Deserialize<'de> for AuthoredMeasure {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         // Capture the raw JSON first so the spelling survives, then let
         // `Measure`'s own impl do the exact-rational work (and reject a quoted
@@ -64,7 +64,7 @@ impl<'de> Deserialize<'de> for CorpusAmount {
         let value_token = token("value");
         let upper_token = token("upper_value");
         let measure = Measure::deserialize(raw).map_err(serde::de::Error::custom)?;
-        Ok(CorpusAmount {
+        Ok(AuthoredMeasure {
             measure,
             value_token,
             upper_token,
@@ -83,7 +83,7 @@ pub struct CorpusRow {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
-    pub amounts: Vec<CorpusAmount>,
+    pub amounts: Vec<AuthoredMeasure>,
     #[serde(default)]
     pub modifier: Option<String>,
     #[serde(default)]
@@ -377,15 +377,21 @@ pub struct Tally {
 
 impl Tally {
     pub fn add(&mut self, scored: &Scored) {
+        self.count(scored.status);
+        for (slot, diff) in self.per_field.iter_mut().zip(&scored.fields) {
+            *slot += diff.ok as usize;
+        }
+    }
+
+    /// Count a status without a per-field diff — for a caller that already
+    /// scored and only wants the totals.
+    pub fn count(&mut self, status: Status) {
         self.total += 1;
-        match scored.status {
+        match status {
             Status::Exact => self.exact += 1,
             Status::Regression => self.regression += 1,
             Status::Xfail => self.xfail += 1,
             Status::Promote => self.promote += 1,
-        }
-        for (slot, diff) in self.per_field.iter_mut().zip(&scored.fields) {
-            *slot += diff.ok as usize;
         }
     }
 
@@ -465,7 +471,7 @@ pub(crate) fn render_parsed(amounts: &[Measure]) -> String {
 /// The lens for *viewing* the corpus, where re-spelling a human's row is a bug.
 /// Must not be merged with [`render_parsed`] — they differ on range
 /// punctuation, fractions, unit denormalization and plurals.
-pub fn render_authored(amounts: &[CorpusAmount]) -> String {
+pub fn render_authored(amounts: &[AuthoredMeasure]) -> String {
     amounts
         .iter()
         .map(|a| {
@@ -518,7 +524,7 @@ mod tests {
         authored(json).iter().map(|a| a.measure.clone()).collect()
     }
 
-    fn authored(json: &str) -> Vec<CorpusAmount> {
+    fn authored(json: &str) -> Vec<AuthoredMeasure> {
         serde_json::from_str(json).unwrap()
     }
 

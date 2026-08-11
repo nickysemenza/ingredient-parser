@@ -452,7 +452,7 @@ pub fn amount_kind(amount: WAmount) -> Result<WAmountKind, String> {
 ///
 /// The reason to call this rather than multiply `value` yourself: amounts whose
 /// kind does not scale — a pan dimension, an oven temperature, a resting time —
-/// come back unchanged, so a caller can map it over every amount in a recipe
+/// come back unchanged, so a caller can map it over every measure in a recipe
 /// without first deciding which ones are quantities. Deciding that at the call
 /// site means hand-copying the kind table, which is how a doubled recipe ends
 /// up calling for an 18-inch pie crust.

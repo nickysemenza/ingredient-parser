@@ -3,7 +3,7 @@ use crate::unit::{Unit, kind::MeasureKind};
 use crate::util::{format_quantity, num_without_zeroes};
 use crate::{IngredientError, IngredientResult};
 use num_rational::Rational64;
-use num_traits::{CheckedAdd, CheckedMul, ToPrimitive};
+use num_traits::{CheckedAdd, CheckedMul, Signed, ToPrimitive};
 use serde::{Deserialize, Serialize, de::Deserializer, ser::Serializer};
 use std::fmt;
 use std::str::FromStr;
@@ -110,7 +110,9 @@ fn rational_as_fraction_str(value: Rational64) -> Option<String> {
     if whole == 0 {
         Some(format!("{numer}/{denom}"))
     } else {
-        // Mixed number "W N/D" with the fractional part written positive.
+        // Mixed number "W N/D". The sign lives on the whole part and applies to
+        // the whole quantity, so `parse_fraction_str` must subtract the
+        // fraction when W is negative — "-1 1/3" is -4/3, not -2/3.
         Some(format!("{whole} {rem}/{denom}"))
     }
 }
@@ -190,10 +192,17 @@ fn parse_fraction_str(s: &str) -> Result<Rational64, String> {
     };
 
     match s.split_once(char::is_whitespace) {
-        // Mixed number "W N/D": whole part plus a proper fraction.
+        // Mixed number "W N/D": whole part plus a proper fraction. The sign
+        // sits on the whole part and covers the whole quantity, so a negative
+        // W SUBTRACTS the fraction — "-1 1/3" is -4/3, not -2/3.
         Some((whole, frac)) => {
             let whole = Rational64::from_integer(int(whole)?);
-            Ok(whole + rational(frac.trim_start())?)
+            let frac = rational(frac.trim_start())?;
+            Ok(if whole.numer().is_negative() {
+                whole - frac
+            } else {
+                whole + frac
+            })
         }
         // No space: a bare fraction "N/D", or a whole number "W". A decimal
         // string is rejected so the exact-f64 footgun can't return via quoting.
@@ -563,7 +572,7 @@ impl Measure {
     /// let third = Measure::new("cup", 1.0 / 3.0);
     /// assert_eq!(third.scale(3.0).to_string(), "1 cup");
     ///
-    /// // A dimension is not a quantity, so it does not scale.
+    /// // A length is not a quantity, so it does not scale.
     /// let pan = Measure::new("inch", 9.0);
     /// assert_eq!(pan.scale(2.0), pan);
     /// ```
@@ -1193,6 +1202,28 @@ mod tests {
     fn test_value_as_fraction_str(#[case] value: f64, #[case] expected: Option<&str>) {
         let got = Measure::new("cup", value).value_as_fraction_str();
         assert_eq!(got.as_deref(), expected);
+    }
+
+    /// A mixed fraction must survive render → parse, negative included. The
+    /// sign lives on the whole part and covers the whole quantity, so "-1 1/3"
+    /// is -4/3; reading it as whole + fraction gave -2/3.
+    #[rstest]
+    #[case(4, 3)]
+    #[case(-4, 3)]
+    #[case(-5, 3)]
+    #[case(-2, 3)]
+    #[case(5, 3)]
+    #[case(-1, 7)]
+    fn mixed_fraction_strings_round_trip(#[case] numer: i64, #[case] denom: i64) {
+        let value = Rational64::new(numer, denom);
+        let Some(rendered) = rational_as_fraction_str(value) else {
+            return; // terminating decimal; the caller emits a plain number
+        };
+        assert_eq!(
+            parse_fraction_str(&rendered),
+            Ok(value),
+            "{value} rendered as {rendered:?} did not parse back"
+        );
     }
 
     /// A denominator past [`MAX_COOKING_DENOM`] is f64 noise, not a cooking
