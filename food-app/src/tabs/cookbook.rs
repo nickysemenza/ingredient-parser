@@ -1005,8 +1005,9 @@ fn show_sections_with_links(
 /// the one way to resolve a cross-reference's target.
 pub(crate) struct ReferenceIndex {
     forward: std::collections::HashMap<String, usize>,
-    /// For each recipe, the recipes that reference it. The reverse edge used to
-    /// be an O(n·refs) scan inside the detail view, recomputed every repaint.
+    /// For each recipe, the distinct recipes that reference it. The reverse edge
+    /// used to be an O(n·refs) scan inside the detail view, recomputed every
+    /// repaint.
     reverse: Vec<Vec<usize>>,
 }
 
@@ -1019,11 +1020,16 @@ impl ReferenceIndex {
             .enumerate()
             .map(|(i, r)| (r.meta.title.clone(), i))
             .collect();
-        let mut reverse = vec![Vec::new(); recipes.len()];
+        let mut reverse: Vec<Vec<usize>> = vec![Vec::new(); recipes.len()];
         for (src, r) in recipes.iter().enumerate() {
             for reference in &r.references {
+                // `resolve_references` emits one RecipeRef per ingredient LINE,
+                // so a recipe naming the same target twice must still appear
+                // once. The scan this replaced used `.any(...)`, which deduped
+                // implicitly.
                 if let Some(&dst) = forward.get(reference.title.as_str())
                     && src != dst
+                    && !reverse[dst].contains(&src)
                 {
                     reverse[dst].push(src);
                 }
@@ -1376,6 +1382,20 @@ mod tests {
         assert_eq!(index.resolve("Pie Dough"), Some(0));
         assert_eq!(index.resolve("Apple Pie"), Some(1));
         assert_eq!(index.resolve("Nonexistent"), None);
+    }
+
+    /// A source that references the same target on two ingredient lines gets
+    /// two `RecipeRef`s (resolve_references is per-line), and must still appear
+    /// ONCE under "Used by". The scan this replaced used `.any(...)`, which got
+    /// that for free.
+    #[test]
+    fn reference_index_reverse_edges_are_deduplicated() {
+        let recipes = [
+            recipe("Pie Dough", &[]),
+            recipe("Apple Pie", &["Pie Dough", "Pie Dough"]),
+        ];
+        let index = ReferenceIndex::build(&recipes);
+        assert_eq!(index.used_by(0), &[1]);
     }
 
     /// The reverse edge is cached, not rescanned per frame: it must exclude a
