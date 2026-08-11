@@ -333,14 +333,20 @@ pub(crate) fn assemble(
             }
             let title_lower = title.to_lowercase();
             let known = index.get(&title_lower).copied();
-            // An ingredient-less recipe is model noise — UNLESS it is the
-            // continuation of a title we already have. A hard chunk split leaves
-            // the ingredients in the head chunk, so the tail legitimately
-            // re-emits with instructions and notes only; dropping it here threw
-            // away exactly the "Do Ahead"/footnote text the title_hint mechanism
-            // exists to rescue.
+            // An ingredient-less recipe is model noise — UNLESS this chunk is
+            // the continuation the title_hint mechanism created. A hard split
+            // leaves the ingredients in the head chunk, so the tail legitimately
+            // re-emits with instructions and notes only, and dropping it threw
+            // away the "Do Ahead"/footnote text the hint exists to rescue.
+            //
+            // The hint is the evidence. Keying on "we have seen this title"
+            // alone would let ANY later chunk append its notes to a real recipe.
+            let is_continuation = chunk
+                .title_hint
+                .as_deref()
+                .is_some_and(|hint| hint.trim().to_lowercase() == title_lower);
             let has_ingredients = r.sections.iter().any(|s| !s.ingredients.is_empty());
-            if known.is_none() && !has_ingredients {
+            if !(has_ingredients || (known.is_some() && is_continuation)) {
                 continue;
             }
             // The hero photo is whichever image in this chunk sits nearest the
@@ -815,6 +821,15 @@ mod tests {
 
     /// A bare chunk carrying just a `doc_path` — text/images empty, so `hero_for`
     /// yields `None`. For assemble tests that don't exercise photo binding.
+    /// A chunk carrying the continuation hint the segmenter sets after a hard
+    /// mid-recipe split.
+    fn continuation_chunk(doc_path: &str, hint: &str) -> Chunk {
+        Chunk {
+            title_hint: Some(hint.to_string()),
+            ..chunk(doc_path)
+        }
+    }
+
     fn chunk(doc_path: &str) -> Chunk {
         Chunk {
             title_hint: None,
@@ -831,6 +846,55 @@ mod tests {
             mime: "image/jpeg".to_string(),
             alt: None,
         }
+    }
+
+    /// An ingredient-less recipe merges only when THIS chunk is the continuation
+    /// the title_hint mechanism created. A plain later chunk re-emitting the same
+    /// title with no ingredients is model noise, and appending its notes to the
+    /// real recipe would corrupt it.
+    #[test]
+    fn ingredient_less_merge_requires_the_continuation_hint() {
+        let tail = |note: &str| ExtractedRecipe {
+            meta: RecipeMeta {
+                title: "Pancakes".to_string(),
+                notes: vec![note.to_string()],
+                ..Default::default()
+            },
+            sections: vec![RecipeSection {
+                name: None,
+                ingredients: vec![],
+                instructions: vec!["Bake.".to_string()],
+            }],
+        };
+
+        // Hinted: the legitimate tail of a split recipe — merges.
+        let hinted = assemble(
+            vec![
+                (chunk("c1.xhtml"), vec![er("Pancakes", &["1 cup flour"])]),
+                (
+                    continuation_chunk("c2.xhtml", "Pancakes"),
+                    vec![tail("do-ahead")],
+                ),
+            ],
+            "book.epub",
+        );
+        assert_eq!(hinted.len(), 1);
+        assert!(hinted[0].meta.notes.iter().any(|n| n == "do-ahead"));
+
+        // Unhinted: same shape, no continuation evidence — dropped as noise.
+        let unhinted = assemble(
+            vec![
+                (chunk("c1.xhtml"), vec![er("Pancakes", &["1 cup flour"])]),
+                (chunk("c2.xhtml"), vec![tail("noise")]),
+            ],
+            "book.epub",
+        );
+        assert_eq!(unhinted.len(), 1);
+        assert!(
+            unhinted[0].meta.notes.is_empty(),
+            "model noise was merged into a real recipe: {:?}",
+            unhinted[0].meta.notes
+        );
     }
 
     #[test]
