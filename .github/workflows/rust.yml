@@ -46,7 +46,7 @@ jobs:
       # cubby's recipebridge builds recipe-epub with `default-features = false`
       # and drives extraction in the browser. Nothing in THIS repo calls that
       # half, so only this check stops a `native`-only import from silently
-      # breaking a downstream that has no version gate (docs/adr/0002).
+      # breaking a downstream that has no version gate (see CONTRIBUTING.md).
       - name: Check recipe-epub's pure (non-native) half still compiles
         run: cargo check -p recipe-epub --no-default-features
   wasm-tests:

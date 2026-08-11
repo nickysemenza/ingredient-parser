@@ -27,7 +27,7 @@ mod library;
 // NOTHING IN THIS REPO CALLS THESE. They exist for cubby's recipebridge, which
 // builds this crate with `default-features = false` and drives extraction in
 // the browser; a repo-local caller search will say they are dead (see
-// docs/adr/0002). CI keeps them honest with
+// CONTRIBUTING.md). CI keeps them honest with
 // `cargo check -p recipe-epub --no-default-features`.
 pub use epub_text::chunk_epub;
 pub use extractor::{

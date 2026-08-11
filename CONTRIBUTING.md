@@ -12,12 +12,32 @@ when deciding what a line *should* parse to.
 | --- | --- |
 | `ingredient-parser` | Core parser library (published to crates.io as `ingredient`) |
 | `ingredient-wasm` | WASM bindings |
+| `ingredient-corpus` | Accuracy-corpus schema, loader, and scoring (test infrastructure) |
 | `recipe-types` | Plain recipe data shapes shared across crates |
 | `recipe-scraper` / `recipe-scraper-fetcher` | Extract recipes from web pages |
 | `recipe-epub` | Extract recipes from EPUB cookbooks (AI-assisted) |
 | `food-cli` | Command-line tool for parsing/scraping |
 | `food-app` | egui desktop playground |
 | `demo-site` | React + Vite demo frontend |
+
+## Downstream consumers
+
+Only `ingredient-parser` is published (as `ingredient`). The other library
+crates are `publish = false`, which normally means "internal, change freely" —
+**they aren't.** [cubby](https://github.com/nickysemenza/cubby)'s `recipebridge`
+depends on `ingredient`, `recipe-scraper`, `recipe-epub` and `recipe-types` by
+git branch with no rev pin, and gitignores its lockfile, so a breaking change
+here breaks its CI on the next run with no semver step to absorb it.
+
+- **A repo-local caller search is not evidence a `pub` item in those four is
+  unused.** cubby is the only consumer of much of the unit-conversion surface
+  (`find_connected_components`, `make_graph`, `convert_measure_with_graph_explained`,
+  `is_valid`, `util::format_quantity_ascii`) and of `recipe-epub`'s entire
+  non-`native` half.
+- Additive changes are safe. Narrowing one is a two-repo change: prepare the
+  cubby side first.
+- `ingredient-corpus`, `food-cli` and `food-app` have no external consumer, so
+  for those a local search *is* evidence.
 
 ## Quick commands
 
