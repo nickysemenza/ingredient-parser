@@ -4,8 +4,9 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license = "MIT"
-# Test infrastructure for the workspace, not part of the published `ingredient`
-# crate. See docs/adr/0003.
+# Test infrastructure, deliberately not a feature on the published `ingredient`
+# crate. See the packaging notes on the workspace dep and ingredient-parser's
+# `exclude`, which are what keep it off crates.io.
 publish = false
 
 [dependencies]

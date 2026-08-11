@@ -23,6 +23,12 @@ mod library;
 // Pure extraction API — compiles to wasm32: EPUB unzip + text chunking
 // (`chunk_epub`), per-chunk request building (`build_chunk_request`), LLM
 // response parsing (`parse_recipes_payload`), and assembly (`assemble_recipes`).
+//
+// NOTHING IN THIS REPO CALLS THESE. They exist for cubby's recipebridge, which
+// builds this crate with `default-features = false` and drives extraction in
+// the browser; a repo-local caller search will say they are dead (see
+// docs/adr/0002). CI keeps them honest with
+// `cargo check -p recipe-epub --no-default-features`.
 pub use epub_text::chunk_epub;
 pub use extractor::{
     CallResult, ChunkOutcome, ChunkRequest, DrivenChunk, ExtractedRecipe, MockExtractor, MockMatch,
