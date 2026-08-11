@@ -44,10 +44,26 @@ pub fn embedded_rich() -> &'static str {
 #[derive(Debug, Clone)]
 pub struct AuthoredMeasure {
     pub measure: Measure,
-    /// The `value` token exactly as written, when authored as a string.
+    /// The `unit` token exactly as written. `Measure` singularizes and canonicalizes
+    /// (`"cups"` → `cup`, `"tablespoons"` → `tbsp`), so the viewer needs the original.
+    unit_token: Option<String>,
+    /// The `value` token as written, rendered the way the corpus file spells it.
     value_token: Option<String>,
-    /// The `upper_value` token exactly as written, when authored as a string.
+    /// The `upper_value` token, same treatment.
     upper_token: Option<String>,
+}
+
+/// One JSON scalar as the corpus file spells it. A fraction string passes
+/// through verbatim; a number renders without a trailing `.0` (`2.0` → `2`) but
+/// otherwise in full (`0.6666666666666666` stays put — turning it into `2/3`
+/// would be re-spelling a row the contributor deliberately wrote as a number).
+fn authored_token(v: &serde_json::Value) -> Option<String> {
+    match v {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) if n.as_i64().is_some() => Some(n.to_string()),
+        serde_json::Value::Number(n) => n.as_f64().map(|f| format!("{f}")),
+        _ => None,
+    }
 }
 
 impl<'de> Deserialize<'de> for AuthoredMeasure {
@@ -56,16 +72,19 @@ impl<'de> Deserialize<'de> for AuthoredMeasure {
         // `Measure`'s own impl do the exact-rational work (and reject a quoted
         // decimal).
         let raw = serde_json::Value::deserialize(d)?;
-        let token = |key: &str| {
-            raw.get(key)
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        };
-        let value_token = token("value");
-        let upper_token = token("upper_value");
+        let unit_token = raw
+            .get("unit")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        let value_token = raw.get("value").and_then(authored_token);
+        let upper_token = raw
+            .get("upper_value")
+            .filter(|v| !v.is_null())
+            .and_then(authored_token);
         let measure = Measure::deserialize(raw).map_err(serde::de::Error::custom)?;
         Ok(AuthoredMeasure {
             measure,
+            unit_token,
             value_token,
             upper_token,
         })
@@ -499,7 +518,10 @@ pub fn render_authored(amounts: &[AuthoredMeasure]) -> String {
         .iter()
         .map(|a| {
             let m = &a.measure;
-            let unit = m.unit().to_str();
+            let unit = a
+                .unit_token
+                .clone()
+                .unwrap_or_else(|| m.unit().to_str().into_owned());
             let value = authored_value(
                 a.value_token.clone().or_else(|| m.value_as_fraction_str()),
                 m.value(),
@@ -615,6 +637,20 @@ mod tests {
                 r#"[{"unit":"cup","value":"1 1/2","upper_value":"1/4"}]"#,
                 "1 1/2–1/4 cup",
             ),
+            // UNIT aliases: Measure canonicalizes ("cups" -> cup, "tablespoons"
+            // -> tbsp), so the token has to be kept or the viewer rewrites a
+            // spelling the file is entitled to use.
+            (r#"[{"unit":"cups","value":2}]"#, "2 cups"),
+            (r#"[{"unit":"tablespoons","value":1}]"#, "1 tablespoons"),
+            (r#"[{"unit":"grams","value":150}]"#, "150 grams"),
+            // A number the contributor wrote as a number stays a number —
+            // value_as_fraction_str would otherwise show it as "2/3".
+            (
+                r#"[{"unit":"cup","value":0.6666666666666666}]"#,
+                "0.6666666666666666 cup",
+            ),
+            // …but a trailing .0 is still trimmed, matching the old renderer.
+            (r#"[{"unit":"cup","value":2.0}]"#, "2 cup"),
         ] {
             assert_eq!(render_authored(&authored(json)), want, "for {json}");
         }
