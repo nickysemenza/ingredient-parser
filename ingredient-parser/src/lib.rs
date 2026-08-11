@@ -268,7 +268,7 @@ pub enum Confidence {
     /// A clean name-only parse with no digit present (e.g. "salt to taste").
     #[default]
     Medium,
-    /// A digit was present but produced no amount — a likely missed quantity,
+    /// A digit was present but produced no measure — a likely missed quantity,
     /// or a hard fallback to a name-only ingredient.
     Low,
 }
@@ -303,7 +303,7 @@ pub struct ParseNotes {
     pub confidence: Confidence,
     /// The parse fell back to a name-only ingredient (no recognizer/core parse).
     pub fell_back: bool,
-    /// The input contained a digit but no amount was parsed — the corpus-harvest
+    /// The input contained a digit but no measure was parsed — the corpus-harvest
     /// "likely miss" heuristic, computed natively by the parser.
     pub unparsed_digit: bool,
 }
@@ -317,7 +317,7 @@ pub struct ParseNotes {
 pub enum ReviewReason {
     /// No recognizer or core parse succeeded; the whole line became the name.
     FellBack,
-    /// The line contains a digit that produced no amount — a likely missed
+    /// The line contains a digit that produced no measure — a likely missed
     /// quantity, and the corpus-harvest signal.
     UnparsedDigit,
 }
@@ -330,7 +330,7 @@ impl ReviewReason {
             ReviewReason::FellBack => ("fell_back", "fell back to a name-only ingredient"),
             ReviewReason::UnparsedDigit => (
                 "unparsed_digit",
-                "contains a digit that produced no amount (likely missed quantity)",
+                "contains a digit that produced no measure (likely missed quantity)",
             ),
         }
     }
@@ -381,7 +381,7 @@ impl ParseNotes {
             // A structured parse with at least one amount.
             Confidence::High
         } else if unparsed_digit {
-            // A digit produced no amount — a likely missed quantity.
+            // A digit produced no measure — a likely missed quantity.
             Confidence::Low
         } else {
             // A plausible name-only ingredient (no digit, e.g. "salt to taste").
@@ -653,7 +653,7 @@ mod review_reason_tests {
         );
         assert_eq!(
             ReviewReason::UnparsedDigit.to_string(),
-            "contains a digit that produced no amount (likely missed quantity)"
+            "contains a digit that produced no measure (likely missed quantity)"
         );
     }
 }

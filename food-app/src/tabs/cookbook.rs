@@ -139,6 +139,8 @@ pub struct CookbookTab {
     /// each load (a new book reuses the same indices). Mirrors the web app's
     /// WASM-parse memoization.
     parsed_cache: Option<(usize, ParsedCookbookRecipe)>,
+    /// Title→index and its reverse, rebuilt only when a book loads.
+    reference_index: Option<ReferenceIndex>,
     /// Whether the central panel shows the reference digraph vs the browser.
     show_graph: bool,
     /// The reference digraph, rebuilt only when the loaded book changes.
@@ -178,6 +180,7 @@ impl Default for CookbookTab {
             load_started: None,
             selected: 0,
             parsed_cache: None,
+            reference_index: None,
             show_graph: false,
             graph: None,
             graph_prewarmed: false,
@@ -353,6 +356,7 @@ impl CookbookTab {
                 // closure so no closure captures all of `self`.
                 let selected = &mut self.selected;
                 let parsed_cache = &mut self.parsed_cache;
+                let reference_index = &mut self.reference_index;
                 let show_graph = &mut self.show_graph;
                 let graph_slot = &mut self.graph;
                 let graph_prewarmed = &mut self.graph_prewarmed;
@@ -465,8 +469,10 @@ impl CookbookTab {
                         if stale {
                             *parsed_cache = Some((sel, recipes[sel].parse()));
                         }
+                        let index =
+                            reference_index.get_or_insert_with(|| ReferenceIndex::build(recipes));
                         if let Some((_, parsed)) = parsed_cache.as_ref()
-                            && let Some(nav) = show_recipe_detail(ui, recipes, sel, parsed)
+                            && let Some(nav) = show_recipe_detail(ui, recipes, sel, parsed, index)
                         {
                             // Clicked a "Uses recipes" link → navigate to it.
                             *selected = nav;
@@ -531,7 +537,9 @@ impl CookbookTab {
         let path = self.path.trim().to_string();
         let no_cache = self.no_cache;
         self.selected = 0;
-        self.parsed_cache = None; // new book reuses indices — drop the stale parse
+        // A new book reuses recipe indices, so both caches are stale by identity.
+        self.parsed_cache = None;
+        self.reference_index = None;
         self.load_started = Some(std::time::Instant::now());
         self.graph = None; // rebuilt for the newly loaded book
         self.graph_prewarmed = false;
@@ -827,10 +835,9 @@ fn show_recipe_detail(
     recipes: &[CookbookRecipe],
     selected: usize,
     parsed: &ParsedCookbookRecipe,
+    index: &ReferenceIndex,
 ) -> Option<usize> {
     let r = &recipes[selected];
-    // Built once per frame, not re-scanned per reference.
-    let index = ReferenceIndex::build(recipes);
     let mut navigate_to = None;
     egui::ScrollArea::vertical().show(ui, |ui| {
         // The recipe's hero photo, if one was found near its title (bytes were
@@ -879,7 +886,7 @@ fn show_recipe_detail(
         // `parsed` (the caller's memoized `r.parse()`) drives the color-coded
         // view. Ingredient lines that reference another recipe get a clickable
         // "→ <recipe>" link.
-        if let Some(nav) = show_sections_with_links(ui, &r.sections, &parsed.sections, r, recipes) {
+        if let Some(nav) = show_sections_with_links(ui, &r.sections, &parsed.sections, r, index) {
             navigate_to = Some(nav);
         }
 
@@ -915,17 +922,11 @@ fn show_recipe_detail(
 
         // The reverse edge: other recipes in this book that reference THIS one
         // (e.g. "Brioche Dough" is used by the Apricot Tart, the Bostock, …).
-        let this_title = r.meta.title.as_str();
-        let used_by: Vec<usize> = recipes
-            .iter()
-            .enumerate()
-            .filter(|(i, o)| *i != selected && o.references.iter().any(|x| x.title == this_title))
-            .map(|(i, _)| i)
-            .collect();
+        let used_by = index.used_by(selected);
         if !used_by.is_empty() {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("↰ Used by:").strong());
-                for idx in used_by {
+                for &idx in used_by {
                     if ui.link(&recipes[idx].meta.title).clicked() {
                         navigate_to = Some(idx);
                     }
@@ -953,9 +954,8 @@ fn show_sections_with_links(
     raw: &[recipe_epub::RecipeSection],
     parsed: &[recipe_epub::ParsedSection],
     recipe: &CookbookRecipe,
-    recipes: &[CookbookRecipe],
+    index: &ReferenceIndex,
 ) -> Option<usize> {
-    let index = ReferenceIndex::build(recipes);
     let mut navigate_to = None;
     for (raw_sec, sec) in raw.iter().zip(parsed) {
         if let Some(name) = &sec.name {
@@ -1003,21 +1003,42 @@ fn show_sections_with_links(
 /// `recipes` (for click-to-select); node label = the recipe title.
 /// Title → recipe index for one book. Titles are unique per book, so this is
 /// the one way to resolve a cross-reference's target.
-pub(crate) struct ReferenceIndex<'a>(std::collections::HashMap<&'a str, usize>);
+pub(crate) struct ReferenceIndex {
+    forward: std::collections::HashMap<String, usize>,
+    /// For each recipe, the recipes that reference it. The reverse edge used to
+    /// be an O(n·refs) scan inside the detail view, recomputed every repaint.
+    reverse: Vec<Vec<usize>>,
+}
 
-impl<'a> ReferenceIndex<'a> {
-    pub(crate) fn build(recipes: &'a [CookbookRecipe]) -> Self {
-        Self(
-            recipes
-                .iter()
-                .enumerate()
-                .map(|(i, r)| (r.meta.title.as_str(), i))
-                .collect(),
-        )
+impl ReferenceIndex {
+    /// Owned so it can be cached with the loaded book — built once per load,
+    /// not once (or twice) per frame.
+    pub(crate) fn build(recipes: &[CookbookRecipe]) -> Self {
+        let forward: std::collections::HashMap<String, usize> = recipes
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.meta.title.clone(), i))
+            .collect();
+        let mut reverse = vec![Vec::new(); recipes.len()];
+        for (src, r) in recipes.iter().enumerate() {
+            for reference in &r.references {
+                if let Some(&dst) = forward.get(reference.title.as_str())
+                    && src != dst
+                {
+                    reverse[dst].push(src);
+                }
+            }
+        }
+        Self { forward, reverse }
     }
 
     pub(crate) fn resolve(&self, title: &str) -> Option<usize> {
-        self.0.get(title).copied()
+        self.forward.get(title).copied()
+    }
+
+    /// Recipes that reference `idx`, excluding itself.
+    pub(crate) fn used_by(&self, idx: usize) -> &[usize] {
+        self.reverse.get(idx).map_or(&[], Vec::as_slice)
     }
 }
 
@@ -1355,6 +1376,21 @@ mod tests {
         assert_eq!(index.resolve("Pie Dough"), Some(0));
         assert_eq!(index.resolve("Apple Pie"), Some(1));
         assert_eq!(index.resolve("Nonexistent"), None);
+    }
+
+    /// The reverse edge is cached, not rescanned per frame: it must exclude a
+    /// self-reference and list every recipe that points at a target.
+    #[test]
+    fn reference_index_reverse_edges() {
+        let recipes = [
+            recipe("Pie Dough", &["Pie Dough"]),
+            recipe("Apple Pie", &["Pie Dough"]),
+            recipe("Cherry Pie", &["Pie Dough", "Missing"]),
+        ];
+        let index = ReferenceIndex::build(&recipes);
+        assert_eq!(index.used_by(0), &[1, 2], "both pies use the dough");
+        assert!(index.used_by(1).is_empty());
+        assert!(index.used_by(2).is_empty());
     }
 
     /// A self-reference and an unresolvable target both fail to resolve to an

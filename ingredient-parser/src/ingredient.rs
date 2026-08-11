@@ -190,7 +190,7 @@ impl Ingredient {
         }
     }
 
-    /// Scale every amount by `factor`, leaving everything else alone.
+    /// Scale every measure by `factor`, leaving everything else alone.
     ///
     /// Measures whose kind does not scale — a pan's length, an oven
     /// temperature, a resting time — pass through untouched; see
@@ -272,9 +272,9 @@ mod tests {
     use super::*;
     use crate::unit::Measure;
 
-    /// Every amount scales, and the non-amount fields ride along untouched.
+    /// Every measure scales, and the other fields ride along untouched.
     #[test]
-    fn scale_maps_every_amount() {
+    fn scale_maps_every_measure() {
         let ing = Ingredient::new(
             "flour",
             vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)],
@@ -290,10 +290,10 @@ mod tests {
         assert_eq!(doubled.usage, ing.usage);
     }
 
-    /// A mixed ingredient keeps its non-scalable amounts fixed while the
+    /// A mixed ingredient keeps its non-scalable measures fixed while the
     /// quantities move — the whole-ingredient view of the pan-resize bug.
     #[test]
-    fn scale_leaves_non_scalable_amounts_alone() {
+    fn scale_leaves_non_scalable_measures_alone() {
         let ing = Ingredient::new(
             "pie crust",
             vec![Measure::new("whole", 1.0), Measure::new("inch", 9.0)],

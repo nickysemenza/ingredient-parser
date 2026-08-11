@@ -26,25 +26,13 @@
 use ingredient::rich_text::{Chunk, RichParser};
 use ingredient_corpus::rich::RichRow;
 
-/// Every well-formed row. The chunk-sequence scoring below is genuinely a
-/// different rule from the per-field corpus scoring, so it stays here; only the
-/// file format is shared.
+/// Every well-formed row; a malformed line fails the suite loudly. The strict
+/// policy is shared (`into_rows_strict`) so the two ratchets cannot drift.
 fn load() -> Vec<RichRow> {
-    let corpus = ingredient_corpus::rich::parse(ingredient_corpus::embedded_rich());
-    let problems: Vec<String> = corpus
-        .problems()
-        .map(|(e, p)| format!("  line {}: {}\n    {}", e.line_no, p.message, p.line))
-        .collect();
-    assert!(
-        problems.is_empty(),
-        "invalid rich_text row(s):\n{}",
-        problems.join("\n")
-    );
-    corpus
-        .entries
-        .into_iter()
-        .filter_map(|e| e.parsed.ok())
-        .collect()
+    match ingredient_corpus::rich::parse(ingredient_corpus::embedded_rich()).into_rows_strict() {
+        Ok(rows) => rows,
+        Err(problems) => panic!("invalid rich_text row(s):\n{problems}"),
+    }
 }
 
 #[test]

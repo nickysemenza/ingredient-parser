@@ -229,6 +229,29 @@ pub(crate) fn parse_as<T: DeserializeOwned>(source: &str) -> Corpus<T> {
     Corpus { sections, entries }
 }
 
+impl<T> Corpus<T> {
+    /// Every row, or a report of the malformed lines.
+    ///
+    /// The strict policy both ratchets need: a corpus is only meaningful if
+    /// every row loaded, so a typo must fail loudly rather than quietly shorten
+    /// it. Shared so `accuracy.rs` and `accuracy_rich.rs` cannot drift.
+    pub fn into_rows_strict(self) -> Result<Vec<T>, String> {
+        let problems: Vec<String> = self
+            .problems()
+            .map(|(e, p)| format!("  line {}: {}\n    {}", e.line_no, p.message, p.line))
+            .collect();
+        if problems.is_empty() {
+            Ok(self
+                .entries
+                .into_iter()
+                .filter_map(|e| e.parsed.ok())
+                .collect())
+        } else {
+            Err(problems.join("\n"))
+        }
+    }
+}
+
 /// Read a corpus file and parse it. The only failure mode is IO — a malformed
 /// row is an [`Entry`] carrying a [`Problem`], not an error.
 pub fn read(path: &Path) -> std::io::Result<Corpus<CorpusRow>> {

@@ -737,39 +737,27 @@ pub(crate) struct RepairOrderConstraint {
     pub witness: &'static str,
 }
 
-/// The ordering edges assembly actually depends on.
+/// The ordering edges assembly depends on — derived exhaustively, not guessed.
 ///
-/// Derived by brute force, not reasoning: every pair swapped over the whole
-/// corpus, and only three changed a result — all "the secondary-amount hoist
-/// runs last". The other pairs are order-independent and are deliberately not
-/// asserted, since an edge no input exercises is what
-/// `repair_constraints_are_load_bearing` rejects.
+/// All 720 orderings of the six repairs were run over every corpus row. Exactly
+/// half change a result, and the split is characterised by ONE pairwise rule:
+/// the output differs from the declared order **iff**
+/// `ExtractSecondaryAmountsFromModifier` runs before
+/// `RecoverHeadNounFromModifier`. Nothing else about the order matters.
+///
+/// An earlier version of this table claimed three edges. Two were artifacts of
+/// testing them with non-adjacent swaps, which move both repairs past
+/// everything between them, and of sharing one witness across all three — so a
+/// swap could "prove" an edge while the observed change came from the real one.
 #[cfg(test)]
-pub(crate) const REPAIR_ORDER_CONSTRAINTS: &[RepairOrderConstraint] = &[
-    RepairOrderConstraint {
-        before: RepairId::FixLeadingPrepPhrase,
-        after: RepairId::ExtractSecondaryAmountsFromModifier,
-        reason: "the leading-prep fix rotates the clause structure the \
-                 secondary-amount hoist then reads; hoisting first consumes the \
-                 parenthetical out from under it",
-        witness: SECONDARY_LAST_WITNESS,
-    },
-    RepairOrderConstraint {
-        before: RepairId::FixLeadingMinusClause,
-        after: RepairId::ExtractSecondaryAmountsFromModifier,
-        reason: "same shape as the leading-prep edge: the minus-clause fix must \
-                 settle the modifier parts before an amount is lifted out of them",
-        witness: SECONDARY_LAST_WITNESS,
-    },
-    RepairOrderConstraint {
-        before: RepairId::RecoverHeadNounFromModifier,
-        after: RepairId::ExtractSecondaryAmountsFromModifier,
-        reason: "recover the head noun out of modifier[0] before the hoist \
-                 consumes a measurement parenthetical from the same slot, or the \
-                 head noun is stranded behind an amount",
-        witness: SECONDARY_LAST_WITNESS,
-    },
-];
+pub(crate) const REPAIR_ORDER_CONSTRAINTS: &[RepairOrderConstraint] = &[RepairOrderConstraint {
+    before: RepairId::RecoverHeadNounFromModifier,
+    after: RepairId::ExtractSecondaryAmountsFromModifier,
+    reason: "recover the head noun out of modifier[0] before the hoist consumes \
+             a measurement parenthetical from the same slot, or the head noun is \
+             stranded behind an amount",
+    witness: SECONDARY_LAST_WITNESS,
+}];
 
 /// The line that distinguishes every load-bearing edge: head-noun recovery and
 /// the amount hoist compete for the same modifier slot.
@@ -943,6 +931,30 @@ mod tests {
                  swapping the two repairs did not change the result, so the edge \
                  is dead documentation. reason on file: {}",
                 c.before, c.after, c.witness, c.reason
+            );
+
+            // Control: the edge is the ONLY thing that matters. Reverse every
+            // other repair while keeping `before` ahead of `after`, and the
+            // result must be unchanged. Without this, the assert above would
+            // also pass if some different reordering were doing the work —
+            // which is how two bogus edges survived an earlier version.
+            let (bi, ai) = (repair_index(c.before), repair_index(c.after));
+            let mut others: Vec<usize> = (0..ASSEMBLY_REPAIRS.len())
+                .filter(|i| *i != bi && *i != ai)
+                .collect();
+            others.reverse();
+            let mut shuffled_idx = others;
+            shuffled_idx.insert(0, bi);
+            shuffled_idx.push(ai);
+            let shuffled: Vec<&AssemblyRepair> =
+                shuffled_idx.iter().map(|&i| &ASSEMBLY_REPAIRS[i]).collect();
+            let mut control = base.clone();
+            parser.run_assembly_repairs_with_order(&shuffled, &mut control);
+            assert_eq!(
+                in_order, control,
+                "reordering repairs OTHER than {:?} < {:?} changed the result, so \
+                 the constraint table is incomplete",
+                c.before, c.after
             );
         }
     }

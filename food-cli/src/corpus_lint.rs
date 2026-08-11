@@ -8,7 +8,7 @@
 //!   fired normalize rewrites / matched recognizer / fired refine passes, and
 //!   print per-stage rows-per-pass tables. A closing section lists any pass in the
 //!   parser's static universe (from [`ingredient::trace::pipeline_stage_names`])
-//!   that fired on *zero* corpus rows — a possible dead rule to investigate in
+//!   that fired on *zero* corpus rows — a possible dead pass to investigate in
 //!   Phase 2. Report-only: always exits 0.
 
 use std::collections::BTreeMap;
@@ -102,7 +102,7 @@ fn stage_table(title: &str, universe: &[&str], counts: &FireCounts, total: usize
     format!("{title}\n{}", b.build().with(Style::rounded()))
 }
 
-/// Passes in `universe` that fired on zero rows — possible dead rules.
+/// Passes in `universe` that fired on zero rows — possible dead passs.
 fn zero_coverage<'a>(universe: &[&'a str], counts: &FireCounts) -> Vec<&'a str> {
     universe
         .iter()
@@ -159,7 +159,7 @@ pub fn render_report(cov: &StageCoverage) -> String {
         )
         .collect();
 
-    let _ = writeln!(out, "ZERO CORPUS COVERAGE (possible dead rule)");
+    let _ = writeln!(out, "ZERO CORPUS COVERAGE (possible dead pass)");
     if dead.is_empty() {
         let _ = writeln!(out, "  none — every pass fired on at least one corpus row");
     } else {

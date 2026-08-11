@@ -327,7 +327,7 @@ fn confidence_badge(ui: &mut egui::Ui, diagnostics: &ParseNotes) {
         .collect();
     if notes.is_empty() {
         match diagnostics.confidence {
-            Confidence::High => notes.push("structured parse with at least one amount".into()),
+            Confidence::High => notes.push("structured parse with at least one measure".into()),
             Confidence::Medium => notes.push("clean name-only parse (no digit present)".into()),
             Confidence::Low => {}
         }

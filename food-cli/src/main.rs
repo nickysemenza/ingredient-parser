@@ -169,7 +169,7 @@ enum CorpusCommand {
         #[arg(long, default_value = DEFAULT_CORPUS_PATH)]
         corpus: String,
         /// Print rows-per-pass coverage tables (normalize/recognize/refine) and a
-        /// zero-coverage "possible dead rule" section. Without this flag, `lint`
+        /// zero-coverage "possible dead pass" section. Without this flag, `lint`
         /// only validates that rows parse as JSON and prints the row count.
         #[arg(long)]
         report_stages: bool,

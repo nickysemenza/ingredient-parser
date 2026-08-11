@@ -28,25 +28,13 @@
 use ingredient::{IngredientParser, from_str};
 use ingredient_corpus::{CorpusRow, Status, Tally};
 
-/// Every well-formed row. A malformed line fails the suite loudly here — the
-/// ratchet is meaningless if a row can go missing by typo. Other consumers of
-/// `ingredient_corpus` choose softer policies over the same parse.
+/// Every well-formed row; a malformed line fails the suite loudly. The strict
+/// policy is shared (`into_rows_strict`) so the two ratchets cannot drift.
 fn load() -> Vec<CorpusRow> {
-    let corpus = ingredient_corpus::parse(ingredient_corpus::embedded());
-    let problems: Vec<String> = corpus
-        .problems()
-        .map(|(e, p)| format!("  line {}: {}\n    {}", e.line_no, p.message, p.line))
-        .collect();
-    assert!(
-        problems.is_empty(),
-        "invalid corpus row(s):\n{}",
-        problems.join("\n")
-    );
-    corpus
-        .entries
-        .into_iter()
-        .filter_map(|e| e.parsed.ok())
-        .collect()
+    match ingredient_corpus::parse(ingredient_corpus::embedded()).into_rows_strict() {
+        Ok(rows) => rows,
+        Err(problems) => panic!("invalid corpus row(s):\n{problems}"),
+    }
 }
 
 #[test]
