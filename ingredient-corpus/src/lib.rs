@@ -1,28 +1,15 @@
 //! The accuracy corpus: its schema, its file format, and how a parse is scored
-//! against it.
+//! against it — the regression ratchet in
+//! `ingredient-parser/tests/corpus/corpus.jsonl`.
 //!
-//! `ingredient-parser/tests/corpus/corpus.jsonl` is the regression ratchet that
-//! governs whether a parser change ships. Before this crate existed the row
-//! shape was declared three times, the loader five times and the scoring rule
-//! three times, across three crates — each copy carrying a comment claiming to
-//! mirror `tests/accuracy.rs`, which was not callable from any of them. This is
-//! the one place that knows what a corpus row is.
+//! The loader never panics, exits, or returns `Err` for a malformed row: a bad
+//! line becomes an [`Entry`] carrying a [`Problem`], so each caller picks its
+//! own policy (the accuracy test panics, the CLI collects, the viewer renders
+//! it inline, the GUI shows a banner).
 //!
-//! The loader never panics, never exits and never returns `Err` for a malformed
-//! row: a bad line becomes an [`Entry`] carrying its [`Problem`], so each caller
-//! picks its own policy. The accuracy test panics, the CLI collects and reports,
-//! the viewer renders the bad line inline, and the GUI shows an error banner —
-//! four policies over one parse.
-//!
-//! ## Amount equality is exact
-//!
-//! `value` may be authored as a JSON number or an exact fraction string
-//! (`"2/3"`, `"1 1/2"`); both land on the same [`Rational64`]-backed
-//! [`Measure`], and comparison is exact rational equality, never `f64`. A
-//! truncated decimal (`0.667`) is a different value, and a *quoted* decimal
-//! (`"0.667"`) is rejected outright. Nothing in this crate compares floats.
-//!
-//! [`Rational64`]: https://docs.rs/num-rational/latest/num_rational/type.Rational64.html
+//! Amount comparison is exact rational, never `f64`. `value` may be a JSON
+//! number or an exact fraction string (`"2/3"`, `"1 1/2"`); a truncated decimal
+//! (`0.667`) is a different value and a *quoted* decimal is rejected outright.
 
 use ingredient::{IngredientUsage, unit::Measure};
 use serde::Deserialize;
@@ -45,16 +32,15 @@ pub fn embedded_rich() -> &'static str {
     include_str!("../../ingredient-parser/tests/corpus/rich_text.jsonl")
 }
 
-/// One amount as the corpus authored it: the exact [`Measure`] that scoring
-/// compares, plus the `value` / `upper_value` tokens verbatim when the file
-/// spelled them as strings.
+/// One authored amount: the exact [`Measure`] scoring compares, plus the
+/// `value` / `upper_value` tokens verbatim when the file spelled them as
+/// strings.
 ///
-/// The tokens exist because deserialization is lossy for *display*: `"1 1/2"`
-/// and `"3/2"` and `1.5` all land on the same rational, and
-/// `value_as_fraction_str` only offers a fraction back for NON-terminating
-/// values. So a viewer rebuilding the text from the `Measure` alone rewrites
-/// `"1 1/2"` as `1.5` and `"1/4"` as `0.25` — silently re-spelling a form
-/// CONTRIBUTING.md explicitly invites contributors to use.
+/// The tokens are needed because deserialization is lossy for *display*:
+/// `"1 1/2"`, `"3/2"` and `1.5` all land on the same rational, and
+/// `value_as_fraction_str` only offers a fraction back for non-terminating
+/// values — so a viewer rebuilding from the `Measure` alone re-spells forms
+/// CONTRIBUTING.md invites.
 #[derive(Debug, Clone)]
 pub struct CorpusAmount {
     pub measure: Measure,
@@ -66,9 +52,9 @@ pub struct CorpusAmount {
 
 impl<'de> Deserialize<'de> for CorpusAmount {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        // Capture the raw JSON first so the authored spelling survives, then let
-        // `Measure`'s own deserializer do the exact-rational work (and reject a
-        // quoted decimal, which it must keep doing).
+        // Capture the raw JSON first so the spelling survives, then let
+        // `Measure`'s own impl do the exact-rational work (and reject a quoted
+        // decimal).
         let raw = serde_json::Value::deserialize(d)?;
         let token = |key: &str| {
             raw.get(key)
@@ -308,13 +294,8 @@ pub struct FieldDiff {
     pub got: String,
 }
 
-/// A scored row: how it classified, and the per-field diff.
-///
-/// Deliberately does not carry the row or the parsed `Ingredient` back: both
-/// were here "so a detail view costs nothing extra", and neither consumer ever
-/// read them — the detail view uses the pre-rendered `want`/`got` strings, and
-/// callers already hold the row they passed in. Dropping them also drops the
-/// lifetime parameter.
+/// A scored row: how it classified, and the per-field diff. Callers already
+/// hold the row they passed in, so it is not carried back.
 #[derive(Debug, Clone)]
 pub struct Scored {
     pub status: Status,
@@ -408,13 +389,9 @@ impl Tally {
         }
     }
 
-    /// Rows where all five fields agreed — `exact + promote`, NOT `exact`.
-    ///
-    /// This is the headline "exact matches" number, and the distinction is a
-    /// live footgun: a passing xfail row is a *match* even though its status is
-    /// `Promote`. With zero xfail rows in the corpus today the two are equal, so
-    /// getting it wrong would move the project's north-star metric silently and
-    /// no test would notice. Hence this method rather than reading `.exact`.
+    /// Rows where all five fields agreed — `exact + promote`, NOT `exact`: a
+    /// passing xfail row is a match even though its status is `Promote`. Read
+    /// this rather than `.exact` for the headline number.
     pub fn matched(&self) -> usize {
         self.exact + self.promote
     }
@@ -469,15 +446,11 @@ pub mod rich {
     }
 }
 
-/// Render amounts the way the PARSER prints them: `Measure`'s `Display`, which
-/// denormalizes units (`30 tsp` → `⅝ cup`), uses vulgar-fraction glyphs, spells
-/// ranges `X - Y`, and pluralizes unit words.
-///
-/// This is the lens for got-vs-want diffs, where both sides must go through the
-/// same transformation; `score` pre-renders with it, so no caller needs it
-/// directly. It is deliberately NOT how the corpus file itself is
-/// displayed — see `render_authored` in the corpus-table renderer, and the
-/// `divergent_lenses` test that pins the difference.
+/// Render amounts the way the PARSER prints them: `Measure`'s `Display` —
+/// denormalized units (`30 tsp` → `⅝ cup`), glyph fractions, `X - Y` ranges,
+/// pluralized units. The lens for got-vs-want diffs, where both sides need the
+/// same transformation. Contrast [`render_authored`]; `divergent_lenses` pins
+/// the difference.
 pub(crate) fn render_parsed(amounts: &[Measure]) -> String {
     amounts
         .iter()
@@ -486,15 +459,12 @@ pub(crate) fn render_parsed(amounts: &[Measure]) -> String {
         .join(", ")
 }
 
-/// Render amounts the way the CORPUS FILE AUTHORED them: the literal unit with
-/// no pluralization, an EN DASH range, no unit suffix for a bare count, and the
-/// exact fraction spelling when the value is a non-terminating rational.
+/// Render amounts the way the CORPUS FILE AUTHORED them: literal unit, EN DASH
+/// range, no suffix for a bare count, and the spelling the file used.
 ///
-/// This is the lens for *viewing* the corpus, where re-spelling a human's row
-/// is a bug. It must not be merged with [`render_parsed`]: on today's corpus
-/// they differ four ways — range punctuation, fraction glyphs, unit
-/// denormalization (`30 tsp` → `⅝ cup`) and pluralization. See the
-/// `divergent_lenses` test, which pins both sides.
+/// The lens for *viewing* the corpus, where re-spelling a human's row is a bug.
+/// Must not be merged with [`render_parsed`] — they differ on range
+/// punctuation, fractions, unit denormalization and plurals.
 pub fn render_authored(amounts: &[CorpusAmount]) -> String {
     amounts
         .iter()
@@ -527,14 +497,11 @@ pub fn render_authored(amounts: &[CorpusAmount]) -> String {
         .join(", ")
 }
 
-/// One authored value: the token the file spelled if it spelled one, else the
-/// exact fraction string for a non-terminating rational, else the number
-/// exactly as `f64`'s `Display` writes it — `2` not `2.0`, but `0.125` in full.
+/// The token the file spelled, else the exact fraction for a non-terminating
+/// rational, else `f64`'s `Display` — `2` not `2.0`, but `0.125` in full.
 ///
-/// Deliberately NOT [`ingredient::util::num_without_zeroes`], which rounds to
-/// two decimals: that is a *display* helper, and using it here silently
-/// rewrote `0.125 tsp` as `0.12 tsp` in the corpus viewer. The viewer must
-/// show what the file says.
+/// NOT `num_without_zeroes`, which rounds to two decimals and would show
+/// `0.125 tsp` as `0.12 tsp`.
 fn authored_value(fraction: Option<String>, val: f64) -> String {
     match fraction {
         Some(s) => s,
@@ -642,12 +609,12 @@ mod tests {
     #[test]
     fn authored_rendering_over_the_real_corpus() {
         let corpus = parse(embedded());
+        // Keyed on the input, not the line number: inserting one corpus row
+        // should not rewrite every line below it.
         let lines: Vec<String> = corpus
-            .entries
-            .iter()
-            .filter_map(|e| e.parsed.as_ref().ok().map(|r| (e.line_no, r)))
-            .filter(|(_, r)| !r.amounts.is_empty())
-            .map(|(line_no, r)| format!("{line_no}\t{}\t{}", r.input, render_authored(&r.amounts)))
+            .rows()
+            .filter(|r| !r.amounts.is_empty())
+            .map(|r| format!("{}\t{}", r.input, render_authored(&r.amounts)))
             .collect();
         insta::assert_snapshot!(lines.join("\n"));
     }
@@ -755,11 +722,15 @@ not valid json
         let corpus = parse(embedded());
         assert_eq!(corpus.problems().count(), 0, "corpus has malformed rows");
         assert!(corpus.rows().count() > 400, "corpus unexpectedly small");
-        assert_eq!(
-            corpus.rows().filter(|r| r.xfail.is_some()).count(),
-            0,
-            "corpus has xfail rows; update this test if that becomes intended"
-        );
+        for row in corpus.rows() {
+            if let Some(reason) = &row.xfail {
+                assert!(
+                    !reason.trim().is_empty(),
+                    "xfail row needs a reason: {}",
+                    row.input
+                );
+            }
+        }
         assert_eq!(corpus.sections[0], "(ungrouped)");
         assert!(corpus.sections.len() > 30, "section headers not picked up");
         for entry in &corpus.entries {

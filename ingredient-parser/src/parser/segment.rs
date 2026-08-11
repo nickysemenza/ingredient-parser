@@ -455,26 +455,13 @@ impl IngredientParser {
     /// Whether the modifier tail must stay a single raw part.
     ///
     /// Two assembly repairs scan the *whole* first raw modifier part with
-    /// comma-crossing string searches, so their trigger shapes must reach them
-    /// as one part (splitting would change what they recover):
-    /// - a prep-chain head triggers `recover_head_noun_from_modifier` (its head
-    ///   scan skips across `", "`);
-    /// - a paren-led tail triggers `recover_parenthetical_alias_from_modifier`
-    ///   (its `find(" (")` head cut crosses `", "` too).
+    /// comma-crossing searches, so their trigger shapes must reach them as one
+    /// part: a prep-chain head triggers `recover_head_noun_from_modifier`, a
+    /// paren-led tail triggers `recover_parenthetical_alias_from_modifier`.
     ///
-    /// The head test routes through [`Segmenter::classify`] rather than
-    /// re-deriving "is this a prep chain" inline, so this decision and the
-    /// clause kind `--explain` reports are one judgement instead of two that
-    /// can drift.
-    ///
-    /// The predicate is slightly wider than the inline version it replaced:
-    /// `PrepChain` allows "and"/"&" between prep tokens ("peeled and
-    /// deveined"), where `all(is_prep_token)` did not. No corpus row and no
-    /// probe line changes output as a result, so this is a consolidation rather
-    /// than a behaviour change.
-    ///
-    /// Assembly and the decomposition spans must agree on this, which is why it
-    /// is one function and not two copies kept in sync by comment.
+    /// The head test goes through [`Segmenter::classify`], so this decision and
+    /// the clause kind `--explain` shows are one judgement. Assembly and the
+    /// decomposition spans both call it, so they cannot drift.
     fn keep_tail_whole(&self, name: &str, tail: &str) -> bool {
         tail.trim_start().starts_with('(')
             || (!name.is_empty() && self.segmenter().classify(name) == ClauseKind::PrepChain)
@@ -752,13 +739,11 @@ pub(crate) struct RepairOrderConstraint {
 
 /// The ordering edges assembly actually depends on.
 ///
-/// Derived by brute force rather than by reasoning: every pair of repairs was
-/// swapped over all 412 corpus lines, and exactly three pairs changed a result
-/// — all three of them "the secondary-amount hoist runs last". The relative
-/// order of the first five repairs is *not* load-bearing on today's corpus, so
-/// it is deliberately not asserted here; claiming edges that no input exercises
-/// is the dead documentation `repair_constraints_are_load_bearing` exists to
-/// reject.
+/// Derived by brute force, not reasoning: every pair swapped over the whole
+/// corpus, and only three changed a result — all "the secondary-amount hoist
+/// runs last". The other pairs are order-independent and are deliberately not
+/// asserted, since an edge no input exercises is what
+/// `repair_constraints_are_load_bearing` rejects.
 #[cfg(test)]
 pub(crate) const REPAIR_ORDER_CONSTRAINTS: &[RepairOrderConstraint] = &[
     RepairOrderConstraint {
@@ -786,10 +771,8 @@ pub(crate) const REPAIR_ORDER_CONSTRAINTS: &[RepairOrderConstraint] = &[
     },
 ];
 
-/// The one corpus line that distinguishes every load-bearing repair edge: a
-/// prep-chain-led name with a trailing "such as" prose clause AND a trailing
-/// count parenthetical, so the head-noun recovery and the amount hoist compete
-/// for the same modifier slot.
+/// The line that distinguishes every load-bearing edge: head-noun recovery and
+/// the amount hoist compete for the same modifier slot.
 #[cfg(test)]
 const SECONDARY_LAST_WITNESS: &str = "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano (2 to 4)";
 
@@ -806,13 +789,9 @@ const CLAUSE_KIND_TRACE_NAMES: &[&str] = &[
     "head_candidate",
 ];
 
-/// Every label the `segment` stage can emit in a trace — the clause-kind
-/// decisions followed by the assembly repairs — the stage's label universe for
-/// tooling (mirrors the per-stage `*_TRACE_NAMES` slices).
-///
-/// The repair half is generated from [`ASSEMBLY_REPAIRS`] by the stage macro,
-/// so adding a repair cannot silently drop it from `--explain`; that half used
-/// to be hand-copied here.
+/// Every label the `segment` stage can emit — clause-kind decisions then
+/// assembly repairs. The repair half is generated from [`ASSEMBLY_REPAIRS`], so
+/// adding a repair cannot silently drop it from `--explain`.
 pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &{
     let mut out = [""; CLAUSE_KIND_TRACE_NAMES.len() + REPAIR_TRACE_NAMES.len()];
     let mut i = 0;
@@ -892,12 +871,6 @@ mod tests {
     use super::*;
 
     // --- Assembly-repair ordering contract -----------------------------------
-    //
-    // The same guarantees `REFINE_PIPELINE` has had all along. These repairs
-    // moved out of that pipeline at the cutover and arrived as a bare tuple
-    // slice, losing the id enum, the uniqueness check, the order constraints
-    // and the idempotency table on the way — while remaining the stage where
-    // ordering matters most, since two of the six mutate `modifier[0]`.
 
     #[test]
     fn assembly_repair_ids_are_unique() {
@@ -925,8 +898,7 @@ mod tests {
         }
     }
 
-    /// The pre-repair IR for a witness line: segment it, then assemble without
-    /// running the repairs, so a test can replay them in any order.
+    /// The pre-repair IR, so a test can replay the repairs in any order.
     fn unrepaired(parser: &IngredientParser, line: &str) -> ParsedIngredient {
         let mp = MeasurementParser::new(&parser.units, MeasurementMode::IngredientList);
         let (rest, (primary, _, bracketed, _)) = (
@@ -948,9 +920,8 @@ mod tests {
             .expect("witness should assemble")
     }
 
-    /// Each edge must be *load-bearing*: running its witness with the two
-    /// repairs swapped produces a different IR. An edge whose swap changes
-    /// nothing is dead documentation and fails here, naming itself.
+    /// Each edge must be load-bearing: swapping the two repairs on its witness
+    /// must change the IR. A dead edge fails here, naming itself.
     #[test]
     fn repair_constraints_are_load_bearing() {
         let parser = IngredientParser::new();
@@ -976,10 +947,7 @@ mod tests {
         }
     }
 
-    /// Running the repairs a second time on their own output must change
-    /// nothing. This is the invariant the load-bearing order rests on: a repair
-    /// that isn't a fixpoint would silently corrupt results the moment a later
-    /// edit reorders the table.
+    /// The repairs must be a fixpoint — the invariant the ordering rests on.
     #[rstest]
     #[case::plain("2 cups flour")]
     #[case::simple_modifier("1 cup flour, sifted")]
@@ -1004,9 +972,7 @@ mod tests {
         );
     }
 
-    /// The clause-kind half of the trace-label universe must cover every
-    /// `ClauseKind`. The repair half is macro-generated, so only this half can
-    /// drift.
+    /// Only the clause-kind half can drift; the repair half is generated.
     #[test]
     fn clause_kind_labels_are_exhaustive() {
         let kinds = [

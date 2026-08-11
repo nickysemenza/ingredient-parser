@@ -1,10 +1,8 @@
 //! Render the accuracy corpus as a static HTML table for eyeballing.
 //!
-//! This is the *viewer*: it shows rows as the corpus file spells them, via
-//! [`ingredient_corpus::render_authored`]. It deliberately does not use
-//! `Measure`'s `Display` — that would denormalize units, swap ASCII fractions
-//! for glyphs and pluralize, i.e. re-spell a human's row. See the
-//! `divergent_lenses` test in `ingredient-corpus`.
+//! The *viewer*: shows rows as the file spells them, via
+//! [`ingredient_corpus::render_authored`]. Deliberately not `Measure`'s
+//! `Display`, which would re-spell them.
 
 use ingredient_corpus::{Corpus, CorpusRow, Entry, render_authored};
 
@@ -22,9 +20,8 @@ tr.xfail, tr.xfail:nth-child(even) { background: #fff8e1; }
 tr.err, tr.err:nth-child(even) { background: #fdecea; }
 .opt { text-align: center; color: #2e7d32; }";
 
-/// The cells one row contributes, whether or not it deserialized. A malformed
-/// line still renders — with its raw text in the input column and the serde
-/// error as its note — so the viewer never silently shows a short corpus.
+/// The cells one row contributes. A malformed line still renders, so the
+/// viewer never silently shows a short corpus.
 struct Cells<'a> {
     input: &'a str,
     name: &'a str,

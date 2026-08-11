@@ -310,13 +310,9 @@ pub struct ParseNotes {
 
 /// A reason a parse is worth a human look, in report order.
 ///
-/// This exists because the *policy* — which flags mean "needs review", in what
-/// order, described how — was being decided independently by every surface that
-/// showed a parse (the CLI's `--explain`, its corpus-row emitter, the desktop
-/// app, and the web demo), which had each arrived at near-identical English by
-/// hand. The rule belongs with the parse that produced it; how it is coloured
-/// or ranked stays with each surface, since a terminal severity, an egui
-/// palette entry and a CSS class are not the same axis.
+/// The rule lives here so every surface agrees on it; colour and severity stay
+/// with each surface, since a miette severity, an egui palette entry and a CSS
+/// class are not the same axis.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ReviewReason {
     /// No recognizer or core parse succeeded; the whole line became the name.
@@ -350,11 +346,8 @@ impl std::fmt::Display for ReviewReason {
 }
 
 impl ParseNotes {
-    /// Why this parse is worth a human look, in report order. Empty when it
-    /// isn't.
-    ///
-    /// Prefer this to reading the booleans: it is the single definition of
-    /// "needs review", and of how each reason reads.
+    /// Why this parse is worth a human look, in report order; empty when it
+    /// isn't. Prefer this to reading the booleans.
     ///
     /// ```
     /// use ingredient::{from_str, ReviewReason};
@@ -615,10 +608,6 @@ impl IngredientParser {
 mod review_reason_tests {
     use super::*;
 
-    /// The review policy had only a doctest, which `cargo llvm-cov` does not
-    /// count — so the whole `ReviewReason` surface reported as untested. It is
-    /// the single definition of "needs review" for four surfaces, so it gets
-    /// real tests.
     #[test]
     fn clean_parse_has_no_review_reasons() {
         assert!(
@@ -650,9 +639,8 @@ mod review_reason_tests {
         );
     }
 
-    /// The tag is the stable machine key a caller branches on; the Display
-    /// string is what every surface shows. Both are part of the contract — four
-    /// surfaces used to author the sentence themselves.
+    /// The tag is what a caller branches on, the Display string what it shows.
+    /// Both are part of the contract.
     #[test]
     fn tag_and_message_are_the_published_pair() {
         assert_eq!(ReviewReason::FellBack.tag(), "fell_back");

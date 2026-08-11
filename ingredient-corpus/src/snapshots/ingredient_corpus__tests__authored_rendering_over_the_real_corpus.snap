@@ -2,383 +2,384 @@
 source: ingredient-corpus/src/lib.rs
 expression: "lines.join(\"\\n\")"
 ---
-18	2 cups flour	2 cup
-19	1 teaspoon salt	1 tsp
-20	1 tablespoon olive oil	1 tbsp
-21	3 tablespoons sugar	3 tbsp
-22	100 g dark chocolate	100 g
-23	250ml milk	250 ml
-24	2 quarts water	2 quart
-25	1 lb ground beef	1 lb
-28	2 eggs	2
-29	3 large eggs	3 large
-30	1 whole chicken	1
-33	2 cloves garlic	2 clove
-34	4 slices bacon	4 slice
-35	2 sticks unsalted butter	2 stick
-36	1 pinch saffron	1 pinch
-37	1 bunch cilantro	1 bunch
-38	2 ribs celery, chopped	2 rib
-39	a pinch of salt	1 pinch
-42	1/2 cup sugar	0.5 cup
-43	3/4 teaspoon baking soda	0.75 tsp
-44	1 1/2 cups oats	1.5 cup
-45	0.5 cup water	0.5 cup
-46	1 1/4 cups whole milk	1.25 cup
-47	1¼ cups / 155.5g flour	1.25 cup, 155.5 g
-50	2-3 cups chicken broth	2–3 cup
-51	1 to 2 tablespoons honey	1–2 tbsp
-54	1 cup / 240ml milk	1 cup, 240 ml
-55	150g | 1 cup sugar	150 g, 1 cup
-58	2 cups flour, sifted	2 cup
-59	1 cup warm water	1 cup
-60	1 tablespoon hot sauce	1 tbsp
-61	1 cup chopped onion	1 cup
-62	2 cloves garlic, minced	2 clove
-63	1 onion, finely chopped	1
-64	3 tablespoons butter, melted	3 tbsp
-67	1 cup frozen peas	1 cup
-68	2 tablespoons fresh lemon juice	2 tbsp
-69	1 teaspoon vanilla extract	1 tsp
-70	1 tablespoon soy sauce	1 tbsp
-71	1/2 teaspoon kosher salt	0.5 tsp
-74	1 (14.5 oz) can diced tomatoes	1 can, 14.5 oz
-75	1 (15 oz) can chickpeas, drained	1 can, 15 oz
-76	1 cup (2 sticks) butter	1 cup, 2 stick
-79	3 cups all-purpose flour, plus more for dusting	3 cup
-83	(1/2 cup chopped walnuts)	0.5 cup
-91	2 cups/250 grams all-purpose flour	2 cup, 250 g
-92	1 1/2 cups (190 grams) all-purpose flour	1.5 cup, 190 g
-93	1 large egg, room temperature	1 large
-97	4 cloves garlic or 1 teaspoon garlic powder	4 clove
-98	1 cup butter or a splash of oil	1 cup
-100	(½ cup chopped walnuts)	0.5 cup
-102	1 egg	1
-103	(2 cups / 240g flour)	2 cup, 240 g
-104	1 cinnamon stick, crushed	1
-105	1 tablespoon plus 1 teaspoon olive oil	4 tsp
-106	(1 egg)	1
-107	pinch nutmeg	1 pinch
-108	100 grams whole wheat flour	100 g
-109	500 grams (3 ¾ cups) bread or all-purpose flour	500 g, 3.75 cup
-110	1 clove garlic, grated	1 clove
-111	12 cloves of garlic, peeled	12 clove
-112	4 ounces raw or roasted and salted shelled sunflower seeds (about ¾ cup)	4 oz, 0.75 cup
-113	12 cups all purpose flour, lightly sifted	12 cup
-114	1¼  cups / 155.5 grams flour	1.25 cup, 155.5 g
-115	0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast	0.25 oz, 1 packet, 2 tsp
-116	6 ounces unsalted butter (1½ sticks; 168.75g)	6 oz, 1.5 stick, 168.75 g
-117	½ pound 2 sticks; 227 g unsalted butter, room temperature	0.5 lb, 2 stick, 227 g
-118	4 (13-millimeter/½-inch) slices PORK BELLY CHASHU, warmed	4 slice
-119	14 tablespoons/200 grams unsalted butter, cut into pieces	14 tbsp, 200 g
-120	6 cups vegetable stock, more if needed	6 cup
-121	1/4 cup crème fraîche	0.25 cup
-122	⅔ cup (167ml) cold water	2/3 cup, 167 ml
-123	1 tsp freshly ground black pepper	1 tsp
-124	1-2 cups flour	1–2 cup
-125	2 cups/240 grams confectioners' sugar, sifted	2 cup, 240 g
-126	2 cups/240 grams gruyère, sifted	2 cup, 240 g
-127	2 cups/240 grams Jalapeños, sifted	2 cup, 240 g
-128	one egg	1
-129	a cup flour	1 cup
-130	½ cup sugar	0.5 cup
-131	¼ tsp salt	0.25 tsp
-132	¾ cup milk	0.75 cup
-133	⅓ cup honey	1/3 cup
-134	1½ cups water	1.5 cup
-135	2¾ cups stock	2.75 cup
-136	1 1/2 cups flour	1.5 cup
-137	2 3/4 tsp vanilla	2.75 tsp
-138	0.5 oz chocolate	0.5 oz
-139	1.25 cups rice	1.25 cup
-140	2 CUPS flour	2 cup
-141	1 Cup sugar	1 cup
-142	3 TbSp butter	3 tbsp
-143	2 cups chopped onion	2 cup
-144	1 cup minced garlic	1 cup
-145	1 cup chopped parsley (about 2 bunches)	1 cup, 2 bunch
-147	½ cup roughly chopped fresh cilantro leaves (from about ½ bunch)	0.5 cup, 0.5 bunch
-148	3 tbsp fresh lemon juice (from approximately 1 lemon)	3 tbsp, 1
-149	1 cup diced tomatoes	1 cup
-150	60 cilantro leaves (from about 15 sprigs)	60, 15 sprig
-154	2 cups all-purpose flour	2 cup
-155	1 tsp five-spice powder	1 tsp
-156	about 2 cups flour	2 cup
-158	1 can tomatoes	1 can
-159	1 bunch parsley	1 bunch
-160	1 head garlic	1 head
-161	2 leaves basil	2 leave
-162	1 large egg	1 large
-163	2 medium onions	2 medium
-164	3 small potatoes	3 small
-166	2 extra large eggs	2 extra large
-167	2 baby carrots	2
-168	butter (2 sticks), melted	2 stick
-169	sugar (1 cup / 200g)	1 cup, 200 g
-170	2 cups freshly grated parmesan	2 cup
-171	1 lb thinly sliced beef	1 lb
-172	1 cup sliced almonds	1 cup
-173	1 cup chopped minced onion	1 cup
-175	1–2 cups flour	1–2 cup
-176	1 cup; 240 ml water	1 cup, 240 ml
-177	1 packet, about 2 tsp yeast	1 packet, 2 tsp
-178	0.25 tsp salt	0.25 tsp
-179	1/8 tsp pepper	0.125 tsp
-180	1000 grams flour	1000 g
-181	1 cup/240ml water	1 cup, 240 ml
-182	1 cup 2 tbsp flour	1 cup, 2 tbsp
-183	1 cup plus 100 grams flour	1 cup, 100 g
-184	2 tsp. sugar	2 tsp
-185	1 tbsp. olive oil	1 tbsp
-186	2 oz. cheese	2 oz
-187	2 cups of flour	2 cup
-188	pinch of salt	1 pinch
-189	2 x 100g flour	200 g
-190	3 x 50g butter	150 g
-191	3 x 100-120 g nuts	300–360 g
-192	2 x 3-4 cups flour	6–8 cup
-193	flour (1 cup; 120g)	1 cup, 120 g
-194	flour (2 cups)	2 cup
-195	2 cups flour (240g)	2 cup, 240 g
-196	2 cups chicken breast, cooked and diced into small cubes	2 cup
-197	2 cups water	2 cup
-198	3–4 — tablespoons lemon juice	3–4 tbsp
-199	1 × 400g tin pinto beans	1, 400 g, 1 tin
-200	4 TBSP [56 G] UNSALTED BUTTER	4 tbsp, 56 g
-201	3/4    cups whole milk	0.75 cup
-202	  2   cups   flour  	2 cup
-206	Sugar -- 200 g	200 g
-207	Heavy cream — 150 grams | ½ cup + 2 tablespoons	150 g, 30 tsp
-208	Heavy cream — 150 grams | ½ cup	150 g, 0.5 cup
-209	Salt – 14 g	14 g
-210	Butter — 1 cup / 227 g	1 cup, 227 g
-211	All-purpose flour — 630 g	630 g
-212	Warm water (100°F/38°C) — 472 g	472 g
-215	1,000 grams flour	1000 g
-216	1,000 grams (about 6 cups) quartered and pitted nectarines	1000 g, 6 cup
-219	two eggs	2
-220	three large eggs	3 large
-223	Juice of 1 lemon	1
-224	Zest of 1 lemon	1
-225	Zest of 2 limes	2
-226	juice of 2 oranges	2
-227	Grated zest of 1 orange	1
-228	the juice of one lemon	1
-229	zest of 1 lemon, finely grated	1
-232	1 cup packed brown sugar	1 cup
-233	2 cups sifted cake flour	2 cup
-234	1 cup loosely packed basil leaves	1 cup
-235	1 cup firmly packed light brown sugar	1 cup
-237	3 tablespoons well-chopped parsley	3 tbsp
-240	1 cup flour (sifted)	1 cup
-241	2 eggs (room temperature)	2
-242	1 stick butter (softened)	1 stick
-243	1 cup bittersweet chocolate (70% cacao)	1 cup
-244	1 and 1/2 cups flour	1.5 cup
-245	2 and 1/4 cups water	2.25 cup
-246	half a cup of milk	0.5 cup
-247	half a teaspoon salt	0.5 tsp
-248	2 (14.5 oz) cans diced tomatoes	2 can, 14.5 oz
-249	2/3 cup (85 grams) finely chopped, raw pistachios	2/3 cup, 85 g
-250	1 cup sifted, cake flour	1 cup
-253	up to 5 cups flour	0–5 cup
-254	at most 10 cups water	0–10 cup
-255	2 or 3 cups sugar	2–3 cup
-256	2 through 3 cups flour	2–3 cup
-257	1 cup, 2 tablespoons flour	1 cup, 2 tbsp
-258	2 x 3 cups flour	6 cup
-261	About 2 cups vegetable oil	2 cup
-262	Generous ¼ cup chopped cilantro	0.25 cup
-263	Scant 1 cup flour	1 cup
-264	Heaping 1 tablespoon sugar	1 tbsp
-265	1 (1-ounce) piece peeled ginger	1 piece, 1 oz
-266	1 (28-ounce) can whole peeled tomatoes	1 can, 28 oz
-269	175 grams /1¾ cups sifted almond flour	175 g, 1.75 cup
-270	50 grams /¼ cup granulated sugar	50 g, 0.25 cup
-271	85 grams /6 Tbsp unsalted butter	85 g, 6 tbsp
-272	610 grams /2½ cups heavy cream, plus more as needed	610 g, 2.5 cup
-273	160 grams /⅔ cup room-temperature (70° to 80°F) water	160 g, 2/3 cup
-274	10 g / 2 tablespoons sliced (¼ inch / 6 mm) green onions	10 g, 2 tbsp
-275	One 2-inch stick of canela (Mexican cinnamon)	1 stick, 2 "
-276	One 10-ounce disk Pie Dough	1 disk, 10 oz
-277	One 8-ounce package cream cheese, room temperature	1 package, 8 oz
-278	1 (8-ounce) ball burrata	1 ball, 8 oz
-279	1 (9-inch) pie crust	1, 9 "
-280	1 (11-ounce) box Nilla wafers or graham crackers	1 box, 11 oz
-281	2-inch piece ginger	2 ", 1 piece
-282	3-inch cinnamon stick	3 "
-283	Finely grated zest from 1 lemon	1
-284	Juice from 2 limes	2
-285	Peel of 1 grapefruit	1
-286	Brimming 1 tablespoon oyster sauce	1 tbsp
-287	Less than 1 g / ¼ teaspoon kosher salt	1 g, 0.25 tsp
-288	One ¼-ounce packet unflavored gelatin	1 packet, 0.25 oz
-289	4 (4- to 6-ounce) halibut fillets	4 fillet, 4–6 oz
-292	2 teaspoons Chinese 5-spice powder ③	2 tsp
-293	1 (7 oz / 198g) tube almond paste	1 tube, 7 oz, 198 g
-294	1 (0.25 oz / 7g) envelope active dry yeast	1 envelope, 0.25 oz, 7 g
-295	Seeds scraped from 1 vanilla bean	1
-296	Leaves from 3 sprigs fresh thyme	3 sprig
-298	1 cup cream of tartar	1 cup
-299	2 cups heart of palm	2 cup
-302	½ cup crème fraîche or sour cream (4.2 oz / 120g)	0.5 cup, 4.2 oz, 120 g
-303	1¼ cups grated Monterey Jack (or other mild melting cheese)	1.25 cup
-304	10 ounces (283g) fresh cranberries (about 2½ cups), plus 20 or so for garnish ①	10 oz, 283 g, 2.5 cup
-305	1 tablespoon plus 1 cup neutral oil, such as vegetable or grapeseed (8.4 oz / 238g) ①	51 tsp, 8.4 oz, 238 g
-306	1 recipe Flaky All-Butter Pie Dough (this page) or ½ recipe Rough Puff Pastry (this page)	1 recipe
-307	3 or 4 dried Thai chiles, broken in half	3–4
-308	1 (14-gram) piece peeled ginger, thinly sliced against the grain	1 piece, 14 g
-309	Pinch of cayenne pepper, or more to taste	1 pinch
-312	12 ounces (340g) fresh or frozen pitted sweet cherries (about 2½ cups)	12 oz, 340 g, 2.5 cup
-313	5 to 10 dried Thai chiles, fried	5–10
-314	¼ teaspoon plus ⅛ teaspoon ground turmeric	0.375 tsp
-317	1 pint raspberries	1 pint
-318	6 sprigs fresh thyme	6 sprig
-319	4 sprigs fresh thyme	4 sprig
-320	2 tablespoons dried minced onion	2 tbsp
-321	2 tablespoons toasted sliced almonds	2 tbsp
-322	1 teaspoon grated or finely chopped lemon zest	1 tsp
-323	2 teaspoons melted butter	2 tsp
-324	1 tablespoon melted butter	1 tbsp
-325	2 teaspoons softened butter	2 tsp
-331	1 cinnamon stick or ¼ teaspoon ground cinnamon	1
-332	2 teaspoons coriander seed or ½ teaspoon ground	2 tsp
-333	Two 18-ounce arctic char fillets, skin on	2, 18 oz
-334	One 3-ounce celery stalk, coarsely chopped	1 stalk, 3 oz
-335	One 10-ounce yellow onion, halved and thickly sliced	1, 10 oz
-336	1 (3½- to 4-pound) chicken	1, 3.5–4 lb
-337	1 whole 3-pound fish, or two 1½-pound fishes	1, 3 lb
-338	2 (8-ounce) swordfish steaks, preferably center cut	2, 8 oz
-339	3½- to 4-pound chicken	3.5–4 lb
-340	4½- to 5½-pound bone-in leg of lamb	4.5–5.5 lb
-341	3½- to 4-pound boneless beef brisket, fat trimmed	3.5–4 lb
-342	One 6-ounce carrot	1, 6 oz
-343	One 2-pound slab of bacon, skin removed	1 slab, 2 lb
-344	One 1-pound jicama, peeled and cut into medium matchsticks	1, 1 lb
-345	2 ounces peeled carrot, cut into long (about 3-inch), thin (about ⅛-inch) strips (about 1 cup, lightly packed)	2 oz
-346	1 (7-gram) piece peeled ginger, cut into long (about 1½-inch), very thin (about 1/16-inch) matchsticks (about 1 tablespoon	1 piece, 7 g
-347	1½ ounces peeled white turmeric, cut into long (about 3-inch), thin (about ⅛-inch) strips (about ¾ cup, lightly packed), see NOTE	1.5 oz
-348	the ¼ cup of garlic chives	0.25 cup
-349	½ cup toasted walnuts (see this page), coarsely chopped	0.5 cup
-350	2 tablespoons finely chopped toasted pistachios (see this page)	2 tbsp
-351	2 generous tablespoons coarsely chopped unsalted roasted peanuts	2 tbsp
-352	1 generous tablespoon medium-size dried shrimp, rinsed and patted dry	1 tbsp
-353	Scant 2 tablespoons shredded salted radish, soaked in water 10 minutes then drained	2 tbsp
-354	1 cup (½ pint) strawberries	1 cup, 0.5 pint
-355	½ cup minus 1 tablespoon flour	0.5 cup
-356	15 tablespoons (2 sticks minus 1 tablespoon) unsalted butter	15 tbsp
-357	2 teaspoons to 2 tablespoons Toasted-chile powder	2 tsp, 2 tbsp
-358	1½ teaspoons to 1½ tablespoons packed light or dark brown sugar	1.5 tsp, 1.5 tbsp
-359	Grated zest of 1 lemon or ½ orange (optional)	1
-363	3 pieces of star anise	3 piece
-364	⅓ cup strained apricot jam (optional), warmed, for glazing	1/3 cup
-365	1 ripe medium Fuyu persimmon (optional), cut into about 8 very thin rounds	1
-366	½ medium white onion, cut into ¼-inch-thick slices	0.5 medium
-367	2 teaspoons finely grated lemon or orange zest	2 tsp
-369	1 (1½-inch-thick) bone-in pork chop (about 1¼ pounds)	1, 1.25 lb
-370	Four ½-inch-thick boneless pork shoulder steaks (2 pounds total)	4, 2 lb
-371	1 recipe (2 disks) The Only Piecrust	1 recipe, 2 disk
-372	½ cup unsalted roasted almonds (optional), coarsely chopped (2.1 oz / 60g)	0.5 cup, 2.1 oz, 60 g
-373	¾ ounce Pierre Ferrand 1840 Cognac	0.75 oz
-374	1 red or white onion	1
-375	2 cups flour or cornmeal	2 cup
-376	1 teaspoon sweet or hot paprika	1 tsp
-377	1 cup butter or margarine	1 cup
-379	500ml (18fl oz) Greek yogurt	500 ml, 18 fl oz
-380	75ml (2½fl oz) olive oil	75 ml, 2.5 fl oz
-381	2 fluid ounces cream	2 fl oz
-382	1 stalk celery, diced	1 stalk
-386	500g (1lb 2oz) minced lamb (not too lean)	500 g, 1 lb, 2 oz
-387	1 tbsp melted lard (or cooking oil)	1 tbsp
-388	½ cup plain whole-milk yogurt (not Greek)	0.5 cup
-389	1-inch piece (20g) ginger, unpeeled	1 piece, 20 g
-390	1–1½-inch piece (20–30g) ginger, unpeeled	1 piece, 20–30 g
-392	400g (14oz) feta cheese	400 g, 14 oz
-393	500g (1lb 2oz) basmati rice	500 g, 1 lb, 2 oz
-394	1 x 20g packet of chives, snipped or thinly sliced	20 g, 1 packet
-395	700ml (1¼ pints) vegetable oil	700 ml, 1.25 pint
-396	200ml (1/3 pint) extra virgin olive oil	200 ml, 1/3 pint
-398	10 uncooked frozen dumplings (this page to this page)	10
-399	1 recipe dumpling filling (this page, this page, or this page)	1 recipe
-400	3 stalks green garlic	3 stalk
-401	10 ounces (280 g) sliced lamb meat	10 oz, 280 g
-402	⅓ cup (about 70 g) dried lily flowers	1/3 cup, 70 g
-403	2 tablespoons XFF Chili Oil	2 tbsp
-404	8 cups (2 L) lamb broth	8 cup, 2 l
-405	1 teaspoon XFF Chili Oil (this page; optional)	1 tsp
-409	2 tablespoons very thinly sliced chives	2 tbsp
-410	2 tablespoons very finely chopped fennel fronds	2 tbsp
-411	2 recipes Flaky All-Butter Pie Dough	2 recipe
-412	1 loaf baked Brioche	1 loaf
-417	2 tablespoons amaretto or dark rum	2 tbsp
-418	1 cup walnuts or macadamia nuts	1 cup
-421	1 cup fresh or frozen blueberries	1 cup
-422	2 tsp to 3 teaspoons sugar	2–3 tsp
-423	1g-2G salt	1–2 g
-424	2 packets yeast	2 packet
-425	2 heads garlic	2 head
-426	1 cup basil or chopped parsley	1 cup
-427	1 and ½ cups flour	1.5 cup
-428	1 cup parsley, chopped (about 2 cups) plus more for garnish	1 cup, 2 cup
-434	4 cups vegetable oil, for deep-frying	4 cup
-436	1 tablespoon butter, for the pan	1 tbsp
-443	1 cup all-purpose flour, for dredging	1 cup
-446	2 tablespoons soy sauce, for the marinade	2 tbsp
-448	1 can refried beans	1 can
-449	2 tablespoons stir-fry sauce	2 tbsp
-450	1 cup fried onions	1 cup
-451	2 tablespoons unsalted butter, plus more for greasing	2 tbsp
-456	1 medium or large garlic clove, peeled	1 clove
-458	½ teaspoon grated lemon zest	0.5 tsp
-470	Generous pinch of kosher salt	1 pinch
-472	4 anchovy fillets mashed with the flat side of a knife into a paste	4
-475	1 t salt	1 tsp
-476	1 T butter	1 tbsp
-477	2 t. vanilla	2 tsp
-478	1 T. heavy cream	1 tbsp
-480	1 3/4 cups (8 ounces by weight) whole wheat flour, plus a bit more for shaping	1.75 cup, 8 oz
-481	1/4 cup (1 ounce by weight) light rye flour	0.25 cup, 1 oz
-483	1 cup bittersweet chocolate (70% cacao)	1 cup
-485	1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano (2 to 4)	0.5 cup, 2–4
-487	1 cup chopped onion	1 cup
-488	2 cups peeled and diced potatoes	2 cup
-490	1 small handful basil leaves	1 handful
-491	Healthy pinch of mint leaves	1 pinch
-493	2 large eggs	2 large
-495	2 cups large onion	2 cup
-497	1 cup Hellmann's or Best Foods mayonnaise	1 cup
-499	2 tablespoons amaretto or dark rum	2 tbsp
-502	1/3 cup (80ml) canola, vegetable, or melted coconut oil	1/3 cup, 80 ml
-504	1 teaspoon salt, pepper, or paprika	1 tsp
-506	1 cup (130g) shredded zucchini (see note)*	1 cup, 130 g
-507	1 cup shredded cheddar cheese	1 cup
-512	4 cups chicken or vegetable stock	4 cup
-513	1 tablespoon grainy or Dijon mustard	1 tbsp
-514	¼ teaspoon freshly ground pink or black pepper	0.25 tsp
-515	3 heads Little Gem or Bibb lettuce, leaves separated	3 head
-517	2 tablespoons butter or olive oil	2 tbsp
-519	1 teaspoon salt or pepper	1 tsp
-522	4 bone-in, skin-on chicken legs	4
-523	2 pounds boneless, skinless chicken thighs (8 to 12 thighs, depending on their size)	2 lb
-525	¾ cup diagonally sliced scallions (white and green parts, about 4 scallions)	0.75 cup
-527	1 ounce freshly squeezed lime juice	1 oz
-530	1 large bunch Tuscan kale, leaves stripped and roughly torn (about 5 cups)	1 bunch, 5 cup
-531	½ small head green cabbage, very finely shredded on a mandoline (about 2 cups)	0.5 head, 2 cup
-533	3 medium carrots, peeled	3 medium
-534	1 medium red onion, peeled and quartered	1 medium
-536	1 batch of Marshmallow Meringue (this page)	1 recipe
-538	Bottle of quality red wine vinegar	1 bottle
-539	Bottle of finishing-quality extra-virgin olive oil	1 bottle
-540	1 jar of salsa	1 jar
-541	tub of yogurt	1 tub
-542	bag of all-purpose flour	1 bag
-545	2 cups cubed seedless watermelon (from about ¼ small melon), chilled	2 cup
-546	½ cup unsalted peanuts	0.5 cup
-547	1 medium purple (red) cabbage (about 1 pound)	1 medium, 1 lb
-548	3 or 4 sprigs thyme and/or rosemary	3–4 sprig
-549	2 cups parsley leaves and tender stems	2 cup
-550	8 ounces small potatoes	8 oz
-551	Handful cilantro and/or mint, for serving	1 handful
-552	Small handful thyme sprigs	1 handful
-553	block of cream cheese	1 block
-554	tube of tomato paste	1 tube
+2 cups flour	2 cup
+1 teaspoon salt	1 tsp
+1 tablespoon olive oil	1 tbsp
+3 tablespoons sugar	3 tbsp
+100 g dark chocolate	100 g
+250ml milk	250 ml
+2 quarts water	2 quart
+1 lb ground beef	1 lb
+2 eggs	2
+3 large eggs	3 large
+1 whole chicken	1
+2 cloves garlic	2 clove
+4 slices bacon	4 slice
+2 sticks unsalted butter	2 stick
+1 pinch saffron	1 pinch
+1 bunch cilantro	1 bunch
+2 ribs celery, chopped	2 rib
+a pinch of salt	1 pinch
+1/2 cup sugar	0.5 cup
+3/4 teaspoon baking soda	0.75 tsp
+1 1/2 cups oats	1.5 cup
+0.5 cup water	0.5 cup
+1 1/4 cups whole milk	1.25 cup
+1¼ cups / 155.5g flour	1.25 cup, 155.5 g
+2-3 cups chicken broth	2–3 cup
+1 to 2 tablespoons honey	1–2 tbsp
+1 cup / 240ml milk	1 cup, 240 ml
+150g | 1 cup sugar	150 g, 1 cup
+2 cups flour, sifted	2 cup
+1 cup warm water	1 cup
+1 tablespoon hot sauce	1 tbsp
+1 cup chopped onion	1 cup
+2 cloves garlic, minced	2 clove
+1 onion, finely chopped	1
+3 tablespoons butter, melted	3 tbsp
+1 cup frozen peas	1 cup
+2 tablespoons fresh lemon juice	2 tbsp
+1 teaspoon vanilla extract	1 tsp
+1 tablespoon soy sauce	1 tbsp
+1/2 teaspoon kosher salt	0.5 tsp
+1 (14.5 oz) can diced tomatoes	1 can, 14.5 oz
+1 (15 oz) can chickpeas, drained	1 can, 15 oz
+1 cup (2 sticks) butter	1 cup, 2 stick
+3 cups all-purpose flour, plus more for dusting	3 cup
+(1/2 cup chopped walnuts)	0.5 cup
+2 cups/250 grams all-purpose flour	2 cup, 250 g
+1 1/2 cups (190 grams) all-purpose flour	1.5 cup, 190 g
+1 large egg, room temperature	1 large
+4 cloves garlic or 1 teaspoon garlic powder	4 clove
+1 cup butter or a splash of oil	1 cup
+(½ cup chopped walnuts)	0.5 cup
+1 egg	1
+(2 cups / 240g flour)	2 cup, 240 g
+1 cinnamon stick, crushed	1
+1 tablespoon plus 1 teaspoon olive oil	4 tsp
+(1 egg)	1
+pinch nutmeg	1 pinch
+100 grams whole wheat flour	100 g
+500 grams (3 ¾ cups) bread or all-purpose flour	500 g, 3.75 cup
+1 clove garlic, grated	1 clove
+12 cloves of garlic, peeled	12 clove
+4 ounces raw or roasted and salted shelled sunflower seeds (about ¾ cup)	4 oz, 0.75 cup
+12 cups all purpose flour, lightly sifted	12 cup
+1¼  cups / 155.5 grams flour	1.25 cup, 155.5 g
+0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast	0.25 oz, 1 packet, 2 tsp
+6 ounces unsalted butter (1½ sticks; 168.75g)	6 oz, 1.5 stick, 168.75 g
+½ pound 2 sticks; 227 g unsalted butter, room temperature	0.5 lb, 2 stick, 227 g
+4 (13-millimeter/½-inch) slices PORK BELLY CHASHU, warmed	4 slice
+14 tablespoons/200 grams unsalted butter, cut into pieces	14 tbsp, 200 g
+6 cups vegetable stock, more if needed	6 cup
+1/4 cup crème fraîche	0.25 cup
+⅔ cup (167ml) cold water	2/3 cup, 167 ml
+1 tsp freshly ground black pepper	1 tsp
+1-2 cups flour	1–2 cup
+2 cups/240 grams confectioners' sugar, sifted	2 cup, 240 g
+2 cups/240 grams gruyère, sifted	2 cup, 240 g
+2 cups/240 grams Jalapeños, sifted	2 cup, 240 g
+one egg	1
+a cup flour	1 cup
+½ cup sugar	0.5 cup
+¼ tsp salt	0.25 tsp
+¾ cup milk	0.75 cup
+⅓ cup honey	1/3 cup
+1½ cups water	1.5 cup
+2¾ cups stock	2.75 cup
+1 1/2 cups flour	1.5 cup
+2 3/4 tsp vanilla	2.75 tsp
+0.5 oz chocolate	0.5 oz
+1.25 cups rice	1.25 cup
+2 CUPS flour	2 cup
+1 Cup sugar	1 cup
+3 TbSp butter	3 tbsp
+2 cups chopped onion	2 cup
+1 cup minced garlic	1 cup
+1 cup chopped parsley (about 2 bunches)	1 cup, 2 bunch
+½ cup roughly chopped fresh cilantro leaves (from about ½ bunch)	0.5 cup, 0.5 bunch
+3 tbsp fresh lemon juice (from approximately 1 lemon)	3 tbsp, 1
+1 cup diced tomatoes	1 cup
+60 cilantro leaves (from about 15 sprigs)	60, 15 sprig
+2 cups all-purpose flour	2 cup
+1 tsp five-spice powder	1 tsp
+about 2 cups flour	2 cup
+1 can tomatoes	1 can
+1 bunch parsley	1 bunch
+1 head garlic	1 head
+2 leaves basil	2 leave
+1 large egg	1 large
+2 medium onions	2 medium
+3 small potatoes	3 small
+2 extra large eggs	2 extra large
+2 baby carrots	2
+butter (2 sticks), melted	2 stick
+sugar (1 cup / 200g)	1 cup, 200 g
+2 cups freshly grated parmesan	2 cup
+1 lb thinly sliced beef	1 lb
+1 cup sliced almonds	1 cup
+1 cup chopped minced onion	1 cup
+1–2 cups flour	1–2 cup
+1 cup; 240 ml water	1 cup, 240 ml
+1 packet, about 2 tsp yeast	1 packet, 2 tsp
+0.25 tsp salt	0.25 tsp
+1/8 tsp pepper	0.125 tsp
+1000 grams flour	1000 g
+1 cup/240ml water	1 cup, 240 ml
+1 cup 2 tbsp flour	1 cup, 2 tbsp
+1 cup plus 100 grams flour	1 cup, 100 g
+2 tsp. sugar	2 tsp
+1 tbsp. olive oil	1 tbsp
+2 oz. cheese	2 oz
+2 cups of flour	2 cup
+pinch of salt	1 pinch
+2 x 100g flour	200 g
+3 x 50g butter	150 g
+3 x 100-120 g nuts	300–360 g
+2 x 3-4 cups flour	6–8 cup
+flour (1 cup; 120g)	1 cup, 120 g
+flour (2 cups)	2 cup
+2 cups flour (240g)	2 cup, 240 g
+2 cups chicken breast, cooked and diced into small cubes	2 cup
+2 cups water	2 cup
+3–4 — tablespoons lemon juice	3–4 tbsp
+1 × 400g tin pinto beans	1, 400 g, 1 tin
+4 TBSP [56 G] UNSALTED BUTTER	4 tbsp, 56 g
+3/4    cups whole milk	0.75 cup
+  2   cups   flour  	2 cup
+Sugar -- 200 g	200 g
+Heavy cream — 150 grams | ½ cup + 2 tablespoons	150 g, 30 tsp
+Heavy cream — 150 grams | ½ cup	150 g, 0.5 cup
+Salt – 14 g	14 g
+Butter — 1 cup / 227 g	1 cup, 227 g
+All-purpose flour — 630 g	630 g
+Warm water (100°F/38°C) — 472 g	472 g
+1,000 grams flour	1000 g
+1,000 grams (about 6 cups) quartered and pitted nectarines	1000 g, 6 cup
+two eggs	2
+three large eggs	3 large
+Juice of 1 lemon	1
+Zest of 1 lemon	1
+Zest of 2 limes	2
+juice of 2 oranges	2
+Grated zest of 1 orange	1
+the juice of one lemon	1
+zest of 1 lemon, finely grated	1
+1 cup packed brown sugar	1 cup
+2 cups sifted cake flour	2 cup
+1 cup loosely packed basil leaves	1 cup
+1 cup firmly packed light brown sugar	1 cup
+3 tablespoons well-chopped parsley	3 tbsp
+1 cup flour (sifted)	1 cup
+2 eggs (room temperature)	2
+1 stick butter (softened)	1 stick
+1 cup bittersweet chocolate (70% cacao)	1 cup
+1 and 1/2 cups flour	1.5 cup
+2 and 1/4 cups water	2.25 cup
+half a cup of milk	0.5 cup
+half a teaspoon salt	0.5 tsp
+2 (14.5 oz) cans diced tomatoes	2 can, 14.5 oz
+2/3 cup (85 grams) finely chopped, raw pistachios	2/3 cup, 85 g
+1 cup sifted, cake flour	1 cup
+up to 5 cups flour	0–5 cup
+at most 10 cups water	0–10 cup
+2 or 3 cups sugar	2–3 cup
+2 through 3 cups flour	2–3 cup
+1 cup, 2 tablespoons flour	1 cup, 2 tbsp
+2 x 3 cups flour	6 cup
+About 2 cups vegetable oil	2 cup
+Generous ¼ cup chopped cilantro	0.25 cup
+Scant 1 cup flour	1 cup
+Heaping 1 tablespoon sugar	1 tbsp
+1 (1-ounce) piece peeled ginger	1 piece, 1 oz
+1 (28-ounce) can whole peeled tomatoes	1 can, 28 oz
+175 grams /1¾ cups sifted almond flour	175 g, 1.75 cup
+50 grams /¼ cup granulated sugar	50 g, 0.25 cup
+85 grams /6 Tbsp unsalted butter	85 g, 6 tbsp
+610 grams /2½ cups heavy cream, plus more as needed	610 g, 2.5 cup
+160 grams /⅔ cup room-temperature (70° to 80°F) water	160 g, 2/3 cup
+10 g / 2 tablespoons sliced (¼ inch / 6 mm) green onions	10 g, 2 tbsp
+One 2-inch stick of canela (Mexican cinnamon)	1 stick, 2 "
+One 10-ounce disk Pie Dough	1 disk, 10 oz
+One 8-ounce package cream cheese, room temperature	1 package, 8 oz
+1 (8-ounce) ball burrata	1 ball, 8 oz
+1 (9-inch) pie crust	1, 9 "
+1 (11-ounce) box Nilla wafers or graham crackers	1 box, 11 oz
+2-inch piece ginger	2 ", 1 piece
+3-inch cinnamon stick	3 "
+Finely grated zest from 1 lemon	1
+Juice from 2 limes	2
+Peel of 1 grapefruit	1
+Brimming 1 tablespoon oyster sauce	1 tbsp
+Less than 1 g / ¼ teaspoon kosher salt	1 g, 0.25 tsp
+One ¼-ounce packet unflavored gelatin	1 packet, 0.25 oz
+4 (4- to 6-ounce) halibut fillets	4 fillet, 4–6 oz
+2 teaspoons Chinese 5-spice powder ③	2 tsp
+1 (7 oz / 198g) tube almond paste	1 tube, 7 oz, 198 g
+1 (0.25 oz / 7g) envelope active dry yeast	1 envelope, 0.25 oz, 7 g
+Seeds scraped from 1 vanilla bean	1
+Leaves from 3 sprigs fresh thyme	3 sprig
+1 cup cream of tartar	1 cup
+2 cups heart of palm	2 cup
+½ cup crème fraîche or sour cream (4.2 oz / 120g)	0.5 cup, 4.2 oz, 120 g
+1¼ cups grated Monterey Jack (or other mild melting cheese)	1.25 cup
+10 ounces (283g) fresh cranberries (about 2½ cups), plus 20 or so for garnish ①	10 oz, 283 g, 2.5 cup
+1 tablespoon plus 1 cup neutral oil, such as vegetable or grapeseed (8.4 oz / 238g) ①	51 tsp, 8.4 oz, 238 g
+1 recipe Flaky All-Butter Pie Dough (this page) or ½ recipe Rough Puff Pastry (this page)	1 recipe
+3 or 4 dried Thai chiles, broken in half	3–4
+1 (14-gram) piece peeled ginger, thinly sliced against the grain	1 piece, 14 g
+Pinch of cayenne pepper, or more to taste	1 pinch
+12 ounces (340g) fresh or frozen pitted sweet cherries (about 2½ cups)	12 oz, 340 g, 2.5 cup
+5 to 10 dried Thai chiles, fried	5–10
+¼ teaspoon plus ⅛ teaspoon ground turmeric	0.375 tsp
+1 pint raspberries	1 pint
+6 sprigs fresh thyme	6 sprig
+4 sprigs fresh thyme	4 sprig
+2 tablespoons dried minced onion	2 tbsp
+2 tablespoons toasted sliced almonds	2 tbsp
+1 teaspoon grated or finely chopped lemon zest	1 tsp
+2 teaspoons melted butter	2 tsp
+1 tablespoon melted butter	1 tbsp
+2 teaspoons softened butter	2 tsp
+1 cinnamon stick or ¼ teaspoon ground cinnamon	1
+2 teaspoons coriander seed or ½ teaspoon ground	2 tsp
+Two 18-ounce arctic char fillets, skin on	2, 18 oz
+One 3-ounce celery stalk, coarsely chopped	1 stalk, 3 oz
+One 10-ounce yellow onion, halved and thickly sliced	1, 10 oz
+1 (3½- to 4-pound) chicken	1, 3.5–4 lb
+1 whole 3-pound fish, or two 1½-pound fishes	1, 3 lb
+2 (8-ounce) swordfish steaks, preferably center cut	2, 8 oz
+3½- to 4-pound chicken	3.5–4 lb
+4½- to 5½-pound bone-in leg of lamb	4.5–5.5 lb
+3½- to 4-pound boneless beef brisket, fat trimmed	3.5–4 lb
+One 6-ounce carrot	1, 6 oz
+One 2-pound slab of bacon, skin removed	1 slab, 2 lb
+One 1-pound jicama, peeled and cut into medium matchsticks	1, 1 lb
+2 ounces peeled carrot, cut into long (about 3-inch), thin (about ⅛-inch) strips (about 1 cup, lightly packed)	2 oz
+1 (7-gram) piece peeled ginger, cut into long (about 1½-inch), very thin (about 1/16-inch) matchsticks (about 1 tablespoon	1 piece, 7 g
+1½ ounces peeled white turmeric, cut into long (about 3-inch), thin (about ⅛-inch) strips (about ¾ cup, lightly packed), see NOTE	1.5 oz
+the ¼ cup of garlic chives	0.25 cup
+½ cup toasted walnuts (see this page), coarsely chopped	0.5 cup
+2 tablespoons finely chopped toasted pistachios (see this page)	2 tbsp
+2 generous tablespoons coarsely chopped unsalted roasted peanuts	2 tbsp
+1 generous tablespoon medium-size dried shrimp, rinsed and patted dry	1 tbsp
+Scant 2 tablespoons shredded salted radish, soaked in water 10 minutes then drained	2 tbsp
+1 cup (½ pint) strawberries	1 cup, 0.5 pint
+½ cup minus 1 tablespoon flour	0.5 cup
+15 tablespoons (2 sticks minus 1 tablespoon) unsalted butter	15 tbsp
+2 teaspoons to 2 tablespoons Toasted-chile powder	2 tsp, 2 tbsp
+1½ teaspoons to 1½ tablespoons packed light or dark brown sugar	1.5 tsp, 1.5 tbsp
+Grated zest of 1 lemon or ½ orange (optional)	1
+3 pieces of star anise	3 piece
+⅓ cup strained apricot jam (optional), warmed, for glazing	1/3 cup
+1 ripe medium Fuyu persimmon (optional), cut into about 8 very thin rounds	1
+½ medium white onion, cut into ¼-inch-thick slices	0.5 medium
+2 teaspoons finely grated lemon or orange zest	2 tsp
+1 (1½-inch-thick) bone-in pork chop (about 1¼ pounds)	1, 1.25 lb
+Four ½-inch-thick boneless pork shoulder steaks (2 pounds total)	4, 2 lb
+1 recipe (2 disks) The Only Piecrust	1 recipe, 2 disk
+½ cup unsalted roasted almonds (optional), coarsely chopped (2.1 oz / 60g)	0.5 cup, 2.1 oz, 60 g
+¾ ounce Pierre Ferrand 1840 Cognac	0.75 oz
+1 red or white onion	1
+2 cups flour or cornmeal	2 cup
+1 teaspoon sweet or hot paprika	1 tsp
+1 cup butter or margarine	1 cup
+500ml (18fl oz) Greek yogurt	500 ml, 18 fl oz
+75ml (2½fl oz) olive oil	75 ml, 2.5 fl oz
+2 fluid ounces cream	2 fl oz
+1 stalk celery, diced	1 stalk
+500g (1lb 2oz) minced lamb (not too lean)	500 g, 1 lb, 2 oz
+1 tbsp melted lard (or cooking oil)	1 tbsp
+½ cup plain whole-milk yogurt (not Greek)	0.5 cup
+1-inch piece (20g) ginger, unpeeled	1 piece, 20 g
+1–1½-inch piece (20–30g) ginger, unpeeled	1 piece, 20–30 g
+400g (14oz) feta cheese	400 g, 14 oz
+500g (1lb 2oz) basmati rice	500 g, 1 lb, 2 oz
+1 x 20g packet of chives, snipped or thinly sliced	20 g, 1 packet
+700ml (1¼ pints) vegetable oil	700 ml, 1.25 pint
+200ml (1/3 pint) extra virgin olive oil	200 ml, 1/3 pint
+10 uncooked frozen dumplings (this page to this page)	10
+1 recipe dumpling filling (this page, this page, or this page)	1 recipe
+3 stalks green garlic	3 stalk
+10 ounces (280 g) sliced lamb meat	10 oz, 280 g
+⅓ cup (about 70 g) dried lily flowers	1/3 cup, 70 g
+2 tablespoons XFF Chili Oil	2 tbsp
+8 cups (2 L) lamb broth	8 cup, 2 l
+1 teaspoon XFF Chili Oil (this page; optional)	1 tsp
+2 tablespoons very thinly sliced chives	2 tbsp
+2 tablespoons very finely chopped fennel fronds	2 tbsp
+2 recipes Flaky All-Butter Pie Dough	2 recipe
+1 loaf baked Brioche	1 loaf
+2 tablespoons amaretto or dark rum	2 tbsp
+1 cup walnuts or macadamia nuts	1 cup
+1 cup fresh or frozen blueberries	1 cup
+2 tsp to 3 teaspoons sugar	2–3 tsp
+1g-2G salt	1–2 g
+2 packets yeast	2 packet
+2 heads garlic	2 head
+1 cup basil or chopped parsley	1 cup
+1 and ½ cups flour	1.5 cup
+1 cup parsley, chopped (about 2 cups) plus more for garnish	1 cup, 2 cup
+4 cups vegetable oil, for deep-frying	4 cup
+1 tablespoon butter, for the pan	1 tbsp
+1 cup all-purpose flour, for dredging	1 cup
+2 tablespoons soy sauce, for the marinade	2 tbsp
+1 can refried beans	1 can
+2 tablespoons stir-fry sauce	2 tbsp
+1 cup fried onions	1 cup
+2 tablespoons unsalted butter, plus more for greasing	2 tbsp
+1 medium or large garlic clove, peeled	1 clove
+½ teaspoon grated lemon zest	0.5 tsp
+Generous pinch of kosher salt	1 pinch
+4 anchovy fillets mashed with the flat side of a knife into a paste	4
+1 t salt	1 tsp
+1 T butter	1 tbsp
+2 t. vanilla	2 tsp
+1 T. heavy cream	1 tbsp
+1 3/4 cups (8 ounces by weight) whole wheat flour, plus a bit more for shaping	1.75 cup, 8 oz
+1/4 cup (1 ounce by weight) light rye flour	0.25 cup, 1 oz
+1 cup bittersweet chocolate (70% cacao)	1 cup
+1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano (2 to 4)	0.5 cup, 2–4
+1 cup chopped onion	1 cup
+2 cups peeled and diced potatoes	2 cup
+1 pound peeled and deveined, large shrimp	1 lb
+1 small handful basil leaves	1 handful
+Healthy pinch of mint leaves	1 pinch
+2 large eggs	2 large
+2 cups large onion	2 cup
+1 cup Hellmann's or Best Foods mayonnaise	1 cup
+2 tablespoons amaretto or dark rum	2 tbsp
+1/3 cup (80ml) canola, vegetable, or melted coconut oil	1/3 cup, 80 ml
+1 teaspoon salt, pepper, or paprika	1 tsp
+1 cup (130g) shredded zucchini (see note)*	1 cup, 130 g
+1 cup shredded cheddar cheese	1 cup
+4 cups chicken or vegetable stock	4 cup
+1 tablespoon grainy or Dijon mustard	1 tbsp
+¼ teaspoon freshly ground pink or black pepper	0.25 tsp
+3 heads Little Gem or Bibb lettuce, leaves separated	3 head
+2 tablespoons butter or olive oil	2 tbsp
+1 teaspoon salt or pepper	1 tsp
+4 bone-in, skin-on chicken legs	4
+2 pounds boneless, skinless chicken thighs (8 to 12 thighs, depending on their size)	2 lb
+¾ cup diagonally sliced scallions (white and green parts, about 4 scallions)	0.75 cup
+1 ounce freshly squeezed lime juice	1 oz
+1 large bunch Tuscan kale, leaves stripped and roughly torn (about 5 cups)	1 bunch, 5 cup
+½ small head green cabbage, very finely shredded on a mandoline (about 2 cups)	0.5 head, 2 cup
+3 medium carrots, peeled	3 medium
+1 medium red onion, peeled and quartered	1 medium
+1 batch of Marshmallow Meringue (this page)	1 recipe
+Bottle of quality red wine vinegar	1 bottle
+Bottle of finishing-quality extra-virgin olive oil	1 bottle
+1 jar of salsa	1 jar
+tub of yogurt	1 tub
+bag of all-purpose flour	1 bag
+2 cups cubed seedless watermelon (from about ¼ small melon), chilled	2 cup
+½ cup unsalted peanuts	0.5 cup
+1 medium purple (red) cabbage (about 1 pound)	1 medium, 1 lb
+3 or 4 sprigs thyme and/or rosemary	3–4 sprig
+2 cups parsley leaves and tender stems	2 cup
+8 ounces small potatoes	8 oz
+Handful cilantro and/or mint, for serving	1 handful
+Small handful thyme sprigs	1 handful
+block of cream cheese	1 block
+tube of tomato paste	1 tube

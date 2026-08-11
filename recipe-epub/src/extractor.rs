@@ -335,12 +335,9 @@ pub enum MockMatch {
     Text(String),
     /// The chunk carries this continuation [`Chunk::title_hint`].
     ///
-    /// This is the half a mock could not see before: a real model is *asked*,
-    /// via the hint prefixed onto the request, to re-emit a recipe that a hard
-    /// chunk split cut in two, so `assemble` can merge the halves by title.
-    /// Without a rule form for it, the hint → re-emit → merge contract — three
-    /// modules, each with its own passing test, and the source of the dropped
-    /// and mis-attributed-note bugs — could not be driven offline at all.
+    /// A real model is asked, via the hint, to re-emit a recipe a hard split cut
+    /// in two so `assemble` can merge the halves. Matching on it is what lets a
+    /// test drive that contract offline.
     TitleHint(String),
 }
 

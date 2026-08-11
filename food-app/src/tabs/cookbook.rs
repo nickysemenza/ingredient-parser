@@ -602,14 +602,12 @@ impl CookbookTab {
     }
 }
 
-/// Scan `dir` for EPUBs and classify each one: tag heuristic first, then a
-/// single batched AI call for the books it could not settle, then a cover read
-/// for the confirmed cookbooks, then cookbooks-first alphabetical order.
+/// Scan `dir` for EPUBs and classify each: tag heuristic, then one batched AI
+/// call for the unsettled books, then covers for confirmed cookbooks, then
+/// cookbooks-first alphabetical.
 ///
-/// A free function rather than closure body: this is the tab's real policy, and
-/// inside `Promise::spawn_thread` it was unreachable without a live egui
-/// context, so none of it could be tested. The thread and the repaint stay at
-/// the call site.
+/// Free function rather than closure body so it is reachable without a live
+/// egui context; the thread and repaint stay at the call site.
 fn scan_library(dir: &std::path::Path, use_ai: bool) -> ScanResult {
     let mut books: Vec<ScannedBook> = recipe_epub::find_epubs(dir)
         .iter()
@@ -1004,10 +1002,7 @@ fn show_sections_with_links(
 /// "recipe A uses recipe B" reference. Node payload = the recipe's index in
 /// `recipes` (for click-to-select); node label = the recipe title.
 /// Title → recipe index for one book. Titles are unique per book, so this is
-/// the one way to turn a cross-reference's target title into a recipe.
-///
-/// Three separate `recipes.iter().position(...)` scans used to answer this
-/// question — two of them inside render functions, recomputed every frame.
+/// the one way to resolve a cross-reference's target.
 pub(crate) struct ReferenceIndex<'a>(std::collections::HashMap<&'a str, usize>);
 
 impl<'a> ReferenceIndex<'a> {

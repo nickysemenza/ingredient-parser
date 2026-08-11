@@ -486,6 +486,7 @@
 // guards: a real head noun in the name keeps the pass from firing.
 {"input": "1 cup chopped onion", "name": "onion", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "chopped"}
 {"input": "2 cups peeled and diced potatoes", "name": "peeled and diced potatoes", "amounts": [{"unit": "cup", "value": 2.0}]}
+{"input": "1 pound peeled and deveined, large shrimp", "name": "large shrimp", "amounts": [{"unit": "lb", "value": 1}], "modifier": "peeled and deveined", "xfail": "recover_head_noun_from_modifier does not fire when the leading prep chain is connector-joined (\"peeled and deveined\"); name is the chain and the food lands in the modifier"}
 // --- vague units: a size/intensifier word before a vague unit is a measure qualifier ---
 {"input": "1 small handful basil leaves", "name": "basil leaves", "amounts": [{"unit": "handful", "value": 1.0}]}
 {"input": "Healthy pinch of mint leaves", "name": "mint leaves", "amounts": [{"unit": "pinch", "value": 1.0}]}
