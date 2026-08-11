@@ -186,9 +186,6 @@ use std::sync::LazyLock;
 
 pub use crate::error::{IngredientError, IngredientResult};
 pub use crate::ingredient::Ingredient;
-// Crate-internal migration switch; public only for the food-cli shadow harness.
-#[doc(hidden)]
-pub use crate::parser::segment::SegmentationMode;
 pub use crate::usage::{IngredientUsage, classify_usage};
 use parser::{MeasurementMode, MeasurementParser};
 use unit::Measure;
@@ -271,7 +268,7 @@ pub enum Confidence {
     /// A clean name-only parse with no digit present (e.g. "salt to taste").
     #[default]
     Medium,
-    /// A digit was present but produced no amount — a likely missed quantity,
+    /// A digit was present but produced no measure — a likely missed quantity,
     /// or a hard fallback to a name-only ingredient.
     Low,
 }
@@ -306,12 +303,75 @@ pub struct ParseNotes {
     pub confidence: Confidence,
     /// The parse fell back to a name-only ingredient (no recognizer/core parse).
     pub fell_back: bool,
-    /// The input contained a digit but no amount was parsed — the corpus-harvest
+    /// The input contained a digit but no measure was parsed — the corpus-harvest
     /// "likely miss" heuristic, computed natively by the parser.
     pub unparsed_digit: bool,
 }
 
+/// A reason a parse is worth a human look, in report order.
+///
+/// The rule lives here so every surface agrees on it; colour and severity stay
+/// with each surface, since a miette severity, an egui palette entry and a CSS
+/// class are not the same axis.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReviewReason {
+    /// No recognizer or core parse succeeded; the whole line became the name.
+    FellBack,
+    /// The line contains a digit that produced no measure — a likely missed
+    /// quantity, and the corpus-harvest signal.
+    UnparsedDigit,
+}
+
+impl ReviewReason {
+    /// The stable machine tag and the human sentence, in one place so they
+    /// cannot drift apart.
+    const fn parts(self) -> (&'static str, &'static str) {
+        match self {
+            ReviewReason::FellBack => ("fell_back", "fell back to a name-only ingredient"),
+            ReviewReason::UnparsedDigit => (
+                "unparsed_digit",
+                "contains a digit that produced no measure (likely missed quantity)",
+            ),
+        }
+    }
+
+    /// A stable machine tag, for a caller that branches rather than prints.
+    pub const fn tag(self) -> &'static str {
+        self.parts().0
+    }
+}
+
+impl std::fmt::Display for ReviewReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.parts().1)
+    }
+}
+
 impl ParseNotes {
+    /// Why this parse is worth a human look, in report order; empty when it
+    /// isn't. Prefer this to reading the booleans.
+    ///
+    /// ```
+    /// use ingredient::{from_str, ReviewReason};
+    ///
+    /// assert!(from_str("2 cups flour").parse_notes.review_reasons().is_empty());
+    ///
+    /// let notes = from_str("3 whole large eggs beaten with a fork").parse_notes;
+    /// for reason in notes.review_reasons() {
+    ///     println!("{}: {reason}", reason.tag());
+    /// }
+    /// ```
+    pub fn review_reasons(&self) -> Vec<ReviewReason> {
+        let mut out = Vec::new();
+        if self.fell_back {
+            out.push(ReviewReason::FellBack);
+        }
+        if self.unparsed_digit {
+            out.push(ReviewReason::UnparsedDigit);
+        }
+        out
+    }
+
     /// Derive notes from the raw input line, the parsed result, and whether the
     /// parse fell back to name-only. Pure bookkeeping — no reparsing.
     pub(crate) fn derive(input: &str, ingredient: &Ingredient, fell_back: bool) -> Self {
@@ -321,7 +381,7 @@ impl ParseNotes {
             // A structured parse with at least one amount.
             Confidence::High
         } else if unparsed_digit {
-            // A digit produced no amount — a likely missed quantity.
+            // A digit produced no measure — a likely missed quantity.
             Confidence::Low
         } else {
             // A plausible name-only ingredient (no digit, e.g. "salt to taste").
@@ -395,10 +455,8 @@ pub struct IngredientParser {
     units: HashSet<String>,
     /// Set of recognized adjectives that get moved to modifier field
     adjectives: HashSet<String>,
-    /// Which post-amount pipeline to run (crate-internal migration switch;
-    /// defaults to [`SegmentationMode::Segmented`]).
-    segmentation: SegmentationMode,
 }
+
 impl IngredientParser {
     /// Create a new ingredient parser with default units and adjectives
     ///
@@ -434,19 +492,7 @@ impl IngredientParser {
             .map(|&s| s.to_string())
             .collect();
 
-        IngredientParser {
-            units,
-            adjectives,
-            segmentation: SegmentationMode::default(),
-        }
-    }
-
-    /// Select the post-amount pipeline (chainable). Hidden: a migration-time
-    /// switch for the shadow A/B harness, not a supported public API.
-    #[doc(hidden)]
-    pub fn with_segmentation_mode(mut self, mode: SegmentationMode) -> Self {
-        self.segmentation = mode;
-        self
+        IngredientParser { units, adjectives }
     }
 
     /// Add custom units to the parser (chainable)
@@ -557,5 +603,57 @@ impl IngredientParser {
                 },
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod review_reason_tests {
+    use super::*;
+
+    #[test]
+    fn clean_parse_has_no_review_reasons() {
+        assert!(
+            from_str("2 cups flour")
+                .parse_notes
+                .review_reasons()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn unparsed_digit_is_reported() {
+        let notes = from_str("mystery 5 xyz qqq").parse_notes;
+        assert!(notes.unparsed_digit);
+        assert_eq!(notes.review_reasons(), [ReviewReason::UnparsedDigit]);
+    }
+
+    /// Both notes set: the reasons come back in report order, fallback first.
+    #[test]
+    fn reasons_are_ordered_fallback_then_digit() {
+        let notes = ParseNotes {
+            confidence: Confidence::Low,
+            fell_back: true,
+            unparsed_digit: true,
+        };
+        assert_eq!(
+            notes.review_reasons(),
+            [ReviewReason::FellBack, ReviewReason::UnparsedDigit]
+        );
+    }
+
+    /// The tag is what a caller branches on, the Display string what it shows.
+    /// Both are part of the contract.
+    #[test]
+    fn tag_and_message_are_the_published_pair() {
+        assert_eq!(ReviewReason::FellBack.tag(), "fell_back");
+        assert_eq!(ReviewReason::UnparsedDigit.tag(), "unparsed_digit");
+        assert_eq!(
+            ReviewReason::FellBack.to_string(),
+            "fell back to a name-only ingredient"
+        );
+        assert_eq!(
+            ReviewReason::UnparsedDigit.to_string(),
+            "contains a digit that produced no measure (likely missed quantity)"
+        );
     }
 }

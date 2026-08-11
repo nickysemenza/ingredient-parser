@@ -19,32 +19,50 @@ use crate::Res;
 /// lockstep with `v_frac_to_num` by `tests::vulgar_fractions_match_is_vulgar`.
 pub const VULGAR_FRACTIONS: &str = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞";
 
+/// The glyph ↔ (numerator, denominator) table — the one enumeration.
+/// [`v_frac_to_num`] reads it one way, [`glyph_for`] the other. Glyphs are
+/// `&str` so rendering can hand one back without a second match.
+///
+/// Before this was shared, the renderer in `util.rs` kept its own list of 15
+/// under a comment claiming it mirrored the parser's — which accepted 18. The
+/// three it lacked (`⅐ ⅑ ⅒`) parsed in and came back out as `0.14`, and
+/// nothing failed. `fraction_glyphs_round_trip` now closes that.
+const VULGAR_TABLE: &[(&str, i32, i32)] = &[
+    ("¼", 1, 4),
+    ("½", 1, 2),
+    ("¾", 3, 4),
+    ("⅐", 1, 7),
+    ("⅑", 1, 9),
+    ("⅒", 1, 10),
+    ("⅓", 1, 3),
+    ("⅔", 2, 3),
+    ("⅕", 1, 5),
+    ("⅖", 2, 5),
+    ("⅗", 3, 5),
+    ("⅘", 4, 5),
+    ("⅙", 1, 6),
+    ("⅚", 5, 6),
+    ("⅛", 1, 8),
+    ("⅜", 3, 8),
+    ("⅝", 5, 8),
+    ("⅞", 7, 8),
+];
+
 fn v_frac_to_num(input: char) -> Option<f64> {
-    // two ranges for unicode fractions
-    // https://www.compart.com/en/unicode/search?q=vulgar+fraction#characters
-    let (n, d): (i32, i32) = match input {
-        '¾' => (3, 4),
-        '⅛' => (1, 8),
-        '¼' => (1, 4),
-        '⅓' => (1, 3),
-        '½' => (1, 2),
-        '⅔' => (2, 3),
-        // Adding more common unicode fractions
-        '⅕' => (1, 5),
-        '⅖' => (2, 5),
-        '⅗' => (3, 5),
-        '⅘' => (4, 5),
-        '⅙' => (1, 6),
-        '⅚' => (5, 6),
-        '⅐' => (1, 7),
-        '⅑' => (1, 9),
-        '⅒' => (1, 10),
-        '⅜' => (3, 8),
-        '⅝' => (5, 8),
-        '⅞' => (7, 8),
-        _ => return None,
-    };
-    Some(n as f64 / d as f64)
+    VULGAR_TABLE
+        .iter()
+        .find(|(g, _, _)| g.chars().eq(std::iter::once(input)))
+        .map(|(_, n, d)| *n as f64 / *d as f64)
+}
+
+/// The glyph for a fractional value in `0..1`, within `tolerance`. The render
+/// direction of [`VULGAR_TABLE`] — `util::format_quantity` calls this rather
+/// than keeping a second list.
+pub fn glyph_for(frac: f64, tolerance: f64) -> Option<&'static str> {
+    VULGAR_TABLE
+        .iter()
+        .find(|(_, n, d)| (frac - (*n as f64 / *d as f64)).abs() < tolerance)
+        .map(|(glyph, _, _)| *glyph)
 }
 
 /// Whether `c` is a unicode vulgar-fraction glyph (½, ⅓, ¼, …).
@@ -157,7 +175,7 @@ mod tests {
     use nom_language::error::{VerboseError, VerboseErrorKind};
     use rstest::rstest;
 
-    use super::{fraction_number, v_frac_to_num};
+    use super::{VULGAR_FRACTIONS, VULGAR_TABLE, fraction_number, glyph_for, v_frac_to_num};
 
     // ============================================================================
     // Unicode Vulgar Fraction Character Tests
@@ -317,5 +335,57 @@ mod tests {
                 ]
             }))
         );
+    }
+
+    /// The two constants must describe the same glyph set. `VULGAR_FRACTIONS`
+    /// is what the regexes build their character class from; `VULGAR_TABLE` is
+    /// what parses and renders.
+    #[test]
+    fn vulgar_fractions_matches_the_table() {
+        let mut from_table: Vec<char> = VULGAR_TABLE
+            .iter()
+            .filter_map(|(g, _, _)| g.chars().next())
+            .collect();
+        let mut from_const: Vec<char> = VULGAR_FRACTIONS.chars().collect();
+        from_table.sort_unstable();
+        from_const.sort_unstable();
+        assert_eq!(from_table, from_const);
+    }
+
+    /// Every glyph must parse to its value and render back as itself, through
+    /// both `glyph_for` and the public formatter `Measure`'s `Display` uses.
+    ///
+    /// This is the property the old two-list arrangement failed: the renderer
+    /// listed 15 of the 18 accepted glyphs, so `⅐ ⅑ ⅒` parsed in and came out
+    /// as `0.14` / `0.11` / `0.1` — with every test green, because each list was
+    /// only ever checked against itself.
+    ///
+    /// Iterates the table rather than the string so there is no "glyph failed
+    /// to parse" branch to leave uncovered; `vulgar_fractions_matches_the_table`
+    /// above pins the two together.
+    #[test]
+    fn fraction_glyphs_round_trip() {
+        for &(glyph, n, d) in VULGAR_TABLE {
+            let value = n as f64 / d as f64;
+            let ch = glyph.chars().next().unwrap();
+            assert_eq!(v_frac_to_num(ch), Some(value), "{glyph} parsed wrong");
+            assert_eq!(
+                glyph_for(value, 1e-6),
+                Some(glyph),
+                "{glyph} lost on render"
+            );
+            assert_eq!(
+                crate::util::format_quantity(value),
+                glyph,
+                "format_quantity lost {glyph}"
+            );
+        }
+    }
+
+    /// A value that is not a cooking fraction has no glyph.
+    #[test]
+    fn non_fraction_values_have_no_glyph() {
+        assert_eq!(glyph_for(0.123_456, 1e-6), None);
+        assert_eq!(glyph_for(0.0, 1e-6), None);
     }
 }

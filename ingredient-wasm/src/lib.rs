@@ -97,6 +97,21 @@ pub struct WParseNotes {
     pub fell_back: bool,
     /// A digit was present but no amount was parsed — a likely missed quantity.
     pub unparsed_digit: bool,
+    /// Why this parse is worth a human look, in report order; empty when it
+    /// isn't. Each entry is `{tag, message}` — branch on `tag`, show `message`.
+    ///
+    /// Carried across the boundary so a JS review queue reads the parser's
+    /// policy instead of re-deriving it from the booleans above, which is how
+    /// four surfaces ended up hand-authoring the same English.
+    pub review_reasons: Vec<WReviewReason>,
+}
+
+/// One reason a parse needs review: a stable machine tag plus its message.
+#[derive(Tsify, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct WReviewReason {
+    pub tag: String,
+    pub message: String,
 }
 
 impl From<&ingredient::ParseNotes> for WParseNotes {
@@ -105,6 +120,14 @@ impl From<&ingredient::ParseNotes> for WParseNotes {
             confidence: n.confidence,
             fell_back: n.fell_back,
             unparsed_digit: n.unparsed_digit,
+            review_reasons: n
+                .review_reasons()
+                .into_iter()
+                .map(|r| WReviewReason {
+                    tag: r.tag().to_string(),
+                    message: r.to_string(),
+                })
+                .collect(),
         }
     }
 }
@@ -425,6 +448,24 @@ pub fn amount_kind(amount: WAmount) -> Result<WAmountKind, String> {
     to_js(&kind.to_str(), "amount kind").map(Into::into)
 }
 
+/// Scale an amount for a resized recipe.
+///
+/// The reason to call this rather than multiply `value` yourself: amounts whose
+/// kind does not scale — a pan dimension, an oven temperature, a resting time —
+/// come back unchanged, so a caller can map it over every measure in a recipe
+/// without first deciding which ones are quantities. Deciding that at the call
+/// site means hand-copying the kind table, which is how a doubled recipe ends
+/// up calling for an 18-inch pie crust.
+///
+/// Secondarily, the multiply happens on the exact rational inside `Measure`
+/// rather than on the f64 view, so repeated scaling does not drift. That
+/// difference is below `format_amount`'s rounding, so it is not usually visible
+/// on screen — it matters for equality and for exact-fraction round-tripping.
+#[wasm_bindgen]
+pub fn scale_amount(amount: WAmount, factor: f64) -> WAmount {
+    amount.to_measure().scale(factor).into()
+}
+
 #[wasm_bindgen]
 pub fn is_valid_unit(unit: &str, extra_units: Vec<String>) -> bool {
     is_valid(&HashSet::from_iter(extra_units), unit)
@@ -531,6 +572,39 @@ pub fn parse_rich_text(text: &str, ingredient_names: Vec<String>) -> Result<Rich
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    fn amount(unit: &str, value: f64) -> WAmount {
+        WAmount {
+            unit: unit.to_string(),
+            value,
+            upper_value: None,
+        }
+    }
+
+    /// The exactness survives the boundary. Asserted as strict equality, not a
+    /// tolerance — contrast the conversion tests below, which need one because
+    /// conversion genuinely is approximate.
+    #[test]
+    fn scale_amount_is_exact_across_the_boundary() {
+        let scaled = scale_amount(amount("cup", 2.0 / 3.0), 3.0);
+        assert_eq!(scaled.value, 2.0);
+        assert_eq!(scaled.unit, "cup");
+    }
+
+    /// The f64 round trip back through the boundary is lossless, so a scaled
+    /// amount re-enters `Measure` as the same exact rational it left as.
+    #[test]
+    fn scale_then_format_round_trips() {
+        let scaled = scale_amount(amount("cup", 2.0 / 3.0), 3.0);
+        assert_eq!(format_amount(scaled), "2 cups");
+    }
+
+    /// The pan does not resize when the recipe doubles — the bug this export
+    /// exists to make unrepresentable at the call site.
+    #[test]
+    fn scale_amount_leaves_dimensions_alone() {
+        assert_eq!(scale_amount(amount("\"", 9.0), 2.0).value, 9.0);
+    }
 
     /// The hand-authored `AmountKind` TS union must stay in lockstep with
     /// `MeasureKind::to_str()`. The parameterized kinds render as

@@ -16,80 +16,29 @@
 use crate::theme;
 use eframe::egui::{self, RichText};
 use egui_extras::{Column, TableBuilder};
-use ingredient::ingredient::Ingredient;
 use ingredient::util::truncate_str;
-use ingredient::{IngredientUsage, from_str, unit::Measure};
-use serde::Deserialize;
+use ingredient_corpus::{CorpusRow, FieldDiff, Status, Tally};
 
 /// Default corpus path, relative to the workspace root (the app's cwd under
 /// `cargo run --bin food-app`). Editable in the tab's path field.
-const DEFAULT_CORPUS_PATH: &str = "ingredient-parser/tests/corpus/corpus.jsonl";
+const DEFAULT_CORPUS_PATH: &str = ingredient_corpus::CORPUS_RELATIVE_PATH;
 
-/// Baked-in copy of the corpus, used as a fallback when the file can't be read
-/// (e.g. the app was launched from a different cwd). Runtime load is preferred
-/// so edits to the file show up without a rebuild; this only backstops IO.
-const EMBEDDED_CORPUS: &str = include_str!("../../../ingredient-parser/tests/corpus/corpus.jsonl");
-
-/// One labeled corpus row — the same serde shape as `accuracy.rs::CorpusRow`.
-#[derive(Deserialize)]
-struct CorpusRow {
-    input: String,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    amounts: Vec<Measure>,
-    #[serde(default)]
-    modifier: Option<String>,
-    #[serde(default)]
-    optional: bool,
-    /// Expected usage; absent means `Normal` (a test-side default, matching
-    /// accuracy.rs — the `Ingredient.usage` field itself has no serde default).
-    #[serde(default)]
-    usage: IngredientUsage,
-    /// When set, documents a known parser gap: a mismatch is tolerated.
-    #[serde(default)]
-    xfail: Option<String>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Status {
-    Exact,
-    Regression,
-    Xfail,
-    Promote,
-}
-
-impl Status {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Exact => "EXACT",
-            Self::Regression => "REGRESSION",
-            Self::Xfail => "XFAIL",
-            Self::Promote => "PROMOTE",
-        }
-    }
-
-    fn color(self) -> egui::Color32 {
-        let p = theme::palette();
-        match self {
-            Self::Exact => p.trace_ok(),
-            Self::Regression => p.trace_fail(),
-            Self::Xfail => p.trace_incomplete(),
-            Self::Promote => p.amount(),
-        }
+/// The palette a status reads as. Presentation stays here — `ingredient-corpus`
+/// must not learn about egui — while the classification itself is shared, so
+/// this tab and `tests/accuracy.rs` can no longer disagree about what EXACT
+/// means.
+fn status_color(status: Status) -> egui::Color32 {
+    let p = theme::palette();
+    match status {
+        Status::Exact => p.trace_ok(),
+        Status::Regression => p.trace_fail(),
+        Status::Xfail => p.trace_incomplete(),
+        Status::Promote => p.amount(),
     }
 }
 
-/// One field's expected-vs-got comparison, for the detail view.
-struct FieldDiff {
-    field: &'static str,
-    ok: bool,
-    expected: String,
-    got: String,
-}
-
-/// A scored corpus row: the expected labels, the parser's actual output, and
-/// the per-field diff. `got` is retained so the detail view is free.
+/// A scored row plus the bits of the corpus row the tab renders. `Scored`
+/// itself carries only the classification and the per-field diff.
 struct ScoredRow {
     input: String,
     status: Status,
@@ -98,70 +47,15 @@ struct ScoredRow {
 }
 
 impl ScoredRow {
-    /// Score one row against the parser, mirroring `accuracy.rs` semantics:
-    /// exact equality on every labeled field; `xfail` only changes how a
-    /// mismatch is *classified*, never how fields are compared.
-    fn score(row: CorpusRow) -> Self {
-        let got: Ingredient = from_str(&row.input);
-        let diffs = vec![
-            FieldDiff {
-                field: "name",
-                ok: got.name == row.name,
-                expected: row.name.clone(),
-                got: got.name.clone(),
-            },
-            FieldDiff {
-                field: "amounts",
-                ok: got.amounts == row.amounts,
-                expected: fmt_amounts(&row.amounts),
-                got: fmt_amounts(&got.amounts),
-            },
-            FieldDiff {
-                field: "modifier",
-                ok: got.modifier == row.modifier,
-                expected: format!("{:?}", row.modifier),
-                got: format!("{:?}", got.modifier),
-            },
-            FieldDiff {
-                field: "optional",
-                ok: got.optional == row.optional,
-                expected: row.optional.to_string(),
-                got: got.optional.to_string(),
-            },
-            FieldDiff {
-                field: "usage",
-                ok: got.usage == row.usage,
-                expected: format!("{:?}", row.usage),
-                got: format!("{:?}", got.usage),
-            },
-        ];
-
-        let all_ok = diffs.iter().all(|d| d.ok);
-        let status = match (all_ok, row.xfail.is_some()) {
-            (true, false) => Status::Exact,
-            (true, true) => Status::Promote,
-            (false, false) => Status::Regression,
-            (false, true) => Status::Xfail,
-        };
-
+    fn score(row: &CorpusRow) -> Self {
+        let scored = ingredient_corpus::score(row);
         Self {
-            input: row.input,
-            status,
-            xfail_reason: row.xfail,
-            diffs,
+            input: row.input.clone(),
+            status: scored.status,
+            xfail_reason: row.xfail.clone(),
+            diffs: scored.fields.to_vec(),
         }
     }
-}
-
-fn fmt_amounts(amounts: &[Measure]) -> String {
-    if amounts.is_empty() {
-        return "[]".to_string();
-    }
-    amounts
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -255,7 +149,7 @@ impl CorpusTab {
                 .on_hover_text("Load the copy baked into the binary at build time")
                 .clicked()
             {
-                self.load_from_source(EMBEDDED_CORPUS);
+                self.load_from_source(ingredient_corpus::embedded());
             }
         });
 
@@ -301,20 +195,15 @@ impl CorpusTab {
     /// malformed line aborts the load with an error (matching accuracy.rs,
     /// which panics on a bad row) rather than silently dropping it.
     fn load_from_source(&mut self, source: &str) {
-        let mut rows = Vec::new();
-        for line in source.lines().map(str::trim) {
-            if line.is_empty() || line.starts_with("//") {
-                continue;
-            }
-            match serde_json::from_str::<CorpusRow>(line) {
-                Ok(row) => rows.push(ScoredRow::score(row)),
-                Err(e) => {
-                    self.load_error = Some(format!("invalid corpus row: {line}\n  {e}"));
-                    return;
-                }
-            }
+        let corpus = ingredient_corpus::parse(source);
+        if let Some((entry, problem)) = corpus.problems().next() {
+            self.load_error = Some(format!(
+                "invalid corpus row (line {}): {}\n  {}",
+                entry.line_no, problem.message, problem.line
+            ));
+            return;
         }
-        self.rows = rows;
+        self.rows = corpus.rows().map(ScoredRow::score).collect();
         self.load_error = None;
         self.loaded = true;
         self.selected = None;
@@ -335,16 +224,13 @@ impl CorpusTab {
 
     /// Status counts + filter buttons.
     fn show_summary(&mut self, ui: &mut egui::Ui) {
-        let (mut exact, mut regr, mut xfail, mut promote) = (0, 0, 0, 0);
+        let mut tally = Tally::default();
         for r in &self.rows {
-            match r.status {
-                Status::Exact => exact += 1,
-                Status::Regression => regr += 1,
-                Status::Xfail => xfail += 1,
-                Status::Promote => promote += 1,
-            }
+            tally.count(r.status);
         }
-        let total = self.rows.len();
+        let (exact, regr, xfail, promote) =
+            (tally.exact, tally.regression, tally.xfail, tally.promote);
+        let total = tally.total;
 
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(format!("{total} rows")).strong());
@@ -411,7 +297,7 @@ impl CorpusTab {
                     table_row.col(|ui| {
                         ui.label(
                             RichText::new(r.status.label())
-                                .color(r.status.color())
+                                .color(status_color(r.status))
                                 .strong(),
                         );
                     });
@@ -435,7 +321,7 @@ impl CorpusTab {
 fn count_chip(ui: &mut egui::Ui, status: Status, n: usize) {
     ui.label(
         RichText::new(format!("{} {n}", status.label()))
-            .color(status.color())
+            .color(status_color(status))
             .strong(),
     );
 }
@@ -448,7 +334,7 @@ fn show_detail(ui: &mut egui::Ui, row: &ScoredRow) -> Option<CorpusAction> {
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(row.status.label())
-                    .color(row.status.color())
+                    .color(status_color(row.status))
                     .strong(),
             );
             ui.label(RichText::new(truncate_str(&row.input, 80)).monospace());
@@ -478,13 +364,17 @@ fn show_detail(ui: &mut egui::Ui, row: &ScoredRow) -> Option<CorpusAction> {
                 } else {
                     theme::palette().trace_fail()
                 };
-                ui.label(RichText::new(format!("{}:", d.field)).color(color).strong());
+                ui.label(
+                    RichText::new(format!("{}:", d.field.as_str()))
+                        .color(color)
+                        .strong(),
+                );
                 if d.ok {
                     ui.monospace(&d.got);
                 } else {
                     ui.monospace(format!("got {}", d.got));
                     ui.label(RichText::new("·").weak());
-                    ui.monospace(format!("want {}", d.expected));
+                    ui.monospace(format!("want {}", d.want));
                 }
             });
         }
@@ -503,65 +393,31 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
-    /// A committed row (no `xfail`) whose labels match the parser's actual
-    /// output scores as `Exact` — mirrors `accuracy_corpus`'s `exact` bucket.
+    /// The four status arms and the "xfail never changes field comparison"
+    /// rule are owned by `ingredient-corpus` now (see `status_arms` and
+    /// `xfail_does_not_change_field_comparison` there) — this tab used to hold
+    /// the only copy. What is left to test here is the adapter: that the owned
+    /// `ScoredRow` the GUI keeps across frames carries the shared scoring
+    /// faithfully.
     #[test]
-    fn matching_committed_row_is_exact() {
-        let scored = ScoredRow::score(row(
+    fn scored_row_carries_shared_scoring() {
+        let committed = row(
             r#"{"input": "1 cup flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1}]}"#,
-        ));
-        assert!(scored.status == Status::Exact);
+        );
+        let scored = ScoredRow::score(&committed);
+        assert_eq!(scored.status, Status::Exact);
+        assert_eq!(scored.input, "1 cup flour");
+        assert_eq!(scored.diffs.len(), 5);
         assert!(scored.diffs.iter().all(|d| d.ok));
-    }
+        assert!(scored.xfail_reason.is_none());
 
-    /// A committed row (no `xfail`) whose labels DON'T match the parser's
-    /// output scores as `Regression` — this is exactly what `accuracy_corpus`
-    /// fails the test suite on.
-    #[test]
-    fn mismatching_committed_row_is_regression() {
-        let scored = ScoredRow::score(row(
-            r#"{"input": "1 cup flour", "name": "sugar", "amounts": [{"unit": "cup", "value": 1}]}"#,
-        ));
-        assert!(scored.status == Status::Regression);
-        assert!(scored.diffs.iter().any(|d| !d.ok));
-    }
-
-    /// A known-gap row (`xfail` set) whose labels still don't match scores as
-    /// `Xfail` — the mismatch is tolerated, never a regression.
-    #[test]
-    fn mismatching_xfail_row_is_xfail() {
-        let scored = ScoredRow::score(row(
+        let gap = row(
             r#"{"input": "1 cup flour", "name": "sugar", "amounts": [{"unit": "cup", "value": 1}], "xfail": "known gap"}"#,
-        ));
-        assert!(scored.status == Status::Xfail);
+        );
+        let scored = ScoredRow::score(&gap);
+        assert_eq!(scored.status, Status::Xfail);
         assert_eq!(scored.xfail_reason.as_deref(), Some("known gap"));
-    }
-
-    /// An `xfail` row whose labels now match the parser's output (the gap has
-    /// been closed) scores as `Promote` — the hint to remove the `xfail`
-    /// marker, mirroring `accuracy_corpus`'s `promotable` list.
-    #[test]
-    fn matching_xfail_row_is_promote() {
-        let scored = ScoredRow::score(row(
-            r#"{"input": "1 cup flour", "name": "flour", "amounts": [{"unit": "cup", "value": 1}], "xfail": "fixed now"}"#,
-        ));
-        assert!(scored.status == Status::Promote);
-        assert!(scored.diffs.iter().all(|d| d.ok));
-    }
-
-    /// `xfail` only changes classification, never the underlying field
-    /// comparison: an xfail row scored identically to its non-xfail twin
-    /// produces the same per-field diffs either way.
-    #[test]
-    fn xfail_does_not_change_field_comparison() {
-        let base =
-            r#"{"input": "1 cup flour", "name": "sugar", "amounts": [{"unit": "cup", "value": 1}]"#;
-        let committed = ScoredRow::score(row(&format!("{base}}}")));
-        let xfailed = ScoredRow::score(row(&format!("{base}, \"xfail\": \"reason\"}}")));
-
-        let committed_oks: Vec<bool> = committed.diffs.iter().map(|d| d.ok).collect();
-        let xfailed_oks: Vec<bool> = xfailed.diffs.iter().map(|d| d.ok).collect();
-        assert_eq!(committed_oks, xfailed_oks);
+        assert!(scored.diffs.iter().any(|d| !d.ok));
     }
 
     #[test]

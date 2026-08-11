@@ -23,54 +23,16 @@
 // Test-harness code: a malformed corpus line should fail the test loudly.
 #![allow(clippy::panic)]
 
-use ingredient::{
-    rich_text::{Chunk, RichParser},
-    unit::Measure,
-};
-use serde::Deserialize;
+use ingredient::rich_text::{Chunk, RichParser};
+use ingredient_corpus::rich::RichRow;
 
-/// One expected chunk, disambiguated by its key (untagged): `{"text": …}`,
-/// `{"measure": [...]}`, or `{"ing": …}`.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum ExpectedChunk {
-    Measure { measure: Vec<Measure> },
-    Ing { ing: String },
-    Text { text: String },
-}
-
-impl From<ExpectedChunk> for Chunk {
-    fn from(e: ExpectedChunk) -> Self {
-        match e {
-            ExpectedChunk::Measure { measure } => Chunk::Measure(measure),
-            ExpectedChunk::Ing { ing } => Chunk::Ing(ing),
-            ExpectedChunk::Text { text } => Chunk::Text(text),
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct RichRow {
-    input: String,
-    /// Ingredient names to highlight as `Ing` chunks (default: none).
-    #[serde(default)]
-    ingredients: Vec<String>,
-    chunks: Vec<ExpectedChunk>,
-    /// When set, documents a known gap: a mismatch is reported, not failed.
-    #[serde(default)]
-    xfail: Option<String>,
-}
-
+/// Every well-formed row; a malformed line fails the suite loudly. The strict
+/// policy is shared (`into_rows_strict`) so the two ratchets cannot drift.
 fn load() -> Vec<RichRow> {
-    include_str!("corpus/rich_text.jsonl")
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with("//"))
-        .map(|l| {
-            serde_json::from_str(l)
-                .unwrap_or_else(|e| panic!("invalid rich_text row:\n  {l}\n  {e}"))
-        })
-        .collect()
+    match ingredient_corpus::rich::parse(ingredient_corpus::embedded_rich()).into_rows_strict() {
+        Ok(rows) => rows,
+        Err(problems) => panic!("invalid rich_text row(s):\n{problems}"),
+    }
 }
 
 #[test]

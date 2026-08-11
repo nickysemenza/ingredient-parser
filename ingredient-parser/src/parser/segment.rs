@@ -20,9 +20,6 @@
 //! Splitting and classification are pure over the source text; byte ranges into
 //! the source are preserved on every clause, and the decomposition view's
 //! field spans derive from them ([`IngredientParser::segmented_field_spans`]).
-//!
-//! The legacy path survives behind [`SegmentationMode::Legacy`] purely as the
-//! `food-cli corpus shadow` A/B baseline.
 
 use std::ops::Range;
 
@@ -119,58 +116,6 @@ impl<'a> Clause<'a> {
     pub(crate) fn text(&self, source: &'a str) -> &'a str {
         &source[self.range.clone()]
     }
-}
-
-/// A soft boundary *inside* a clause — a coordination or purpose seam that does
-/// not split the clause, but that assembly may consult (e.g. the trailing
-/// or-clause of a shared-head alternatives list, a "for <gerund>" purpose
-/// tail).
-///
-/// Not consumed by production assembly yet: the name-internal "or"/purpose
-/// handling stayed with the kept refine passes at cutover. This detector (unit
-/// tested below) is the seed for absorbing `extract_alternatives_from_name` /
-/// `extract_purpose_gerund` into clause-native logic — a follow-up.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SoftBoundaryKind {
-    /// Word-boundary " or ".
-    Or,
-    /// Word-boundary " and/or ".
-    AndOr,
-    /// " such as ".
-    SuchAs,
-    /// " to taste" (at a word boundary).
-    ToTaste,
-    /// " for " followed by a gerund (≥5 chars ending "ing") or "the" —
-    /// mirroring `refine::prep::extract_purpose_gerund`'s guards.
-    ForPurpose,
-}
-
-/// A soft boundary occurrence: `at` is the byte offset in the examined text
-/// where the boundary's *separator* starts (i.e. the space before "or"/"for"/…).
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SoftBoundary {
-    pub at: usize,
-    pub kind: SoftBoundaryKind,
-}
-
-/// Which post-amount pipeline [`IngredientParser`] runs.
-///
-/// Crate-internal migration switch (exposed `#[doc(hidden)]` so the food-cli
-/// shadow harness can construct a `Segmented` parser). `Legacy` is the
-/// grammar's carve-at-first-comma tail + the full repair-pass pipeline;
-/// `Segmented` is the clause-segmentation path in this module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SegmentationMode {
-    /// The historical path: grammar carves name/modifier at the first `", "`,
-    /// refine passes repair the damage. Kept as the A/B baseline for the
-    /// `corpus shadow` harness.
-    Legacy,
-    /// The clause-segmentation path (the default): amounts grammar +
-    /// [`Segmenter::segment`] + assembly, followed by the refine passes.
-    #[default]
-    Segmented,
 }
 
 /// The clause segmenter: borrows the parser's vocab sets so classification
@@ -404,52 +349,6 @@ impl Segmenter<'_> {
         ClauseKind::HeadCandidate
     }
 }
-
-// --- Soft boundaries --------------------------------------------------------------
-
-/// Find the soft boundaries inside a clause's text: word-boundary " or " /
-/// " and/or " / " such as " / " to taste", and " for " when followed by a
-/// gerund or "the" (see [`SoftBoundaryKind`]). Purely informational — soft
-/// boundaries do not split a clause. (See the note on [`SoftBoundaryKind`]:
-/// unit-tested seed for a follow-up, not yet consumed by assembly.)
-#[allow(dead_code)]
-pub(crate) fn soft_boundaries(text: &str) -> Vec<SoftBoundary> {
-    crate::lazy_regex!(SOFT, r"(?i)\s+(and/or|or|such\s+as|to\s+taste|for)(\s+|$)");
-    let mut out = Vec::new();
-    let mut cursor = 0usize;
-    while let Some(m) = SOFT.captures_at(text, cursor) {
-        let Some(whole) = m.get(0) else { break };
-        let Some(word) = m.get(1) else { break };
-        cursor = word.end();
-        let keyword = word.as_str().to_lowercase();
-        let kind = match keyword.as_str() {
-            "and/or" => Some(SoftBoundaryKind::AndOr),
-            "or" => Some(SoftBoundaryKind::Or),
-            "to taste" => Some(SoftBoundaryKind::ToTaste),
-            "for" => {
-                // Only a purpose "for": followed by a gerund or "the".
-                let next = text[whole.end()..].split_whitespace().next().unwrap_or("");
-                (is_gerund(next) || next.eq_ignore_ascii_case("the"))
-                    .then_some(SoftBoundaryKind::ForPurpose)
-            }
-            s if s.split_whitespace().collect::<Vec<_>>() == ["such", "as"] => {
-                Some(SoftBoundaryKind::SuchAs)
-            }
-            s if s.split_whitespace().collect::<Vec<_>>() == ["to", "taste"] => {
-                Some(SoftBoundaryKind::ToTaste)
-            }
-            _ => None,
-        };
-        if let Some(kind) = kind {
-            out.push(SoftBoundary {
-                at: whole.start(),
-                kind,
-            });
-        }
-    }
-    out
-}
-
 // --- Segmented parse path -------------------------------------------------------
 
 /// The result of the grammar-equivalent head carve over the post-amount text:
@@ -545,6 +444,36 @@ impl IngredientParser {
         &self,
         source: &'a str,
         clauses: &[Clause<'_>],
+        amounts: Vec<Measure>,
+        mp: &MeasurementParser<'_>,
+    ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
+        let mut parsed = self.assemble_unrepaired(source, clauses, amounts, mp)?;
+        self.run_assembly_repairs(&mut parsed);
+        Ok(parsed)
+    }
+
+    /// Whether the modifier tail must stay a single raw part.
+    ///
+    /// Two assembly repairs scan the *whole* first raw modifier part with
+    /// comma-crossing searches, so their trigger shapes must reach them as one
+    /// part: a prep-chain head triggers `recover_head_noun_from_modifier`, a
+    /// paren-led tail triggers `recover_parenthetical_alias_from_modifier`.
+    ///
+    /// The head test goes through [`Segmenter::classify`], so this decision and
+    /// the clause kind `--explain` shows are one judgement. Assembly and the
+    /// decomposition spans both call it, so they cannot drift.
+    fn keep_tail_whole(&self, name: &str, tail: &str) -> bool {
+        tail.trim_start().starts_with('(')
+            || (!name.is_empty() && self.segmenter().classify(name) == ClauseKind::PrepChain)
+    }
+
+    /// The assembly proper, before [`ASSEMBLY_REPAIRS`] run. Split out so the
+    /// order-constraint tests can replay the repairs over the same starting IR
+    /// in a different order.
+    fn assemble_unrepaired<'a>(
+        &self,
+        source: &'a str,
+        clauses: &[Clause<'_>],
         mut amounts: Vec<Measure>,
         mp: &MeasurementParser<'_>,
     ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
@@ -564,8 +493,7 @@ impl IngredientParser {
         //   (its head scan skips across `", "`);
         // - a paren-led tail triggers `recover_parenthetical_alias_from_modifier`
         //   (its `find(" (")` head cut crosses `", "` too).
-        let keep_tail_whole = tail.trim_start().starts_with('(')
-            || (!name.is_empty() && name.split_whitespace().all(token::is_prep_token));
+        let keep_tail_whole = self.keep_tail_whole(name, tail);
 
         // Otherwise: every remaining clause becomes a modifier part in source
         // order. `", "`-separated clauses are separate parts (modifier_string
@@ -584,37 +512,55 @@ impl IngredientParser {
                 .map(|r| ModifierPart::Raw(source[r].to_string()))
                 .collect()
         };
-        let mut parsed = ParsedIngredient {
+        let parsed = ParsedIngredient {
             name: name.to_string(),
             amounts,
             modifier,
             optional: false,
         };
-        self.run_assembly_repairs(&mut parsed);
         Ok(parsed)
     }
 
     /// Run the ordered clause-structure repairs on the freshly assembled IR
-    /// (see [`ASSEMBLY_REPAIRS`]). Mirrors `run_refine_pass`'s
-    /// trace-on-change so `--explain` shows which repairs fired.
+    /// (see [`ASSEMBLY_REPAIRS`]). Mirrors `run_refine_pass`'s trace-on-change
+    /// so `--explain` shows which repairs fired.
     fn run_assembly_repairs(&self, parsed: &mut ParsedIngredient) {
-        for (label, repair) in ASSEMBLY_REPAIRS {
-            if !crate::trace::is_tracing_enabled() {
-                repair(self, parsed);
-                continue;
-            }
-            let before = parsed.clone();
-            repair(self, parsed);
-            crate::trace::trace_on_change(
-                label,
-                &before.name,
-                &format!(
-                    "{} | {}",
-                    parsed.name,
-                    parsed.modifier_string().as_deref().unwrap_or("-")
-                ),
-                *parsed != before,
-            );
+        for repair in ASSEMBLY_REPAIRS {
+            self.run_assembly_repair(repair, parsed);
+        }
+    }
+
+    fn run_assembly_repair(&self, repair: &AssemblyRepair, parsed: &mut ParsedIngredient) {
+        let AssemblyRepair { run, .. } = *repair;
+        if !crate::trace::is_tracing_enabled() {
+            run(self, parsed);
+            return;
+        }
+        let before = parsed.clone();
+        run(self, parsed);
+        crate::trace::trace_on_change(
+            repair.id().as_str(),
+            &before.name,
+            &format!(
+                "{} | {}",
+                parsed.name,
+                parsed.modifier_string().as_deref().unwrap_or("-")
+            ),
+            *parsed != before,
+        );
+    }
+
+    /// Run the repairs in an arbitrary caller-supplied order. Test-only:
+    /// [`REPAIR_ORDER_CONSTRAINTS`] uses this to run a witness once in declared
+    /// order and once with two repairs swapped, proving the edge matters.
+    #[cfg(test)]
+    pub(crate) fn run_assembly_repairs_with_order(
+        &self,
+        order: &[&AssemblyRepair],
+        parsed: &mut ParsedIngredient,
+    ) {
+        for repair in order {
+            self.run_assembly_repair(repair, parsed);
         }
     }
 
@@ -673,8 +619,7 @@ impl IngredientParser {
         // keep-whole / split decision so spans match the parts).
         let name = rest[..carve.name_end].trim();
         let tail = &rest[carve.tail_from..];
-        let keep_tail_whole = tail.trim_start().starts_with('(')
-            || (!name.is_empty() && name.split_whitespace().all(token::is_prep_token));
+        let keep_tail_whole = self.keep_tail_whole(name, tail);
         if keep_tail_whole {
             spans.extend(span_of(
                 base + carve.tail_from..input.len(),
@@ -728,47 +673,100 @@ fn paren_kind_label(kind: ParenKind) -> &'static str {
     }
 }
 
-/// A clause-structure repair applied at assembly time.
+/// A clause-structure repair applied at assembly time. Identical signature to
+/// [`refine::Pass`](crate::parser::refine) — the two stages run the same shape
+/// of function, so they share `define_stage_pipeline!`.
 type Repair = fn(&IngredientParser, &mut ParsedIngredient);
 
-/// The ordered clause-structure repairs the segmentation stage owns — the
-/// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`. The
-/// functions still live in `refine::{recover, alternatives, amounts}` (their
-/// guards and unit tests are unchanged); only the caller moved: they now run
-/// once at assembly, before the name-internal refine passes, in the same
-/// relative order they held in the old pipeline.
-const ASSEMBLY_REPAIRS: &[(&str, Repair)] = &[
+crate::define_stage_pipeline! {
+    /// The ordered clause-structure repairs the segmentation stage owns — the
+    /// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`. The
+    /// functions still live in `refine::{recover, alternatives, amounts}` (their
+    /// guards and unit tests are unchanged); only the caller moved: they now run
+    /// once at assembly, before the name-internal refine passes, in the same
+    /// relative order they held in the old pipeline.
+    ///
+    /// That order is load-bearing — see [`REPAIR_ORDER_CONSTRAINTS`].
+    pub(crate) enum RepairId,
+    pub(crate) struct AssemblyRepair,
+    pub(crate) const ASSEMBLY_REPAIRS: &[AssemblyRepair],
+    type Repair = Repair,
+    trace: pub(crate) REPAIR_TRACE_NAMES,
     (
+        FixLeadingPrepPhrase,
         "fix_leading_prep_phrase",
-        IngredientParser::fix_leading_prep_phrase,
+        IngredientParser::fix_leading_prep_phrase
     ),
     (
+        FixLeadingMinusClause,
         "fix_leading_minus_clause",
-        IngredientParser::fix_leading_minus_clause,
+        IngredientParser::fix_leading_minus_clause
     ),
     (
+        RecoverHeadNounFromModifier,
         "recover_head_noun_from_modifier",
-        IngredientParser::recover_head_noun_from_modifier,
+        IngredientParser::recover_head_noun_from_modifier
     ),
     (
+        RecoverParentheticalAliasFromModifier,
         "recover_parenthetical_alias_from_modifier",
-        IngredientParser::recover_parenthetical_alias_from_modifier,
+        IngredientParser::recover_parenthetical_alias_from_modifier
     ),
     (
+        RecoverSharedHeadFromAlternatives,
         "recover_shared_head_from_alternatives",
-        IngredientParser::recover_shared_head_from_alternatives,
+        IngredientParser::recover_shared_head_from_alternatives
     ),
     (
+        ExtractSecondaryAmountsFromModifier,
         "extract_secondary_amounts_from_modifier",
-        IngredientParser::extract_secondary_amounts_from_modifier,
+        IngredientParser::extract_secondary_amounts_from_modifier
     ),
-];
+}
 
-/// Every label the `segment` stage can emit in a trace — the clause-kind
-/// decisions (classifier order) followed by the assembly repairs — the
-/// stage's label universe for tooling (mirrors the per-stage `*_TRACE_NAMES`
-/// slices).
-pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &[
+/// A load-bearing ordering edge in [`ASSEMBLY_REPAIRS`]: `before` must run
+/// before `after`, for the reason given, and `witness` is a line that proves
+/// it — it assembles correctly in declared order and differently (wrong) when
+/// the two are swapped. Mirrors `refine::OrderConstraint`; exists only for the
+/// tests below.
+#[cfg(test)]
+pub(crate) struct RepairOrderConstraint {
+    pub before: RepairId,
+    pub after: RepairId,
+    pub reason: &'static str,
+    pub witness: &'static str,
+}
+
+/// The ordering edges assembly depends on — derived exhaustively, not guessed.
+///
+/// All 720 orderings of the six repairs were run over every corpus row. Exactly
+/// half change a result, and the split is characterised by ONE pairwise rule:
+/// the output differs from the declared order **iff**
+/// `ExtractSecondaryAmountsFromModifier` runs before
+/// `RecoverHeadNounFromModifier`. Nothing else about the order matters.
+///
+/// An earlier version of this table claimed three edges. Two were artifacts of
+/// testing them with non-adjacent swaps, which move both repairs past
+/// everything between them, and of sharing one witness across all three — so a
+/// swap could "prove" an edge while the observed change came from the real one.
+#[cfg(test)]
+pub(crate) const REPAIR_ORDER_CONSTRAINTS: &[RepairOrderConstraint] = &[RepairOrderConstraint {
+    before: RepairId::RecoverHeadNounFromModifier,
+    after: RepairId::ExtractSecondaryAmountsFromModifier,
+    reason: "recover the head noun out of modifier[0] before the hoist consumes \
+             a measurement parenthetical from the same slot, or the head noun is \
+             stranded behind an amount",
+    witness: SECONDARY_LAST_WITNESS,
+}];
+
+/// The line that distinguishes every load-bearing edge: head-noun recovery and
+/// the amount hoist compete for the same modifier slot.
+#[cfg(test)]
+const SECONDARY_LAST_WITNESS: &str = "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano (2 to 4)";
+
+/// Clause-kind labels, in classifier order. Mirrors [`ClauseKind::as_str`];
+/// `clause_kind_labels_are_exhaustive` pins the two together.
+const CLAUSE_KIND_TRACE_NAMES: &[&str] = &[
     "prep_chain",
     "known_prep_phrase",
     "minus_measure",
@@ -777,13 +775,25 @@ pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &[
     "parenthetical",
     "prose",
     "head_candidate",
-    "fix_leading_prep_phrase",
-    "fix_leading_minus_clause",
-    "recover_head_noun_from_modifier",
-    "recover_parenthetical_alias_from_modifier",
-    "recover_shared_head_from_alternatives",
-    "extract_secondary_amounts_from_modifier",
 ];
+
+/// Every label the `segment` stage can emit — clause-kind decisions then
+/// assembly repairs. The repair half is generated from [`ASSEMBLY_REPAIRS`], so
+/// adding a repair cannot silently drop it from `--explain`.
+pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &{
+    let mut out = [""; CLAUSE_KIND_TRACE_NAMES.len() + REPAIR_TRACE_NAMES.len()];
+    let mut i = 0;
+    while i < CLAUSE_KIND_TRACE_NAMES.len() {
+        out[i] = CLAUSE_KIND_TRACE_NAMES[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < REPAIR_TRACE_NAMES.len() {
+        out[CLAUSE_KIND_TRACE_NAMES.len() + j] = REPAIR_TRACE_NAMES[j];
+        j += 1;
+    }
+    out
+};
 
 /// Split the modifier tail (everything from byte `from` on) into one byte range
 /// per *cleanly separable* `", "`-separated clause. The lowering contract is
@@ -847,6 +857,159 @@ fn tail_part_ranges(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<Ra
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+
+    // --- Assembly-repair ordering contract -----------------------------------
+
+    #[test]
+    fn assembly_repair_ids_are_unique() {
+        crate::assert_stage_pipeline!(ASSEMBLY_REPAIRS);
+    }
+
+    fn repair_index(id: RepairId) -> usize {
+        ASSEMBLY_REPAIRS
+            .iter()
+            .position(|r| r.id() == id)
+            .expect("ASSEMBLY_REPAIRS missing expected repair")
+    }
+
+    /// Every declared edge holds positionally.
+    #[test]
+    fn declared_repair_order_matches_pipeline() {
+        for c in REPAIR_ORDER_CONSTRAINTS {
+            assert!(
+                repair_index(c.before) < repair_index(c.after),
+                "{:?} must run before {:?}: {}",
+                c.before,
+                c.after,
+                c.reason
+            );
+        }
+    }
+
+    /// The pre-repair IR, so a test can replay the repairs in any order.
+    fn unrepaired(parser: &IngredientParser, line: &str) -> ParsedIngredient {
+        let mp = MeasurementParser::new(&parser.units, MeasurementMode::IngredientList);
+        let (rest, (primary, _, bracketed, _)) = (
+            opt(|a| mp.parse_measurement_list(a)),
+            space0,
+            opt(|a| mp.parse_bracketed_amounts(a)),
+            space0,
+        )
+            .parse(line)
+            .expect("witness should parse its leading amounts");
+        let amounts: Vec<Measure> = [primary, bracketed]
+            .into_iter()
+            .flatten()
+            .flatten()
+            .collect();
+        let clauses = parser.segmenter().segment(rest);
+        parser
+            .assemble_unrepaired(rest, &clauses, amounts, &mp)
+            .expect("witness should assemble")
+    }
+
+    /// Each edge must be load-bearing: swapping the two repairs on its witness
+    /// must change the IR. A dead edge fails here, naming itself.
+    #[test]
+    fn repair_constraints_are_load_bearing() {
+        let parser = IngredientParser::new();
+        for c in REPAIR_ORDER_CONSTRAINTS {
+            let base = unrepaired(&parser, c.witness);
+
+            let declared: Vec<&AssemblyRepair> = ASSEMBLY_REPAIRS.iter().collect();
+            let mut in_order = base.clone();
+            parser.run_assembly_repairs_with_order(&declared, &mut in_order);
+
+            let mut swapped_repairs = declared.clone();
+            swapped_repairs.swap(repair_index(c.before), repair_index(c.after));
+            let mut swapped = base.clone();
+            parser.run_assembly_repairs_with_order(&swapped_repairs, &mut swapped);
+
+            assert_ne!(
+                in_order, swapped,
+                "constraint {:?} < {:?} is NOT load-bearing for witness {:?}: \
+                 swapping the two repairs did not change the result, so the edge \
+                 is dead documentation. reason on file: {}",
+                c.before, c.after, c.witness, c.reason
+            );
+
+            // Control: the edge is the ONLY thing that matters. Reverse every
+            // other repair while keeping `before` ahead of `after`, and the
+            // result must be unchanged. Without this, the assert above would
+            // also pass if some different reordering were doing the work —
+            // which is how two bogus edges survived an earlier version.
+            let (bi, ai) = (repair_index(c.before), repair_index(c.after));
+            let mut others: Vec<usize> = (0..ASSEMBLY_REPAIRS.len())
+                .filter(|i| *i != bi && *i != ai)
+                .collect();
+            others.reverse();
+            let mut shuffled_idx = others;
+            shuffled_idx.insert(0, bi);
+            shuffled_idx.push(ai);
+            let shuffled: Vec<&AssemblyRepair> =
+                shuffled_idx.iter().map(|&i| &ASSEMBLY_REPAIRS[i]).collect();
+            let mut control = base.clone();
+            parser.run_assembly_repairs_with_order(&shuffled, &mut control);
+            assert_eq!(
+                in_order, control,
+                "reordering repairs OTHER than {:?} < {:?} changed the result, so \
+                 the constraint table is incomplete",
+                c.before, c.after
+            );
+        }
+    }
+
+    /// The repairs must be a fixpoint — the invariant the ordering rests on.
+    #[rstest]
+    #[case::plain("2 cups flour")]
+    #[case::simple_modifier("1 cup flour, sifted")]
+    #[case::multi_clause("1 cup flour, sifted, divided")]
+    #[case::leading_prep_phrase("grated zest of 1 lemon")]
+    #[case::paren_alias("1 cup gochujang (Korean chile paste)")]
+    #[case::secondary_amount("1 stick butter (8 tablespoons)")]
+    #[case::shared_head("canola, vegetable, or melted coconut oil")]
+    #[case::head_behind_prep(
+        "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano"
+    )]
+    #[case::minus_clause("2 cups flour, minus 1 tablespoon")]
+    fn assembly_repairs_are_idempotent(#[case] line: &str) {
+        let parser = IngredientParser::new();
+        let mut once = unrepaired(&parser, line);
+        parser.run_assembly_repairs(&mut once);
+        let mut twice = once.clone();
+        parser.run_assembly_repairs(&mut twice);
+        assert_eq!(
+            once, twice,
+            "assembly repairs are not idempotent for {line:?}"
+        );
+    }
+
+    /// Only the clause-kind half can drift; the repair half is generated.
+    #[test]
+    fn clause_kind_labels_are_exhaustive() {
+        let kinds = [
+            ClauseKind::PrepChain,
+            ClauseKind::KnownPrepPhrase,
+            ClauseKind::MinusMeasure,
+            ClauseKind::Purpose,
+            ClauseKind::Alternative,
+            ClauseKind::Parenthetical(ParenKind::Alias),
+            ClauseKind::Prose,
+            ClauseKind::HeadCandidate,
+        ];
+        let labels: Vec<&str> = kinds.iter().map(|k| k.as_str()).collect();
+        assert_eq!(labels, CLAUSE_KIND_TRACE_NAMES);
+        // And the assembled universe is exactly the two halves, in order.
+        assert_eq!(
+            SEGMENT_TRACE_NAMES.len(),
+            CLAUSE_KIND_TRACE_NAMES.len() + REPAIR_TRACE_NAMES.len()
+        );
+        assert_eq!(
+            &SEGMENT_TRACE_NAMES[CLAUSE_KIND_TRACE_NAMES.len()..],
+            REPAIR_TRACE_NAMES
+        );
+    }
+
     use rstest::rstest;
 
     fn parser() -> IngredientParser {
@@ -991,11 +1154,9 @@ mod tests {
 
     // ── segmented assembly (positive control) ───────────────────────────────
 
-    /// The segmented path must genuinely run the segmenter: a multi-clause
-    /// tail assembles into one modifier part per clause (the legacy grammar
-    /// captures a single raw string). This pins the assembled IR itself
-    /// (pre-refine), proving the mode plumbing exercises the segmenter rather
-    /// than silently reproducing the legacy carve.
+    /// The segmenter genuinely splits: a multi-clause tail assembles into one
+    /// modifier part per clause, not a single raw string. This pins the
+    /// assembled IR itself (pre-refine).
     #[test]
     fn assembly_splits_tail_into_clause_parts() {
         let p = IngredientParser::new();
@@ -1009,14 +1170,6 @@ mod tests {
                 ModifierPart::Raw("sifted".to_string()),
                 ModifierPart::Raw("divided".to_string()),
             ]
-        );
-        // The legacy grammar captures the same tail as ONE raw part.
-        let (_, legacy) = p
-            .parse_ingredient("1 cup flour, sifted, divided")
-            .expect("legacy parse");
-        assert_eq!(
-            legacy.modifier,
-            vec![ModifierPart::Raw("sifted, divided".to_string())]
         );
     }
 
@@ -1174,8 +1327,7 @@ mod tests {
     #[case("(")]
     #[case("))((")]
     fn segmented_never_panics_or_strands_name(#[case] line: &str) {
-        let segmented =
-            IngredientParser::new().with_segmentation_mode(crate::SegmentationMode::Segmented);
+        let segmented = IngredientParser::new();
         let ing = segmented.from_str(line);
         let has_modifier = ing
             .modifier
@@ -1185,30 +1337,5 @@ mod tests {
             !(ing.name.trim().is_empty() && has_modifier),
             "stranded name for {line:?}: {ing:?}"
         );
-    }
-
-    // ── soft boundaries ─────────────────────────────────────────────────────
-
-    #[rstest]
-    #[case("red or white onion", &[(3, SoftBoundaryKind::Or)])]
-    #[case("thyme and/or rosemary", &[(5, SoftBoundaryKind::AndOr)])]
-    #[case("chiles such as serrano", &[(6, SoftBoundaryKind::SuchAs)])]
-    #[case("salt to taste", &[(4, SoftBoundaryKind::ToTaste)])]
-    #[case("olive oil for brushing the bread", &[(9, SoftBoundaryKind::ForPurpose)])]
-    #[case("butter for the pans", &[(6, SoftBoundaryKind::ForPurpose)])]
-    // "for" without a gerund/article is not a purpose boundary.
-    #[case("flour for bread", &[])]
-    // No boundary at all.
-    #[case("plain flour", &[])]
-    // Multiple boundaries report in order.
-    #[case("red or white onion for serving",
-           &[(3, SoftBoundaryKind::Or), (18, SoftBoundaryKind::ForPurpose)])]
-    fn finds_soft_boundaries(#[case] text: &str, #[case] expected: &[(usize, SoftBoundaryKind)]) {
-        let got: Vec<(usize, SoftBoundaryKind)> = soft_boundaries(text)
-            .into_iter()
-            .map(|b| (b.at, b.kind))
-            .collect();
-        let want: Vec<(usize, SoftBoundaryKind)> = expected.to_vec();
-        assert_eq!(got, want, "text: {text:?}");
     }
 }

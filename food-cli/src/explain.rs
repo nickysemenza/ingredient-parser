@@ -77,8 +77,11 @@ fn message_for(diag: &ParseNotes) -> &'static str {
 
 fn help_for(diag: &ParseNotes) -> String {
     let mut s = format!("confidence: {:?}", diag.confidence);
-    if diag.fell_back {
-        s.push_str(" · fell back to a name-only ingredient");
+    // The review reasons and their wording belong to the parser; this surface
+    // only decides the miette severity above.
+    for reason in diag.review_reasons() {
+        s.push_str(" · ");
+        s.push_str(&reason.to_string());
     }
     s.push_str(" · see the stage view below; route the fix via parser/mod.rs");
     s

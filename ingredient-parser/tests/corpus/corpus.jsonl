@@ -276,6 +276,7 @@
 {"input": "One 10-ounce disk Pie Dough", "name": "Pie Dough", "amounts": [{"unit": "disk", "value": 1.0}, {"unit": "oz", "value": 10.0}]}
 {"input": "One 8-ounce package cream cheese, room temperature", "name": "cream cheese", "amounts": [{"unit": "package", "value": 1.0}, {"unit": "oz", "value": 8.0}], "modifier": "room temperature"}
 {"input": "1 (8-ounce) ball burrata", "name": "burrata", "amounts": [{"unit": "ball", "value": 1.0}, {"unit": "oz", "value": 8.0}]}
+{"input": "1 (9-inch) pie crust", "name": "pie crust", "amounts": [{"unit": "whole", "value": 1}, {"unit": "\"", "value": 9}]}
 {"input": "1 (11-ounce) box Nilla wafers or graham crackers", "name": "Nilla wafers", "amounts": [{"unit": "box", "value": 1.0}, {"unit": "oz", "value": 11.0}], "modifier": "or graham crackers"}
 {"input": "2-inch piece ginger", "name": "ginger", "amounts": [{"unit": "\"", "value": 2.0}, {"unit": "piece", "value": 1.0}]}
 {"input": "3-inch cinnamon stick", "name": "cinnamon stick", "amounts": [{"unit": "\"", "value": 3.0}]}
@@ -485,6 +486,7 @@
 // guards: a real head noun in the name keeps the pass from firing.
 {"input": "1 cup chopped onion", "name": "onion", "amounts": [{"unit": "cup", "value": 1.0}], "modifier": "chopped"}
 {"input": "2 cups peeled and diced potatoes", "name": "peeled and diced potatoes", "amounts": [{"unit": "cup", "value": 2.0}]}
+{"input": "1 pound peeled and deveined, large shrimp", "name": "large shrimp", "amounts": [{"unit": "lb", "value": 1}], "modifier": "peeled and deveined", "xfail": "head noun not recovered from a connector-joined prep chain"}
 // --- vague units: a size/intensifier word before a vague unit is a measure qualifier ---
 {"input": "1 small handful basil leaves", "name": "basil leaves", "amounts": [{"unit": "handful", "value": 1.0}]}
 {"input": "Healthy pinch of mint leaves", "name": "mint leaves", "amounts": [{"unit": "pinch", "value": 1.0}]}

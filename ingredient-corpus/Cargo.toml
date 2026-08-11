@@ -1,0 +1,23 @@
+[package]
+name = "ingredient-corpus"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+# Test infrastructure, deliberately not a feature on the published `ingredient`
+# crate. See the packaging notes on the workspace dep and ingredient-parser's
+# `exclude`, which are what keep it off crates.io.
+publish = false
+
+[dependencies]
+ingredient.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# Characterization snapshot of render_authored over every real corpus row, so a
+# change to the viewer's spelling shows up as a reviewable diff.
+insta = "1"
+
+[lints]
+workspace = true

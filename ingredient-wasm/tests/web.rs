@@ -239,3 +239,27 @@ fn test_decompose_ingredient_multibyte_at_segment_boundaries() {
     // name/modifier boundary carved by the comma.
     assert_segments_reconstruct("½ jalapeño, émincé");
 }
+
+// ============================================================================
+// Scaling across the wasm ABI
+// ============================================================================
+
+/// The native tests in `src/lib.rs` bypass `serde_wasm_bindgen` entirely, so
+/// these are the only check that a `(WAmount, f64) -> WAmount` signature
+/// marshals correctly — and that the exactness survives the trip.
+#[wasm_bindgen_test]
+fn test_scale_amount_is_exact() {
+    let scaled = ingredient_wasm::scale_amount(amount("cup", 2.0 / 3.0), 3.0);
+    assert_eq!(scaled.value, 2.0);
+    assert_eq!(scaled.unit, "cup");
+}
+
+/// A dimension is not a quantity: doubling a recipe must leave a 9-inch pan
+/// at 9 inches.
+#[wasm_bindgen_test]
+fn test_scale_amount_leaves_dimensions_alone() {
+    assert_eq!(
+        ingredient_wasm::scale_amount(amount("\"", 9.0), 2.0).value,
+        9.0
+    );
+}

@@ -40,7 +40,7 @@ fn declared_order_matches_pipeline() {
 fn constraints_are_load_bearing() {
     let parser = IngredientParser::new();
     for c in ORDER_CONSTRAINTS {
-        let (_, base) = parser.parse_ingredient(c.witness).unwrap();
+        let (_, base) = parser.parse_ingredient_segmented(c.witness).unwrap();
 
         // Declared order: the pipeline as shipped.
         let declared: Vec<&RefinePass> = REFINE_PIPELINE.iter().collect();
@@ -574,7 +574,7 @@ fn test_extract_purpose_gerund(
 #[case::witness_shared_head("canola, vegetable, or coconut oil")]
 fn refine_pipeline_is_idempotent(#[case] line: &str) {
     let parser = IngredientParser::new();
-    let (_, parsed) = parser.parse_ingredient(line).unwrap();
+    let (_, parsed) = parser.parse_ingredient_segmented(line).unwrap();
 
     let mut once = parsed.clone();
     parser.refine(&mut once);

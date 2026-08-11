@@ -1826,6 +1826,7 @@ dependencies = [
  "ehttp",
  "image",
  "ingredient",
+ "ingredient-corpus",
  "petgraph",
  "poll-promise",
  "rand 0.10.1",
@@ -1848,6 +1849,7 @@ dependencies = [
  "dotenvy",
  "futures",
  "ingredient",
+ "ingredient-corpus",
  "maud",
  "miette",
  "open",
@@ -2631,6 +2633,7 @@ name = "ingredient"
 version = "0.4.0"
 dependencies = [
  "criterion",
+ "ingredient-corpus",
  "insta",
  "nom",
  "nom-language",
@@ -2644,6 +2647,16 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "ingredient-corpus"
+version = "0.1.0"
+dependencies = [
+ "ingredient",
+ "insta",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -7518,3 +7531,19 @@ dependencies = [
  "syn",
  "winnow",
 ]
+
+[[patch.unused]]
+name = "ingredient"
+version = "0.4.0"
+
+[[patch.unused]]
+name = "recipe-epub"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "recipe-scraper"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "recipe-types"
+version = "0.1.0"

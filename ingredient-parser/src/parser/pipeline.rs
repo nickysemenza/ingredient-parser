@@ -1,19 +1,8 @@
-use nom::{
-    Parser,
-    bytes::complete::tag,
-    character::complete::{not_line_ending, space0},
-    combinator::{consumed, opt},
-    error::context,
-    multi::many1,
-};
-
 use super::ir::{ModifierPart, ParsedIngredient};
 use super::normalize::{lift_inline_descriptive_paren, normalize_input, strip_optional_note};
-use super::refine::clean_modifier;
-use crate::parser::{MeasurementMode, MeasurementParser, Res, parse_ingredient_text};
+use crate::parser::Res;
 use crate::trace;
 use crate::traced_parser;
-use crate::unit::Measure;
 use crate::usage::classify_usage;
 use crate::{Ingredient, IngredientParser};
 
@@ -149,39 +138,17 @@ impl IngredientParser {
             .map(|(_, ingredient)| self.postprocess_ingredient(ingredient))
     }
 
-    /// Parse the raw grammar shape via the mode-selected path: the legacy
-    /// carve-at-first-comma grammar, or the clause-segmentation path (see
-    /// [`crate::SegmentationMode`]). Both feed the same refine pipeline.
+    /// Parse the raw grammar shape: amounts, then clause segmentation and
+    /// assembly. Feeds the refine pipeline.
     ///
-    /// The segmented arm opens the same `"parse_ingredient"` trace span the
-    /// legacy grammar does, so the stage report's grammar bucket works
-    /// unchanged; the per-clause `segment` nodes nest inside it.
+    /// The `"parse_ingredient"` span name is load-bearing outside this module —
+    /// `trace::stages` buckets the grammar stage by it, and a golden snapshot
+    /// pins it — so it stays even though the function of that name is gone.
     fn parse_ingredient_ir<'a>(&self, input: &'a str) -> Res<&'a str, ParsedIngredient> {
-        match self.segmentation {
-            crate::SegmentationMode::Legacy => self.parse_ingredient(input),
-            crate::SegmentationMode::Segmented => traced_parser!(
-                "parse_ingredient",
-                input,
-                self.parse_ingredient_segmented(input),
-                |i: &ParsedIngredient| i.name.clone(),
-                "parse failed"
-            ),
-        }
-    }
-
-    /// Parse a complete ingredient line including amounts, name, and modifiers.
-    ///
-    /// This method only captures the raw grammar shape. Cleanup such as adjective
-    /// extraction, alternative extraction, and secondary amount extraction happens
-    /// in the higher-level ingredient pipeline.
-    #[tracing::instrument(name = "parse_ingredient", level = "trace", skip_all)]
-    pub(crate) fn parse_ingredient<'a>(&self, input: &'a str) -> Res<&'a str, ParsedIngredient> {
-        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
-
         traced_parser!(
             "parse_ingredient",
             input,
-            parse_ingredient_grammar_values(&mp, input),
+            self.parse_ingredient_segmented(input),
             |i: &ParsedIngredient| i.name.clone(),
             "parse failed"
         )
@@ -229,194 +196,16 @@ impl IngredientParser {
         }
     }
 
-    /// Grammar-stage field spans, mode-selected: the segmented path derives
-    /// them from the clause byte ranges; the legacy path uses `consumed`
-    /// wrappers over the grammar. Empty vec if the parse fails.
+    /// Grammar-stage field spans, derived from the clause byte ranges. Empty
+    /// vec if the parse fails.
     fn grammar_field_spans(&self, input: &str) -> Vec<crate::FieldSpan> {
-        if self.segmentation == crate::SegmentationMode::Segmented {
-            return self.segmented_field_spans(input);
-        }
-        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
-        if parse_ingredient_grammar_values(&mp, input).is_err() {
-            return Vec::new();
-        }
-        let Ok((_, capture)) = parse_ingredient_grammar_spans(&mp, input) else {
-            return Vec::new();
-        };
-        capture.into_field_spans(input)
+        self.segmented_field_spans(input)
     }
 }
 
-/// Parsed grammar fields (values only — no `consumed` wrappers).
-struct GrammarValues<'a> {
-    primary: Option<Vec<Measure>>,
-    bracketed: Option<Vec<Measure>>,
-    name_chunks: Option<Vec<&'a str>>,
-    paren: Option<Vec<Measure>>,
-    modifier: &'a str,
-}
-
-fn build_parsed_ingredient(fields: GrammarValues<'_>) -> ParsedIngredient {
-    ParsedIngredient {
-        name: raw_name(fields.name_chunks),
-        amounts: merge_amounts(fields.primary, fields.bracketed, fields.paren),
-        modifier: raw_modifier(fields.modifier)
-            .map(|m| vec![ModifierPart::Raw(m)])
-            .unwrap_or_default(),
-        optional: false,
-    }
-}
-
-/// Raw capture of the grammar with `consumed` slices for `--explain` field spans.
-struct GrammarCapture<'a> {
-    primary: Option<(&'a str, Vec<Measure>)>,
-    bracketed: Option<(&'a str, Vec<Measure>)>,
-    name: Option<(&'a str, Vec<&'a str>)>,
-    paren: Option<(&'a str, Vec<Measure>)>,
-    modifier: &'a str,
-}
-
-impl<'a> GrammarCapture<'a> {
-    fn into_field_spans(self, input: &str) -> Vec<crate::FieldSpan> {
-        use crate::{Field, FieldSpan};
-
-        let base = input.as_ptr() as usize;
-        let span_of = |slice: &str, field: Field| -> Option<FieldSpan> {
-            let trimmed = slice.trim();
-            if trimmed.is_empty() {
-                return None;
-            }
-            let start = trimmed.as_ptr() as usize - base;
-            Some(FieldSpan {
-                field,
-                range: start..start + trimmed.len(),
-                text: trimmed.to_string(),
-            })
-        };
-
-        let mut spans = Vec::new();
-        for slice in [
-            self.primary.map(|(s, _)| s),
-            self.bracketed.map(|(s, _)| s),
-            self.paren.map(|(s, _)| s),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            spans.extend(span_of(slice, Field::Amount));
-        }
-        if let Some((slice, _chunks)) = self.name {
-            spans.extend(span_of(slice, Field::Name));
-        }
-        spans.extend(span_of(self.modifier, Field::Modifier));
-        spans.sort_by_key(|s| s.range.start);
-        spans
-    }
-}
-
-/// Shared ingredient grammar fields. The `values` arm parses measurements and
-/// name chunks directly; the `spans` arm wraps them in `consumed` for field-span
-/// extraction.
-macro_rules! ingredient_grammar_fields {
-    ($mp:ident, values) => {
-        (
-            opt(|a| $mp.parse_measurement_list(a)),
-            space0,
-            opt(|a| $mp.parse_bracketed_amounts(a)),
-            space0,
-            opt(many1(parse_ingredient_text)),
-            opt(|a| $mp.parse_parenthesized_amounts(a)),
-            opt(tag(", ")),
-            not_line_ending,
-        )
-    };
-    ($mp:ident, spans) => {
-        (
-            opt(consumed(|a| $mp.parse_measurement_list(a))),
-            space0,
-            opt(consumed(|a| $mp.parse_bracketed_amounts(a))),
-            space0,
-            opt(consumed(many1(parse_ingredient_text))),
-            opt(consumed(|a| $mp.parse_parenthesized_amounts(a))),
-            opt(tag(", ")),
-            consumed(not_line_ending),
-        )
-    };
-}
-
-/// Shared ingredient grammar (values). Used by [`IngredientParser::parse_ingredient`].
-///
-/// NOTE: a leading preparation adjective ("1 cup chopped onion") is NOT consumed
-/// here — it stays in the name chunks and is extracted into the modifier by
-/// `refine`'s `extract_adjectives_from_name`/`fix_leading_prep_phrase`.
-fn parse_ingredient_grammar_values<'a>(
-    mp: &MeasurementParser<'_>,
-    input: &'a str,
-) -> Res<&'a str, ParsedIngredient> {
-    context(
-        "ingredient",
-        ingredient_grammar_fields!(mp, values).map(
-            |(primary, _, bracketed, _, name_chunks, paren, _, modifier_text)| {
-                build_parsed_ingredient(GrammarValues {
-                    primary,
-                    bracketed,
-                    name_chunks,
-                    paren,
-                    modifier: modifier_text,
-                })
-            },
-        ),
-    )
-    .parse(input)
-}
-
-/// Same grammar shape as [`parse_ingredient_grammar_values`], with `consumed`
-/// wrappers for field-span extraction. Only call after the value grammar succeeds.
-fn parse_ingredient_grammar_spans<'a>(
-    mp: &MeasurementParser<'_>,
-    input: &'a str,
-) -> Res<&'a str, GrammarCapture<'a>> {
-    context(
-        "ingredient",
-        ingredient_grammar_fields!(mp, spans).map(
-            |(primary, _, bracketed, _, name, paren, _, (modifier, _))| GrammarCapture {
-                primary,
-                bracketed,
-                name,
-                paren,
-                modifier,
-            },
-        ),
-    )
-    .parse(input)
-}
-
+/// A name-only ingredient for a line the grammar could not parse.
 fn fallback_ingredient(input: &str) -> Ingredient {
     Ingredient::from_parser_parts(input.trim(), vec![], None, false)
-}
-
-fn raw_name(name_chunks: Option<Vec<&str>>) -> String {
-    name_chunks.unwrap_or_default().join("").trim().to_string()
-}
-
-fn raw_modifier(modifier_text: &str) -> Option<String> {
-    // The grammar captures only the trailing post-name text (after the first
-    // ", "). Leading prep adjectives are extracted later by `refine`.
-    clean_modifier(Some(modifier_text.trim().to_owned()))
-}
-
-fn merge_amounts(
-    primary_amounts: Option<Vec<Measure>>,
-    bracketed_amounts: Option<Vec<Measure>>,
-    paren_amounts: Option<Vec<Measure>>,
-) -> Vec<Measure> {
-    // Concatenate the three optional groups in order: outer `flatten` drops the
-    // `None`s, inner `flatten` unwraps each `Vec`'s elements.
-    [primary_amounts, bracketed_amounts, paren_amounts]
-        .into_iter()
-        .flatten()
-        .flatten()
-        .collect()
 }
 
 #[cfg(test)]
@@ -492,26 +281,5 @@ mod decompose_tests {
             "recognizer result should yield no spans, got {:?}",
             decomp.spans
         );
-    }
-
-    #[test]
-    fn shared_grammar_parse_and_spans_agree() {
-        use super::normalize_input;
-
-        let parser = IngredientParser::new();
-        for input in [
-            "2 cups flour",
-            "salt",
-            "1 cup flour, sifted",
-            "2 chopped fresh basil",
-        ] {
-            let normalized = normalize_input(input);
-            let parse_ok = parser.parse_ingredient(normalized.as_ref()).is_ok();
-            let has_spans = !parser.decompose(input).spans.is_empty();
-            assert_eq!(
-                parse_ok, has_spans,
-                "parse_ingredient and decompose disagree on {input:?}"
-            );
-        }
     }
 }

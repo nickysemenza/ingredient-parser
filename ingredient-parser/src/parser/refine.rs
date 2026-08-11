@@ -208,16 +208,5 @@ pub(super) fn strip_wrapping_parens(modifier: Option<String>) -> Option<String> 
     Some(modifier)
 }
 
-pub(super) fn clean_modifier(modifier: Option<String>) -> Option<String> {
-    modifier.and_then(|modifier| {
-        let trimmed = modifier.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests;

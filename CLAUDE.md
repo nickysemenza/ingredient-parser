@@ -13,6 +13,13 @@
   ```
   Add `--explain` for the compact stage view, or `--debug` for the full grammar trace tree.
 
+## Before deleting a `pub` item
+
+`recipe-scraper`, `recipe-epub` and `recipe-types` are `publish = false` but are
+consumed by cubby via an unpinned git dependency, so zero callers in this repo
+does NOT mean dead. Check `../cubby/recipebridge/src/` first. `ingredient-corpus`,
+`food-cli` and `food-app` have no external consumer. See CONTRIBUTING.md.
+
 ## Testing
 
 - Use `cargo nextest run` for faster parallel test execution

@@ -43,6 +43,12 @@ jobs:
         run: cargo nextest run --workspace --profile ci
       - name: Run doctests
         run: cargo test -p ingredient --doc
+      # cubby's recipebridge builds recipe-epub with `default-features = false`
+      # and drives extraction in the browser. Nothing in THIS repo calls that
+      # half, so only this check stops a `native`-only import from silently
+      # breaking a downstream that has no version gate (see CONTRIBUTING.md).
+      - name: Check recipe-epub's pure (non-native) half still compiles
+        run: cargo check -p recipe-epub --no-default-features
   wasm-tests:
     name: wasm tests (headless)
     runs-on: ubuntu-latest
@@ -52,7 +58,14 @@ jobs:
         with:
           target: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: jetli/wasm-pack-action@0d096b08b4e5a7de8c28de67e11e945404e9eefa # v0.4.0
+      # jetli/wasm-pack-action targets Node 20, which the runner now forces
+      # onto Node 24, where its "search the latest version" HTTPS call
+      # intermittently dies with a self-signed-certificate error. This repo
+      # already installs its other Rust tools with install-action, which
+      # fetches a pinned release and needs no version lookup.
+      - uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
+        with:
+          tool: wasm-pack
       - name: Install Chrome for headless wasm tests
         uses: browser-actions/setup-chrome@2e1d749697dd1612b833dba4a722266286fbefcd # v2
       - name: Run wasm-bindgen tests
@@ -159,7 +172,14 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: demo-site/pnpm-lock.yaml
-      - uses: jetli/wasm-pack-action@0d096b08b4e5a7de8c28de67e11e945404e9eefa # v0.4.0
+      # jetli/wasm-pack-action targets Node 20, which the runner now forces
+      # onto Node 24, where its "search the latest version" HTTPS call
+      # intermittently dies with a self-signed-certificate error. This repo
+      # already installs its other Rust tools with install-action, which
+      # fetches a pinned release and needs no version lookup.
+      - uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
+        with:
+          tool: wasm-pack
       # `tsc` (inside the build) typechecks the demo against the freshly
       # generated wasm `.d.ts`, so a Tsify type change can't merge green and
       # only fail on the post-merge deploy.
@@ -190,7 +210,14 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: demo-site/pnpm-lock.yaml
-      - uses: jetli/wasm-pack-action@0d096b08b4e5a7de8c28de67e11e945404e9eefa # v0.4.0
+      # jetli/wasm-pack-action targets Node 20, which the runner now forces
+      # onto Node 24, where its "search the latest version" HTTPS call
+      # intermittently dies with a self-signed-certificate error. This repo
+      # already installs its other Rust tools with install-action, which
+      # fetches a pinned release and needs no version lookup.
+      - uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
+        with:
+          tool: wasm-pack
       - name: Build site
         run: make build-demo-site
       - name: Publish

@@ -318,17 +318,17 @@ fn confidence_badge(ui: &mut egui::Ui, diagnostics: &ParseNotes) {
         Confidence::Medium => ("Medium", theme::palette().trace_incomplete()),
         Confidence::Low => ("Low", theme::palette().trace_fail()),
     };
-    let mut notes = Vec::new();
-    if diagnostics.fell_back {
-        notes.push("fell back to a name-only ingredient");
-    }
-    if diagnostics.unparsed_digit {
-        notes.push("contains a digit that produced no amount (likely missed quantity)");
-    }
+    // The reasons and their wording come from the parser (`review_reasons`);
+    // only the colour above is a food-app decision.
+    let mut notes: Vec<String> = diagnostics
+        .review_reasons()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
     if notes.is_empty() {
         match diagnostics.confidence {
-            Confidence::High => notes.push("structured parse with at least one amount"),
-            Confidence::Medium => notes.push("clean name-only parse (no digit present)"),
+            Confidence::High => notes.push("structured parse with at least one measure".into()),
+            Confidence::Medium => notes.push("clean name-only parse (no digit present)".into()),
             Confidence::Low => {}
         }
     }

@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "ingredient-wasm",
     "ingredient-parser",
+    "ingredient-corpus",
     "recipe-types",
     "recipe-scraper",
     "recipe-scraper-fetcher",
@@ -34,6 +35,10 @@ dotenvy = "0.15"
 miette = { version = "7", features = ["fancy"] }
 tabled = "0.21"
 ingredient = { path = "ingredient-parser" }
+# Path-only on purpose: a dev-dependency with no `version` key is stripped when
+# `ingredient` is packaged, so this internal crate never reaches crates.io.
+# Adding a version here would publish a dependency on an unpublished crate.
+ingredient-corpus = { path = "ingredient-corpus" }
 recipe-types = { path = "recipe-types" }
 recipe-scraper = { path = "recipe-scraper" }
 recipe-scraper-fetcher = { path = "recipe-scraper-fetcher" }

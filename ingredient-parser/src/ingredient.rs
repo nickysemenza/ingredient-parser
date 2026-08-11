@@ -189,6 +189,34 @@ impl Ingredient {
             parse_notes: ParseNotes::default(),
         }
     }
+
+    /// Scale every measure by `factor`, leaving everything else alone.
+    ///
+    /// Measures whose kind does not scale — a pan's length, an oven
+    /// temperature, a resting time — pass through untouched; see
+    /// [`Measure::scale`], which owns that rule.
+    ///
+    /// `usage` is carried over rather than re-derived: a scaled frying medium
+    /// is still a frying medium, and re-running classification here would make
+    /// scaling a second parse.
+    ///
+    /// # Example
+    /// ```
+    /// use ingredient::{ingredient::Ingredient, unit::Measure};
+    ///
+    /// let doubled = Ingredient::new("flour", vec![Measure::new("cup", 1.5)], None).scale(2.0);
+    /// assert_eq!(doubled.amounts[0].value(), 3.0);
+    /// ```
+    pub fn scale(&self, factor: f64) -> Ingredient {
+        Ingredient {
+            name: self.name.clone(),
+            amounts: self.amounts.iter().map(|a| a.scale(factor)).collect(),
+            modifier: self.modifier.clone(),
+            optional: self.optional,
+            usage: self.usage,
+            parse_notes: self.parse_notes,
+        }
+    }
 }
 
 impl From<&str> for Ingredient {
@@ -243,6 +271,56 @@ impl fmt::Display for Ingredient {
 mod tests {
     use super::*;
     use crate::unit::Measure;
+
+    /// Every measure scales, and the other fields ride along untouched.
+    #[test]
+    fn scale_maps_every_measure() {
+        let ing = Ingredient::new(
+            "flour",
+            vec![Measure::new("cup", 1.0), Measure::new("ml", 240.0)],
+            Some("sifted"),
+        );
+        let doubled = ing.scale(2.0);
+
+        assert_eq!(doubled.amounts[0].value(), 2.0);
+        assert_eq!(doubled.amounts[1].value(), 480.0);
+        assert_eq!(doubled.name, ing.name);
+        assert_eq!(doubled.modifier, ing.modifier);
+        assert_eq!(doubled.optional, ing.optional);
+        assert_eq!(doubled.usage, ing.usage);
+    }
+
+    /// A mixed ingredient keeps its non-scalable measures fixed while the
+    /// quantities move — the whole-ingredient view of the pan-resize bug.
+    #[test]
+    fn scale_leaves_non_scalable_measures_alone() {
+        let ing = Ingredient::new(
+            "pie crust",
+            vec![Measure::new("whole", 1.0), Measure::new("inch", 9.0)],
+            None,
+        );
+        let doubled = ing.scale(2.0);
+        assert_eq!(doubled.amounts[0].value(), 2.0);
+        assert_eq!(doubled.amounts[1].value(), 9.0);
+    }
+
+    /// `parse_notes` must survive scaling. `PartialEq` deliberately excludes it,
+    /// so an `assert_eq!` on the ingredients would NOT catch a dropped field —
+    /// this test is the only thing that will.
+    #[test]
+    fn scale_preserves_parse_notes() {
+        let mut ing = Ingredient::new("flour", vec![Measure::new("cup", 1.0)], None);
+        ing.parse_notes = ParseNotes {
+            fell_back: true,
+            ..Default::default()
+        };
+
+        let scaled = ing.scale(2.0);
+        assert!(
+            scaled.parse_notes.fell_back,
+            "parse_notes was dropped by scale"
+        );
+    }
 
     #[test]
     fn test_ingredient_display() {

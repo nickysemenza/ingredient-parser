@@ -4,7 +4,7 @@
 use std::io::{Cursor, Write};
 
 use recipe_epub::{
-    CookbookRecipeExt, EpubError, ExtractedRecipe, MockExtractor, Options, RecipeMeta,
+    CookbookRecipeExt, EpubError, ExtractedRecipe, MockExtractor, MockMatch, Options, RecipeMeta,
     RecipeSection, extract_cookbook_with,
 };
 use zip::write::SimpleFileOptions;
@@ -318,5 +318,120 @@ async fn progress_sink_reports_each_chunk() {
         snaps
             .iter()
             .all(|s| s.done <= s.total && s.cached <= s.done)
+    );
+}
+
+// ── the continuation contract, end to end ───────────────────────────────────
+
+/// Build an epub whose single recipe body is long enough to force a mid-recipe
+/// hard split, so the second chunk carries a `title_hint`.
+fn build_long_recipe_epub() -> Vec<u8> {
+    let line = "x".repeat(140);
+    // Comfortably past CHUNK_BUDGET + CHUNK_SLACK (12000 + 6000).
+    let body: String = std::iter::repeat_n(line.as_str(), 200)
+        .map(|l| format!("<p>{l}</p>"))
+        .collect();
+    let chapter = format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<h1>Lone Long Recipe</h1>{body}</body></html>"#
+    );
+
+    let mut zw = ZipWriter::new(Cursor::new(Vec::new()));
+    let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    let deflated = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    zw.start_file("mimetype", stored).unwrap();
+    zw.write_all(b"application/epub+zip").unwrap();
+    for (name, body) in [
+        ("META-INF/container.xml", CONTAINER),
+        ("OEBPS/content.opf", OPF),
+        ("OEBPS/toc.ncx", NCX),
+        ("OEBPS/front.xhtml", FRONT),
+        ("OEBPS/chapter.xhtml", chapter.as_str()),
+    ] {
+        zw.start_file(name, deflated).unwrap();
+        zw.write_all(body.as_bytes()).unwrap();
+    }
+    zw.finish().unwrap().into_inner()
+}
+
+/// The hint → re-emit → merge contract, driven offline for the first time.
+///
+/// A hard split severs a recipe; the continuation chunk inherits the recipe's
+/// title as its `title_hint`; the model is asked (via that hint) to re-emit the
+/// same titled recipe; `assemble` merges the halves by lowercased title. Each
+/// hop had a test. The contract did not — the mock could only match on chunk
+/// text, so nothing could stand in for "a model that responds to the hint".
+///
+/// This is the bug class the project keeps rediscovering: a dropped tail, or a
+/// second half landing as its own untitled recipe.
+#[tokio::test]
+async fn continuation_chunk_merges_back_into_one_recipe() {
+    let bytes = build_long_recipe_epub();
+
+    let head = ExtractedRecipe {
+        meta: RecipeMeta {
+            title: "Lone Long Recipe".to_string(),
+            notes: vec!["from the head chunk".to_string()],
+            ..Default::default()
+        },
+        sections: vec![RecipeSection {
+            name: None,
+            ingredients: vec!["2 cups flour".to_string()],
+            instructions: vec!["Mix.".to_string()],
+        }],
+    };
+    // What a model does when handed "Section title: Lone Long Recipe": it
+    // re-emits the SAME title, carrying only the tail it can see.
+    let tail = ExtractedRecipe {
+        meta: RecipeMeta {
+            title: "Lone Long Recipe".to_string(),
+            notes: vec!["do-ahead note from the tail chunk".to_string()],
+            ..Default::default()
+        },
+        sections: vec![RecipeSection {
+            name: None,
+            ingredients: vec![],
+            instructions: vec!["Bake.".to_string()],
+        }],
+    };
+
+    let mock = MockExtractor::with_rules(vec![
+        (MockMatch::Text("Lone Long Recipe".to_string()), vec![head]),
+        (
+            MockMatch::TitleHint("Lone Long Recipe".to_string()),
+            vec![tail],
+        ),
+    ]);
+
+    let recipes = extract_cookbook_with(&bytes, "long.epub", &Options::default(), &mock, |_| {})
+        .await
+        .unwrap();
+
+    assert_eq!(
+        recipes.len(),
+        1,
+        "the tail must merge into the head, not land as a second recipe: {:#?}",
+        recipes.iter().map(|r| &r.meta.title).collect::<Vec<_>>()
+    );
+    let merged = &recipes[0];
+    assert_eq!(merged.meta.title, "Lone Long Recipe");
+    assert!(
+        merged
+            .meta
+            .notes
+            .iter()
+            .any(|n| n.contains("do-ahead note from the tail chunk")),
+        "the tail chunk's note was dropped: {:#?}",
+        merged.meta.notes
+    );
+    assert!(
+        merged
+            .meta
+            .notes
+            .iter()
+            .any(|n| n.contains("from the head chunk")),
+        "the head chunk's note was dropped: {:#?}",
+        merged.meta.notes
     );
 }

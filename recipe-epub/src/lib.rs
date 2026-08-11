@@ -23,9 +23,15 @@ mod library;
 // Pure extraction API — compiles to wasm32: EPUB unzip + text chunking
 // (`chunk_epub`), per-chunk request building (`build_chunk_request`), LLM
 // response parsing (`parse_recipes_payload`), and assembly (`assemble_recipes`).
+//
+// NOTHING IN THIS REPO CALLS THESE. They exist for cubby's recipebridge, which
+// builds this crate with `default-features = false` and drives extraction in
+// the browser; a repo-local caller search will say they are dead (see
+// CONTRIBUTING.md). CI keeps them honest with
+// `cargo check -p recipe-epub --no-default-features`.
 pub use epub_text::chunk_epub;
 pub use extractor::{
-    CallResult, ChunkOutcome, ChunkRequest, DrivenChunk, ExtractedRecipe, MockExtractor,
+    CallResult, ChunkOutcome, ChunkRequest, DrivenChunk, ExtractedRecipe, MockExtractor, MockMatch,
     PARSE_RETRIES, RecipeExtractor, RecipeMeta, Usage, build_chunk_request, parse_recipes_payload,
     recipes_tool_schema, try_extract_chunk,
 };
@@ -322,16 +328,32 @@ pub(crate) fn assemble(
     for (chunk, recipes) in per_chunk {
         for r in recipes {
             let title = r.meta.title.trim().to_string();
+            if title.is_empty() {
+                continue;
+            }
+            let title_lower = title.to_lowercase();
+            let known = index.get(&title_lower).copied();
+            // An ingredient-less recipe is model noise — UNLESS this chunk is
+            // the continuation the title_hint mechanism created. A hard split
+            // leaves the ingredients in the head chunk, so the tail legitimately
+            // re-emits with instructions and notes only, and dropping it threw
+            // away the "Do Ahead"/footnote text the hint exists to rescue.
+            //
+            // The hint is the evidence. Keying on "we have seen this title"
+            // alone would let ANY later chunk append its notes to a real recipe.
+            let is_continuation = chunk
+                .title_hint
+                .as_deref()
+                .is_some_and(|hint| hint.trim().to_lowercase() == title_lower);
             let has_ingredients = r.sections.iter().any(|s| !s.ingredients.is_empty());
-            if title.is_empty() || !has_ingredients {
+            if !(has_ingredients || (known.is_some() && is_continuation)) {
                 continue;
             }
             // The hero photo is whichever image in this chunk sits nearest the
             // recipe's title line (see `hero_for`); `None` for most recipes.
             let hero = hero_for(&chunk, &title);
-            let title_lower = title.to_lowercase();
-            match index.get(&title_lower) {
-                Some(&i) => merge_recipe(&mut out[i], r, hero),
+            match known {
+                Some(i) => merge_recipe(&mut out[i], r, hero),
                 None => {
                     index.insert(title_lower, out.len());
                     let mut meta = r.meta;
@@ -799,6 +821,15 @@ mod tests {
 
     /// A bare chunk carrying just a `doc_path` — text/images empty, so `hero_for`
     /// yields `None`. For assemble tests that don't exercise photo binding.
+    /// A chunk carrying the continuation hint the segmenter sets after a hard
+    /// mid-recipe split.
+    fn continuation_chunk(doc_path: &str, hint: &str) -> Chunk {
+        Chunk {
+            title_hint: Some(hint.to_string()),
+            ..chunk(doc_path)
+        }
+    }
+
     fn chunk(doc_path: &str) -> Chunk {
         Chunk {
             title_hint: None,
@@ -815,6 +846,55 @@ mod tests {
             mime: "image/jpeg".to_string(),
             alt: None,
         }
+    }
+
+    /// An ingredient-less recipe merges only when THIS chunk is the continuation
+    /// the title_hint mechanism created. A plain later chunk re-emitting the same
+    /// title with no ingredients is model noise, and appending its notes to the
+    /// real recipe would corrupt it.
+    #[test]
+    fn ingredient_less_merge_requires_the_continuation_hint() {
+        let tail = |note: &str| ExtractedRecipe {
+            meta: RecipeMeta {
+                title: "Pancakes".to_string(),
+                notes: vec![note.to_string()],
+                ..Default::default()
+            },
+            sections: vec![RecipeSection {
+                name: None,
+                ingredients: vec![],
+                instructions: vec!["Bake.".to_string()],
+            }],
+        };
+
+        // Hinted: the legitimate tail of a split recipe — merges.
+        let hinted = assemble(
+            vec![
+                (chunk("c1.xhtml"), vec![er("Pancakes", &["1 cup flour"])]),
+                (
+                    continuation_chunk("c2.xhtml", "Pancakes"),
+                    vec![tail("do-ahead")],
+                ),
+            ],
+            "book.epub",
+        );
+        assert_eq!(hinted.len(), 1);
+        assert!(hinted[0].meta.notes.iter().any(|n| n == "do-ahead"));
+
+        // Unhinted: same shape, no continuation evidence — dropped as noise.
+        let unhinted = assemble(
+            vec![
+                (chunk("c1.xhtml"), vec![er("Pancakes", &["1 cup flour"])]),
+                (chunk("c2.xhtml"), vec![tail("noise")]),
+            ],
+            "book.epub",
+        );
+        assert_eq!(unhinted.len(), 1);
+        assert!(
+            unhinted[0].meta.notes.is_empty(),
+            "model noise was merged into a real recipe: {:?}",
+            unhinted[0].meta.notes
+        );
     }
 
     #[test]

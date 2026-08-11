@@ -21,30 +21,12 @@ export const safeParseRichText = (text: string, names: string[]): RichItem[] => 
   }
 };
 
-// Kinds that don't grow with the recipe (mirrors Rust's canonical
-// `MeasureKind::is_scalable()` in ingredient-parser/src/unit/kind.rs, which
-// allows only Weight/Volume/Other). Classification is delegated to the wasm
-// boundary's `amount_kind` rather than reimplemented here so the two can't
-// drift apart.
-const isScalableKind = (kind: string): boolean =>
-  kind === "weight" || kind === "volume" || kind.startsWith("other:");
-
-export const scaleAmount = (amount: Measure, scale: number): Measure => {
-  try {
-    if (!isScalableKind(wasm.amount_kind(amount))) {
-      return amount;
-    }
-  } catch {
-    // Unclassifiable amount — leave it as-is rather than risk scaling
-    // something (e.g. a future non-scalable kind) that shouldn't grow.
-    return amount;
-  }
-  return {
-    ...amount,
-    value: amount.value * scale,
-    upper_value: amount.upper_value ? amount.upper_value * scale : undefined,
-  };
-};
+// Which kinds grow with the recipe now lives in Rust, where the kind table is
+// defined. This file used to hand-copy that table, which is the drift the
+// wasm boundary exists to prevent — a non-scalable amount (a pan dimension, an
+// oven temperature) must survive a resize untouched.
+export const scaleAmount = (amount: Measure, scale: number): Measure =>
+  wasm.scale_amount(amount, scale);
 
 export const formatRichText = (text: RichItem[]) => {
   return text.map((t, index) => {
@@ -65,13 +47,16 @@ export const formatRichText = (text: RichItem[]) => {
         if (!val) {
           return null;
         }
-        const displayAmount = val.unit === "whole" ? { ...val, unit: "" } : val;
         return (
           <span
             className="mx-0.5 inline rounded-md border border-blue-200 bg-blue-100 px-1.5 py-0.5 font-semibold text-blue-800"
             key={`measure-${index}`}
           >
-            {fmtAmount(displayAmount)}
+            {/* No `whole` special case: Measure's Display already renders a
+                bare count with no unit suffix. Blanking the unit here actually
+                made it worse — an empty unit parses as Other(""), which
+                Display renders with a trailing space. */}
+            {fmtAmount(val)}
           </span>
         );
       }
