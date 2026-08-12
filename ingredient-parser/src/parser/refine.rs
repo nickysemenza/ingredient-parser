@@ -51,12 +51,22 @@ impl IngredientParser {
 
     fn run_refine_pass(&self, pass: &RefinePass, parsed: &mut ParsedIngredient) {
         let RefinePass { run, .. } = *pass;
-        if !crate::trace::is_tracing_enabled() {
+        let tracing = crate::trace::is_tracing_enabled();
+        let stages = crate::trace::is_stage_recording_enabled();
+        if !tracing && !stages && parsed.provenance.is_none() {
             run(self, parsed);
             return;
         }
         let before = parsed.clone();
         run(self, parsed);
+        let changed = parsed.name != before.name
+            || parsed.amounts != before.amounts
+            || parsed.modifier != before.modifier
+            || parsed.optional != before.optional;
+        if changed && let Some(mut provenance) = parsed.provenance.take() {
+            provenance.reconcile(parsed);
+            parsed.provenance = Some(provenance);
+        }
         crate::trace::trace_on_change(
             pass.id().as_str(),
             &before.name,
@@ -65,7 +75,7 @@ impl IngredientParser {
                 parsed.name,
                 parsed.modifier_string().as_deref().unwrap_or("-")
             ),
-            *parsed != before,
+            changed,
         );
     }
 

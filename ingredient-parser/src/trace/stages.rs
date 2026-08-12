@@ -10,6 +10,7 @@
 use super::{TraceNode, TraceOutcome};
 use crate::parser::recognize::RECOGNIZER_TRACE_NAMES;
 use crate::parser::segment::SEGMENT_TRACE_NAMES;
+use std::cell::RefCell;
 
 /// The grammar span name (the `traced_parser!` wrapping `parse_ingredient`).
 const GRAMMAR_NAME: &str = "parse_ingredient";
@@ -45,9 +46,45 @@ pub enum GrammarOutcome {
     Skipped,
 }
 
+/// One of the five Ingredient-line execution stages (plus the final result).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    Normalize,
+    Recognize,
+    Grammar,
+    Segment,
+    Refine,
+    Result,
+}
+
+/// Explicit outcome of an authoritative stage event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StageEventOutcome {
+    /// A candidate was tried but did not match.
+    Attempted,
+    /// A rewrite or pass changed the execution state.
+    Applied { output: String },
+    /// A recognizer or grammar produced a result.
+    Matched { output: String },
+    /// The grammar failed and the name-only fallback was used.
+    Failed { reason: String },
+}
+
+/// One directly recorded event, in execution order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StageEvent {
+    pub stage: Stage,
+    pub name: String,
+    pub input: String,
+    pub outcome: StageEventOutcome,
+}
+
 /// Stage-level summary of a parse trace (the data behind `--explain`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageReport {
+    /// Authoritative ordered event stream. Compatibility projections below are
+    /// derived while recording, never reconstructed from trace-tree nesting.
+    pub events: Vec<StageEvent>,
     /// The traced input line (truncated for display).
     pub input: String,
     /// Normalize rewrites that fired, in order.
@@ -71,6 +108,139 @@ impl StageReport {
     pub fn recognizer_matched(&self) -> bool {
         self.recognizers.iter().any(|r| r.output.is_some())
     }
+}
+
+impl Default for StageReport {
+    fn default() -> Self {
+        Self::empty("")
+    }
+}
+
+impl StageReport {
+    fn empty(input: &str) -> Self {
+        Self {
+            events: Vec::new(),
+            input: input.to_string(),
+            normalize: Vec::new(),
+            recognizers: Vec::new(),
+            grammar: None,
+            segment: Vec::new(),
+            refine: Vec::new(),
+            result_preview: None,
+        }
+    }
+}
+
+thread_local! {
+    static STAGE_REPORT: RefCell<Option<StageReport>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn enable_recording(input: &str) {
+    STAGE_REPORT.with(|slot| *slot.borrow_mut() = Some(StageReport::empty(input)));
+}
+
+pub(crate) fn is_recording_enabled() -> bool {
+    STAGE_REPORT.with(|slot| slot.borrow().is_some())
+}
+
+pub(crate) fn finish_recording(result: &str) -> StageReport {
+    STAGE_REPORT.with(|slot| {
+        let mut report = slot
+            .borrow_mut()
+            .take()
+            .unwrap_or_else(|| StageReport::empty(""));
+        report.result_preview = Some(result.to_string());
+        report.events.push(StageEvent {
+            stage: Stage::Result,
+            name: "result".to_string(),
+            input: String::new(),
+            outcome: StageEventOutcome::Matched {
+                output: result.to_string(),
+            },
+        });
+        report
+    })
+}
+
+pub(crate) fn record_rewrite(id: &str, before: &str, after: &str, changed: bool) {
+    if !changed {
+        return;
+    }
+    STAGE_REPORT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(report) = slot.as_mut() else { return };
+        let stage = if crate::parser::normalize::REWRITE_TRACE_NAMES.contains(&id) {
+            Stage::Normalize
+        } else if crate::parser::segment::SEGMENT_TRACE_NAMES.contains(&id) {
+            Stage::Segment
+        } else {
+            Stage::Refine
+        };
+        let rewrite = StageRewrite {
+            name: id.to_string(),
+            before: before.to_string(),
+            after: after.to_string(),
+        };
+        match stage {
+            Stage::Normalize => report.normalize.push(rewrite),
+            Stage::Segment => report.segment.push(rewrite),
+            Stage::Refine => report.refine.push(rewrite),
+            _ => {}
+        }
+        report.events.push(StageEvent {
+            stage,
+            name: id.to_string(),
+            input: before.to_string(),
+            outcome: StageEventOutcome::Applied {
+                output: after.to_string(),
+            },
+        });
+    });
+}
+
+pub(crate) fn record_recognizer(id: &str, input: &str, output: Option<&str>) {
+    STAGE_REPORT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(report) = slot.as_mut() else { return };
+        report.recognizers.push(RecognizerAttempt {
+            name: id.to_string(),
+            output: output.map(str::to_string),
+        });
+        report.events.push(StageEvent {
+            stage: Stage::Recognize,
+            name: id.to_string(),
+            input: input.to_string(),
+            outcome: match output {
+                Some(output) => StageEventOutcome::Matched {
+                    output: output.to_string(),
+                },
+                None => StageEventOutcome::Attempted,
+            },
+        });
+    });
+}
+
+pub(crate) fn record_grammar(input: &str, outcome: GrammarOutcome) {
+    STAGE_REPORT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(report) = slot.as_mut() else { return };
+        let event_outcome = match &outcome {
+            GrammarOutcome::Parsed(output) => StageEventOutcome::Matched {
+                output: output.clone(),
+            },
+            GrammarOutcome::FellBack => StageEventOutcome::Failed {
+                reason: "fell back to name-only".to_string(),
+            },
+            GrammarOutcome::Skipped => StageEventOutcome::Attempted,
+        };
+        report.grammar = Some(outcome);
+        report.events.push(StageEvent {
+            stage: Stage::Grammar,
+            name: GRAMMAR_NAME.to_string(),
+            input: input.to_string(),
+            outcome: event_outcome,
+        });
+    });
 }
 
 fn is_core_node(name: &str) -> bool {
@@ -166,6 +336,7 @@ pub(super) fn build_report(root: &TraceNode) -> StageReport {
     let refine = refine_nodes.iter().map(rewrite_from).collect();
 
     StageReport {
+        events: Vec::new(),
         input: root.input.clone(),
         normalize,
         recognizers,

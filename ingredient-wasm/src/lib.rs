@@ -11,7 +11,8 @@
 use std::{collections::HashSet, str::FromStr};
 
 use ingredient::{
-    Decomposition, Field, decompose as decompose_str, from_str as parse_ingredient_str,
+    Decomposition, Field, IngredientParser, ParseOptions, TraceDetail, decompose as decompose_str,
+    from_str as parse_ingredient_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
     unit::{
@@ -332,7 +333,7 @@ pub struct RichItems(pub Vec<RichItem>);
 
 /// Which output field a decomposition segment became (mirrors `Field`). Renders
 /// as the TS string union `"amount" | "name" | "modifier"`.
-#[derive(Tsify, Serialize)]
+#[derive(Tsify, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum WField {
     Amount,
@@ -433,6 +434,14 @@ fn to_js<T: Serialize>(v: &T, ctx: &str) -> Result<JsValue, String> {
 
 // Public API
 
+/// Ingredient and final-field decomposition produced by one parser execution.
+#[derive(Tsify, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct WIngredientExecution {
+    pub ingredient: WIngredient,
+    pub decomposition: WDecomposition,
+}
+
 #[wasm_bindgen]
 pub fn parse_ingredient(input: &str) -> WIngredient {
     parse_ingredient_str(input).into()
@@ -444,6 +453,22 @@ pub fn parse_ingredient(input: &str) -> WIngredient {
 #[wasm_bindgen]
 pub fn decompose_ingredient(input: &str) -> WDecomposition {
     decompose_str(input).into()
+}
+
+/// Parse once and return both the Ingredient and authored-source decomposition.
+#[wasm_bindgen]
+pub fn parse_ingredient_with_decomposition(input: &str) -> WIngredientExecution {
+    let execution = IngredientParser::new().parse_line(
+        input,
+        ParseOptions {
+            decomposition: true,
+            trace: TraceDetail::None,
+        },
+    );
+    WIngredientExecution {
+        ingredient: execution.ingredient.into(),
+        decomposition: execution.decomposition.unwrap_or_default().into(),
+    }
 }
 
 #[wasm_bindgen]
@@ -718,13 +743,21 @@ mod tests {
         assert!((converted.value - 2.0).abs() < 1e-9);
     }
 
-    /// A recognizer-handled line has no grammar carve → all segments unlabeled,
-    /// still reconstructing the source.
+    /// Recognizers produce the same final-field provenance as the core grammar.
     #[test]
-    fn recognizer_line_has_no_labeled_segments() {
+    fn recognizer_line_has_labeled_segments() {
         let w: WDecomposition = decompose_str("Juice of 1 lemon").into();
         let joined: String = w.segments.iter().map(|s| s.text.as_str()).collect();
         assert_eq!(joined, w.source);
-        assert!(w.segments.iter().all(|s| s.field.is_none()));
+        assert!(w.segments.iter().any(|s| s.field == Some(WField::Name)));
+        assert!(w.segments.iter().any(|s| s.field == Some(WField::Amount)));
+        assert!(w.segments.iter().any(|s| s.field == Some(WField::Modifier)));
+    }
+
+    #[test]
+    fn combined_parse_returns_both_views() {
+        let execution = parse_ingredient_with_decomposition("2 cups flour, sifted");
+        assert_eq!(execution.ingredient.name, "flour");
+        assert_eq!(execution.decomposition.source, "2 cups flour, sifted");
     }
 }
