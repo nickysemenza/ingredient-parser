@@ -612,14 +612,26 @@ async fn main() {
                 return;
             }
             if *debug || *explain || jaeger_output.is_some() {
-                // Use parse_with_trace for debug output or Jaeger export
                 let parser = ingredient::IngredientParser::new();
-                let result = parser.parse_with_trace(name);
+                let full_trace = *debug || jaeger_output.is_some();
+                let execution = parser.parse_line(
+                    name,
+                    ingredient::ParseOptions {
+                        decomposition: *explain,
+                        trace: if full_trace {
+                            ingredient::TraceDetail::Full
+                        } else {
+                            ingredient::TraceDetail::Stages
+                        },
+                    },
+                );
                 let use_color = std::io::IsTerminal::is_terminal(&std::io::stdout());
 
                 // Export to Jaeger JSON if requested
-                if let Some(output_path) = jaeger_output {
-                    let jaeger_json = result.trace.to_jaeger_json();
+                if let Some(output_path) = jaeger_output
+                    && let Some(trace) = execution.trace.as_ref()
+                {
+                    let jaeger_json = trace.to_jaeger_json();
                     if let Err(e) = std::fs::write(output_path, &jaeger_json) {
                         eprintln!("Failed to write Jaeger JSON to {output_path}: {e}");
                         std::process::exit(1);
@@ -631,29 +643,33 @@ async fn main() {
                 // labels how the grammar carved the line (amount/name/modifier),
                 // or falls back to a caret on a digit that produced no amount;
                 // the stage view below shows which pipeline stage shaped the line.
-                if *explain {
-                    let diag = parser.from_str(name).parse_notes;
-                    let decomp = parser.decompose(name);
-                    print!("{}", explain::render(&decomp, &diag, use_color));
+                if *explain
+                    && let (Some(decomposition), Some(stages)) =
+                        (execution.decomposition.as_ref(), execution.stages.as_ref())
+                {
+                    print!(
+                        "{}",
+                        explain::render(
+                            decomposition,
+                            &execution.ingredient.parse_notes,
+                            use_color,
+                        )
+                    );
                     println!();
-                    println!("{}", result.trace.format_stages(use_color));
+                    println!("{}", stages.format(use_color));
                 }
 
                 // Print the full trace tree if debug is enabled
-                if *debug {
-                    println!("{}", result.trace.format_tree(use_color));
+                if *debug && let Some(trace) = execution.trace.as_ref() {
+                    println!("{}", trace.format_tree(use_color));
                 }
 
-                // Print the result
-                match result.result {
-                    Ok(ingredient) => {
-                        println!("\nResult:");
-                        println!("{}", serde_json::to_string_pretty(&ingredient).unwrap());
-                    }
-                    Err(e) => {
-                        eprintln!("\nParse error: {e}");
-                    }
-                }
+                // Print the result (Ingredient-line parsing never fails).
+                println!("\nResult:");
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&execution.ingredient).unwrap()
+                );
             } else {
                 // JSON only — stdout must stay pipeable (`… | jq`); the human-
                 // readable Display line was breaking that.

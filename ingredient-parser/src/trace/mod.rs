@@ -19,12 +19,19 @@ mod jaeger;
 mod stages;
 
 pub use collector::is_tracing_enabled;
-pub use stages::{GrammarOutcome, RecognizerAttempt, StageReport, StageRewrite};
+pub use stages::{
+    GrammarOutcome, RecognizerAttempt, Stage, StageEvent, StageEventOutcome, StageReport,
+    StageRewrite,
+};
 // Thread-local span-stack mutators: in-crate only (the `traced_parser!` macro and
 // the pipeline/recognize/refine phases). Not part of the public API — the public
 // entry point is `IngredientParser::parse_with_trace` → `ParseTrace`.
 pub(crate) use collector::{disable_tracing, enable_tracing};
 pub(crate) use collector::{trace_enter, trace_exit_failure, trace_exit_success};
+pub(crate) use stages::{
+    enable_recording as enable_stage_recording, finish_recording as finish_stage_recording,
+    is_recording_enabled as is_stage_recording_enabled, record_grammar,
+};
 
 /// The full label universe of each pipeline stage — every normalize rewrite,
 /// recognizer, and refine pass that *could* fire, in declared order.
@@ -63,9 +70,17 @@ pub fn pipeline_stage_names() -> PipelineStageNames {
     }
 }
 
+impl StageReport {
+    /// Format this authoritative report as the compact stage view.
+    pub fn format(&self, colored: bool) -> String {
+        format::format_stages(self, colored)
+    }
+}
+
 /// Trace a stage step that may or may not change its input (normalize rewrites,
 /// refine passes). Emits a before→after node only when `changed` is true.
 pub(crate) fn trace_on_change(id: &str, before: &str, after: &str, changed: bool) {
+    stages::record_rewrite(id, before, after, changed);
     if changed && is_tracing_enabled() {
         trace_enter(id, before);
         trace_exit_success(0, after);
@@ -80,10 +95,12 @@ pub(crate) fn trace_attempt<T>(
     result: Option<T>,
     format_success: impl FnOnce(&T) -> String,
 ) -> Option<T> {
+    let preview = result.as_ref().map(format_success);
+    stages::record_recognizer(id, input, preview.as_deref());
     if is_tracing_enabled() {
         trace_enter(id, input);
         match &result {
-            Some(value) => trace_exit_success(0, &format_success(value)),
+            Some(_) => trace_exit_success(0, preview.as_deref().unwrap_or("")),
             None => trace_exit_failure("no match"),
         }
     }
@@ -184,6 +201,8 @@ pub struct ParseTrace {
     pub baseline_instant: Option<Instant>,
     /// Unix timestamp (microseconds) when tracing started
     pub baseline_unix_micros: u64,
+    /// Authoritative report recorded during this execution.
+    pub stage_report: Option<StageReport>,
 }
 
 impl ParseTrace {
@@ -198,6 +217,7 @@ impl ParseTrace {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_micros() as u64)
                 .unwrap_or(0),
+            stage_report: None,
         }
     }
 
@@ -226,7 +246,13 @@ impl ParseTrace {
     /// [`format_stages`](Self::format_stages)) — normalize rewrites, recognizer
     /// attempts, grammar outcome, refine passes, and the result preview.
     pub fn stages(&self) -> StageReport {
-        stages::build_report(&self.root)
+        self.stage_report
+            .clone()
+            .unwrap_or_else(|| stages::build_report(&self.root))
+    }
+
+    pub(crate) fn attach_stage_report(&mut self, report: StageReport) {
+        self.stage_report = Some(report);
     }
 
     /// Export trace to Jaeger-compatible JSON format

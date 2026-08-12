@@ -2,8 +2,10 @@
 
 #![allow(clippy::unwrap_used)]
 
-use ingredient::IngredientParser;
-use ingredient::trace::{GrammarOutcome, ParseTrace, TraceNode, TraceOutcome};
+use ingredient::trace::{
+    GrammarOutcome, ParseTrace, Stage, StageEventOutcome, TraceNode, TraceOutcome,
+};
+use ingredient::{IngredientParser, ParseOptions, TraceDetail};
 use rstest::{fixture, rstest};
 
 // ============================================================================
@@ -55,6 +57,7 @@ fn test_trace_node() {
         root,
         baseline_instant: None,
         baseline_unix_micros: 0,
+        stage_report: None,
     };
 
     let output = trace.format_tree(false);
@@ -128,6 +131,7 @@ fn test_format_tree_colored() {
         root,
         baseline_instant: None,
         baseline_unix_micros: 0,
+        stage_report: None,
     };
 
     let colored = trace.format_tree(true);
@@ -149,6 +153,7 @@ fn test_trace_incomplete_outcome() {
         root: node,
         baseline_instant: None,
         baseline_unix_micros: 0,
+        stage_report: None,
     };
     assert!(trace.format_tree(false).contains("..."));
 }
@@ -199,6 +204,7 @@ fn create_test_trace(with_children: bool, with_baseline: bool) -> ParseTrace {
             None
         },
         baseline_unix_micros: 1000000,
+        stage_report: None,
     }
 }
 
@@ -243,6 +249,7 @@ fn test_jaeger_json_tags(#[case] outcome: &str, #[case] expected_keys: &[&str]) 
         root,
         baseline_instant: Some(std::time::Instant::now()),
         baseline_unix_micros: 1000000,
+        stage_report: None,
     };
 
     let json = trace.to_jaeger_json();
@@ -273,6 +280,7 @@ fn test_jaeger_json_references() {
         root,
         baseline_instant: Some(std::time::Instant::now()),
         baseline_unix_micros: 1000000,
+        stage_report: None,
     };
 
     let json = trace.to_jaeger_json();
@@ -353,8 +361,8 @@ fn test_stages_normalize_rewrite(parser: IngredientParser) {
     );
 }
 
-/// Special-form recognizer match: x_of_construction matches and the grammar
-/// outcome comes from the nested re-parse of the rewritten line.
+/// Special-form recognizer match: the recognizer is authoritative and the
+/// top-level grammar is recorded as skipped.
 #[rstest]
 fn test_stages_recognizer_match(parser: IngredientParser) {
     let report = parser.parse_with_trace("Juice of 1 lemon").trace.stages();
@@ -366,11 +374,37 @@ fn test_stages_recognizer_match(parser: IngredientParser) {
         .unwrap();
     assert_eq!(matched.name, "x_of_construction");
     assert_eq!(matched.output.as_deref(), Some("lemon"));
-    assert_eq!(
-        report.grammar,
-        Some(GrammarOutcome::Parsed("lemon".to_string()))
-    );
+    assert_eq!(report.grammar, Some(GrammarOutcome::Skipped));
     assert_eq!(report.result_preview.as_deref(), Some("lemon"));
+}
+
+#[test]
+fn stages_mode_records_direct_events_without_a_trace_tree() {
+    let execution = IngredientParser::new().parse_line(
+        "the 1 cup chopped flour",
+        ParseOptions {
+            decomposition: false,
+            trace: TraceDetail::Stages,
+        },
+    );
+    assert!(execution.trace.is_none());
+    let report = execution.stages.unwrap();
+    assert!(report.events.iter().any(|event| {
+        event.stage == Stage::Normalize
+            && matches!(event.outcome, StageEventOutcome::Applied { .. })
+    }));
+    assert!(report.events.iter().any(|event| {
+        event.stage == Stage::Recognize && event.outcome == StageEventOutcome::Attempted
+    }));
+    assert!(report.events.iter().any(|event| {
+        event.stage == Stage::Grammar && matches!(event.outcome, StageEventOutcome::Matched { .. })
+    }));
+    assert!(
+        report
+            .events
+            .iter()
+            .any(|event| event.stage == Stage::Result)
+    );
 }
 
 /// Refine pass: the merged alternatives extraction (here the no-quantity
@@ -430,6 +464,7 @@ fn test_stages_synthetic_variants() {
             root,
             baseline_instant: None,
             baseline_unix_micros: 0,
+            stage_report: None,
         }
     }
 
