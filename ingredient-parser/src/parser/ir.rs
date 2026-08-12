@@ -42,6 +42,8 @@ pub(crate) struct ParsedIngredient {
     pub amounts: Vec<Measure>,
     pub modifier: Vec<ModifierPart>,
     pub optional: bool,
+    /// Authored byte origins, enabled only for diagnostic executions.
+    pub provenance: Option<crate::parser::segment::AssemblyProvenance>,
 }
 
 impl ParsedIngredient {
