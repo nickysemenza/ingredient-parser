@@ -8,8 +8,10 @@ pub use kind::MeasureKind;
 
 pub mod conversion;
 pub use conversion::{
-    ConversionStep, convert_measure_with_graph, convert_measure_with_graph_explained,
-    find_connected_components, mapping_graph_unit, mapping_target_kind,
+    ConversionFailure, ConversionHop, ConversionOrigin, ConversionReport, ConversionStep,
+    ConversionTarget, MeasureConversions, RejectedMapping, RejectedMappingReason,
+    convert_measure_with_graph, convert_measure_with_graph_explained, find_connected_components,
+    mapping_graph_unit, mapping_target_kind,
 };
 
 pub(crate) mod measure;

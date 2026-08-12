@@ -51,9 +51,8 @@ impl IngredientParser {
 
     fn run_refine_pass(&self, pass: &RefinePass, parsed: &mut ParsedIngredient) {
         let RefinePass { run, .. } = *pass;
-        let tracing = crate::trace::is_tracing_enabled();
-        let stages = crate::trace::is_stage_recording_enabled();
-        if !tracing && !stages && parsed.provenance.is_none() {
+        let diagnostics = crate::trace::is_diagnostics_enabled();
+        if !diagnostics && parsed.provenance.is_none() {
             run(self, parsed);
             return;
         }

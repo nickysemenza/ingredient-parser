@@ -24,7 +24,7 @@ use tracing::debug;
 /// maps to 0.
 fn to_rational(value: f64) -> Rational64 {
     Rational64::approximate_float(value).unwrap_or_else(|| {
-        if value.is_nan() {
+        if !value.is_finite() {
             Rational64::from_integer(0)
         } else if value < 0.0 {
             Rational64::from_integer(i64::MIN)
@@ -798,6 +798,8 @@ mod tests {
         assert_eq!(to_rational(-1e30), Rational64::from_integer(i64::MIN));
         // NaN has no magnitude, so it maps to 0.
         assert_eq!(to_rational(f64::NAN), Rational64::from_integer(0));
+        assert_eq!(to_rational(f64::INFINITY), Rational64::from_integer(0));
+        assert_eq!(to_rational(f64::NEG_INFINITY), Rational64::from_integer(0));
     }
 
     // ============================================================================

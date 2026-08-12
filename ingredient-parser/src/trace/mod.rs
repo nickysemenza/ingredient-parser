@@ -18,6 +18,8 @@ mod format;
 mod jaeger;
 mod stages;
 
+use std::cell::Cell;
+
 pub use collector::is_tracing_enabled;
 pub use stages::{
     GrammarOutcome, RecognizerAttempt, Stage, StageEvent, StageEventOutcome, StageReport,
@@ -30,8 +32,27 @@ pub(crate) use collector::{disable_tracing, enable_tracing};
 pub(crate) use collector::{trace_enter, trace_exit_failure, trace_exit_success};
 pub(crate) use stages::{
     enable_recording as enable_stage_recording, finish_recording as finish_stage_recording,
-    is_recording_enabled as is_stage_recording_enabled, record_grammar,
+    record_grammar,
 };
+
+thread_local! {
+    // The parser's hot path checks one TLS flag per instrumented pass, matching
+    // the old trace-only cost. Stage/full executions turn it on for their whole
+    // run; ordinary parsing never touches either collector.
+    static DIAGNOSTICS_ENABLED: Cell<bool> = const { Cell::new(false) };
+}
+
+pub(crate) fn enable_diagnostics() {
+    DIAGNOSTICS_ENABLED.with(|enabled| enabled.set(true));
+}
+
+pub(crate) fn disable_diagnostics() {
+    DIAGNOSTICS_ENABLED.with(|enabled| enabled.set(false));
+}
+
+pub(crate) fn is_diagnostics_enabled() -> bool {
+    DIAGNOSTICS_ENABLED.with(Cell::get)
+}
 
 /// The full label universe of each pipeline stage — every normalize rewrite,
 /// recognizer, and refine pass that *could* fire, in declared order.
@@ -80,6 +101,9 @@ impl StageReport {
 /// Trace a stage step that may or may not change its input (normalize rewrites,
 /// refine passes). Emits a before→after node only when `changed` is true.
 pub(crate) fn trace_on_change(id: &str, before: &str, after: &str, changed: bool) {
+    if !is_diagnostics_enabled() {
+        return;
+    }
     stages::record_rewrite(id, before, after, changed);
     if changed && is_tracing_enabled() {
         trace_enter(id, before);
@@ -95,6 +119,9 @@ pub(crate) fn trace_attempt<T>(
     result: Option<T>,
     format_success: impl FnOnce(&T) -> String,
 ) -> Option<T> {
+    if !is_diagnostics_enabled() {
+        return result;
+    }
     let preview = result.as_ref().map(format_success);
     stages::record_recognizer(id, input, preview.as_deref());
     if is_tracing_enabled() {

@@ -4,7 +4,7 @@
 //! using user-provided mappings (e.g., "1 cup flour = 120g"). The conversion algorithm
 //! finds the shortest path in the conversion graph to transform between units.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::{
     Unit,
@@ -17,6 +17,240 @@ use petgraph::graph::NodeIndex;
 use tracing::debug;
 
 pub type MeasureGraph = Graph<Unit, EdgeFactor>;
+
+/// Typed destination for the deep conversion module.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConversionTarget {
+    /// Convert to the kind's canonical/best-fit display unit.
+    Kind(MeasureKind),
+    /// Convert to this exact canonical unit spelling.
+    Unit(Unit),
+}
+
+/// Why a user mapping was excluded while compiling conversions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RejectedMappingReason {
+    NonPositiveBound,
+    NonFiniteBound,
+}
+
+/// A rejected mapping and its stable input position.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RejectedMapping {
+    pub index: usize,
+    pub from: Measure,
+    pub to: Measure,
+    pub reason: RejectedMappingReason,
+}
+
+/// Origin of one conversion path hop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversionOrigin {
+    Fixed,
+    User,
+}
+
+/// Interval-aware hop in a conversion report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversionHop {
+    pub from_unit: Unit,
+    pub to_unit: Unit,
+    pub factor: EdgeFactor,
+    pub origin: ConversionOrigin,
+}
+
+/// Why a conversion could not be completed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversionFailure {
+    SourceUnavailable,
+    TargetUnavailable,
+    NoPath,
+}
+
+/// Rich diagnostic result from [`MeasureConversions::explain`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversionReport {
+    pub result: Result<Measure, ConversionFailure>,
+    pub hops: Vec<ConversionHop>,
+    pub rejected_mappings: Vec<RejectedMapping>,
+}
+
+/// Reusable, opaque conversion policy compiled from user mappings.
+///
+/// Petgraph remains exposed through the legacy [`MeasureGraph`] alias for
+/// strict source compatibility; ordinary callers use this deep module and no
+/// longer coordinate graph construction, canonical targets, reporting, and
+/// visualization themselves.
+#[derive(Debug, Clone)]
+pub struct MeasureConversions {
+    graph: MeasureGraph,
+    rejected: Vec<RejectedMapping>,
+    user_pairs: HashSet<(Unit, Unit)>,
+}
+
+impl MeasureConversions {
+    pub fn new(mappings: &[(Measure, Measure)]) -> Self {
+        let mut rejected = Vec::new();
+        let mut valid = Vec::new();
+        let mut user_pairs = HashSet::new();
+        for (index, (from, to)) in mappings.iter().enumerate() {
+            let bounds = [
+                from.value(),
+                from.upper_value().unwrap_or(from.value()),
+                to.value(),
+                to.upper_value().unwrap_or(to.value()),
+            ];
+            let reason = if bounds.iter().any(|bound| !bound.is_finite()) {
+                Some(RejectedMappingReason::NonFiniteBound)
+            } else if bounds.iter().any(|bound| *bound <= 0.0) {
+                Some(RejectedMappingReason::NonPositiveBound)
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                rejected.push(RejectedMapping {
+                    index,
+                    from: from.clone(),
+                    to: to.clone(),
+                    reason,
+                });
+                continue;
+            }
+            let left = mapping_graph_unit(&from.unit().to_str());
+            let right = mapping_graph_unit(&to.unit().to_str());
+            user_pairs.insert((left.clone(), right.clone()));
+            user_pairs.insert((right, left));
+            valid.push((from.clone(), to.clone()));
+        }
+        Self {
+            graph: make_graph(&valid),
+            rejected,
+            user_pairs,
+        }
+    }
+
+    pub fn convert(&self, measure: &Measure, target: ConversionTarget) -> Option<Measure> {
+        self.convert_explained(measure, target)
+            .map(|(measure, _)| measure)
+    }
+
+    pub fn explain(&self, measure: &Measure, target: ConversionTarget) -> ConversionReport {
+        let result = self.convert_explained(measure, target.clone());
+        match result {
+            Some((measure, steps)) => ConversionReport {
+                result: Ok(measure),
+                hops: steps
+                    .into_iter()
+                    .map(|step| {
+                        let factor = self
+                            .edge_factor(&step.from_unit, &step.to_unit)
+                            .unwrap_or_else(|| EdgeFactor::point(step.factor));
+                        let origin = if self
+                            .user_pairs
+                            .contains(&(step.from_unit.clone(), step.to_unit.clone()))
+                        {
+                            ConversionOrigin::User
+                        } else {
+                            ConversionOrigin::Fixed
+                        };
+                        ConversionHop {
+                            from_unit: step.from_unit,
+                            to_unit: step.to_unit,
+                            factor,
+                            origin,
+                        }
+                    })
+                    .collect(),
+                rejected_mappings: self.rejected.clone(),
+            },
+            None => ConversionReport {
+                result: Err(self.failure_for(measure, &target)),
+                hops: Vec::new(),
+                rejected_mappings: self.rejected.clone(),
+            },
+        }
+    }
+
+    pub fn rejected_mappings(&self) -> &[RejectedMapping] {
+        &self.rejected
+    }
+
+    pub fn to_dot(&self) -> String {
+        print_graph(&self.graph)
+    }
+
+    pub fn connected_components(&self) -> Vec<Vec<String>> {
+        let mut components = find_connected_components(&self.graph);
+        for component in &mut components {
+            component.sort();
+        }
+        components.sort();
+        components
+    }
+
+    fn convert_explained(
+        &self,
+        measure: &Measure,
+        target: ConversionTarget,
+    ) -> Option<(Measure, Vec<ConversionStep>)> {
+        match target {
+            ConversionTarget::Kind(kind) => {
+                convert_measure_with_graph_explained(measure, kind, &self.graph)
+            }
+            ConversionTarget::Unit(unit) => {
+                let normalized_target =
+                    Measure::new_with_upper(unit.clone(), 1.0, None).normalize();
+                let graph_target =
+                    MeasureKind::Other(normalized_target.unit().normalize().to_str().into_owned());
+                let (converted, steps) =
+                    convert_measure_with_graph_explained(measure, graph_target, &self.graph)?;
+                let base = converted.normalize();
+                let factor = normalized_target.value();
+                let lower = round_sig(base.value() / factor, RESULT_SIG_FIGS);
+                let upper = base
+                    .upper_value()
+                    .map(|value| round_sig(value / factor, RESULT_SIG_FIGS))
+                    .filter(|value| *value > lower);
+                Some((Measure::new_with_upper(unit, lower, upper), steps))
+            }
+        }
+    }
+
+    fn edge_factor(&self, from: &Unit, to: &Unit) -> Option<EdgeFactor> {
+        let from = self
+            .graph
+            .node_indices()
+            .find(|index| &self.graph[*index] == from)?;
+        let to = self
+            .graph
+            .node_indices()
+            .find(|index| &self.graph[*index] == to)?;
+        let edge = self.graph.find_edge(from, to)?;
+        self.graph.edge_weight(edge).copied()
+    }
+
+    fn failure_for(&self, measure: &Measure, target: &ConversionTarget) -> ConversionFailure {
+        let source = measure.normalize().unit().normalize();
+        let target = match target {
+            ConversionTarget::Kind(kind) => kind.unit().normalize(),
+            ConversionTarget::Unit(unit) => Measure::new_with_upper(unit.clone(), 1.0, None)
+                .normalize()
+                .unit()
+                .normalize(),
+        };
+        let has_source =
+            source == target || self.graph.node_indices().any(|i| self.graph[i] == source);
+        let has_target =
+            source == target || self.graph.node_indices().any(|i| self.graph[i] == target);
+        if !has_source {
+            ConversionFailure::SourceUnavailable
+        } else if !has_target {
+            ConversionFailure::TargetUnavailable
+        } else {
+            ConversionFailure::NoPath
+        }
+    }
+}
 
 /// A directed edge's conversion factor as a closed interval `[lower, upper]`.
 ///
@@ -526,14 +760,92 @@ pub(crate) fn convert_measure_via_mappings(
     target: MeasureKind,
     mappings: &[(Measure, Measure)],
 ) -> Option<Measure> {
-    let g = make_graph(mappings);
-    convert_measure_with_graph(measure, target, &g)
+    MeasureConversions::new(mappings).convert(measure, ConversionTarget::Kind(target))
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deep_module_distinguishes_kind_from_exact_unit() {
+        let conversions =
+            MeasureConversions::new(&[(Measure::new("tbsp", 1.0), Measure::new("ml", 14.7868))]);
+        let measure = Measure::new("tbsp", 16.0);
+        let kind = conversions
+            .convert(&measure, ConversionTarget::Kind(MeasureKind::Volume))
+            .unwrap();
+        let exact = conversions
+            .convert(&measure, ConversionTarget::Unit(Unit::Tablespoon))
+            .unwrap();
+        assert_eq!(*exact.unit(), Unit::Tablespoon);
+        assert_eq!(exact.value(), 16.0);
+        assert_ne!(kind.unit(), exact.unit());
+    }
+
+    #[test]
+    fn invalid_mappings_are_rejected_individually() {
+        let conversions = MeasureConversions::new(&[
+            (Measure::new("cup", 0.0), Measure::new("g", 120.0)),
+            (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
+        ]);
+        assert_eq!(conversions.rejected_mappings().len(), 1);
+        assert_eq!(
+            conversions.rejected_mappings()[0].reason,
+            RejectedMappingReason::NonPositiveBound
+        );
+        assert!(
+            conversions
+                .convert(
+                    &Measure::new("cup", 1.0),
+                    ConversionTarget::Kind(MeasureKind::Weight)
+                )
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn report_includes_interval_and_mapping_origin() {
+        let conversions = MeasureConversions::new(&[(
+            Measure::new("cup", 1.0),
+            Measure::with_range("g", 110.0, 130.0),
+        )]);
+        let report = conversions.explain(
+            &Measure::new("cup", 2.0),
+            ConversionTarget::Kind(MeasureKind::Weight),
+        );
+        let result = report.result.unwrap();
+        assert_eq!(result.value(), 220.0);
+        assert_eq!(result.upper_value(), Some(260.0));
+        assert_eq!(report.hops.len(), 1);
+        assert_eq!(report.hops[0].origin, ConversionOrigin::User);
+        assert!(report.hops[0].factor.upper > report.hops[0].factor.lower);
+    }
+
+    #[test]
+    fn deep_and_legacy_kind_conversion_have_parity() {
+        let mappings = [(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+        let graph = make_graph(&mappings);
+        let measure = Measure::new("cup", 2.0);
+        let legacy = convert_measure_with_graph(&measure, MeasureKind::Weight, &graph);
+        let deep = MeasureConversions::new(&mappings)
+            .convert(&measure, ConversionTarget::Kind(MeasureKind::Weight));
+        assert_eq!(deep, legacy);
+    }
+
+    #[test]
+    fn compiled_inspection_is_deterministic() {
+        let conversions = MeasureConversions::new(&[
+            (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
+            (Measure::new("g", 120.0), Measure::new("$", 2.0)),
+        ]);
+        assert_eq!(conversions.to_dot(), conversions.to_dot());
+        assert_eq!(
+            conversions.connected_components(),
+            conversions.connected_components()
+        );
+    }
 
     #[test]
     fn mapping_target_kind_uses_normalized_graph_node() {
