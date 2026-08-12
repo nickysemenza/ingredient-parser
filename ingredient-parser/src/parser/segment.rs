@@ -567,9 +567,8 @@ impl IngredientParser {
 
     fn run_assembly_repair(&self, repair: &AssemblyRepair, parsed: &mut ParsedIngredient) {
         let AssemblyRepair { run, .. } = *repair;
-        let tracing = crate::trace::is_tracing_enabled();
-        let stages = crate::trace::is_stage_recording_enabled();
-        if !tracing && !stages && parsed.provenance.is_none() {
+        let diagnostics = crate::trace::is_diagnostics_enabled();
+        if !diagnostics && parsed.provenance.is_none() {
             run(self, parsed);
             return;
         }
@@ -585,7 +584,7 @@ impl IngredientParser {
             provenance.reconcile(parsed);
             parsed.provenance = Some(provenance);
         }
-        if tracing || stages {
+        if diagnostics {
             crate::trace::trace_on_change(
                 repair.id().as_str(),
                 &before.name,
@@ -688,7 +687,7 @@ impl IngredientParser {
 /// parenthetical), so `--explain` and the stage report can show how the
 /// segmenter read the line. No-ops when tracing is disabled.
 fn trace_clauses(source: &str, clauses: &[Clause<'_>]) {
-    if !crate::trace::is_tracing_enabled() && !crate::trace::is_stage_recording_enabled() {
+    if !crate::trace::is_diagnostics_enabled() {
         return;
     }
     for clause in clauses {

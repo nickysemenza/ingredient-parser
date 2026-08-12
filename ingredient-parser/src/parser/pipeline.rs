@@ -17,6 +17,7 @@ impl IngredientParser {
         let record_stages = options.trace != TraceDetail::None;
         let record_trace = options.trace == TraceDetail::Full;
         if record_stages {
+            trace::enable_diagnostics();
             trace::enable_stage_recording(input);
         }
         if record_trace {
@@ -42,6 +43,9 @@ impl IngredientParser {
         let decomposition = options
             .decomposition
             .then(|| self.final_decomposition(input, &ingredient));
+        if record_stages {
+            trace::disable_diagnostics();
+        }
 
         ParseExecution {
             ingredient,
@@ -84,7 +88,9 @@ impl IngredientParser {
         // First try the whole-line special-form recognizers (first match wins),
         // then fall back to the general core parse, then to a name-only ingredient.
         if let Some(ingredient) = self.run_recognizers(input) {
-            trace::record_grammar(input, trace::GrammarOutcome::Skipped);
+            if trace::is_diagnostics_enabled() {
+                trace::record_grammar(input, trace::GrammarOutcome::Skipped);
+            }
             return (ingredient, false);
         }
         if let Some(ingredient) = self.parse_core_ingredient(input).filter(|ingredient| {
@@ -97,13 +103,17 @@ impl IngredientParser {
                 .is_some_and(|modifier| !modifier.trim().is_empty());
             !(name_empty && has_modifier)
         }) {
-            trace::record_grammar(
-                input,
-                trace::GrammarOutcome::Parsed(ingredient.name.clone()),
-            );
+            if trace::is_diagnostics_enabled() {
+                trace::record_grammar(
+                    input,
+                    trace::GrammarOutcome::Parsed(ingredient.name.clone()),
+                );
+            }
             (ingredient, false)
         } else {
-            trace::record_grammar(input, trace::GrammarOutcome::FellBack);
+            if trace::is_diagnostics_enabled() {
+                trace::record_grammar(input, trace::GrammarOutcome::FellBack);
+            }
             (fallback_ingredient(input), true)
         }
     }

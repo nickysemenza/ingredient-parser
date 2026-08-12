@@ -139,10 +139,6 @@ pub(crate) fn enable_recording(input: &str) {
     STAGE_REPORT.with(|slot| *slot.borrow_mut() = Some(StageReport::empty(input)));
 }
 
-pub(crate) fn is_recording_enabled() -> bool {
-    STAGE_REPORT.with(|slot| slot.borrow().is_some())
-}
-
 pub(crate) fn finish_recording(result: &str) -> StageReport {
     STAGE_REPORT.with(|slot| {
         let mut report = slot

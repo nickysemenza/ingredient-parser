@@ -15,10 +15,7 @@ use ingredient::{
     from_str as parse_ingredient_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
-    unit::{
-        Measure, MeasureKind, convert_measure_with_graph, is_valid, make_graph,
-        mapping_target_kind, print_graph,
-    },
+    unit::{ConversionTarget, Measure, MeasureConversions, MeasureKind, Unit, is_valid},
     unit_mapping::{ParsedUnitMapping, parse_unit_mapping as parse_unit_mapping_internal},
     util::truncate_3_decimals,
 };
@@ -537,12 +534,11 @@ pub fn conv_amount_to_unit(
 ) -> Result<WAmount, String> {
     let pairs = mappings.to_pairs();
     let measure = amount.to_measure();
-    let kind = mapping_target_kind(&target_unit);
+    let unit = Unit::from_str(&target_unit).unwrap_or(Unit::Other(target_unit.clone()));
 
-    measure
-        .convert_measure_via_mappings(kind, &pairs)
+    MeasureConversions::new(&pairs)
+        .convert(&measure, ConversionTarget::Unit(unit))
         .ok_or_else(|| format!("Failed to convert to '{target_unit}'"))
-        .map(|m| m.denormalize())
         .map(WAmount::from)
 }
 
@@ -558,7 +554,7 @@ pub fn conv_amount_to_nutrients(
     use wasm_bindgen::JsCast;
 
     let measure = amount.to_measure();
-    let graph = make_graph(&mappings.to_pairs());
+    let conversions = MeasureConversions::new(&mappings.to_pairs());
 
     let result = js_sys::Object::new();
     for target in nutrient_targets {
@@ -566,7 +562,7 @@ pub fn conv_amount_to_nutrients(
         // owned string is used once rather than cloned per target.
         let key = JsValue::from_str(&target);
         let kind = MeasureKind::Nutrient(target);
-        let converted = convert_measure_with_graph(&measure, kind, &graph);
+        let converted = conversions.convert(&measure, ConversionTarget::Kind(kind));
 
         let js_value = match converted {
             Some(m) => to_js(&WAmount::from(&m), "amount")?,
@@ -582,7 +578,7 @@ pub fn conv_amount_to_nutrients(
 
 #[wasm_bindgen]
 pub fn graph_unit_mappings(mappings: WUnitMappings) -> String {
-    print_graph(&make_graph(&mappings.to_pairs()))
+    MeasureConversions::new(&mappings.to_pairs()).to_dot()
 }
 
 #[wasm_bindgen]
