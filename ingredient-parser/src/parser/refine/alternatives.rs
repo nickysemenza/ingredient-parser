@@ -123,50 +123,10 @@ impl IngredientParser {
             .unwrap_or(parsed.modifier.len());
         parsed.modifier.insert(insert_at, alternative);
     }
-
-    /// Recover a head noun stranded at the tail of an alternatives list in the
-    /// modifier. The grammar splits "canola, vegetable, or melted coconut oil" on
-    /// the first comma, leaving name="canola" and modifier="vegetable, or melted
-    /// coconut oil" — the shared head "oil" dropped off the name entirely. When
-    /// the modifier is a comma+or list ending in a curated shared-head noun and
-    /// the name is a single bare token, graft the head onto the name ("canola" →
-    /// "canola oil") and keep the whole list as an "or …" alternative modifier.
-    ///
-    /// Gated narrowly (requires a comma *and* an "or", plus a final word in
-    /// [`vocab::SHARED_HEAD_NOUNS`]) so lists of complete ingredients —
-    /// "salt, pepper, or paprika", "flour, sugar, or baking soda" — never get a
-    /// nonsense head grafted on.
-    pub(in crate::parser) fn recover_shared_head_from_alternatives(
-        &self,
-        parsed: &mut ParsedIngredient,
-    ) {
-        // Name must be a single bare token that isn't already the head noun.
-        let mut name_words = parsed.name.split_whitespace();
-        let (Some(name_word), None) = (name_words.next(), name_words.next()) else {
-            return;
-        };
-        if crate::parser::vocab::SHARED_HEAD_NOUNS.contains(&name_word.to_lowercase().as_str()) {
-            return;
-        }
-        let Some(modifier) = parsed.modifier_string() else {
-            return;
-        };
-        let Some(head) = distributable_head(&modifier, SharedHeadContext::CommaOrList) else {
-            return;
-        };
-        parsed.name = graft(name_word, head, GraftMode::AppendTrailingHead);
-        parsed.modifier = vec![ModifierPart::Alternative(format!("or {modifier}"))];
-    }
 }
 
-/// Which coordination shape asked "does `right`'s trailing noun distribute onto
-/// the left". Each variant keeps its own EXACT gates in [`distributable_head`];
-/// the two shapes intentionally consult different vocab lists.
+/// Context for an inline "A or B `<head>`" shared-head decision.
 enum SharedHeadContext<'a> {
-    /// A comma+or alternatives list stranded in the modifier
-    /// ("vegetable, or melted coconut oil"), gated on
-    /// [`vocab::SHARED_HEAD_NOUNS`].
-    CommaOrList,
     /// An inline "A or B `<head>`" right side ("white onion"), gated on
     /// [`vocab::DISTRIBUTABLE_HEAD_NOUNS`]. Carries the parser's adjective set
     /// for the "not led by a prep adjective" guard.
@@ -176,42 +136,12 @@ enum SharedHeadContext<'a> {
 }
 
 /// Decide whether `right`'s trailing noun is a *shared head* that can be grafted
-/// onto the left conjunct, returning that head token (source casing preserved)
-/// when so. Each context applies its own gates:
-///
-/// - [`SharedHeadContext::CommaOrList`]: `right` must read as a comma-separated
-///   alternatives list joined by "or" (both signals a shared head, not a
-///   standalone alternative), and its final token must be in
-///   [`vocab::SHARED_HEAD_NOUNS`]. Casing note: the last token is trimmed of
-///   surrounding punctuation but *not* lowercased for the graft — only the vocab
-///   lookup lowercases — so the grafted head preserves the source casing.
-/// - [`SharedHeadContext::InlineOr`]: `right` must read as
+/// onto the left conjunct. `right` must read as
 ///   "`<premodifier> <head noun>`" (at least two tokens, not led by a prep
 ///   adjective, free of stopwords) and its trailing head noun must be in
 ///   [`vocab::DISTRIBUTABLE_HEAD_NOUNS`].
 fn distributable_head<'a>(right: &'a str, ctx: SharedHeadContext) -> Option<&'a str> {
     match ctx {
-        SharedHeadContext::CommaOrList => {
-            // The modifier must read as a comma-separated alternatives list
-            // joined by "or" — both signals that the trailing noun is a shared
-            // head, not a standalone alternative ("flour or oil" stays two
-            // ingredients).
-            if !right.contains(',') || !right.to_lowercase().contains(" or ") {
-                return None;
-            }
-            // Its final token must be a curated shared head noun the bare
-            // alternatives can all premodify ("oil"), so grafting it produces a
-            // real ingredient. Trim (but don't lowercase) the last token: the
-            // gate lowercases for the vocab lookup, while the graft preserves the
-            // source casing.
-            let head = right
-                .split_whitespace()
-                .next_back()
-                .map(|t| t.trim_matches(|c: char| !c.is_alphanumeric()))?;
-            crate::parser::vocab::SHARED_HEAD_NOUNS
-                .contains(&head.to_lowercase().as_str())
-                .then_some(head)
-        }
         SharedHeadContext::InlineOr { adjectives } => {
             let right_tokens: Vec<&str> = right.split_whitespace().collect();
             if !right_is_modifier_plus_head(&right_tokens, adjectives) {
@@ -444,24 +374,6 @@ mod helper_tests {
     //! in isolation.
     use super::*;
     use rstest::rstest;
-
-    /// `CommaOrList`: fires on a comma+or list ending in a `SHARED_HEAD_NOUNS`
-    /// word, preserving the source casing of the grafted head. The gates
-    /// (comma AND " or " AND curated final noun) each reject when absent.
-    #[rstest]
-    #[case::fires("vegetable, or melted coconut oil", Some("oil"))]
-    // Casing preserved: the vocab lookup lowercases, the returned head does not.
-    #[case::casing_preserved("vegetable, or Coconut Oil", Some("Oil"))]
-    #[case::no_comma("or oil", None)]
-    #[case::no_or("vegetable, coconut oil", None)]
-    #[case::final_not_curated("sugar, or baking soda", None)]
-    fn test_distributable_head_comma_or_list(#[case] right: &str, #[case] expected: Option<&str>) {
-        assert_eq!(
-            distributable_head(right, SharedHeadContext::CommaOrList),
-            expected,
-            "right: {right}"
-        );
-    }
 
     /// `InlineOr`: fires when the right is "`<premodifier> <head noun>`" whose
     /// trailing noun is in `DISTRIBUTABLE_HEAD_NOUNS`. The guards reject a
