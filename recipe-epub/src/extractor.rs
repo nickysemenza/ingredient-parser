@@ -15,6 +15,7 @@ use crate::{Chunk, EpubError};
 // crate and is re-exported here (and from the crate root) so existing
 // `recipe_epub::RecipeMeta` paths are unchanged.
 pub use recipe_types::RecipeMeta;
+use recipe_types::RecipeTimes;
 
 /// Deserialize a `Vec<T>` from malformed LLM tool output. Tolerates an explicit
 /// `null` (→ empty) and a JSON-string-encoded array — the model occasionally
@@ -135,11 +136,113 @@ pub fn build_chunk_request(chunk: &Chunk) -> ChunkRequest {
     }
 }
 
+/// Parse a freeform printed time ("30 minutes", "1 hr 15 min") into whole
+/// minutes. Unlike the scraper's ISO-8601 input this is prose a model copied off
+/// a cookbook page, so it is read strictly: the whole string must be hour and
+/// minute counts (an optional leading approximator aside), or it isn't a number
+/// we're willing to sort by. A range ("30 to 40 minutes"), a fraction ("1 1/2
+/// hours"), a qualifier ("30 minutes, plus chilling") and a bare word
+/// ("overnight") all yield `None` — the display string still carries them, and a
+/// wrong number is worse than no number.
+fn parse_freeform_duration(input: &str) -> Option<u32> {
+    let lowered = input.trim().to_ascii_lowercase();
+    let mut rest = lowered.as_str();
+    // "About 30 minutes" states the same duration as "30 minutes"; the hedge
+    // doesn't make the count ambiguous, so strip one and read on.
+    for approx in [
+        "about ",
+        "approximately ",
+        "approx. ",
+        "approx ",
+        "around ",
+        "roughly ",
+        "~",
+    ] {
+        if let Some(stripped) = rest.strip_prefix(approx) {
+            rest = stripped.trim_start();
+            break;
+        }
+    }
+
+    let mut total: u32 = 0;
+    let mut saw_component = false;
+    let mut chars = rest.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        if c == ' ' {
+            chars.next();
+            continue;
+        }
+        if !c.is_ascii_digit() {
+            // Anything that isn't a count is prose we can't read confidently.
+            return None;
+        }
+        let mut num = String::new();
+        while let Some(&d) = chars.peek() {
+            if d.is_ascii_digit() {
+                num.push(d);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        while chars.peek() == Some(&' ') {
+            chars.next();
+        }
+        let mut unit = String::new();
+        while let Some(&u) = chars.peek() {
+            if u.is_ascii_alphabetic() {
+                unit.push(u);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        // An abbreviation may be written with a period ("1 hr. 15 min.").
+        if chars.peek() == Some(&'.') {
+            chars.next();
+        }
+        let per_unit = match unit.as_str() {
+            "h" | "hr" | "hrs" | "hour" | "hours" => 60,
+            "m" | "min" | "mins" | "minute" | "minutes" => 1,
+            // A number with no unit, or a unit we don't measure recipe times in.
+            _ => return None,
+        };
+        total = total.checked_add(num.parse::<u32>().ok()?.checked_mul(per_unit)?)?;
+        saw_component = true;
+    }
+
+    (saw_component && total > 0).then_some(total)
+}
+
+/// Derive each `*_minutes` count from the matching display string the model
+/// emitted. Only fills a count that is absent, so a model that ever starts
+/// emitting the numbers itself wins over this fallback.
+fn fill_time_minutes(times: &mut RecipeTimes) {
+    let pairs: [(&Option<String>, &mut Option<u32>); 4] = [
+        (&times.active, &mut times.active_minutes),
+        (&times.total, &mut times.total_minutes),
+        (&times.prep, &mut times.prep_minutes),
+        (&times.cook, &mut times.cook_minutes),
+    ];
+    for (text, minutes) in pairs {
+        if minutes.is_none() {
+            *minutes = text.as_deref().and_then(parse_freeform_duration);
+        }
+    }
+}
+
 /// Parse the forced tool's `input` object (`{ recipes: [ExtractedRecipe, …] }`)
 /// into recipes. The single place LLM output is decoded — shared by the native
-/// backends and the wasm `assemble_recipes` path.
+/// backends and the wasm `assemble_recipes` path — and therefore the single
+/// place the freeform printed times are turned into sortable minute counts.
 pub fn parse_recipes_payload(input: serde_json::Value) -> Result<Vec<ExtractedRecipe>, EpubError> {
-    Ok(serde_json::from_value::<RecipesPayload>(input)?.recipes)
+    let mut recipes = serde_json::from_value::<RecipesPayload>(input)?.recipes;
+    for recipe in &mut recipes {
+        if let Some(times) = recipe.meta.times.as_mut() {
+            fill_time_minutes(times);
+        }
+    }
+    Ok(recipes)
 }
 
 /// One extra attempt after the first, so one model gets at most `1 + PARSE_RETRIES`
@@ -396,7 +499,59 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use serde_json::json;
 
-    use super::parse_recipes_payload;
+    use super::{parse_freeform_duration, parse_recipes_payload};
+    use rstest::rstest;
+
+    // ============================================================================
+    // parse_freeform_duration() Tests
+    // ============================================================================
+
+    #[rstest]
+    #[case::minutes("30 minutes", Some(30))]
+    #[case::min_abbrev("45 min", Some(45))]
+    #[case::one_minute("1 minute", Some(1))]
+    #[case::hours("2 hours", Some(120))]
+    #[case::hour_abbrev("1 hr", Some(60))]
+    #[case::hour_and_min("1 hr 15 min", Some(75))]
+    #[case::hour_and_minutes("1 hour 30 minutes", Some(90))]
+    #[case::abbrev_with_periods("1 hr. 15 min.", Some(75))]
+    #[case::no_space("30m", Some(30))]
+    #[case::mixed_case("1 Hour 5 Minutes", Some(65))]
+    // A hedge doesn't change the count.
+    #[case::about("about 30 minutes", Some(30))]
+    #[case::tilde("~45 min", Some(45))]
+    // Ambiguous or unreadable — the display string keeps these, the count doesn't.
+    #[case::range("30 to 40 minutes", None)]
+    #[case::hyphen_range("30-40 minutes", None)]
+    #[case::fraction("1 1/2 hours", None)]
+    #[case::qualified("30 minutes, plus chilling", None)]
+    #[case::word_only("overnight", None)]
+    #[case::no_unit("30", None)]
+    #[case::unknown_unit("2 days", None)]
+    #[case::zero("0 minutes", None)]
+    #[case::empty("", None)]
+    fn test_parse_freeform_duration(#[case] input: &str, #[case] expected: Option<u32>) {
+        assert_eq!(parse_freeform_duration(input), expected);
+    }
+
+    #[test]
+    fn payload_fills_time_minutes_from_prose() {
+        let v = json!({ "recipes": [
+            { "title": "X",
+              "sections": [],
+              "times": { "prep": "20 minutes", "cook": "1 hr 30 min", "total": "overnight" } }
+        ]});
+        let r = parse_recipes_payload(v).unwrap();
+        let times = r[0].meta.times.clone().unwrap();
+        assert_eq!(times.prep_minutes, Some(20));
+        assert_eq!(times.cook_minutes, Some(90));
+        // Unreadable prose keeps its display string but gets no count.
+        assert_eq!(times.total.as_deref(), Some("overnight"));
+        assert_eq!(times.total_minutes, None);
+        // A time the model never emitted stays absent on both halves.
+        assert_eq!(times.active, None);
+        assert_eq!(times.active_minutes, None);
+    }
 
     // Regression: real `claude-haiku-4-5` output on Tartine Book No. 3 produced
     // four malformed chunks that each `?`-aborted the cookbook import. The lenient
