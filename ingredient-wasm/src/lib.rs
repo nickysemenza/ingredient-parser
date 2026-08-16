@@ -207,7 +207,9 @@ impl WUnitMappings {
     }
 }
 
-/// Prep/cook/total times (mirrors `RecipeTimes`). Into-only.
+/// Prep/cook/total times (mirrors `RecipeTimes`). Into-only. Each time crosses
+/// as both the display string and, where it could be parsed, a minute count for
+/// sorting — a present string does not imply a present count.
 #[derive(Tsify, Serialize)]
 pub struct WRecipeTimes {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -218,6 +220,14 @@ pub struct WRecipeTimes {
     pub prep: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_minutes: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_minutes: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prep_minutes: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cook_minutes: Option<u32>,
 }
 
 impl From<RecipeTimes> for WRecipeTimes {
@@ -227,6 +237,10 @@ impl From<RecipeTimes> for WRecipeTimes {
             total: t.total,
             prep: t.prep,
             cook: t.cook,
+            active_minutes: t.active_minutes,
+            total_minutes: t.total_minutes,
+            prep_minutes: t.prep_minutes,
+            cook_minutes: t.cook_minutes,
         }
     }
 }

@@ -76,6 +76,12 @@ pub struct RecipeYield {
 /// Printed times. Any field may be absent. Shared workspace-wide: the web scraper
 /// fills it from JSON-LD ISO-8601 durations, `recipe-epub` from the model's output.
 /// `active` has no JSON-LD source, so it stays `None` for scraped recipes.
+///
+/// Each time is carried twice: the `*_minutes` field is the same duration as a
+/// number, so consumers can sort and filter without re-parsing the prose. The
+/// strings stay the display form (they preserve how the source wrote it); the
+/// minutes are derived and may be `None` where the prose couldn't be parsed
+/// confidently, so a present string does NOT imply a present count.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct RecipeTimes {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,12 +92,28 @@ pub struct RecipeTimes {
     pub prep: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cook: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prep_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cook_minutes: Option<u32>,
 }
 
 impl RecipeTimes {
     /// `true` when every field is absent (so callers can collapse to `None`).
+    /// The minute counts count: a row carrying only numbers is still a time.
     pub fn is_empty(&self) -> bool {
-        self.active.is_none() && self.total.is_none() && self.prep.is_none() && self.cook.is_none()
+        self.active.is_none()
+            && self.total.is_none()
+            && self.prep.is_none()
+            && self.cook.is_none()
+            && self.active_minutes.is_none()
+            && self.total_minutes.is_none()
+            && self.prep_minutes.is_none()
+            && self.cook_minutes.is_none()
     }
 }
 

@@ -13,19 +13,20 @@ fn is_notes_heading(name: &str) -> bool {
     )
 }
 
-/// Humanize an ISO-8601 duration (e.g. `PT1H30M` -> "1 hour 30 minutes",
-/// `PT35M` -> "35 minutes", `P0DT1H30M` -> "1 hour 30 minutes"). Returns `None`
-/// for anything that isn't a `P…` duration with at least one component. A date
-/// part may carry a day count (folded into hours — WP Recipe Maker emits
-/// `P0DT0H30M`); only hours/minutes are surfaced (seconds are dropped — recipe
-/// times never need them).
-fn humanize_iso8601_duration(input: &str) -> Option<String> {
+/// Parse an ISO-8601 duration (e.g. `PT1H30M`, `PT35M`, `P0DT1H30M`) into whole
+/// minutes. Returns `None` for anything that isn't a `P…` duration with at least
+/// one component, and for a duration that comes to zero minutes (`PT0M`,
+/// `PT45S`) — a recipe time of nothing is no time at all. A date part may carry
+/// a day count (folded into minutes — WP Recipe Maker emits `P0DT0H30M`); only
+/// hours/minutes are surfaced (seconds are dropped — recipe times never need
+/// them). Anything so large it overflows the minute count is adversarial rather
+/// than a recipe time, and is rejected instead of wrapping or panicking.
+fn parse_iso8601_duration(input: &str) -> Option<u32> {
     let rest = input.trim().strip_prefix('P')?;
     let (date_part, time_part) = match rest.split_once('T') {
         Some((d, t)) => (d, t),
         None => (rest, ""),
     };
-    let mut hours: u64 = 0;
     let mut minutes: u64 = 0;
     let mut num = String::new();
     let mut saw_component = false;
@@ -35,19 +36,19 @@ fn humanize_iso8601_duration(input: &str) -> Option<String> {
         let days: u64 = date_part.strip_suffix('D')?.parse().ok()?;
         // Adversarial HTML can carry an absurd day count; saturate-then-reject via
         // checked arithmetic rather than overflow-panic (debug) or wrap (release).
-        hours = hours.checked_add(days.checked_mul(24)?)?;
+        minutes = minutes.checked_add(days.checked_mul(24 * 60)?)?;
         saw_component = true;
     }
     for c in time_part.chars() {
         match c {
             '0'..='9' => num.push(c),
             'H' => {
-                hours += num.parse::<u64>().ok()?;
+                minutes = minutes.checked_add(num.parse::<u64>().ok()?.checked_mul(60)?)?;
                 num.clear();
                 saw_component = true;
             }
             'M' => {
-                minutes = num.parse().ok()?;
+                minutes = minutes.checked_add(num.parse::<u64>().ok()?)?;
                 num.clear();
                 saw_component = true;
             }
@@ -63,7 +64,14 @@ fn humanize_iso8601_duration(input: &str) -> Option<String> {
     if !num.is_empty() || !saw_component {
         return None;
     }
+    let minutes = u32::try_from(minutes).ok()?;
+    (minutes > 0).then_some(minutes)
+}
 
+/// Render whole minutes as prose ("1 hour 30 minutes", "35 minutes"). Only ever
+/// called with a non-zero count, so it always produces at least one part.
+fn humanize_minutes(total: u32) -> String {
+    let (hours, minutes) = (total / 60, total % 60);
     let mut parts = Vec::new();
     if hours > 0 {
         parts.push(format!("{hours} hour{}", if hours == 1 { "" } else { "s" }));
@@ -74,11 +82,16 @@ fn humanize_iso8601_duration(input: &str) -> Option<String> {
             if minutes == 1 { "" } else { "s" }
         ));
     }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" "))
-    }
+    parts.join(" ")
+}
+
+/// Both forms of one schema.org duration field: the display prose and the
+/// sortable minute count, from a single parse of the ISO-8601 value.
+fn scraped_time(value: Option<&ld_schema::StringOrList>) -> (Option<String>, Option<u32>) {
+    let minutes = value
+        .and_then(|t| t.first_str())
+        .and_then(parse_iso8601_duration);
+    (minutes.map(humanize_minutes), minutes)
 }
 
 /// Extract equipment names from schema.org HowTo `tool`, which may be a bare
@@ -254,23 +267,18 @@ fn normalize_root_recipe(
         .unwrap_or((None, None));
 
     // Humanize the ISO-8601 durations; `active` has no schema.org source.
+    let (total, total_minutes) = scraped_time(ld_schema.total_time.as_ref());
+    let (prep, prep_minutes) = scraped_time(ld_schema.prep_time.as_ref());
+    let (cook, cook_minutes) = scraped_time(ld_schema.cook_time.as_ref());
     let times = RecipeTimes {
         active: None,
-        total: ld_schema
-            .total_time
-            .as_ref()
-            .and_then(|t| t.first_str())
-            .and_then(humanize_iso8601_duration),
-        prep: ld_schema
-            .prep_time
-            .as_ref()
-            .and_then(|t| t.first_str())
-            .and_then(humanize_iso8601_duration),
-        cook: ld_schema
-            .cook_time
-            .as_ref()
-            .and_then(|t| t.first_str())
-            .and_then(humanize_iso8601_duration),
+        total,
+        prep,
+        cook,
+        active_minutes: None,
+        total_minutes,
+        prep_minutes,
+        cook_minutes,
     };
 
     let equipment = ld_schema
@@ -394,8 +402,9 @@ mod tests {
     use crate::{
         RecipeYield,
         ld_json::{
-            extract_ld, extract_tool_names, extract_yield_from_wrapper, humanize_iso8601_duration,
-            normalize_ld_json, parse_ld_json, parse_yield_string, scrape_from_ld_json,
+            extract_ld, extract_tool_names, extract_yield_from_wrapper, humanize_minutes,
+            normalize_ld_json, parse_iso8601_duration, parse_ld_json, parse_yield_string,
+            scrape_from_ld_json,
         },
         ld_schema::{InstructionWrapper, RecipeYieldWrapper, Root, RootRecipe},
     };
@@ -701,36 +710,51 @@ mod tests {
     }
 
     // ============================================================================
-    // humanize_iso8601_duration() Tests
+    // parse_iso8601_duration() / humanize_minutes() Tests
     // ============================================================================
 
+    // One case list covers both halves: the minute count is what production
+    // stores for sorting, the prose is what it displays, and they must agree
+    // about which inputs are durations at all.
     #[rstest]
-    #[case::minutes("PT35M", Some("35 minutes"))]
-    #[case::one_minute("PT1M", Some("1 minute"))]
-    #[case::hour_and_minutes("PT1H30M", Some("1 hour 30 minutes"))]
-    #[case::leading_zero_hours("PT0H15M", Some("15 minutes"))]
-    #[case::whole_hours("PT2H", Some("2 hours"))]
-    #[case::one_hour("PT1H", Some("1 hour"))]
+    #[case::minutes("PT35M", Some("35 minutes"), Some(35))]
+    #[case::one_minute("PT1M", Some("1 minute"), Some(1))]
+    #[case::hour_and_minutes("PT1H30M", Some("1 hour 30 minutes"), Some(90))]
+    #[case::leading_zero_hours("PT0H15M", Some("15 minutes"), Some(15))]
+    #[case::whole_hours("PT2H", Some("2 hours"), Some(120))]
+    #[case::one_hour("PT1H", Some("1 hour"), Some(60))]
     // Seconds are consumed but dropped; with only seconds there's nothing to show.
-    #[case::seconds_only("PT45S", None)]
-    #[case::hour_minute_seconds("PT1H5M30S", Some("1 hour 5 minutes"))]
-    #[case::zero("PT0M", None)]
-    #[case::no_prefix("35M", None)]
-    #[case::garbage("nonsense", None)]
-    #[case::empty("", None)]
+    #[case::seconds_only("PT45S", None, None)]
+    #[case::hour_minute_seconds("PT1H5M30S", Some("1 hour 5 minutes"), Some(65))]
+    #[case::zero("PT0M", None, None)]
+    #[case::no_prefix("35M", None, None)]
+    #[case::garbage("nonsense", None, None)]
+    #[case::empty("", None, None)]
+    // Trailing digits with no unit aren't a duration.
+    #[case::trailing_digits("PT1H30", None, None)]
     // Date part: a day count is accepted (WP Recipe Maker emits P0DT0H30M);
     // days fold into hours. Non-day date parts aren't recipe durations.
-    #[case::zero_days("P0DT1H30M", Some("1 hour 30 minutes"))]
-    #[case::days_and_hours("P1DT2H", Some("26 hours"))]
-    #[case::days_only("P1D", Some("24 hours"))]
-    #[case::months_rejected("P1M", None)]
+    #[case::zero_days("P0DT1H30M", Some("1 hour 30 minutes"), Some(90))]
+    #[case::days_and_hours("P1DT2H", Some("26 hours"), Some(1560))]
+    #[case::days_only("P1D", Some("24 hours"), Some(1440))]
+    #[case::months_rejected("P1M", None, None)]
+    #[case::years_rejected("P1Y", None, None)]
+    #[case::weeks_rejected("P2W", None, None)]
     // Regression: an absurd day count from adversarial HTML must not panic
-    // (debug) or wrap (release) on `days * 24`; checked arithmetic rejects it.
-    #[case::days_overflow("P1000000000000000000D", None)]
-    fn test_humanize_iso8601_duration(#[case] input: &str, #[case] expected: Option<&str>) {
+    // (debug) or wrap (release) on the day-to-minute conversion; checked
+    // arithmetic and the u32 minute count reject it.
+    #[case::days_overflow("P1000000000000000000D", None, None)]
+    #[case::days_beyond_u32_minutes("P100000000D", None, None)]
+    fn test_parse_iso8601_duration(
+        #[case] input: &str,
+        #[case] expected_prose: Option<&str>,
+        #[case] expected_minutes: Option<u32>,
+    ) {
+        let minutes = parse_iso8601_duration(input);
+        assert_eq!(minutes, expected_minutes);
         assert_eq!(
-            humanize_iso8601_duration(input),
-            expected.map(|s| s.to_string())
+            minutes.map(humanize_minutes),
+            expected_prose.map(|s| s.to_string())
         );
     }
 
