@@ -18,8 +18,8 @@
 //! pipeline — refine now only works *inside* the name.
 //!
 //! Splitting and classification are pure over the source text; byte ranges into
-//! the source are preserved on every clause, and the decomposition view's
-//! field spans derive from them ([`IngredientParser::segmented_field_spans`]).
+//! the source are preserved on every clause, so assembly can attribute each
+//! clause back to the text it came from.
 
 use std::ops::Range;
 
@@ -36,10 +36,7 @@ use crate::parser::vocab;
 use crate::parser::{MeasurementMode, MeasurementParser, Res, parse_ingredient_text};
 use crate::unit::{self, Measure};
 
-mod provenance;
 mod repairs;
-
-pub(crate) use provenance::AssemblyProvenance;
 
 /// What a single clause *is*, judged from its paren-free text by the ordered
 /// [`CLASSIFIER`] table (first matching row wins). Parenthetical sub-clauses
@@ -380,17 +377,6 @@ impl IngredientParser {
         &self,
         input: &'a str,
     ) -> Res<&'a str, ParsedIngredient> {
-        self.parse_ingredient_segmented_with_provenance(input, false)
-    }
-
-    /// Parse through the same segment seam while optionally retaining final-field
-    /// origins. The `false` branch is the ordinary hot path and allocates no
-    /// provenance storage.
-    pub(crate) fn parse_ingredient_segmented_with_provenance<'a>(
-        &self,
-        input: &'a str,
-        collect_provenance: bool,
-    ) -> Res<&'a str, ParsedIngredient> {
         let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
         let (rest, (primary, _, bracketed, _)) = (
             opt(|a| mp.parse_measurement_list(a)),
@@ -406,23 +392,8 @@ impl IngredientParser {
             .collect();
         let clauses = self.segmenter().segment(rest);
         trace_clauses(rest, &clauses);
-        let provenance = collect_provenance.then(|| self.initial_provenance(input));
-        let parsed = self.assemble(rest, &clauses, amounts, &mp, provenance)?;
+        let parsed = self.assemble(rest, &clauses, amounts, &mp)?;
         Ok(("", parsed))
-    }
-
-    fn initial_provenance(&self, input: &str) -> AssemblyProvenance {
-        let mut name = Vec::new();
-        let mut amounts = Vec::new();
-        let mut modifier = Vec::new();
-        for span in self.segmented_field_spans(input) {
-            match span.field {
-                crate::Field::Name => name.push(span.range),
-                crate::Field::Amount => amounts.push(span.range),
-                crate::Field::Modifier => modifier.push(span.range),
-            }
-        }
-        AssemblyProvenance::new(input, name, amounts, modifier)
     }
 
     /// The grammar-equivalent head carve: name = the leading run of
@@ -478,10 +449,8 @@ impl IngredientParser {
         clauses: &[Clause<'_>],
         amounts: Vec<Measure>,
         mp: &MeasurementParser<'_>,
-        provenance: Option<AssemblyProvenance>,
     ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
         let mut parsed = self.assemble_unrepaired(source, clauses, amounts, mp)?;
-        parsed.provenance = provenance;
         self.run_assembly_repairs(&mut parsed);
         Ok(parsed)
     }
@@ -551,7 +520,6 @@ impl IngredientParser {
             amounts,
             modifier,
             optional: false,
-            provenance: None,
         };
         Ok(parsed)
     }
@@ -567,35 +535,26 @@ impl IngredientParser {
 
     fn run_assembly_repair(&self, repair: &AssemblyRepair, parsed: &mut ParsedIngredient) {
         let AssemblyRepair { run, .. } = *repair;
-        let diagnostics = crate::trace::is_diagnostics_enabled();
-        if !diagnostics && parsed.provenance.is_none() {
+        if !crate::trace::is_diagnostics_enabled() {
             run(self, parsed);
             return;
         }
         let before = parsed.clone();
-        let previous_amount_count = parsed.amounts.len();
         run(self, parsed);
         let changed = parsed.name != before.name
             || parsed.amounts != before.amounts
             || parsed.modifier != before.modifier
             || parsed.optional != before.optional;
-        if changed && let Some(mut provenance) = parsed.provenance.take() {
-            provenance.claim_new_amounts(previous_amount_count, parsed);
-            provenance.reconcile(parsed);
-            parsed.provenance = Some(provenance);
-        }
-        if diagnostics {
-            crate::trace::trace_on_change(
-                repair.id().as_str(),
-                &before.name,
-                &format!(
-                    "{} | {}",
-                    parsed.name,
-                    parsed.modifier_string().as_deref().unwrap_or("-")
-                ),
-                changed,
-            );
-        }
+        crate::trace::trace_on_change(
+            repair.id().as_str(),
+            &before.name,
+            &format!(
+                "{} | {}",
+                parsed.name,
+                parsed.modifier_string().as_deref().unwrap_or("-")
+            ),
+            changed,
+        );
     }
 
     /// Run the repairs in an arbitrary caller-supplied order. Test-only:
@@ -610,76 +569,6 @@ impl IngredientParser {
         for repair in order {
             self.run_assembly_repair(repair, parsed);
         }
-    }
-
-    /// Decomposition field spans for the segmented path — the clause-derived
-    /// replacement for the legacy `consumed`-wrapper span capture. Spans index
-    /// into `input` (the normalized, optional-stripped line): the leading
-    /// amounts region and a hoisted name-adjacent amounts parenthetical are
-    /// [`Field::Amount`](crate::Field::Amount) spans, the carved name a
-    /// [`Field::Name`](crate::Field::Name) span, and each modifier part its
-    /// own [`Field::Modifier`](crate::Field::Modifier) span (a multi-clause
-    /// modifier yields multiple spans). Empty when the parse fails.
-    pub(crate) fn segmented_field_spans(&self, input: &str) -> Vec<crate::FieldSpan> {
-        use crate::{Field, FieldSpan};
-
-        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
-        let Ok((rest, _)) = (
-            opt(|a| mp.parse_measurement_list(a)),
-            space0,
-            opt(|a| mp.parse_bracketed_amounts(a)),
-            space0,
-        )
-            .parse(input)
-        else {
-            return Vec::new();
-        };
-        let Ok(carve) = self.carve(rest, &mp) else {
-            return Vec::new();
-        };
-
-        // `rest` is a suffix slice of `input`; offset clause/carve ranges by it.
-        let base = rest.as_ptr() as usize - input.as_ptr() as usize;
-        let span_of = |range: Range<usize>, field: Field| -> Option<FieldSpan> {
-            let slice = &input[range.clone()];
-            let trimmed = slice.trim();
-            if trimmed.is_empty() {
-                return None;
-            }
-            let start = range.start + (trimmed.as_ptr() as usize - slice.as_ptr() as usize);
-            Some(FieldSpan {
-                field,
-                range: start..start + trimmed.len(),
-                text: trimmed.to_string(),
-            })
-        };
-
-        let mut spans = Vec::new();
-        // Leading amounts region (primary + bracketed as one span).
-        spans.extend(span_of(0..base, Field::Amount));
-        // Carved name.
-        spans.extend(span_of(base..base + carve.name_end, Field::Name));
-        // Hoisted name-adjacent amounts parenthetical.
-        if let Some((range, _)) = &carve.hoisted {
-            spans.extend(span_of(base + range.start..base + range.end, Field::Amount));
-        }
-        // Modifier: one span per assembled part (mirrors `assemble`'s
-        // keep-whole / split decision so spans match the parts).
-        let name = rest[..carve.name_end].trim();
-        let tail = &rest[carve.tail_from..];
-        let keep_tail_whole = self.keep_tail_whole(name, tail);
-        if keep_tail_whole {
-            spans.extend(span_of(
-                base + carve.tail_from..input.len(),
-                Field::Modifier,
-            ));
-        } else {
-            let clauses = self.segmenter().segment(rest);
-            for r in tail_part_ranges(rest, &clauses, carve.tail_from) {
-                spans.extend(span_of(base + r.start..base + r.end, Field::Modifier));
-            }
-        }
-        spans
     }
 }
 
@@ -904,33 +793,6 @@ fn tail_part_ranges(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<Ra
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-
-    fn sourced<'a>(source: &'a str, ranges: &[Range<usize>]) -> Vec<&'a str> {
-        ranges.iter().map(|range| &source[range.clone()]).collect()
-    }
-
-    #[test]
-    fn assembly_repairs_move_provenance_with_final_fields() {
-        let parser = IngredientParser::new();
-        let input = "2/3 cup finely chopped, raw pistachios";
-        let (_, parsed) = parser
-            .parse_ingredient_segmented_with_provenance(input, true)
-            .expect("line should parse");
-        let provenance = parsed.provenance.as_ref().expect("origins requested");
-
-        assert_eq!(parsed.name, "raw pistachios");
-        assert_eq!(sourced(input, &provenance.name), vec!["raw pistachios"]);
-        assert_eq!(sourced(input, &provenance.modifier), vec!["finely chopped"]);
-    }
-
-    #[test]
-    fn ordinary_segment_parse_does_not_allocate_provenance() {
-        let parser = IngredientParser::new();
-        let (_, parsed) = parser
-            .parse_ingredient_segmented("2 cups flour, sifted")
-            .expect("line should parse");
-        assert!(parsed.provenance.is_none());
-    }
 
     // --- Assembly-repair ordering contract -----------------------------------
 
