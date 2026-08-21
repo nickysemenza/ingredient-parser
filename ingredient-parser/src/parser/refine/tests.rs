@@ -105,7 +105,6 @@ fn ing(name: &str, modifier: Option<&str>) -> ParsedIngredient {
             .map(|m| vec![ModifierPart::Raw(m.to_string())])
             .unwrap_or_default(),
         optional: false,
-        provenance: None,
     }
 }
 
@@ -117,7 +116,6 @@ fn ing_with_amounts(name: &str, amounts: Vec<Measure>, modifier: Option<&str>) -
             .map(|m| vec![ModifierPart::Raw(m.to_string())])
             .unwrap_or_default(),
         optional: false,
-        provenance: None,
     }
 }
 

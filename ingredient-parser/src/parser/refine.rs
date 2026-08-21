@@ -51,8 +51,7 @@ impl IngredientParser {
 
     fn run_refine_pass(&self, pass: &RefinePass, parsed: &mut ParsedIngredient) {
         let RefinePass { run, .. } = *pass;
-        let diagnostics = crate::trace::is_diagnostics_enabled();
-        if !diagnostics && parsed.provenance.is_none() {
+        if !crate::trace::is_diagnostics_enabled() {
             run(self, parsed);
             return;
         }
@@ -62,10 +61,6 @@ impl IngredientParser {
             || parsed.amounts != before.amounts
             || parsed.modifier != before.modifier
             || parsed.optional != before.optional;
-        if changed && let Some(mut provenance) = parsed.provenance.take() {
-            provenance.reconcile(parsed);
-            parsed.provenance = Some(provenance);
-        }
         crate::trace::trace_on_change(
             pass.id().as_str(),
             &before.name,
