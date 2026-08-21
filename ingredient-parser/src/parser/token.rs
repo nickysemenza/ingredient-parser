@@ -31,7 +31,7 @@ pub(crate) fn is_participle(word_lower: &str, adjectives: &HashSet<String>) -> b
 }
 
 /// Whether `word` is a "prep" token as used by
-/// `refine::recover::recover_head_noun_from_modifier`: a preparation participle
+/// `segment::repairs::recover_head_noun_from_modifier`: a preparation participle
 /// ("-ed"), an "-ly" adverb ("roughly"/"finely"), a hyphenless descriptor
 /// ("boneless"/"seedless"), a hyphenated meat/prep descriptor
 /// ("bone-in"/"skin-on"/"sugar-free"), or a known intensifier adverb.

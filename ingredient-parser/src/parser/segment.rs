@@ -541,11 +541,9 @@ impl IngredientParser {
         }
         let before = parsed.clone();
         run(self, parsed);
-        let changed = parsed.name != before.name
-            || parsed.amounts != before.amounts
-            || parsed.modifier != before.modifier
-            || parsed.optional != before.optional;
+        let changed = *parsed != before;
         crate::trace::trace_on_change(
+            crate::trace::Stage::Segment,
             repair.id().as_str(),
             &before.name,
             &format!(
@@ -584,9 +582,16 @@ fn trace_clauses(source: &str, clauses: &[Clause<'_>]) {
         if text.is_empty() {
             continue;
         }
-        crate::trace::trace_on_change(clause.kind.as_str(), text, &clause.stripped, true);
+        crate::trace::trace_on_change(
+            crate::trace::Stage::Segment,
+            clause.kind.as_str(),
+            text,
+            &clause.stripped,
+            true,
+        );
         for paren in &clause.parens {
             crate::trace::trace_on_change(
+                crate::trace::Stage::Segment,
                 ClauseKind::Parenthetical(paren.kind).as_str(),
                 &format!("({})", paren.inner),
                 paren_kind_label(paren.kind),
@@ -617,7 +622,7 @@ type Repair = fn(&IngredientParser, &mut ParsedIngredient);
 
 crate::define_stage_pipeline! {
     /// The ordered clause-structure repairs the segmentation stage owns — the
-    /// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`. The
+    /// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`.
     /// Every implementation is housed by this module; they run once at
     /// assembly, before the name-internal refine passes, in the same relative
     /// order they held in the old pipeline.

@@ -9,7 +9,6 @@ use crate::{
     Decomposition, Field, FieldSpan, Ingredient, IngredientParser, ParseExecution, ParseOptions,
     TraceDetail,
 };
-use std::str::FromStr;
 
 impl IngredientParser {
     /// Execute the Ingredient-line pipeline once and derive every requested
@@ -90,7 +89,7 @@ impl IngredientParser {
         // then fall back to the general core parse, then to a name-only ingredient.
         if let Some(ingredient) = self.run_recognizers(input) {
             if trace::is_diagnostics_enabled() {
-                trace::record_grammar(input, trace::GrammarOutcome::Skipped);
+                trace::record_grammar(trace::GrammarOutcome::Skipped);
             }
             return (ingredient, false);
         }
@@ -105,15 +104,12 @@ impl IngredientParser {
             !(name_empty && has_modifier)
         }) {
             if trace::is_diagnostics_enabled() {
-                trace::record_grammar(
-                    input,
-                    trace::GrammarOutcome::Parsed(ingredient.name.clone()),
-                );
+                trace::record_grammar(trace::GrammarOutcome::Parsed(ingredient.name.clone()));
             }
             (ingredient, false)
         } else {
             if trace::is_diagnostics_enabled() {
-                trace::record_grammar(input, trace::GrammarOutcome::FellBack);
+                trace::record_grammar(trace::GrammarOutcome::FellBack);
             }
             (fallback_ingredient(input), true)
         }
@@ -225,11 +221,7 @@ impl IngredientParser {
                 .chars()
                 .any(|ch| ch.is_ascii_digit() || crate::fraction::is_vulgar(ch))
                 || crate::parser::vocab::SPELLED_COUNTS.contains(&token.as_str());
-            let unit = self.units.contains(&token)
-                || !matches!(
-                    crate::unit::Unit::from_str(&token),
-                    Ok(crate::unit::Unit::Other(_)) | Err(_)
-                )
+            let unit = crate::unit::is_valid(&self.units, &token)
                 || token_is_amount_unit(&token, &ingredient.amounts)
                 // `rewrite_batch_of_to_recipe` turns an authored "N batch(es) of"
                 // into "N recipe", so the amount records "recipe" and the word
@@ -240,13 +232,14 @@ impl IngredientParser {
             }
         }
 
-        // Join an unclaimed measurement qualifier to adjacent amount tokens.
+        // Join an unclaimed measurement qualifier to adjacent amount tokens: the
+        // grammar consumed and discarded the word, so it belongs to the Amount it
+        // qualified. Driven off the vocab list the grammar itself accepts, so the
+        // two cannot drift.
         for index in 0..tokens.len() {
             if labels[index].is_none()
-                && matches!(
-                    tokens[index].text.to_lowercase().as_str(),
-                    "about" | "approximately" | "roughly" | "around" | "scant" | "heaping"
-                )
+                && crate::parser::vocab::AMOUNT_QUALIFIERS
+                    .contains(&tokens[index].text.to_lowercase().as_str())
                 && ((index > 0 && labels[index - 1] == Some(Field::Amount))
                     || labels.get(index + 1) == Some(&Some(Field::Amount)))
             {
@@ -254,8 +247,8 @@ impl IngredientParser {
             }
         }
 
-        let mut spans = spans_from_labels(raw, &tokens, &labels);
-        spans.sort_by_key(|span| span.range.start);
+        // `spans_from_labels` walks tokens in source order, so spans arrive sorted.
+        let spans = spans_from_labels(raw, &tokens, &labels);
         Decomposition {
             source: raw.to_string(),
             spans,
