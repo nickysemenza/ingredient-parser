@@ -359,9 +359,11 @@ pub struct WSegment {
     pub field: Option<WField>,
 }
 
-/// How the grammar carved a line into fields (mirrors `Decomposition`), as an
-/// ordered list of segments covering the whole source. `segments` carries no
-/// labeled entries when a recognizer or name-only fallback produced the result.
+/// Which part of the authored line ended up in each parsed field (mirrors
+/// `Decomposition`), as an ordered list of segments covering the whole source.
+/// Labeled segments describe the *final* fields, after every parse stage has run;
+/// unlabeled segments are the punctuation and dropped text in between. Every
+/// parse path produces labels, recognizers and the name-only fallback included.
 /// Into-only.
 #[derive(Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
@@ -444,8 +446,8 @@ pub fn parse_ingredient(input: &str) -> WIngredient {
     parse_ingredient_str(input).into()
 }
 
-/// Decompose a line into ordered `{text, field?}` segments showing how the
-/// grammar carved it into amount / name / modifier spans (for the demo's
+/// Decompose a line into ordered `{text, field?}` segments showing which part of
+/// it became the parsed amount / name / modifier (for the demo's
 /// diagnostic-style annotation).
 #[wasm_bindgen]
 pub fn decompose_ingredient(input: &str) -> WDecomposition {

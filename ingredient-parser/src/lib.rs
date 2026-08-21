@@ -241,8 +241,8 @@ pub fn from_str(input: &str) -> Ingredient {
     DEFAULT_PARSER.from_str(input)
 }
 
-/// Decompose a line into grammar-stage field spans, using the shared default
-/// parser. See [`IngredientParser::decompose`].
+/// Decompose a line into final-field spans over the authored source, using the
+/// shared default parser. See [`IngredientParser::decompose`].
 ///
 /// ```
 /// use ingredient::{decompose, Field};

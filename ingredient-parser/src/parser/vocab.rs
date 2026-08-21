@@ -407,8 +407,8 @@ pub(crate) fn is_shared_head_modifier(word: &str) -> bool {
 /// noun appears only after the final alternative — "canola, vegetable, or melted
 /// coconut oil" is three kinds of *oil*. The grammar splits the list on the first
 /// comma, stranding the head noun ("oil") off the end of the modifier; the
-/// `recover_shared_head_from_alternatives` refine pass grafts it back onto the
-/// first alternative ("canola" -> "canola oil").
+/// `recover_shared_head_from_alternatives` assembly repair grafts it back onto
+/// the first alternative ("canola" -> "canola oil").
 ///
 /// Deliberately tiny: only nouns where the bare-modifier-list construction is
 /// idiomatic. "salt, pepper, or paprika" and "flour, sugar, or baking soda" are

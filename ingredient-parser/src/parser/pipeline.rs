@@ -3,6 +3,7 @@ use super::normalize::{lift_inline_descriptive_paren, normalize_input, strip_opt
 use crate::parser::Res;
 use crate::trace;
 use crate::traced_parser;
+use crate::unit::singular;
 use crate::usage::classify_usage;
 use crate::{
     Decomposition, Field, FieldSpan, Ingredient, IngredientParser, ParseExecution, ParseOptions,
@@ -159,13 +160,21 @@ impl IngredientParser {
         )
     }
 
-    /// Decompose a line into grammar-stage field spans for the `--explain`
+    /// Decompose a line into final-field spans for the `--explain`
     /// decomposition view.
     ///
-    /// Returns the normalized string the spans index into, plus one
-    /// [`FieldSpan`](crate::FieldSpan) per amount region / name / modifier the
-    /// grammar carved. `spans` is empty when a whole-line recognizer or the
-    /// name-only fallback produced the result (no core-grammar carving to show).
+    /// Returns the **authored** line, unmodified, plus one
+    /// [`FieldSpan`](crate::FieldSpan) per contiguous run of it that ended up in
+    /// the parsed amount / name / modifier. The spans describe where each *final*
+    /// field came from, after every stage has run — so a prep word refine moved
+    /// out of the name is labeled Modifier, where the earlier grammar-stage carve
+    /// would still have shown it inside the name.
+    ///
+    /// Every parse path produces spans, recognizers and the name-only fallback
+    /// included; `spans` is empty only for a line with no alphanumeric text to
+    /// attribute. Spans are ordered by position, never overlap, and need not
+    /// cover the whole line — punctuation and any word no field kept (a dropped
+    /// cross-reference, say) are left unlabeled.
     ///
     /// # Example
     ///
@@ -194,6 +203,8 @@ impl IngredientParser {
             },
         )
         .decomposition
+        // Always `Some` for `decomposition: true`; defaulting keeps the workspace
+        // `expect_used = "deny"` lint satisfied without a panic path.
         .unwrap_or_default()
     }
 
@@ -219,6 +230,10 @@ impl IngredientParser {
                     crate::unit::Unit::from_str(&token),
                     Ok(crate::unit::Unit::Other(_)) | Err(_)
                 )
+                || token_is_amount_unit(&token, &ingredient.amounts)
+                // `rewrite_batch_of_to_recipe` turns an authored "N batch(es) of"
+                // into "N recipe", so the amount records "recipe" and the word
+                // actually on the line matches nothing above.
                 || matches!(token.as_str(), "batch" | "batches");
             if number || unit {
                 labels[index] = Some(Field::Amount);
@@ -273,6 +288,23 @@ fn source_tokens(source: &str) -> Vec<SourceToken<'_>> {
         });
     }
     tokens
+}
+
+/// Whether an unclaimed source token spells the unit of one of the parsed
+/// amounts.
+///
+/// The unit vocabulary and [`Unit::from_str`](crate::unit::Unit) only recognize
+/// *measurement* units, but a count unit can be any word the grammar accepted:
+/// a size word ("1 medium onion" parses to `{medium: 1}`), a "batch", a
+/// "sprig". Asking the parse output — rather than re-deriving a unit set —
+/// keeps the label in step with whatever the grammar actually produced.
+/// Compared through [`singular`] so an authored "cups"/"batches" still matches a
+/// stored "cup"/"batch".
+fn token_is_amount_unit(token: &str, amounts: &[crate::unit::Measure]) -> bool {
+    let token = singular(token);
+    amounts
+        .iter()
+        .any(|amount| singular(&amount.unit().to_str()) == token)
 }
 
 fn value_tokens(value: &str) -> impl Iterator<Item = String> + '_ {
@@ -359,6 +391,24 @@ mod decompose_tests {
         ]
     )]
     #[case("salt", &[(Field::Name, "salt")])]
+    // A size word is the count unit ("1 medium onion" parses to `{medium: 1}`),
+    // so it belongs to the Amount span rather than reading as an unlabeled hole.
+    #[case(
+        "1 medium onion, diced",
+        &[
+            (Field::Amount, "1 medium"),
+            (Field::Name, "onion"),
+            (Field::Modifier, "diced"),
+        ]
+    )]
+    #[case("2 large eggs", &[(Field::Amount, "2 large"), (Field::Name, "eggs")])]
+    #[case("3 small potatoes", &[(Field::Amount, "3 small"), (Field::Name, "potatoes")])]
+    // "N batch(es) of X" is normalized to "N recipe X", so the authored unit word
+    // never appears in the parsed amount — it is labeled from the rewrite instead.
+    #[case(
+        "1 batch of Marshmallow Meringue",
+        &[(Field::Amount, "1 batch"), (Field::Name, "Marshmallow Meringue")]
+    )]
     // Contiguous authored text assigned to one final field is one span.
     #[case(
         "1 cup flour, sifted, divided",

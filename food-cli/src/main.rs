@@ -640,9 +640,9 @@ async fn main() {
                 }
 
                 // Compact stage report — the routing view. The miette header
-                // labels how the grammar carved the line (amount/name/modifier),
-                // or falls back to a caret on a digit that produced no amount;
-                // the stage view below shows which pipeline stage shaped the line.
+                // labels which text became each final field (amount/name/modifier)
+                // and carets any digit that produced no amount; the stage view
+                // below shows which pipeline stage shaped the line.
                 if *explain
                     && let (Some(decomposition), Some(stages)) =
                         (execution.decomposition.as_ref(), execution.stages.as_ref())
