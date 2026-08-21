@@ -2,12 +2,23 @@
 //!
 //! These repairs operate on clause structure after assembly and before the
 //! name-internal refine pipeline. Keeping them beside segmentation makes the
-//! ordering contract and the text/provenance moves one local concern.
+//! ordering contract and the text they move one local concern.
 
 use super::*;
 
 impl IngredientParser {
-    /// Recover a shared head noun stranded at the tail of an alternatives list.
+    /// Recover a head noun stranded at the tail of an alternatives list in the
+    /// modifier. The grammar splits "canola, vegetable, or melted coconut oil" on
+    /// the first comma, leaving name="canola" and modifier="vegetable, or melted
+    /// coconut oil" — the shared head "oil" dropped off the name entirely. When
+    /// the modifier is a comma+or list ending in a curated shared-head noun and
+    /// the name is a single bare token, graft the head onto the name ("canola" →
+    /// "canola oil") and keep the whole list as an "or …" alternative modifier.
+    ///
+    /// Gated narrowly (requires a comma *and* an "or", plus a final word in
+    /// [`vocab::SHARED_HEAD_NOUNS`]) so lists of complete ingredients —
+    /// "salt, pepper, or paprika", "flour, sugar, or baking soda" — never get a
+    /// nonsense head grafted on.
     pub(in crate::parser) fn recover_shared_head_from_alternatives(
         &self,
         parsed: &mut ParsedIngredient,
@@ -331,4 +342,27 @@ fn extract_secondary_amounts(
         &modifier[full_match.end()..]
     ));
     (measures, cleaned)
+}
+
+#[cfg(test)]
+mod helper_tests {
+    //! Direct coverage for the shared-head gates. The end-to-end behavior is
+    //! pinned by `refine/tests.rs` and the accuracy corpus; these rows exercise
+    //! each gate in isolation, including the two the corpus cannot reach.
+    use super::*;
+    use rstest::rstest;
+
+    /// Fires on a comma+or list ending in a `SHARED_HEAD_NOUNS` word, preserving
+    /// the source casing of the grafted head. The gates (comma AND " or " AND
+    /// curated final noun) each reject when absent.
+    #[rstest]
+    #[case::fires("vegetable, or melted coconut oil", Some("oil"))]
+    // Casing preserved: the vocab lookup lowercases, the returned head does not.
+    #[case::casing_preserved("vegetable, or Coconut Oil", Some("Oil"))]
+    #[case::no_comma("or oil", None)]
+    #[case::no_or("vegetable, coconut oil", None)]
+    #[case::final_not_curated("sugar, or baking soda", None)]
+    fn comma_or_shared_head_gates(#[case] right: &str, #[case] expected: Option<&str>) {
+        assert_eq!(comma_or_shared_head(right), expected, "right: {right}");
+    }
 }
