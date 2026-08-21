@@ -21,10 +21,9 @@ mod stages;
 use std::cell::Cell;
 
 pub use collector::is_tracing_enabled;
-pub use stages::{
-    GrammarOutcome, RecognizerAttempt, Stage, StageEvent, StageEventOutcome, StageReport,
-    StageRewrite,
-};
+pub use stages::{GrammarOutcome, RecognizerAttempt, StageReport, StageRewrite};
+// Crate-internal: the stage a `trace_on_change` caller belongs to.
+pub(crate) use stages::Stage;
 // Thread-local span-stack mutators: in-crate only (the `traced_parser!` macro and
 // the pipeline/recognize/refine phases). Not part of the public API — the public
 // entry point is `IngredientParser::parse_with_trace` → `ParseTrace`.
@@ -100,11 +99,17 @@ impl StageReport {
 
 /// Trace a stage step that may or may not change its input (normalize rewrites,
 /// refine passes). Emits a before→after node only when `changed` is true.
-pub(crate) fn trace_on_change(id: &str, before: &str, after: &str, changed: bool) {
+pub(crate) fn trace_on_change(
+    stage: stages::Stage,
+    id: &str,
+    before: &str,
+    after: &str,
+    changed: bool,
+) {
     if !is_diagnostics_enabled() {
         return;
     }
-    stages::record_rewrite(id, before, after, changed);
+    stages::record_rewrite(stage, id, before, after, changed);
     if changed && is_tracing_enabled() {
         trace_enter(id, before);
         trace_exit_success(0, after);
@@ -123,7 +128,7 @@ pub(crate) fn trace_attempt<T>(
         return result;
     }
     let preview = result.as_ref().map(format_success);
-    stages::record_recognizer(id, input, preview.as_deref());
+    stages::record_recognizer(id, preview.as_deref());
     if is_tracing_enabled() {
         trace_enter(id, input);
         match &result {
@@ -273,9 +278,10 @@ impl ParseTrace {
     /// [`format_stages`](Self::format_stages)) — normalize rewrites, recognizer
     /// attempts, grammar outcome, refine passes, and the result preview.
     pub fn stages(&self) -> StageReport {
+        // Recorded during the parse; a hand-built `ParseTrace` has none.
         self.stage_report
             .clone()
-            .unwrap_or_else(|| stages::build_report(&self.root))
+            .unwrap_or_else(|| StageReport::empty(&self.input))
     }
 
     pub(crate) fn attach_stage_report(&mut self, report: StageReport) {

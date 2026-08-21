@@ -11,7 +11,7 @@
 use std::{collections::HashSet, str::FromStr};
 
 use ingredient::{
-    Decomposition, Field, IngredientParser, ParseOptions, TraceDetail, decompose as decompose_str,
+    Decomposition, Field, ParseOptions, TraceDetail, decompose as decompose_str,
     from_str as parse_ingredient_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
@@ -457,7 +457,7 @@ pub fn decompose_ingredient(input: &str) -> WDecomposition {
 /// Parse once and return both the Ingredient and authored-source decomposition.
 #[wasm_bindgen]
 pub fn parse_ingredient_with_decomposition(input: &str) -> WIngredientExecution {
-    let execution = IngredientParser::new().parse_line(
+    let execution = ingredient::parse_line(
         input,
         ParseOptions {
             decomposition: true,
@@ -536,7 +536,10 @@ pub fn conv_amount_to_unit(
 ) -> Result<WAmount, String> {
     let pairs = mappings.to_pairs();
     let measure = amount.to_measure();
-    let unit = Unit::from_str(&target_unit).unwrap_or(Unit::Other(target_unit.clone()));
+    // `Unit::from_str` is infallible — it returns `Unit::Other` for an unknown
+    // word — so the fallback is unreachable; `unwrap_or_else` keeps it from
+    // allocating a throwaway `String` on every call anyway.
+    let unit = Unit::from_str(&target_unit).unwrap_or_else(|_| Unit::Other(target_unit.clone()));
 
     MeasureConversions::new(&pairs)
         .convert(&measure, ConversionTarget::Unit(unit))

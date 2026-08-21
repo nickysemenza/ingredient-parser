@@ -4,7 +4,7 @@
 //! using user-provided mappings (e.g., "1 cup flour = 120g"). The conversion algorithm
 //! finds the shortest path in the conversion graph to transform between units.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::{
     Unit,
@@ -97,69 +97,76 @@ pub struct ConversionReport {
 pub struct MeasureConversions {
     graph: MeasureGraph,
     rejected: Vec<RejectedMapping>,
-    user_pairs: HashSet<(Unit, Unit)>,
+}
+
+/// The mapping-admission policy, shared by [`make_graph`] and
+/// [`MeasureConversions`] so the two entry points can never disagree about the
+/// same mapping set.
+///
+/// `None` means "compile both directions". A zero on the *measured* (`to`) side
+/// is a reading, not a defect — a food really can carry 0 g of fat and a water
+/// sub-recipe really does cost $0 — so it yields
+/// [`RejectedMappingReason::NonInvertibleBound`]: the forward edge is kept and
+/// only the reciprocal is dropped. Everything else is dropped outright.
+fn classify_mapping(from: &Measure, to: &Measure) -> Option<RejectedMappingReason> {
+    let from_lower = from.value();
+    let to_lower = to.value();
+    let bounds = [
+        from_lower,
+        from.upper_value().unwrap_or(from_lower),
+        to_lower,
+        to.upper_value().unwrap_or(to_lower),
+    ];
+    // A *point* zero on the reference side ("0 cups = 120 g") states nothing.
+    // The upper-bound-only range form ("up to 5 cups", i.e. `(0.0, Some(5))`)
+    // is a documented, meaningful measure — see `Measure::ordered_bounds` — so
+    // it survives, one-way.
+    let vacuous_reference = from_lower == 0.0 && from.upper_value().is_none();
+    if bounds.iter().any(|bound| !bound.is_finite()) {
+        Some(RejectedMappingReason::NonFiniteBound)
+    } else if bounds.iter().any(|bound| *bound < 0.0) || vacuous_reference {
+        Some(RejectedMappingReason::NonPositiveBound)
+    } else if to_lower == 0.0 || from_lower == 0.0 {
+        Some(RejectedMappingReason::NonInvertibleBound)
+    } else {
+        None
+    }
+}
+
+/// Whether [`classify_mapping`] still admits the mapping into the graph.
+/// A non-invertible mapping is admitted; `make_graph` drops the one direction
+/// that would divide by zero.
+fn is_admitted(reason: Option<RejectedMappingReason>) -> bool {
+    !matches!(
+        reason,
+        Some(RejectedMappingReason::NonFiniteBound | RejectedMappingReason::NonPositiveBound)
+    )
 }
 
 impl MeasureConversions {
     /// Compile a mapping set into a reusable conversion module.
     ///
-    /// A zero on the *measured* (`to`) side is a reading, not a defect — a food
-    /// really can carry 0 g of fat and a water sub-recipe really can cost $0 — so
-    /// such a mapping is compiled forward-only and reported as
-    /// [`RejectedMappingReason::NonInvertibleBound`]. Only the direction that
-    /// would divide by zero is dropped. A zero on the *reference* (`from`) side
-    /// states nothing usable ("0 cups = 120 g"), so it is dropped outright, as
-    /// are negative and non-finite bounds.
+    /// Admission is [`classify_mapping`]'s call, the same one [`make_graph`]
+    /// makes, so `MeasureConversions::convert` and `convert_measure_with_graph`
+    /// always agree. Rejections — including the one-way
+    /// [`RejectedMappingReason::NonInvertibleBound`] — are reported through
+    /// [`Self::rejected_mappings`].
     pub fn new(mappings: &[(Measure, Measure)]) -> Self {
-        let mut rejected = Vec::new();
-        let mut valid = Vec::new();
-        let mut user_pairs = HashSet::new();
-        for (index, (from, to)) in mappings.iter().enumerate() {
-            let from_lower = from.value();
-            let to_lower = to.value();
-            let bounds = [
-                from_lower,
-                from.upper_value().unwrap_or(from_lower),
-                to_lower,
-                to.upper_value().unwrap_or(to_lower),
-            ];
-            // A *point* zero on the reference side ("0 cups = 120 g") states
-            // nothing. The upper-bound-only range form ("up to 5 cups", i.e.
-            // `(0.0, Some(5))`) is a documented, meaningful measure — see
-            // `Measure::ordered_bounds` — so it survives, one-way.
-            let vacuous_reference = from_lower == 0.0 && from.upper_value().is_none();
-            let reason = if bounds.iter().any(|bound| !bound.is_finite()) {
-                Some(RejectedMappingReason::NonFiniteBound)
-            } else if bounds.iter().any(|bound| *bound < 0.0) || vacuous_reference {
-                Some(RejectedMappingReason::NonPositiveBound)
-            } else if to_lower == 0.0 || from_lower == 0.0 {
-                Some(RejectedMappingReason::NonInvertibleBound)
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
-                rejected.push(RejectedMapping {
+        let rejected = mappings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (from, to))| {
+                classify_mapping(from, to).map(|reason| RejectedMapping {
                     index,
                     from: from.clone(),
                     to: to.clone(),
                     reason,
-                });
-                // A non-invertible mapping still carries its forward edge;
-                // `make_graph` drops only the direction that would divide by zero.
-                if reason != RejectedMappingReason::NonInvertibleBound {
-                    continue;
-                }
-            }
-            let left = mapping_graph_unit(&from.unit().to_str());
-            let right = mapping_graph_unit(&to.unit().to_str());
-            user_pairs.insert((left.clone(), right.clone()));
-            user_pairs.insert((right, left));
-            valid.push((from.clone(), to.clone()));
-        }
+                })
+            })
+            .collect();
         Self {
-            graph: make_graph(&valid),
+            graph: make_graph(mappings),
             rejected,
-            user_pairs,
         }
     }
 
@@ -179,13 +186,14 @@ impl MeasureConversions {
                         let factor = self
                             .edge_factor(&step.from_unit, &step.to_unit)
                             .unwrap_or_else(|| EdgeFactor::point(step.factor));
-                        let origin = if self
-                            .user_pairs
-                            .contains(&(step.from_unit.clone(), step.to_unit.clone()))
-                        {
-                            ConversionOrigin::User
-                        } else {
-                            ConversionOrigin::Fixed
+                        // The tsp<->ml volume bridge is the only edge
+                        // `make_graph` seeds itself; everything else came from a
+                        // user mapping. (A user mapping that *is* tsp=ml reads as
+                        // Fixed here — the graph keeps one edge either way.)
+                        let origin = match (&step.from_unit, &step.to_unit) {
+                            (Unit::Teaspoon, Unit::Milliliter)
+                            | (Unit::Milliliter, Unit::Teaspoon) => ConversionOrigin::Fixed,
+                            _ => ConversionOrigin::User,
                         };
                         ConversionHop {
                             from_unit: step.from_unit,
@@ -267,10 +275,7 @@ impl MeasureConversions {
         let source = measure.normalize().unit().normalize();
         let target = match target {
             ConversionTarget::Kind(kind) => kind.unit().normalize(),
-            ConversionTarget::Unit(unit) => Measure::new_with_upper(unit.clone(), 1.0, None)
-                .normalize()
-                .unit()
-                .normalize(),
+            ConversionTarget::Unit(unit) => mapping_graph_unit(&unit.to_str()),
         };
         let has_source =
             source == target || self.graph.node_indices().any(|i| self.graph[i] == source);
@@ -371,8 +376,10 @@ fn upsert_edge(
 ///
 /// Each mapping represents an equivalence like "1 cup flour = 120g".
 /// The graph stores nodes as units and edges as conversion factors.
-/// Both directions (A→B and B→A) are added, except where a zero bound would make
-/// one of them divide by zero — see [`upsert_edge`].
+/// Mappings are admitted by [`classify_mapping`] — the policy
+/// [`MeasureConversions`] uses too — and both directions (A→B and B→A) are added,
+/// except where a zero bound would make one of them divide by zero (see
+/// [`upsert_edge`]).
 ///
 /// # Arguments
 /// * `mappings` - Slice of (from, to) measurement pairs
@@ -384,6 +391,11 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
     let mut unit_index: HashMap<Unit, NodeIndex> = HashMap::new();
 
     for (m_a, m_b) in mappings.iter() {
+        // Same admission policy `MeasureConversions` applies, so the two public
+        // entry points never disagree about a mapping set.
+        if !is_admitted(classify_mapping(m_a, m_b)) {
+            continue;
+        }
         let m_a = m_a.normalize();
         let m_b = m_b.normalize();
 

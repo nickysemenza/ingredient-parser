@@ -253,6 +253,16 @@ pub fn decompose(input: &str) -> Decomposition {
     DEFAULT_PARSER.decompose(input)
 }
 
+/// Execute the pipeline once with the shared default parser and return every
+/// requested observation. See [`IngredientParser::parse_line`].
+///
+/// Prefer this to `IngredientParser::new().parse_line(..)` at a call boundary
+/// that runs per keystroke or per line — constructing a parser builds two
+/// `HashSet<String>` of default vocab every time.
+pub fn parse_line(input: &str, options: ParseOptions) -> ParseExecution {
+    DEFAULT_PARSER.parse_line(input, options)
+}
+
 /// Shared default parser used by the free [`from_str`]. Building an
 /// [`IngredientParser`] allocates two `HashSet<String>` of default vocab, so we
 /// construct it once and borrow it for every call. `IngredientParser` is

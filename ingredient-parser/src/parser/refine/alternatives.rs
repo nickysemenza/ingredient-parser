@@ -125,46 +125,38 @@ impl IngredientParser {
     }
 }
 
-/// Context for an inline "A or B `<head>`" shared-head decision.
-enum SharedHeadContext<'a> {
-    /// An inline "A or B `<head>`" right side ("white onion"), gated on
-    /// [`vocab::DISTRIBUTABLE_HEAD_NOUNS`]. Carries the parser's adjective set
-    /// for the "not led by a prep adjective" guard.
-    InlineOr {
-        adjectives: &'a std::collections::HashSet<String>,
-    },
-}
-
-/// Decide whether `right`'s trailing noun is a *shared head* that can be grafted
-/// onto the left conjunct. `right` must read as
-///   "`<premodifier> <head noun>`" (at least two tokens, not led by a prep
-///   adjective, free of stopwords) and its trailing head noun must be in
-///   [`vocab::DISTRIBUTABLE_HEAD_NOUNS`].
-fn distributable_head<'a>(right: &'a str, ctx: SharedHeadContext) -> Option<&'a str> {
-    match ctx {
-        SharedHeadContext::InlineOr { adjectives } => {
-            let right_tokens: Vec<&str> = right.split_whitespace().collect();
-            if !right_is_modifier_plus_head(&right_tokens, adjectives) {
-                return None;
-            }
-            // The right's *trailing head noun* must be one that essentially
-            // always carries a variety/type premodifier, so an open-ended (even
-            // multi-word) left distributes onto it: "chicken or vegetable stock"
-            // -> "chicken stock", "Little Gem or Bibb lettuce" -> "Little Gem
-            // lettuce".
-            let head_noun = right_tokens.last().copied()?;
-            crate::parser::vocab::DISTRIBUTABLE_HEAD_NOUNS
-                .contains(&head_noun.to_lowercase().as_str())
-                .then_some(head_noun)
-        }
+/// Decide whether an inline "A or B `<head>`" right side's trailing noun is a
+/// *shared head* that can be grafted onto the left conjunct. `right` must read
+/// as "`<premodifier> <head noun>`" (at least two tokens, not led by a prep
+/// adjective, free of stopwords) and its trailing head noun must be in
+/// [`vocab::DISTRIBUTABLE_HEAD_NOUNS`]. `adjectives` is the parser's adjective
+/// set, for the "not led by a prep adjective" guard.
+///
+/// The comma+or list variant lives with the assembly repair that needs it
+/// (`segment::repairs::comma_or_shared_head`) — this is the inline case only.
+fn distributable_head<'a>(
+    right: &'a str,
+    adjectives: &std::collections::HashSet<String>,
+) -> Option<&'a str> {
+    let right_tokens: Vec<&str> = right.split_whitespace().collect();
+    if !right_is_modifier_plus_head(&right_tokens, adjectives) {
+        return None;
     }
+    // The right's *trailing head noun* must be one that essentially always
+    // carries a variety/type premodifier, so an open-ended (even multi-word)
+    // left distributes onto it: "chicken or vegetable stock" -> "chicken stock",
+    // "Little Gem or Bibb lettuce" -> "Little Gem lettuce".
+    let head_noun = right_tokens.last().copied()?;
+    crate::parser::vocab::DISTRIBUTABLE_HEAD_NOUNS
+        .contains(&head_noun.to_lowercase().as_str())
+        .then_some(head_noun)
 }
 
 /// The right side must read as "`<premodifier> <head noun>`": at least two
 /// tokens, not led by a prep adjective ("basil or chopped parsley" keeps
 /// "chopped" with parsley), and free of stopwords ("pepper to taste" isn't a
-/// shared head). Shared by both [`SharedHeadContext::InlineOr`] reconstruction
-/// paths in [`split_word_alternative`].
+/// shared head). Shared by both reconstruction paths in
+/// [`split_word_alternative`].
 fn right_is_modifier_plus_head(
     right_tokens: &[&str],
     adjectives: &std::collections::HashSet<String>,
@@ -360,7 +352,7 @@ fn graft_decision<'a>(
         return Graft::ReplaceLeadingAdjective;
     }
 
-    match distributable_head(right, SharedHeadContext::InlineOr { adjectives }) {
+    match distributable_head(right, adjectives) {
         Some(head) => Graft::AppendTrailingHead(head),
         None => Graft::None,
     }
@@ -388,12 +380,7 @@ mod helper_tests {
     fn test_distributable_head_inline_or(#[case] right: &str, #[case] expected: Option<&str>) {
         let adjectives = IngredientParser::new().adjectives;
         assert_eq!(
-            distributable_head(
-                right,
-                SharedHeadContext::InlineOr {
-                    adjectives: &adjectives
-                }
-            ),
+            distributable_head(right, &adjectives),
             expected,
             "right: {right}"
         );

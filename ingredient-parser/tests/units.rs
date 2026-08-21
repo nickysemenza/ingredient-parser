@@ -428,15 +428,24 @@ fn test_zero_target_mapping_agrees_across_entry_points() {
 
 /// A *point* zero on the reference side ("0 cups = 120 g") states nothing usable,
 /// so it is dropped rather than compiled one-way — converting from it finds no
-/// path in either direction.
-#[test]
-fn test_vacuous_reference_mapping_is_dropped() {
+/// path in either direction, through *either* entry point. Both doors share one
+/// admission policy, so a mapping set can never mean two different things.
+#[rstest]
+#[case::from_the_zero_side("cup", 2.0, MeasureKind::Weight)]
+#[case::toward_the_zero_side("g", 200.0, MeasureKind::Volume)]
+fn test_vacuous_reference_mapping_is_dropped_by_both_doors(
+    #[case] unit: &str,
+    #[case] value: f64,
+    #[case] target: MeasureKind,
+) {
     let mappings = [(Measure::new("cup", 0.0), Measure::new("g", 120.0))];
-    assert!(
-        Measure::new("cup", 2.0)
-            .convert_measure_via_mappings(MeasureKind::Weight, &mappings)
-            .is_none()
-    );
+    let source = Measure::new(unit, value);
+
+    let via_mappings = source.convert_measure_via_mappings(target.clone(), &mappings);
+    let via_graph = convert_measure_with_graph(&source, target, &make_graph(&mappings));
+
+    assert_eq!(via_mappings, via_graph, "entry points disagree");
+    assert_eq!(via_mappings, None);
 }
 
 #[test]

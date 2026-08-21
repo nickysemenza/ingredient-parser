@@ -57,11 +57,9 @@ impl IngredientParser {
         }
         let before = parsed.clone();
         run(self, parsed);
-        let changed = parsed.name != before.name
-            || parsed.amounts != before.amounts
-            || parsed.modifier != before.modifier
-            || parsed.optional != before.optional;
+        let changed = *parsed != before;
         crate::trace::trace_on_change(
+            crate::trace::Stage::Refine,
             pass.id().as_str(),
             &before.name,
             &format!(

@@ -33,7 +33,7 @@ pub(crate) const NUMBER_WORDS: &[(&str, f64)] = &[
 ];
 
 /// Stopwords that signal a modifier clause is prose, not a shared head noun. Union
-/// of the lists used in `refine::recover` and `refine::alternatives`.
+/// of the lists used in `segment::repairs` and `refine::alternatives`.
 pub(crate) const MODIFIER_STOPWORDS: &[&str] = &[
     "then", "to", "for", "with", "if", "until", "or", "such", "as", "plus", "about", "per", "from",
     "into", "over", "on", "in", "at", "the", "a", "an", "of",
@@ -287,6 +287,35 @@ pub(crate) const POSTFIX_PRODUCE_UNITS: &[(&str, &[&str])] = &[
     ("cabbage", &["head", "heads"]),
 ];
 
+/// Words the amount grammar swallows in front of a quantity — approximation
+/// adverbs ("about", "roughly"), measure intensifiers ("scant", "heaping") and
+/// vague-measure qualifiers ("healthy pinch"). Consumed by
+/// `measurement::single::leading_qualifier`, which discards the text, so the
+/// decomposition view reads this list to attribute the word back to the Amount
+/// span it was consumed for.
+///
+/// Kept in sync with that parser by `qualifiers_match_the_amount_grammar` below.
+/// Deliberately wider than the approximation-only subsets in `paren.rs`'s
+/// `strip_approximation_prefix` and `repairs.rs`'s secondary-amount regex: those
+/// strip a prefix *inside* a parenthetical measure, where "scant"/"generous"
+/// never appear.
+pub(crate) const AMOUNT_QUALIFIERS: &[&str] = &[
+    "less than",
+    "about",
+    "approximately",
+    "approx",
+    "roughly",
+    "around",
+    "generous",
+    "scant",
+    "heaping",
+    "heaped",
+    "rounded",
+    "brimming",
+    "healthy",
+    "good",
+];
+
 /// Size descriptors. A "size-word OR size-word" pair ("medium or large") is a
 /// range of one ingredient, never a two-ingredient alternative, so
 /// `refine::split_word_alternative` must not split/reconstruct it.
@@ -507,11 +536,11 @@ pub(crate) const CONTAINER_NOUNS: &[&str] = &[
 ];
 
 /// Clause boundaries that end a recovered head noun. When
-/// `refine::recover::recover_head_noun_from_modifier` pulls a head noun out of a
+/// `segment::repairs::recover_head_noun_from_modifier` pulls a head noun out of a
 /// modifier, the noun runs up to the next clause boundary: a comma, a
 /// "such as"/"or"/"to taste" prose lead-in, or " (" — the last ends the noun at a
 /// trailing parenthetical aside ("chicken thighs (8 to 12 thighs, …)"), before the
-/// comma *inside* that aside can truncate the noun. Consumed by `refine::recover`.
+/// comma *inside* that aside can truncate the noun. Consumed by `segment::repairs`.
 pub(crate) const CLAUSE_BOUNDARIES: &[&str] = &[", ", " such as ", " or ", " to taste", " ("];
 
 /// Distance unit base forms for dimension detection (see
@@ -580,6 +609,22 @@ mod tests {
             assert!(
                 is_shared_head_modifier(w),
                 "size word {w:?} is not recognized as a shared-head modifier"
+            );
+        }
+    }
+
+    // AMOUNT_QUALIFIERS exists so the decomposition view can attribute a qualifier
+    // back to the Amount the grammar consumed it for. That only holds if the list
+    // and the grammar agree, and they live in different modules — so pin every
+    // entry to `leading_qualifier` actually consuming it. (vocab.rs doc on
+    // AMOUNT_QUALIFIERS.)
+    #[test]
+    fn qualifiers_match_the_amount_grammar() {
+        for &qualifier in AMOUNT_QUALIFIERS {
+            let line = format!("{qualifier} 2 cups");
+            assert!(
+                crate::parser::measurement::single::leading_qualifier(&line).is_ok(),
+                "AMOUNT_QUALIFIERS entry {qualifier:?} is not consumed by leading_qualifier"
             );
         }
     }
