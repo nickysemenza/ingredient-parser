@@ -5,7 +5,9 @@
 use std::collections::HashSet;
 use std::str::FromStr;
 
-use ingredient::unit::{Measure, MeasureKind, Unit, is_valid, make_graph, print_graph};
+use ingredient::unit::{
+    Measure, MeasureKind, Unit, convert_measure_with_graph, is_valid, make_graph, print_graph,
+};
 use ingredient::util::num_without_zeroes;
 use rstest::rstest;
 
@@ -384,6 +386,57 @@ fn test_weight_to_money_conversion(
         .convert_measure_via_mappings(MeasureKind::Money, &[grams_dollars])
         .unwrap();
     assert_eq!(result, Measure::new("dollars", expected_dollars));
+}
+
+/// A zero on the *measured* side of a mapping is a reading, not a defect: a food
+/// really can carry 0 g of fat. The mapping is compiled forward-only (inverting
+/// it would divide by zero), so the conversion yields `0` rather than "no path".
+/// A negative bound is a defect and drops the mapping entirely.
+#[rstest]
+#[case::zero_is_a_reading(0.0, Some(0.0))]
+#[case::positive(5.0, Some(10.0))]
+#[case::negative(-1.0, None)]
+fn test_zero_and_negative_nutrient_mappings(
+    #[case] fat_per_100g: f64,
+    #[case] expected: Option<f64>,
+) {
+    let fat = MeasureKind::Nutrient("g fat".to_string());
+    let mapping = (
+        Measure::new("g", 100.0),
+        Measure::new("g fat", fat_per_100g),
+    );
+    let result = Measure::new("g", 200.0).convert_measure_via_mappings(fat, &[mapping]);
+    assert_eq!(result.map(|m| m.value()), expected);
+}
+
+/// The two public conversion entry points must agree on the same mapping set.
+/// `Measure::convert_measure_via_mappings` compiles through `MeasureConversions`
+/// while `convert_measure_with_graph` goes straight to the graph; a zero-valued
+/// nutrient mapping is where they previously diverged (`Some(0)` vs `None`).
+#[test]
+fn test_zero_target_mapping_agrees_across_entry_points() {
+    let fat = MeasureKind::Nutrient("g fat".to_string());
+    let mappings = [(Measure::new("g", 100.0), Measure::new("g fat", 0.0))];
+    let source = Measure::new("g", 200.0);
+
+    let via_mappings = source.convert_measure_via_mappings(fat.clone(), &mappings);
+    let via_graph = convert_measure_with_graph(&source, fat, &make_graph(&mappings));
+
+    assert_eq!(via_mappings, via_graph);
+    assert_eq!(via_mappings.map(|m| m.value()), Some(0.0));
+}
+
+/// A *point* zero on the reference side ("0 cups = 120 g") states nothing usable,
+/// so it is dropped rather than compiled one-way — converting from it finds no
+/// path in either direction.
+#[test]
+fn test_vacuous_reference_mapping_is_dropped() {
+    let mappings = [(Measure::new("cup", 0.0), Measure::new("g", 120.0))];
+    assert!(
+        Measure::new("cup", 2.0)
+            .convert_measure_via_mappings(MeasureKind::Weight, &mappings)
+            .is_none()
+    );
 }
 
 #[test]

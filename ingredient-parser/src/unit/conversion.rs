@@ -27,14 +27,26 @@ pub enum ConversionTarget {
     Unit(Unit),
 }
 
-/// Why a user mapping was excluded while compiling conversions.
+/// Why a user mapping was excluded — wholly or in one direction — while
+/// compiling conversions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RejectedMappingReason {
+    /// The reference (`from`) side is zero or either side is negative, so the
+    /// mapping states nothing usable. Dropped entirely.
     NonPositiveBound,
+    /// A bound is NaN or infinite. Dropped entirely.
     NonFiniteBound,
+    /// The measured (`to`) side is zero — a meaningful reading ("100 g of this
+    /// has 0 g fat", "this batch cost $0"), so the forward edge is kept and only
+    /// the reverse direction is dropped, since inverting it would divide by zero.
+    /// The mapping still converts `from` → `to`.
+    NonInvertibleBound,
 }
 
-/// A rejected mapping and its stable input position.
+/// A mapping excluded while compiling, and its stable input position.
+///
+/// [`RejectedMappingReason::NonInvertibleBound`] marks a *partial* exclusion —
+/// the mapping is compiled one-way. Every other reason means it was dropped.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RejectedMapping {
     pub index: usize,
@@ -89,21 +101,39 @@ pub struct MeasureConversions {
 }
 
 impl MeasureConversions {
+    /// Compile a mapping set into a reusable conversion module.
+    ///
+    /// A zero on the *measured* (`to`) side is a reading, not a defect — a food
+    /// really can carry 0 g of fat and a water sub-recipe really can cost $0 — so
+    /// such a mapping is compiled forward-only and reported as
+    /// [`RejectedMappingReason::NonInvertibleBound`]. Only the direction that
+    /// would divide by zero is dropped. A zero on the *reference* (`from`) side
+    /// states nothing usable ("0 cups = 120 g"), so it is dropped outright, as
+    /// are negative and non-finite bounds.
     pub fn new(mappings: &[(Measure, Measure)]) -> Self {
         let mut rejected = Vec::new();
         let mut valid = Vec::new();
         let mut user_pairs = HashSet::new();
         for (index, (from, to)) in mappings.iter().enumerate() {
+            let from_lower = from.value();
+            let to_lower = to.value();
             let bounds = [
-                from.value(),
-                from.upper_value().unwrap_or(from.value()),
-                to.value(),
-                to.upper_value().unwrap_or(to.value()),
+                from_lower,
+                from.upper_value().unwrap_or(from_lower),
+                to_lower,
+                to.upper_value().unwrap_or(to_lower),
             ];
+            // A *point* zero on the reference side ("0 cups = 120 g") states
+            // nothing. The upper-bound-only range form ("up to 5 cups", i.e.
+            // `(0.0, Some(5))`) is a documented, meaningful measure — see
+            // `Measure::ordered_bounds` — so it survives, one-way.
+            let vacuous_reference = from_lower == 0.0 && from.upper_value().is_none();
             let reason = if bounds.iter().any(|bound| !bound.is_finite()) {
                 Some(RejectedMappingReason::NonFiniteBound)
-            } else if bounds.iter().any(|bound| *bound <= 0.0) {
+            } else if bounds.iter().any(|bound| *bound < 0.0) || vacuous_reference {
                 Some(RejectedMappingReason::NonPositiveBound)
+            } else if to_lower == 0.0 || from_lower == 0.0 {
+                Some(RejectedMappingReason::NonInvertibleBound)
             } else {
                 None
             };
@@ -114,7 +144,11 @@ impl MeasureConversions {
                     to: to.clone(),
                     reason,
                 });
-                continue;
+                // A non-invertible mapping still carries its forward edge;
+                // `make_graph` drops only the direction that would divide by zero.
+                if reason != RejectedMappingReason::NonInvertibleBound {
+                    continue;
+                }
             }
             let left = mapping_graph_unit(&from.unit().to_str());
             let right = mapping_graph_unit(&to.unit().to_str());
@@ -289,11 +323,56 @@ impl std::fmt::Display for EdgeFactor {
     }
 }
 
+/// Add or update one directed conversion edge, skipping a non-finite factor.
+///
+/// A non-finite factor means this direction divides by a zero bound; the
+/// opposite direction is still usable, so the edge is simply omitted rather than
+/// the whole mapping discarded. If the edge already exists with a different
+/// weight (e.g. both "1 cup = 120 g" and "1 cup = 130 g" were supplied) it is
+/// updated in place — latest mapping wins — rather than adding a *parallel* edge
+/// that fewest-hops A* would then pick between nondeterministically.
+fn upsert_edge(
+    g: &mut MeasureGraph,
+    from: NodeIndex,
+    to: NodeIndex,
+    weight: EdgeFactor,
+    m_from: &Measure,
+    m_to: &Measure,
+) {
+    if !weight.lower.is_finite() || !weight.upper.is_finite() {
+        debug!(
+            "skipping non-invertible mapping direction {:?}->{:?} (zero bound)",
+            m_from.unit(),
+            m_to.unit()
+        );
+        return;
+    }
+    match g.find_edge(from, to) {
+        Some(e) => {
+            if g.edge_weight(e).is_some_and(|w| *w != weight) {
+                debug!(
+                    "conflicting mapping {:?}->{:?}, using latest weight {:?}",
+                    m_from.unit(),
+                    m_to.unit(),
+                    weight
+                );
+                if let Some(w) = g.edge_weight_mut(e) {
+                    *w = weight;
+                }
+            }
+        }
+        None => {
+            g.add_edge(from, to, weight);
+        }
+    }
+}
+
 /// Build a conversion graph from a list of measurement mappings.
 ///
 /// Each mapping represents an equivalence like "1 cup flour = 120g".
 /// The graph stores nodes as units and edges as conversion factors.
-/// Both directions (A→B and B→A) are added for bidirectional conversion.
+/// Both directions (A→B and B→A) are added, except where a zero bound would make
+/// one of them divide by zero — see [`upsert_edge`].
 ///
 /// # Arguments
 /// * `mappings` - Slice of (from, to) measurement pairs
@@ -325,10 +404,12 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
         // so multi-hop paths don't compound rounding drift; the result is
         // rounded once at the end (see `RESULT_SIG_FIGS`).
         //
-        // Assumes strictly-positive bounds (the prior scalar code did too): a 0
-        // mapping value yields inf/NaN factors. Not asserted because a legitimate
-        // $0 mapping shouldn't panic; ranged mappings (sub-recipe yields) always
-        // carry a positive lower bound, so the reciprocal stays finite.
+        // Each direction divides by the *other* side's bounds, so a zero bound
+        // poisons one direction only. "100 g = 0 g fat" is a real reading: the
+        // forward factor is 0/100 = 0 (keep it, so the conversion yields 0), while
+        // the reverse is 100/0 = inf (drop it — nothing can convert *from* zero
+        // fat). Each direction is emitted only if its factor is finite, so a graph
+        // never carries an inf/NaN edge for A* to traverse.
         let a_lo = m_a.value();
         let a_hi = m_a.upper_value().unwrap_or(a_lo);
         let b_lo = m_b.value();
@@ -342,34 +423,8 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
             upper: a_hi / b_lo,
         };
 
-        match g.find_edge(n_a, n_b) {
-            // Edge already present. If the weight conflicts (e.g. both
-            // "1 cup = 120 g" and "1 cup = 130 g" were supplied), update it in
-            // place — latest mapping wins — rather than adding a *parallel* edge
-            // that fewest-hops A* would then pick between nondeterministically.
-            Some(e) => {
-                if g.edge_weight(e).is_some_and(|w| *w != a_to_b_weight) {
-                    debug!(
-                        "conflicting mapping {:?}->{:?}, using latest weight {:?}",
-                        m_a.unit(),
-                        m_b.unit(),
-                        a_to_b_weight
-                    );
-                    if let Some(w) = g.edge_weight_mut(e) {
-                        *w = a_to_b_weight;
-                    }
-                    if let Some(re) = g.find_edge(n_b, n_a)
-                        && let Some(rw) = g.edge_weight_mut(re)
-                    {
-                        *rw = b_to_a_weight;
-                    }
-                }
-            }
-            None => {
-                g.add_edge(n_a, n_b, a_to_b_weight);
-                g.add_edge(n_b, n_a, b_to_a_weight);
-            }
-        }
+        upsert_edge(&mut g, n_a, n_b, a_to_b_weight, &m_a, &m_b);
+        upsert_edge(&mut g, n_b, n_a, b_to_a_weight, &m_b, &m_a);
     }
 
     // Bridge the two volume normalization bases (teaspoon for the US/spoon family,
