@@ -16,12 +16,14 @@ use tracing::debug;
 /// arithmetic (`normalize()` and the conversion graph) multiplies by `f64`
 /// conversion factors and round-trips Rational64 → f64 → Rational64, so adding
 /// measures of different units is approximate, not exact.
-/// Input that `approximate_float` can't represent — non-finite, or a magnitude
-/// beyond `i64` range — clamps to a sign-preserving extreme rather than
-/// collapsing to zero, so a valid-but-enormous quantity stays enormous and
-/// ordered instead of silently becoming 0 (which would corrupt the parse). NaN,
-/// which shouldn't reach here once `finite_double` guards the number parsers,
-/// maps to 0.
+/// Input that `approximate_float` can't represent splits two ways. A finite
+/// magnitude beyond `i64` range clamps to a sign-preserving extreme, so a
+/// valid-but-enormous quantity stays enormous and ordered instead of silently
+/// becoming 0 (which would corrupt the parse). Non-finite input — NaN or an
+/// infinity, neither of which should reach here once `finite_double` guards the
+/// number parsers and the conversion graph drops non-finite edge factors — maps
+/// to 0, since saturating an infinity to `i64::MAX` would present garbage as a
+/// real, astronomically large measurement.
 fn to_rational(value: f64) -> Rational64 {
     Rational64::approximate_float(value).unwrap_or_else(|| {
         if !value.is_finite() {
