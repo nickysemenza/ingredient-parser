@@ -64,7 +64,8 @@ siblings. A pass that runs during assembly is a **repair**.
 _Avoid_: rule, transform, handler
 
 **Decomposition**:
-The span-level view of which region of the source line became which parsed field.
+The span-level view of which regions of the Ingredient line exactly as written became the
+final Name, Measure, or Modifier after all five stages. A field may have multiple discontinuous spans.
 _Avoid_: breakdown, mapping, trace (that's the execution record, not the spans)
 
 ### The corpus

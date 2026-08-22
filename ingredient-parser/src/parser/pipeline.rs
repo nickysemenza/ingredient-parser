@@ -3,59 +3,56 @@ use super::normalize::{lift_inline_descriptive_paren, normalize_input, strip_opt
 use crate::parser::Res;
 use crate::trace;
 use crate::traced_parser;
+use crate::unit::singular;
 use crate::usage::classify_usage;
-use crate::{Ingredient, IngredientParser};
+use crate::{
+    Decomposition, Field, FieldSpan, Ingredient, IngredientParser, ParseExecution, ParseOptions,
+    TraceDetail,
+};
 
 impl IngredientParser {
-    pub(crate) fn parse_ingredient_line(&self, input: &str) -> Ingredient {
+    /// Execute the Ingredient-line pipeline once and derive every requested
+    /// observation from that same run.
+    pub fn parse_line(&self, input: &str, options: ParseOptions) -> ParseExecution {
+        let record_stages = options.trace != TraceDetail::None;
+        let record_trace = options.trace == TraceDetail::Full;
+        if record_stages {
+            trace::enable_diagnostics();
+            trace::enable_stage_recording(input);
+        }
+        if record_trace {
+            trace::enable_tracing();
+            trace::trace_enter("parse_line", input);
+        }
+
         let normalized = normalize_input(input);
-        let (mut ingredient, fell_back) =
-            self.parse_normalized_ingredient_with_provenance(normalized.as_ref());
-        // Attach parse-fidelity notes here at the single funnel, computed from
-        // the *raw* input (so the digit scan sees what the author wrote).
+        let (mut ingredient, fell_back) = self.parse_pipeline_after_normalize(normalized.as_ref());
         ingredient.parse_notes = crate::ParseNotes::derive(input, &ingredient, fell_back);
-        ingredient
-    }
 
-    pub(crate) fn parse_ingredient_line_with_trace(
-        &self,
-        input: &str,
-    ) -> trace::ParseWithTrace<Ingredient> {
-        trace::enable_tracing();
-        // Open the root span with the *raw* input so the normalize rewrites nest
-        // under it as the first stage (the non-trace paths normalize before the
-        // span, where tracing is off and it's a no-op). The rest of the pipeline
-        // (recognizers, grammar, refine passes) then attaches as later children.
-        trace::trace_enter("parse_line", input);
-        let normalized = normalize_input(input);
-        let normalized = normalized.as_ref();
-        let (result, _fell_back) = self.parse_pipeline_after_normalize(normalized);
-        trace::trace_exit_success(0, &result.name);
-        let trace = trace::disable_tracing(normalized);
+        if record_trace {
+            trace::trace_exit_success(0, &ingredient.name);
+        }
+        let stages = record_stages.then(|| trace::finish_stage_recording(&ingredient.name));
+        let trace = record_trace.then(|| {
+            let mut parsed_trace = trace::disable_tracing(input);
+            if let Some(report) = stages.clone() {
+                parsed_trace.attach_stage_report(report);
+            }
+            parsed_trace
+        });
+        let decomposition = options
+            .decomposition
+            .then(|| self.final_decomposition(input, &ingredient));
+        if record_stages {
+            trace::disable_diagnostics();
+        }
 
-        trace::ParseWithTrace {
-            result: Ok(result),
+        ParseExecution {
+            ingredient,
+            decomposition,
+            stages,
             trace,
         }
-    }
-
-    /// Parse a normalized line, also reporting whether the parse fell back to a
-    /// name-only ingredient (no structured recognizer/core parse succeeded).
-    /// Used to derive parse notes.
-    pub(crate) fn parse_normalized_ingredient_with_provenance(
-        &self,
-        input: &str,
-    ) -> (Ingredient, bool) {
-        // Wrap the whole parse in one root span so the phase spans
-        // (recognizers, the grammar, refine passes) nest under it and the trace
-        // tree has a single root. No-op when tracing is disabled. The traced
-        // entry point (`parse_ingredient_line_with_trace`) opens this span itself
-        // — around normalize — and calls `parse_pipeline_after_normalize`
-        // directly, so the span is never entered twice.
-        trace::trace_enter("parse_line", input);
-        let result = self.parse_pipeline_after_normalize(input);
-        trace::trace_exit_success(0, &result.0.name);
-        result
     }
 
     /// The post-normalize pipeline body: strip a whole-ingredient "(optional)"
@@ -90,27 +87,32 @@ impl IngredientParser {
     fn parse_normalized_ingredient_inner(&self, input: &str) -> (Ingredient, bool) {
         // First try the whole-line special-form recognizers (first match wins),
         // then fall back to the general core parse, then to a name-only ingredient.
-        self.run_recognizers(input)
-            .or_else(|| {
-                self.parse_core_ingredient(input)
-                    // Reject a "successful" parse that lost the ingredient name
-                    // into the modifier (seen on real recipes: a decimal comma in
-                    // "1,000 grams ... nectarines", a leading prep word, etc.) —
-                    // the graceful fallback is better than a name-less ingredient
-                    // with garbled text. A bare quantity like "1/2-1 cup"
-                    // legitimately has no name, so only fall back when the empty
-                    // name coincides with leftover modifier text.
-                    .filter(|ingredient| {
-                        let name_empty = ingredient.name.trim().is_empty();
-                        let has_modifier = ingredient
-                            .modifier
-                            .as_deref()
-                            .is_some_and(|m| !m.trim().is_empty());
-                        !(name_empty && has_modifier)
-                    })
-            })
-            .map(|ingredient| (ingredient, false))
-            .unwrap_or_else(|| (fallback_ingredient(input), true))
+        if let Some(ingredient) = self.run_recognizers(input) {
+            if trace::is_diagnostics_enabled() {
+                trace::record_grammar(trace::GrammarOutcome::Skipped);
+            }
+            return (ingredient, false);
+        }
+        if let Some(ingredient) = self.parse_core_ingredient(input).filter(|ingredient| {
+            // Reject a "successful" parse that lost the ingredient name into
+            // the modifier; the graceful fallback preserves the authored text.
+            let name_empty = ingredient.name.trim().is_empty();
+            let has_modifier = ingredient
+                .modifier
+                .as_deref()
+                .is_some_and(|modifier| !modifier.trim().is_empty());
+            !(name_empty && has_modifier)
+        }) {
+            if trace::is_diagnostics_enabled() {
+                trace::record_grammar(trace::GrammarOutcome::Parsed(ingredient.name.clone()));
+            }
+            (ingredient, false)
+        } else {
+            if trace::is_diagnostics_enabled() {
+                trace::record_grammar(trace::GrammarOutcome::FellBack);
+            }
+            (fallback_ingredient(input), true)
+        }
     }
 
     pub(super) fn parse_core_ingredient(&self, input: &str) -> Option<Ingredient> {
@@ -154,13 +156,21 @@ impl IngredientParser {
         )
     }
 
-    /// Decompose a line into grammar-stage field spans for the `--explain`
+    /// Decompose a line into final-field spans for the `--explain`
     /// decomposition view.
     ///
-    /// Returns the normalized string the spans index into, plus one
-    /// [`FieldSpan`](crate::FieldSpan) per amount region / name / modifier the
-    /// grammar carved. `spans` is empty when a whole-line recognizer or the
-    /// name-only fallback produced the result (no core-grammar carving to show).
+    /// Returns the **authored** line, unmodified, plus one
+    /// [`FieldSpan`](crate::FieldSpan) per contiguous run of it that ended up in
+    /// the parsed amount / name / modifier. The spans describe where each *final*
+    /// field came from, after every stage has run — so a prep word refine moved
+    /// out of the name is labeled Modifier, where the earlier grammar-stage carve
+    /// would still have shown it inside the name.
+    ///
+    /// Every parse path produces spans, recognizers and the name-only fallback
+    /// included; `spans` is empty only for a line with no alphanumeric text to
+    /// attribute. Spans are ordered by position, never overlap, and need not
+    /// cover the whole line — punctuation and any word no field kept (a dropped
+    /// cross-reference, say) are left unlabeled.
     ///
     /// # Example
     ///
@@ -181,26 +191,160 @@ impl IngredientParser {
     /// assert_eq!(decomp.spans[2].text, "sifted");
     /// ```
     pub fn decompose(&self, raw: &str) -> crate::Decomposition {
-        let normalized = normalize_input(raw);
-        let (cleaned, _optional) = strip_optional_note(normalized.as_ref());
-        // Only the core grammar carves fields into spans; a whole-line
-        // recognizer produces the result without the field grammar running.
-        let spans = if self.run_recognizers(cleaned.as_ref()).is_some() {
-            Vec::new()
-        } else {
-            self.grammar_field_spans(cleaned.as_ref())
-        };
-        crate::Decomposition {
-            source: cleaned.into_owned(),
+        self.parse_line(
+            raw,
+            ParseOptions {
+                decomposition: true,
+                trace: TraceDetail::None,
+            },
+        )
+        .decomposition
+        // Always `Some` for `decomposition: true`; defaulting keeps the workspace
+        // `expect_used = "deny"` lint satisfied without a panic path.
+        .unwrap_or_default()
+    }
+
+    fn final_decomposition(&self, raw: &str, ingredient: &Ingredient) -> Decomposition {
+        let tokens = source_tokens(raw);
+        let mut labels = vec![None; tokens.len()];
+        claim_text(&tokens, &mut labels, &ingredient.name, Field::Name);
+        if let Some(modifier) = ingredient.modifier.as_deref() {
+            claim_text(&tokens, &mut labels, modifier, Field::Modifier);
+        }
+
+        for index in 0..tokens.len() {
+            if labels[index].is_some() {
+                continue;
+            }
+            let token = tokens[index].text.to_lowercase();
+            let number = token
+                .chars()
+                .any(|ch| ch.is_ascii_digit() || crate::fraction::is_vulgar(ch))
+                || crate::parser::vocab::SPELLED_COUNTS.contains(&token.as_str());
+            let unit = crate::unit::is_valid(&self.units, &token)
+                || token_is_amount_unit(&token, &ingredient.amounts)
+                // `rewrite_batch_of_to_recipe` turns an authored "N batch(es) of"
+                // into "N recipe", so the amount records "recipe" and the word
+                // actually on the line matches nothing above.
+                || matches!(token.as_str(), "batch" | "batches");
+            if number || unit {
+                labels[index] = Some(Field::Amount);
+            }
+        }
+
+        // Join an unclaimed measurement qualifier to adjacent amount tokens: the
+        // grammar consumed and discarded the word, so it belongs to the Amount it
+        // qualified. Driven off the vocab list the grammar itself accepts, so the
+        // two cannot drift.
+        for index in 0..tokens.len() {
+            if labels[index].is_none()
+                && crate::parser::vocab::AMOUNT_QUALIFIERS
+                    .contains(&tokens[index].text.to_lowercase().as_str())
+                && ((index > 0 && labels[index - 1] == Some(Field::Amount))
+                    || labels.get(index + 1) == Some(&Some(Field::Amount)))
+            {
+                labels[index] = Some(Field::Amount);
+            }
+        }
+
+        // `spans_from_labels` walks tokens in source order, so spans arrive sorted.
+        let spans = spans_from_labels(raw, &tokens, &labels);
+        Decomposition {
+            source: raw.to_string(),
             spans,
         }
     }
+}
 
-    /// Grammar-stage field spans, derived from the clause byte ranges. Empty
-    /// vec if the parse fails.
-    fn grammar_field_spans(&self, input: &str) -> Vec<crate::FieldSpan> {
-        self.segmented_field_spans(input)
+struct SourceToken<'a> {
+    text: &'a str,
+    range: std::ops::Range<usize>,
+}
+
+fn source_tokens(source: &str) -> Vec<SourceToken<'_>> {
+    let mut tokens = Vec::new();
+    let mut start = None;
+    for (index, ch) in source.char_indices() {
+        if ch.is_alphanumeric() || crate::fraction::is_vulgar(ch) {
+            start.get_or_insert(index);
+        } else if let Some(token_start) = start.take() {
+            tokens.push(SourceToken {
+                text: &source[token_start..index],
+                range: token_start..index,
+            });
+        }
     }
+    if let Some(token_start) = start {
+        tokens.push(SourceToken {
+            text: &source[token_start..],
+            range: token_start..source.len(),
+        });
+    }
+    tokens
+}
+
+/// Whether an unclaimed source token spells the unit of one of the parsed
+/// amounts.
+///
+/// The unit vocabulary and [`Unit::from_str`](crate::unit::Unit) only recognize
+/// *measurement* units, but a count unit can be any word the grammar accepted:
+/// a size word ("1 medium onion" parses to `{medium: 1}`), a "batch", a
+/// "sprig". Asking the parse output — rather than re-deriving a unit set —
+/// keeps the label in step with whatever the grammar actually produced.
+/// Compared through [`singular`] so an authored "cups"/"batches" still matches a
+/// stored "cup"/"batch".
+fn token_is_amount_unit(token: &str, amounts: &[crate::unit::Measure]) -> bool {
+    let token = singular(token);
+    amounts
+        .iter()
+        .any(|amount| singular(&amount.unit().to_str()) == token)
+}
+
+fn value_tokens(value: &str) -> impl Iterator<Item = String> + '_ {
+    value
+        .split(|ch: char| !ch.is_alphanumeric() && !crate::fraction::is_vulgar(ch))
+        .filter(|token| !token.is_empty())
+        .map(str::to_lowercase)
+}
+
+fn claim_text(tokens: &[SourceToken<'_>], labels: &mut [Option<Field>], value: &str, field: Field) {
+    let mut cursor = 0;
+    for wanted in value_tokens(value) {
+        let found = (cursor..tokens.len())
+            .chain(0..cursor)
+            .find(|index| labels[*index].is_none() && tokens[*index].text.to_lowercase() == wanted);
+        if let Some(index) = found {
+            labels[index] = Some(field);
+            cursor = index + 1;
+        }
+    }
+}
+
+fn spans_from_labels(
+    source: &str,
+    tokens: &[SourceToken<'_>],
+    labels: &[Option<Field>],
+) -> Vec<FieldSpan> {
+    let mut spans: Vec<FieldSpan> = Vec::new();
+    for (token, field) in tokens.iter().zip(labels) {
+        let Some(field) = *field else { continue };
+        if let Some(previous) = spans.last_mut()
+            && previous.field == field
+            && source[previous.range.end..token.range.start]
+                .chars()
+                .all(|ch| !ch.is_alphanumeric())
+        {
+            previous.range.end = token.range.end;
+            previous.text = source[previous.range.clone()].to_string();
+            continue;
+        }
+        spans.push(FieldSpan {
+            field,
+            range: token.range.clone(),
+            text: token.text.to_string(),
+        });
+    }
+    spans
 }
 
 /// A name-only ingredient for a line the grammar could not parse.
@@ -230,22 +374,41 @@ mod decompose_tests {
             (Field::Modifier, "sifted"),
         ]
     )]
-    // Grammar-stage carve: prep adjectives stay in the name span here; refine
-    // moves them later (the --explain stage view shows that separately).
+    // Final-field provenance: refine moved the prep phrase to Modifier.
     #[case(
         "2 chopped fresh basil",
-        &[(Field::Amount, "2"), (Field::Name, "chopped fresh basil")]
+        &[
+            (Field::Amount, "2"),
+            (Field::Modifier, "chopped fresh"),
+            (Field::Name, "basil")
+        ]
     )]
     #[case("salt", &[(Field::Name, "salt")])]
-    // A multi-clause tail yields one modifier span per clause on the
-    // segmented path (the legacy grammar produced a single span here).
+    // A size word is the count unit ("1 medium onion" parses to `{medium: 1}`),
+    // so it belongs to the Amount span rather than reading as an unlabeled hole.
+    #[case(
+        "1 medium onion, diced",
+        &[
+            (Field::Amount, "1 medium"),
+            (Field::Name, "onion"),
+            (Field::Modifier, "diced"),
+        ]
+    )]
+    #[case("2 large eggs", &[(Field::Amount, "2 large"), (Field::Name, "eggs")])]
+    #[case("3 small potatoes", &[(Field::Amount, "3 small"), (Field::Name, "potatoes")])]
+    // "N batch(es) of X" is normalized to "N recipe X", so the authored unit word
+    // never appears in the parsed amount — it is labeled from the rewrite instead.
+    #[case(
+        "1 batch of Marshmallow Meringue",
+        &[(Field::Amount, "1 batch"), (Field::Name, "Marshmallow Meringue")]
+    )]
+    // Contiguous authored text assigned to one final field is one span.
     #[case(
         "1 cup flour, sifted, divided",
         &[
             (Field::Amount, "1 cup"),
             (Field::Name, "flour"),
-            (Field::Modifier, "sifted"),
-            (Field::Modifier, "divided"),
+            (Field::Modifier, "sifted, divided"),
         ]
     )]
     fn decompose_carves_fields(#[case] input: &str, #[case] expected: Expected) {
@@ -271,15 +434,34 @@ mod decompose_tests {
     }
 
     #[test]
-    fn recognizer_handled_line_has_no_grammar_spans() {
-        // "Juice of 1 lemon" is produced by the x_of_construction recognizer,
-        // not the field grammar — so there are no grammar-stage spans to show.
+    fn recognizer_produces_final_field_spans() {
         let parser = IngredientParser::new();
         let decomp = parser.decompose("Juice of 1 lemon");
-        assert!(
-            decomp.spans.is_empty(),
-            "recognizer result should yield no spans, got {:?}",
-            decomp.spans
+        let fields: Vec<(Field, &str)> = decomp
+            .spans
+            .iter()
+            .map(|span| (span.field, span.text.as_str()))
+            .collect();
+        assert_eq!(
+            fields,
+            vec![
+                (Field::Modifier, "Juice of"),
+                (Field::Amount, "1"),
+                (Field::Name, "lemon")
+            ]
         );
+    }
+
+    #[rstest]
+    #[case::bullet("• 2 cups flour", "• 2 cups flour")]
+    #[case::optional("2 cups flour (optional)", "2 cups flour (optional)")]
+    #[case::utf8("½ cup jalapeño", "½ cup jalapeño")]
+    #[case::fallback("mystery ✨ ingredient", "mystery ✨ ingredient")]
+    fn decomposition_indexes_the_authored_line(#[case] input: &str, #[case] source: &str) {
+        let decomp = IngredientParser::new().decompose(input);
+        assert_eq!(decomp.source, source);
+        for span in decomp.spans {
+            assert_eq!(&decomp.source[span.range.clone()], span.text);
+        }
     }
 }

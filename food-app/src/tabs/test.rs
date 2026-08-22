@@ -7,7 +7,7 @@ use egui_extras::{Column, TableBuilder};
 use ingredient::ingredient::Ingredient;
 use ingredient::trace::{GrammarOutcome, ParseTrace, StageReport};
 use ingredient::util::truncate_str;
-use ingredient::{Confidence, ParseNotes};
+use ingredient::{Confidence, ParseNotes, ParseOptions, TraceDetail};
 
 use super::debug::{TraceTreeContext, show_trace_tree};
 
@@ -183,9 +183,7 @@ impl TestTab {
         self.show_table(ui);
     }
 
-    /// Parse every non-empty input line. Each line is parsed twice (traced +
-    /// diagnostics) — fine for an interactive tool, and the traced parse is
-    /// the expensive one anyway.
+    /// Parse every non-empty input line once, collecting the full debug view.
     fn parse(&mut self) {
         let parser = ingredient::IngredientParser::new();
         self.results = self
@@ -194,14 +192,19 @@ impl TestTab {
             .map(str::trim)
             .filter(|l| !l.is_empty())
             .map(|line| {
-                let traced = parser.parse_with_trace(line);
-                let diagnostics = parser.from_str(line).parse_notes;
+                let execution = parser.parse_line(
+                    line,
+                    ParseOptions {
+                        decomposition: false,
+                        trace: TraceDetail::Full,
+                    },
+                );
                 LineResult {
                     input: line.to_string(),
-                    stages: traced.trace.stages(),
-                    ingredient: traced.result.ok(),
-                    diagnostics,
-                    trace: traced.trace,
+                    stages: execution.stages.unwrap_or_default(),
+                    diagnostics: execution.ingredient.parse_notes,
+                    ingredient: Some(execution.ingredient),
+                    trace: execution.trace.unwrap_or_else(|| ParseTrace::new(line)),
                 }
             })
             .collect();

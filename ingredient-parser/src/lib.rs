@@ -241,8 +241,8 @@ pub fn from_str(input: &str) -> Ingredient {
     DEFAULT_PARSER.from_str(input)
 }
 
-/// Decompose a line into grammar-stage field spans, using the shared default
-/// parser. See [`IngredientParser::decompose`].
+/// Decompose a line into final-field spans over the authored source, using the
+/// shared default parser. See [`IngredientParser::decompose`].
 ///
 /// ```
 /// use ingredient::{decompose, Field};
@@ -251,6 +251,16 @@ pub fn from_str(input: &str) -> Ingredient {
 /// ```
 pub fn decompose(input: &str) -> Decomposition {
     DEFAULT_PARSER.decompose(input)
+}
+
+/// Execute the pipeline once with the shared default parser and return every
+/// requested observation. See [`IngredientParser::parse_line`].
+///
+/// Prefer this to `IngredientParser::new().parse_line(..)` at a call boundary
+/// that runs per keystroke or per line — constructing a parser builds two
+/// `HashSet<String>` of default vocab every time.
+pub fn parse_line(input: &str, options: ParseOptions) -> ParseExecution {
+    DEFAULT_PARSER.parse_line(input, options)
 }
 
 /// Shared default parser used by the free [`from_str`]. Building an
@@ -401,14 +411,13 @@ impl ParseNotes {
 pub enum Field {
     /// A measurement region (a primary, bracketed, or parenthesized amount).
     Amount,
-    /// The ingredient name, as the grammar carved it (before refine).
+    /// Authored text that became the final ingredient name.
     Name,
-    /// The trailing modifier text (after the first `", "`).
+    /// Authored text that became the final modifier.
     Modifier,
 }
 
-/// A grammar-stage byte span: which slice of the normalized input the grammar
-/// assigned to a given [`Field`]. `range` indexes into [`Decomposition::source`].
+/// A final-field byte span into the Ingredient line exactly as authored.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FieldSpan {
     /// Which output field this span became.
@@ -419,16 +428,43 @@ pub struct FieldSpan {
     pub text: String,
 }
 
-/// How the grammar carved a line into fields, for the `--explain` view. See
+/// Which authored regions became final fields, for the `--explain` view. See
 /// [`decompose`](IngredientParser::decompose).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Decomposition {
-    /// The normalized string the spans index into (what the grammar parsed).
+    /// The Ingredient line byte-for-byte as authored.
     pub source: String,
-    /// Grammar-stage field spans, in input order. Empty when a whole-line
-    /// recognizer or the name-only fallback produced the result (no grammar
-    /// carving to show).
+    /// Ordered, non-overlapping final-field spans. A field may be discontinuous;
+    /// discarded and synthetic text is omitted.
     pub spans: Vec<FieldSpan>,
+}
+
+/// Amount of execution diagnostics to collect for [`IngredientParser::parse_line`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TraceDetail {
+    /// Ordinary hot path: no stage or trace storage.
+    #[default]
+    None,
+    /// Record the authoritative ordered stage report only.
+    Stages,
+    /// Record both the stage report and detailed grammar trace.
+    Full,
+}
+
+/// Optional observations requested for one Ingredient-line execution.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ParseOptions {
+    pub decomposition: bool,
+    pub trace: TraceDetail,
+}
+
+/// All products derived from one execution of the Ingredient-line pipeline.
+#[derive(Debug, Clone)]
+pub struct ParseExecution {
+    pub ingredient: Ingredient,
+    pub decomposition: Option<Decomposition>,
+    pub stages: Option<trace::StageReport>,
+    pub trace: Option<trace::ParseTrace>,
 }
 
 /// Customizable ingredient parser with configurable units and adjectives
@@ -528,7 +564,7 @@ impl IngredientParser {
     /// assert_eq!(from_str("one whole egg").to_string(), "1 egg");
     /// ```
     pub fn from_str(&self, input: &str) -> Ingredient {
-        self.parse_ingredient_line(input)
+        self.parse_line(input, ParseOptions::default()).ingredient
     }
 
     /// Parse an ingredient string with debug tracing enabled
@@ -564,7 +600,19 @@ impl IngredientParser {
     /// }
     /// ```
     pub fn parse_with_trace(&self, input: &str) -> trace::ParseWithTrace<Ingredient> {
-        self.parse_ingredient_line_with_trace(input)
+        let execution = self.parse_line(
+            input,
+            ParseOptions {
+                decomposition: false,
+                trace: TraceDetail::Full,
+            },
+        );
+        trace::ParseWithTrace {
+            result: Ok(execution.ingredient),
+            trace: execution
+                .trace
+                .unwrap_or_else(|| trace::ParseTrace::new(input)),
+        }
     }
 
     /// Parse a string containing one or more measurements, e.g. `12 grams` or

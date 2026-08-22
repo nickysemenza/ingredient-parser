@@ -19,14 +19,13 @@ export const Demo: React.FC = () => {
     defaultValue: DEFAULT_RICH_TEXT,
   });
 
-  const parsed = useMemo(
-    () => (text ? wasm.parse_ingredient(text) : undefined),
+  const execution = useMemo(
+    () =>
+      text ? wasm.parse_ingredient_with_decomposition(text) : undefined,
     [text]
   );
-  const decomp = useMemo(
-    () => (text ? wasm.decompose_ingredient(text) : undefined),
-    [text]
-  );
+  const parsed = execution?.ingredient;
+  const decomp = execution?.decomposition;
   const parsedRich = useMemo(
     () =>
       richText ? safeParseRichText(richText, DEMO_INGREDIENT_NAMES) : undefined,
