@@ -689,10 +689,18 @@ pub struct EpubMeta {
     pub authors: Vec<String>,
     /// OPF `<dc:subject>` tags (Calibre genres). Often empty.
     pub subjects: Vec<String>,
+    /// OPF `<dc:identifier>` values, verbatim and unfiltered. A book usually
+    /// declares several in different schemes — `urn:uuid:...`, `urn:isbn:...`,
+    /// a bare ISBN, a Calibre id — and the OPF's `unique-identifier` attribute
+    /// names whichever one it considers canonical. Nothing here interprets or
+    /// ranks them: which scheme a consumer wants is the consumer's business,
+    /// and dropping the ones this crate doesn't recognise would be lossy.
+    pub identifiers: Vec<String>,
 }
 
-/// Extract title/authors/subjects from an already-open EPUB's OPF. Shared by the
-/// wasm-safe [`epub_metadata`] and the file-backed [`book_metadata`].
+/// Extract title/authors/subjects/identifiers from an already-open EPUB's OPF.
+/// Shared by the wasm-safe [`epub_metadata`] and the file-backed
+/// [`book_metadata`].
 pub(crate) fn meta_from_doc<R: std::io::Read + std::io::Seek>(doc: &EpubDoc<R>) -> EpubMeta {
     let collect = |prop: &str| -> Vec<String> {
         doc.metadata
@@ -710,10 +718,11 @@ pub(crate) fn meta_from_doc<R: std::io::Read + std::io::Seek>(doc: &EpubDoc<R>) 
             .unwrap_or_default(),
         authors: collect("creator"),
         subjects: collect("subject"),
+        identifiers: collect("identifier"),
     }
 }
 
-/// Title/authors/subjects from an in-memory EPUB's OPF — the wasm-safe metadata
+/// Title/authors/subjects/identifiers from an in-memory EPUB's OPF — the wasm-safe metadata
 /// read (`EpubDoc::from_reader`, no fs). `None` if the bytes aren't a readable
 /// EPUB. Pure: parses only the OPF the EPUB loads on open.
 pub fn epub_metadata(bytes: &[u8]) -> Option<EpubMeta> {

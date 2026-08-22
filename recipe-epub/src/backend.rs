@@ -1322,6 +1322,17 @@ mod tests {
         zw.finish().unwrap().into_inner()
     }
 
+    /// `dc:identifier` reaches `EpubMeta` verbatim. It is the only book-level
+    /// field that can carry an ISBN, which is what lets a consumer match an
+    /// imported cookbook to the physical copy by identity instead of by title
+    /// — and title matching is exactly what confuses two different books that
+    /// share a name.
+    #[test]
+    fn epub_metadata_exposes_dc_identifier() {
+        let meta = crate::epub_metadata(&minimal_epub()).unwrap();
+        assert_eq!(meta.identifiers, vec!["urn:uuid:failing-book".to_string()]);
+    }
+
     /// A chunk whose extraction fails (no escalation configured) must be
     /// counted in `chunks_failed` and NOT silently treated as "found nothing
     /// here" — the whole point of the counter (see the `backend.rs:300`
