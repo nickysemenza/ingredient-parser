@@ -11,13 +11,11 @@
 use std::{collections::HashSet, str::FromStr};
 
 use ingredient::{
-    Decomposition, Field, decompose as decompose_str, from_str as parse_ingredient_str,
+    Decomposition, Field, ParseOptions, TraceDetail, decompose as decompose_str,
+    from_str as parse_ingredient_str,
     ingredient::Ingredient,
     rich_text::{Chunk, RichParser},
-    unit::{
-        Measure, MeasureKind, convert_measure_with_graph, is_valid, make_graph,
-        mapping_target_kind, print_graph,
-    },
+    unit::{ConversionTarget, Measure, MeasureConversions, MeasureKind, Unit, is_valid},
     unit_mapping::{ParsedUnitMapping, parse_unit_mapping as parse_unit_mapping_internal},
     util::truncate_3_decimals,
 };
@@ -332,7 +330,7 @@ pub struct RichItems(pub Vec<RichItem>);
 
 /// Which output field a decomposition segment became (mirrors `Field`). Renders
 /// as the TS string union `"amount" | "name" | "modifier"`.
-#[derive(Tsify, Serialize)]
+#[derive(Tsify, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum WField {
     Amount,
@@ -361,9 +359,11 @@ pub struct WSegment {
     pub field: Option<WField>,
 }
 
-/// How the grammar carved a line into fields (mirrors `Decomposition`), as an
-/// ordered list of segments covering the whole source. `segments` carries no
-/// labeled entries when a recognizer or name-only fallback produced the result.
+/// Which part of the authored line ended up in each parsed field (mirrors
+/// `Decomposition`), as an ordered list of segments covering the whole source.
+/// Labeled segments describe the *final* fields, after every parse stage has run;
+/// unlabeled segments are the punctuation and dropped text in between. Every
+/// parse path produces labels, recognizers and the name-only fallback included.
 /// Into-only.
 #[derive(Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
@@ -433,17 +433,41 @@ fn to_js<T: Serialize>(v: &T, ctx: &str) -> Result<JsValue, String> {
 
 // Public API
 
+/// Ingredient and final-field decomposition produced by one parser execution.
+#[derive(Tsify, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct WIngredientExecution {
+    pub ingredient: WIngredient,
+    pub decomposition: WDecomposition,
+}
+
 #[wasm_bindgen]
 pub fn parse_ingredient(input: &str) -> WIngredient {
     parse_ingredient_str(input).into()
 }
 
-/// Decompose a line into ordered `{text, field?}` segments showing how the
-/// grammar carved it into amount / name / modifier spans (for the demo's
+/// Decompose a line into ordered `{text, field?}` segments showing which part of
+/// it became the parsed amount / name / modifier (for the demo's
 /// diagnostic-style annotation).
 #[wasm_bindgen]
 pub fn decompose_ingredient(input: &str) -> WDecomposition {
     decompose_str(input).into()
+}
+
+/// Parse once and return both the Ingredient and authored-source decomposition.
+#[wasm_bindgen]
+pub fn parse_ingredient_with_decomposition(input: &str) -> WIngredientExecution {
+    let execution = ingredient::parse_line(
+        input,
+        ParseOptions {
+            decomposition: true,
+            trace: TraceDetail::None,
+        },
+    );
+    WIngredientExecution {
+        ingredient: execution.ingredient.into(),
+        decomposition: execution.decomposition.unwrap_or_default().into(),
+    }
 }
 
 #[wasm_bindgen]
@@ -512,12 +536,14 @@ pub fn conv_amount_to_unit(
 ) -> Result<WAmount, String> {
     let pairs = mappings.to_pairs();
     let measure = amount.to_measure();
-    let kind = mapping_target_kind(&target_unit);
+    // `Unit::from_str` is infallible — it returns `Unit::Other` for an unknown
+    // word — so the fallback is unreachable; `unwrap_or_else` keeps it from
+    // allocating a throwaway `String` on every call anyway.
+    let unit = Unit::from_str(&target_unit).unwrap_or_else(|_| Unit::Other(target_unit.clone()));
 
-    measure
-        .convert_measure_via_mappings(kind, &pairs)
+    MeasureConversions::new(&pairs)
+        .convert(&measure, ConversionTarget::Unit(unit))
         .ok_or_else(|| format!("Failed to convert to '{target_unit}'"))
-        .map(|m| m.denormalize())
         .map(WAmount::from)
 }
 
@@ -533,7 +559,7 @@ pub fn conv_amount_to_nutrients(
     use wasm_bindgen::JsCast;
 
     let measure = amount.to_measure();
-    let graph = make_graph(&mappings.to_pairs());
+    let conversions = MeasureConversions::new(&mappings.to_pairs());
 
     let result = js_sys::Object::new();
     for target in nutrient_targets {
@@ -541,7 +567,7 @@ pub fn conv_amount_to_nutrients(
         // owned string is used once rather than cloned per target.
         let key = JsValue::from_str(&target);
         let kind = MeasureKind::Nutrient(target);
-        let converted = convert_measure_with_graph(&measure, kind, &graph);
+        let converted = conversions.convert(&measure, ConversionTarget::Kind(kind));
 
         let js_value = match converted {
             Some(m) => to_js(&WAmount::from(&m), "amount")?,
@@ -557,7 +583,7 @@ pub fn conv_amount_to_nutrients(
 
 #[wasm_bindgen]
 pub fn graph_unit_mappings(mappings: WUnitMappings) -> String {
-    print_graph(&make_graph(&mappings.to_pairs()))
+    MeasureConversions::new(&mappings.to_pairs()).to_dot()
 }
 
 #[wasm_bindgen]
@@ -718,13 +744,21 @@ mod tests {
         assert!((converted.value - 2.0).abs() < 1e-9);
     }
 
-    /// A recognizer-handled line has no grammar carve → all segments unlabeled,
-    /// still reconstructing the source.
+    /// Recognizers produce the same final-field provenance as the core grammar.
     #[test]
-    fn recognizer_line_has_no_labeled_segments() {
+    fn recognizer_line_has_labeled_segments() {
         let w: WDecomposition = decompose_str("Juice of 1 lemon").into();
         let joined: String = w.segments.iter().map(|s| s.text.as_str()).collect();
         assert_eq!(joined, w.source);
-        assert!(w.segments.iter().all(|s| s.field.is_none()));
+        assert!(w.segments.iter().any(|s| s.field == Some(WField::Name)));
+        assert!(w.segments.iter().any(|s| s.field == Some(WField::Amount)));
+        assert!(w.segments.iter().any(|s| s.field == Some(WField::Modifier)));
+    }
+
+    #[test]
+    fn combined_parse_returns_both_views() {
+        let execution = parse_ingredient_with_decomposition("2 cups flour, sifted");
+        assert_eq!(execution.ingredient.name, "flour");
+        assert_eq!(execution.decomposition.source, "2 cups flour, sifted");
     }
 }

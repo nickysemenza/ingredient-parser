@@ -18,8 +18,8 @@
 //! pipeline — refine now only works *inside* the name.
 //!
 //! Splitting and classification are pure over the source text; byte ranges into
-//! the source are preserved on every clause, and the decomposition view's
-//! field spans derive from them ([`IngredientParser::segmented_field_spans`]).
+//! the source are preserved on every clause, so assembly can attribute each
+//! clause back to the text it came from.
 
 use std::ops::Range;
 
@@ -29,11 +29,14 @@ use nom::combinator::opt;
 
 use crate::IngredientParser;
 use crate::parser::ir::{ModifierPart, ParsedIngredient};
+use crate::parser::normalize::collapse_whitespace;
 use crate::parser::paren::{self, ParenKind};
 use crate::parser::token;
 use crate::parser::vocab;
 use crate::parser::{MeasurementMode, MeasurementParser, Res, parse_ingredient_text};
-use crate::unit::Measure;
+use crate::unit::{self, Measure};
+
+mod repairs;
 
 /// What a single clause *is*, judged from its paren-free text by the ordered
 /// [`CLASSIFIER`] table (first matching row wins). Parenthetical sub-clauses
@@ -532,13 +535,15 @@ impl IngredientParser {
 
     fn run_assembly_repair(&self, repair: &AssemblyRepair, parsed: &mut ParsedIngredient) {
         let AssemblyRepair { run, .. } = *repair;
-        if !crate::trace::is_tracing_enabled() {
+        if !crate::trace::is_diagnostics_enabled() {
             run(self, parsed);
             return;
         }
         let before = parsed.clone();
         run(self, parsed);
+        let changed = *parsed != before;
         crate::trace::trace_on_change(
+            crate::trace::Stage::Segment,
             repair.id().as_str(),
             &before.name,
             &format!(
@@ -546,7 +551,7 @@ impl IngredientParser {
                 parsed.name,
                 parsed.modifier_string().as_deref().unwrap_or("-")
             ),
-            *parsed != before,
+            changed,
         );
     }
 
@@ -563,83 +568,13 @@ impl IngredientParser {
             self.run_assembly_repair(repair, parsed);
         }
     }
-
-    /// Decomposition field spans for the segmented path — the clause-derived
-    /// replacement for the legacy `consumed`-wrapper span capture. Spans index
-    /// into `input` (the normalized, optional-stripped line): the leading
-    /// amounts region and a hoisted name-adjacent amounts parenthetical are
-    /// [`Field::Amount`](crate::Field::Amount) spans, the carved name a
-    /// [`Field::Name`](crate::Field::Name) span, and each modifier part its
-    /// own [`Field::Modifier`](crate::Field::Modifier) span (a multi-clause
-    /// modifier yields multiple spans). Empty when the parse fails.
-    pub(crate) fn segmented_field_spans(&self, input: &str) -> Vec<crate::FieldSpan> {
-        use crate::{Field, FieldSpan};
-
-        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
-        let Ok((rest, _)) = (
-            opt(|a| mp.parse_measurement_list(a)),
-            space0,
-            opt(|a| mp.parse_bracketed_amounts(a)),
-            space0,
-        )
-            .parse(input)
-        else {
-            return Vec::new();
-        };
-        let Ok(carve) = self.carve(rest, &mp) else {
-            return Vec::new();
-        };
-
-        // `rest` is a suffix slice of `input`; offset clause/carve ranges by it.
-        let base = rest.as_ptr() as usize - input.as_ptr() as usize;
-        let span_of = |range: Range<usize>, field: Field| -> Option<FieldSpan> {
-            let slice = &input[range.clone()];
-            let trimmed = slice.trim();
-            if trimmed.is_empty() {
-                return None;
-            }
-            let start = range.start + (trimmed.as_ptr() as usize - slice.as_ptr() as usize);
-            Some(FieldSpan {
-                field,
-                range: start..start + trimmed.len(),
-                text: trimmed.to_string(),
-            })
-        };
-
-        let mut spans = Vec::new();
-        // Leading amounts region (primary + bracketed as one span).
-        spans.extend(span_of(0..base, Field::Amount));
-        // Carved name.
-        spans.extend(span_of(base..base + carve.name_end, Field::Name));
-        // Hoisted name-adjacent amounts parenthetical.
-        if let Some((range, _)) = &carve.hoisted {
-            spans.extend(span_of(base + range.start..base + range.end, Field::Amount));
-        }
-        // Modifier: one span per assembled part (mirrors `assemble`'s
-        // keep-whole / split decision so spans match the parts).
-        let name = rest[..carve.name_end].trim();
-        let tail = &rest[carve.tail_from..];
-        let keep_tail_whole = self.keep_tail_whole(name, tail);
-        if keep_tail_whole {
-            spans.extend(span_of(
-                base + carve.tail_from..input.len(),
-                Field::Modifier,
-            ));
-        } else {
-            let clauses = self.segmenter().segment(rest);
-            for r in tail_part_ranges(rest, &clauses, carve.tail_from) {
-                spans.extend(span_of(base + r.start..base + r.end, Field::Modifier));
-            }
-        }
-        spans
-    }
 }
 
 /// Emit one trace node per clause decision (and one per attached
 /// parenthetical), so `--explain` and the stage report can show how the
 /// segmenter read the line. No-ops when tracing is disabled.
 fn trace_clauses(source: &str, clauses: &[Clause<'_>]) {
-    if !crate::trace::is_tracing_enabled() {
+    if !crate::trace::is_diagnostics_enabled() {
         return;
     }
     for clause in clauses {
@@ -647,9 +582,16 @@ fn trace_clauses(source: &str, clauses: &[Clause<'_>]) {
         if text.is_empty() {
             continue;
         }
-        crate::trace::trace_on_change(clause.kind.as_str(), text, &clause.stripped, true);
+        crate::trace::trace_on_change(
+            crate::trace::Stage::Segment,
+            clause.kind.as_str(),
+            text,
+            &clause.stripped,
+            true,
+        );
         for paren in &clause.parens {
             crate::trace::trace_on_change(
+                crate::trace::Stage::Segment,
                 ClauseKind::Parenthetical(paren.kind).as_str(),
                 &format!("({})", paren.inner),
                 paren_kind_label(paren.kind),
@@ -680,11 +622,10 @@ type Repair = fn(&IngredientParser, &mut ParsedIngredient);
 
 crate::define_stage_pipeline! {
     /// The ordered clause-structure repairs the segmentation stage owns — the
-    /// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`. The
-    /// functions still live in `refine::{recover, alternatives, amounts}` (their
-    /// guards and unit tests are unchanged); only the caller moved: they now run
-    /// once at assembly, before the name-internal refine passes, in the same
-    /// relative order they held in the old pipeline.
+    /// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`.
+    /// Every implementation is housed by this module; they run once at
+    /// assembly, before the name-internal refine passes, in the same relative
+    /// order they held in the old pipeline.
     ///
     /// That order is load-bearing — see [`REPAIR_ORDER_CONSTRAINTS`].
     pub(crate) enum RepairId,

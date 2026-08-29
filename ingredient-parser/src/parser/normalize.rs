@@ -337,7 +337,13 @@ fn apply_rewrite<'a>(acc: Cow<'a, str>, rewrite: &RewriteEntry) -> Cow<'a, str> 
     let RewriteEntry { run, .. } = *rewrite;
     match run(acc.as_ref()) {
         Cow::Owned(rewritten) => {
-            crate::trace::trace_on_change(rewrite.id().as_str(), acc.as_ref(), &rewritten, true);
+            crate::trace::trace_on_change(
+                crate::trace::Stage::Normalize,
+                rewrite.id().as_str(),
+                acc.as_ref(),
+                &rewritten,
+                true,
+            );
             Cow::Owned(rewritten)
         }
         Cow::Borrowed(_) => acc,

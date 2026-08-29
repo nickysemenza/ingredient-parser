@@ -18,6 +18,279 @@ use tracing::debug;
 
 pub type MeasureGraph = Graph<Unit, EdgeFactor>;
 
+/// Typed destination for the deep conversion module.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConversionTarget {
+    /// Convert to the kind's canonical/best-fit display unit.
+    Kind(MeasureKind),
+    /// Convert to this exact canonical unit spelling.
+    Unit(Unit),
+}
+
+/// Why a user mapping was excluded — wholly or in one direction — while
+/// compiling conversions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RejectedMappingReason {
+    /// The reference (`from`) side is zero or either side is negative, so the
+    /// mapping states nothing usable. Dropped entirely.
+    NonPositiveBound,
+    /// A bound is NaN or infinite. Dropped entirely.
+    NonFiniteBound,
+    /// The measured (`to`) side is zero — a meaningful reading ("100 g of this
+    /// has 0 g fat", "this batch cost $0"), so the forward edge is kept and only
+    /// the reverse direction is dropped, since inverting it would divide by zero.
+    /// The mapping still converts `from` → `to`.
+    NonInvertibleBound,
+}
+
+/// A mapping excluded while compiling, and its stable input position.
+///
+/// [`RejectedMappingReason::NonInvertibleBound`] marks a *partial* exclusion —
+/// the mapping is compiled one-way. Every other reason means it was dropped.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RejectedMapping {
+    pub index: usize,
+    pub from: Measure,
+    pub to: Measure,
+    pub reason: RejectedMappingReason,
+}
+
+/// Origin of one conversion path hop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversionOrigin {
+    Fixed,
+    User,
+}
+
+/// Interval-aware hop in a conversion report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversionHop {
+    pub from_unit: Unit,
+    pub to_unit: Unit,
+    pub factor: EdgeFactor,
+    pub origin: ConversionOrigin,
+}
+
+/// Why a conversion could not be completed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversionFailure {
+    SourceUnavailable,
+    TargetUnavailable,
+    NoPath,
+}
+
+/// Rich diagnostic result from [`MeasureConversions::explain`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversionReport {
+    pub result: Result<Measure, ConversionFailure>,
+    pub hops: Vec<ConversionHop>,
+    pub rejected_mappings: Vec<RejectedMapping>,
+}
+
+/// Reusable, opaque conversion policy compiled from user mappings.
+///
+/// Petgraph remains exposed through the legacy [`MeasureGraph`] alias for
+/// strict source compatibility; ordinary callers use this deep module and no
+/// longer coordinate graph construction, canonical targets, reporting, and
+/// visualization themselves.
+#[derive(Debug, Clone)]
+pub struct MeasureConversions {
+    graph: MeasureGraph,
+    rejected: Vec<RejectedMapping>,
+}
+
+/// The mapping-admission policy, shared by [`make_graph`] and
+/// [`MeasureConversions`] so the two entry points can never disagree about the
+/// same mapping set.
+///
+/// `None` means "compile both directions". A zero on the *measured* (`to`) side
+/// is a reading, not a defect — a food really can carry 0 g of fat and a water
+/// sub-recipe really does cost $0 — so it yields
+/// [`RejectedMappingReason::NonInvertibleBound`]: the forward edge is kept and
+/// only the reciprocal is dropped. Everything else is dropped outright.
+fn classify_mapping(from: &Measure, to: &Measure) -> Option<RejectedMappingReason> {
+    let from_lower = from.value();
+    let to_lower = to.value();
+    let bounds = [
+        from_lower,
+        from.upper_value().unwrap_or(from_lower),
+        to_lower,
+        to.upper_value().unwrap_or(to_lower),
+    ];
+    // A *point* zero on the reference side ("0 cups = 120 g") states nothing.
+    // The upper-bound-only range form ("up to 5 cups", i.e. `(0.0, Some(5))`)
+    // is a documented, meaningful measure — see `Measure::ordered_bounds` — so
+    // it survives, one-way.
+    let vacuous_reference = from_lower == 0.0 && from.upper_value().is_none();
+    if bounds.iter().any(|bound| !bound.is_finite()) {
+        Some(RejectedMappingReason::NonFiniteBound)
+    } else if bounds.iter().any(|bound| *bound < 0.0) || vacuous_reference {
+        Some(RejectedMappingReason::NonPositiveBound)
+    } else if to_lower == 0.0 || from_lower == 0.0 {
+        Some(RejectedMappingReason::NonInvertibleBound)
+    } else {
+        None
+    }
+}
+
+/// Whether [`classify_mapping`] still admits the mapping into the graph.
+/// A non-invertible mapping is admitted; `make_graph` drops the one direction
+/// that would divide by zero.
+fn is_admitted(reason: Option<RejectedMappingReason>) -> bool {
+    !matches!(
+        reason,
+        Some(RejectedMappingReason::NonFiniteBound | RejectedMappingReason::NonPositiveBound)
+    )
+}
+
+impl MeasureConversions {
+    /// Compile a mapping set into a reusable conversion module.
+    ///
+    /// Admission is [`classify_mapping`]'s call, the same one [`make_graph`]
+    /// makes, so `MeasureConversions::convert` and `convert_measure_with_graph`
+    /// always agree. Rejections — including the one-way
+    /// [`RejectedMappingReason::NonInvertibleBound`] — are reported through
+    /// [`Self::rejected_mappings`].
+    pub fn new(mappings: &[(Measure, Measure)]) -> Self {
+        let rejected = mappings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (from, to))| {
+                classify_mapping(from, to).map(|reason| RejectedMapping {
+                    index,
+                    from: from.clone(),
+                    to: to.clone(),
+                    reason,
+                })
+            })
+            .collect();
+        Self {
+            graph: make_graph(mappings),
+            rejected,
+        }
+    }
+
+    pub fn convert(&self, measure: &Measure, target: ConversionTarget) -> Option<Measure> {
+        self.convert_explained(measure, target)
+            .map(|(measure, _)| measure)
+    }
+
+    pub fn explain(&self, measure: &Measure, target: ConversionTarget) -> ConversionReport {
+        let result = self.convert_explained(measure, target.clone());
+        match result {
+            Some((measure, steps)) => ConversionReport {
+                result: Ok(measure),
+                hops: steps
+                    .into_iter()
+                    .map(|step| {
+                        let factor = self
+                            .edge_factor(&step.from_unit, &step.to_unit)
+                            .unwrap_or_else(|| EdgeFactor::point(step.factor));
+                        // The tsp<->ml volume bridge is the only edge
+                        // `make_graph` seeds itself; everything else came from a
+                        // user mapping. (A user mapping that *is* tsp=ml reads as
+                        // Fixed here — the graph keeps one edge either way.)
+                        let origin = match (&step.from_unit, &step.to_unit) {
+                            (Unit::Teaspoon, Unit::Milliliter)
+                            | (Unit::Milliliter, Unit::Teaspoon) => ConversionOrigin::Fixed,
+                            _ => ConversionOrigin::User,
+                        };
+                        ConversionHop {
+                            from_unit: step.from_unit,
+                            to_unit: step.to_unit,
+                            factor,
+                            origin,
+                        }
+                    })
+                    .collect(),
+                rejected_mappings: self.rejected.clone(),
+            },
+            None => ConversionReport {
+                result: Err(self.failure_for(measure, &target)),
+                hops: Vec::new(),
+                rejected_mappings: self.rejected.clone(),
+            },
+        }
+    }
+
+    pub fn rejected_mappings(&self) -> &[RejectedMapping] {
+        &self.rejected
+    }
+
+    pub fn to_dot(&self) -> String {
+        print_graph(&self.graph)
+    }
+
+    pub fn connected_components(&self) -> Vec<Vec<String>> {
+        let mut components = find_connected_components(&self.graph);
+        for component in &mut components {
+            component.sort();
+        }
+        components.sort();
+        components
+    }
+
+    fn convert_explained(
+        &self,
+        measure: &Measure,
+        target: ConversionTarget,
+    ) -> Option<(Measure, Vec<ConversionStep>)> {
+        match target {
+            ConversionTarget::Kind(kind) => {
+                convert_measure_with_graph_explained(measure, kind, &self.graph)
+            }
+            ConversionTarget::Unit(unit) => {
+                let normalized_target =
+                    Measure::new_with_upper(unit.clone(), 1.0, None).normalize();
+                let graph_target =
+                    MeasureKind::Other(normalized_target.unit().normalize().to_str().into_owned());
+                let (converted, steps) =
+                    convert_measure_with_graph_explained(measure, graph_target, &self.graph)?;
+                let base = converted.normalize();
+                let factor = normalized_target.value();
+                let lower = round_sig(base.value() / factor, RESULT_SIG_FIGS);
+                let upper = base
+                    .upper_value()
+                    .map(|value| round_sig(value / factor, RESULT_SIG_FIGS))
+                    .filter(|value| *value > lower);
+                Some((Measure::new_with_upper(unit, lower, upper), steps))
+            }
+        }
+    }
+
+    fn edge_factor(&self, from: &Unit, to: &Unit) -> Option<EdgeFactor> {
+        let from = self
+            .graph
+            .node_indices()
+            .find(|index| &self.graph[*index] == from)?;
+        let to = self
+            .graph
+            .node_indices()
+            .find(|index| &self.graph[*index] == to)?;
+        let edge = self.graph.find_edge(from, to)?;
+        self.graph.edge_weight(edge).copied()
+    }
+
+    fn failure_for(&self, measure: &Measure, target: &ConversionTarget) -> ConversionFailure {
+        let source = measure.normalize().unit().normalize();
+        let target = match target {
+            ConversionTarget::Kind(kind) => kind.unit().normalize(),
+            ConversionTarget::Unit(unit) => mapping_graph_unit(&unit.to_str()),
+        };
+        let has_source =
+            source == target || self.graph.node_indices().any(|i| self.graph[i] == source);
+        let has_target =
+            source == target || self.graph.node_indices().any(|i| self.graph[i] == target);
+        if !has_source {
+            ConversionFailure::SourceUnavailable
+        } else if !has_target {
+            ConversionFailure::TargetUnavailable
+        } else {
+            ConversionFailure::NoPath
+        }
+    }
+}
+
 /// A directed edge's conversion factor as a closed interval `[lower, upper]`.
 ///
 /// For an ordinary point mapping (the common case — "1 cup = 120 g", a price, a
@@ -55,11 +328,58 @@ impl std::fmt::Display for EdgeFactor {
     }
 }
 
+/// Add or update one directed conversion edge, skipping a non-finite factor.
+///
+/// A non-finite factor means this direction divides by a zero bound; the
+/// opposite direction is still usable, so the edge is simply omitted rather than
+/// the whole mapping discarded. If the edge already exists with a different
+/// weight (e.g. both "1 cup = 120 g" and "1 cup = 130 g" were supplied) it is
+/// updated in place — latest mapping wins — rather than adding a *parallel* edge
+/// that fewest-hops A* would then pick between nondeterministically.
+fn upsert_edge(
+    g: &mut MeasureGraph,
+    from: NodeIndex,
+    to: NodeIndex,
+    weight: EdgeFactor,
+    m_from: &Measure,
+    m_to: &Measure,
+) {
+    if !weight.lower.is_finite() || !weight.upper.is_finite() {
+        debug!(
+            "skipping non-invertible mapping direction {:?}->{:?} (zero bound)",
+            m_from.unit(),
+            m_to.unit()
+        );
+        return;
+    }
+    match g.find_edge(from, to) {
+        Some(e) => {
+            if g.edge_weight(e).is_some_and(|w| *w != weight) {
+                debug!(
+                    "conflicting mapping {:?}->{:?}, using latest weight {:?}",
+                    m_from.unit(),
+                    m_to.unit(),
+                    weight
+                );
+                if let Some(w) = g.edge_weight_mut(e) {
+                    *w = weight;
+                }
+            }
+        }
+        None => {
+            g.add_edge(from, to, weight);
+        }
+    }
+}
+
 /// Build a conversion graph from a list of measurement mappings.
 ///
 /// Each mapping represents an equivalence like "1 cup flour = 120g".
 /// The graph stores nodes as units and edges as conversion factors.
-/// Both directions (A→B and B→A) are added for bidirectional conversion.
+/// Mappings are admitted by [`classify_mapping`] — the policy
+/// [`MeasureConversions`] uses too — and both directions (A→B and B→A) are added,
+/// except where a zero bound would make one of them divide by zero (see
+/// [`upsert_edge`]).
 ///
 /// # Arguments
 /// * `mappings` - Slice of (from, to) measurement pairs
@@ -71,6 +391,11 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
     let mut unit_index: HashMap<Unit, NodeIndex> = HashMap::new();
 
     for (m_a, m_b) in mappings.iter() {
+        // Same admission policy `MeasureConversions` applies, so the two public
+        // entry points never disagree about a mapping set.
+        if !is_admitted(classify_mapping(m_a, m_b)) {
+            continue;
+        }
         let m_a = m_a.normalize();
         let m_b = m_b.normalize();
 
@@ -91,10 +416,12 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
         // so multi-hop paths don't compound rounding drift; the result is
         // rounded once at the end (see `RESULT_SIG_FIGS`).
         //
-        // Assumes strictly-positive bounds (the prior scalar code did too): a 0
-        // mapping value yields inf/NaN factors. Not asserted because a legitimate
-        // $0 mapping shouldn't panic; ranged mappings (sub-recipe yields) always
-        // carry a positive lower bound, so the reciprocal stays finite.
+        // Each direction divides by the *other* side's bounds, so a zero bound
+        // poisons one direction only. "100 g = 0 g fat" is a real reading: the
+        // forward factor is 0/100 = 0 (keep it, so the conversion yields 0), while
+        // the reverse is 100/0 = inf (drop it — nothing can convert *from* zero
+        // fat). Each direction is emitted only if its factor is finite, so a graph
+        // never carries an inf/NaN edge for A* to traverse.
         let a_lo = m_a.value();
         let a_hi = m_a.upper_value().unwrap_or(a_lo);
         let b_lo = m_b.value();
@@ -108,34 +435,8 @@ pub fn make_graph(mappings: &[(Measure, Measure)]) -> MeasureGraph {
             upper: a_hi / b_lo,
         };
 
-        match g.find_edge(n_a, n_b) {
-            // Edge already present. If the weight conflicts (e.g. both
-            // "1 cup = 120 g" and "1 cup = 130 g" were supplied), update it in
-            // place — latest mapping wins — rather than adding a *parallel* edge
-            // that fewest-hops A* would then pick between nondeterministically.
-            Some(e) => {
-                if g.edge_weight(e).is_some_and(|w| *w != a_to_b_weight) {
-                    debug!(
-                        "conflicting mapping {:?}->{:?}, using latest weight {:?}",
-                        m_a.unit(),
-                        m_b.unit(),
-                        a_to_b_weight
-                    );
-                    if let Some(w) = g.edge_weight_mut(e) {
-                        *w = a_to_b_weight;
-                    }
-                    if let Some(re) = g.find_edge(n_b, n_a)
-                        && let Some(rw) = g.edge_weight_mut(re)
-                    {
-                        *rw = b_to_a_weight;
-                    }
-                }
-            }
-            None => {
-                g.add_edge(n_a, n_b, a_to_b_weight);
-                g.add_edge(n_b, n_a, b_to_a_weight);
-            }
-        }
+        upsert_edge(&mut g, n_a, n_b, a_to_b_weight, &m_a, &m_b);
+        upsert_edge(&mut g, n_b, n_a, b_to_a_weight, &m_b, &m_a);
     }
 
     // Bridge the two volume normalization bases (teaspoon for the US/spoon family,
@@ -526,14 +827,92 @@ pub(crate) fn convert_measure_via_mappings(
     target: MeasureKind,
     mappings: &[(Measure, Measure)],
 ) -> Option<Measure> {
-    let g = make_graph(mappings);
-    convert_measure_with_graph(measure, target, &g)
+    MeasureConversions::new(mappings).convert(measure, ConversionTarget::Kind(target))
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deep_module_distinguishes_kind_from_exact_unit() {
+        let conversions =
+            MeasureConversions::new(&[(Measure::new("tbsp", 1.0), Measure::new("ml", 14.7868))]);
+        let measure = Measure::new("tbsp", 16.0);
+        let kind = conversions
+            .convert(&measure, ConversionTarget::Kind(MeasureKind::Volume))
+            .unwrap();
+        let exact = conversions
+            .convert(&measure, ConversionTarget::Unit(Unit::Tablespoon))
+            .unwrap();
+        assert_eq!(*exact.unit(), Unit::Tablespoon);
+        assert_eq!(exact.value(), 16.0);
+        assert_ne!(kind.unit(), exact.unit());
+    }
+
+    #[test]
+    fn invalid_mappings_are_rejected_individually() {
+        let conversions = MeasureConversions::new(&[
+            (Measure::new("cup", 0.0), Measure::new("g", 120.0)),
+            (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
+        ]);
+        assert_eq!(conversions.rejected_mappings().len(), 1);
+        assert_eq!(
+            conversions.rejected_mappings()[0].reason,
+            RejectedMappingReason::NonPositiveBound
+        );
+        assert!(
+            conversions
+                .convert(
+                    &Measure::new("cup", 1.0),
+                    ConversionTarget::Kind(MeasureKind::Weight)
+                )
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn report_includes_interval_and_mapping_origin() {
+        let conversions = MeasureConversions::new(&[(
+            Measure::new("cup", 1.0),
+            Measure::with_range("g", 110.0, 130.0),
+        )]);
+        let report = conversions.explain(
+            &Measure::new("cup", 2.0),
+            ConversionTarget::Kind(MeasureKind::Weight),
+        );
+        let result = report.result.unwrap();
+        assert_eq!(result.value(), 220.0);
+        assert_eq!(result.upper_value(), Some(260.0));
+        assert_eq!(report.hops.len(), 1);
+        assert_eq!(report.hops[0].origin, ConversionOrigin::User);
+        assert!(report.hops[0].factor.upper > report.hops[0].factor.lower);
+    }
+
+    #[test]
+    fn deep_and_legacy_kind_conversion_have_parity() {
+        let mappings = [(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
+        let graph = make_graph(&mappings);
+        let measure = Measure::new("cup", 2.0);
+        let legacy = convert_measure_with_graph(&measure, MeasureKind::Weight, &graph);
+        let deep = MeasureConversions::new(&mappings)
+            .convert(&measure, ConversionTarget::Kind(MeasureKind::Weight));
+        assert_eq!(deep, legacy);
+    }
+
+    #[test]
+    fn compiled_inspection_is_deterministic() {
+        let conversions = MeasureConversions::new(&[
+            (Measure::new("cup", 1.0), Measure::new("g", 120.0)),
+            (Measure::new("g", 120.0), Measure::new("$", 2.0)),
+        ]);
+        assert_eq!(conversions.to_dot(), conversions.to_dot());
+        assert_eq!(
+            conversions.connected_components(),
+            conversions.connected_components()
+        );
+    }
 
     #[test]
     fn mapping_target_kind_uses_normalized_graph_node() {

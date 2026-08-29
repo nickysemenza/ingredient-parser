@@ -1,62 +1,21 @@
 //! Diagnostic rendering for `parse-ingredient --explain`.
 //!
-//! Two modes, both rendered with miette over the *normalized* string the
-//! grammar parsed:
+//! One mode, rendered with miette over the *authored* line.
+//! [`ingredient::IngredientParser::decompose`] hands us a byte span for every
+//! run of the source that ended up in the parsed amount / name / modifier, and
+//! we label each one. Because the spans describe the *final* fields, every parse
+//! path produces them — recognizers and the name-only fallback included — so
+//! there is no span-less case to fall back from.
 //!
-//! - **Decomposition** (the common case): when the core grammar carved the line,
-//!   [`ingredient::IngredientParser::decompose`] hands us byte spans for each
-//!   amount / name / modifier; we label each one. This shows *how the grammar
-//!   split the input*.
-//! - **Digit caret** (fallback): when a recognizer or the name-only fallback
-//!   produced the result there are no grammar spans, so if a digit was present
-//!   but produced no amount we underline the digit run(s) instead.
+//! A digit that produced no amount needs no caret of its own: the labels already
+//! show which field swallowed it, so the header says that instead.
 //!
 //! miette lives only here — the published `ingredient` crate stays miette-free.
 
-use std::ops::Range;
-
-use ingredient::{Confidence, Decomposition, Field, ParseNotes};
+use ingredient::{Decomposition, Field, ParseNotes};
 use miette::{
     GraphicalReportHandler, GraphicalTheme, LabeledSpan, MietteDiagnostic, Report, Severity,
 };
-
-/// Unicode vulgar-fraction glyphs the parser treats as part of a quantity, so
-/// `5½` is reported as one span rather than `5` with the `½` orphaned.
-const FRACTION_GLYPHS: &[char] = &[
-    '½', '⅓', '⅔', '¼', '¾', '⅕', '⅖', '⅗', '⅘', '⅙', '⅚', '⅛', '⅜', '⅝', '⅞', '⅐', '⅑', '⅒',
-];
-
-fn is_quantity_char(c: char) -> bool {
-    c.is_ascii_digit() || FRACTION_GLYPHS.contains(&c)
-}
-
-/// Byte ranges of maximal quantity runs (ASCII digits + adjacent vulgar
-/// fractions) in `input`. These are the spans we underline when the parser saw
-/// a digit but produced no amount. Pure and span-only so it can be unit-tested
-/// without rendering.
-pub fn unparsed_digit_spans(input: &str) -> Vec<Range<usize>> {
-    let mut spans = Vec::new();
-    let mut start: Option<usize> = None;
-    for (i, c) in input.char_indices() {
-        if is_quantity_char(c) {
-            start.get_or_insert(i);
-        } else if let Some(s) = start.take() {
-            spans.push(s..i);
-        }
-    }
-    if let Some(s) = start {
-        spans.push(s..input.len());
-    }
-    spans
-}
-
-fn severity_of(confidence: Confidence) -> Severity {
-    match confidence {
-        // A digit that produced no amount is a likely missed quantity — warn.
-        Confidence::Low => Severity::Warning,
-        Confidence::Medium | Confidence::High => Severity::Advice,
-    }
-}
 
 fn field_label(field: Field) -> &'static str {
     match field {
@@ -66,19 +25,11 @@ fn field_label(field: Field) -> &'static str {
     }
 }
 
-fn message_for(diag: &ParseNotes) -> &'static str {
-    match diag.confidence {
-        Confidence::Low if diag.unparsed_digit => "quantity not parsed into an amount",
-        Confidence::Low => "low-confidence parse",
-        Confidence::Medium => "name-only parse",
-        Confidence::High => "parsed with an amount",
-    }
-}
-
+/// The help line: confidence, then any reason this parse wants a human look,
+/// then where to go next. The review reasons and their wording belong to the
+/// parser; this surface only decides the miette severity.
 fn help_for(diag: &ParseNotes) -> String {
     let mut s = format!("confidence: {:?}", diag.confidence);
-    // The review reasons and their wording belong to the parser; this surface
-    // only decides the miette severity above.
     for reason in diag.review_reasons() {
         s.push_str(" · ");
         s.push_str(&reason.to_string());
@@ -87,7 +38,7 @@ fn help_for(diag: &ParseNotes) -> String {
     s
 }
 
-/// The decomposition diagnostic: one label per grammar field span.
+/// The decomposition diagnostic: one label per final-field span.
 fn decomposition_diagnostic(decomp: &Decomposition, diag: &ParseNotes) -> MietteDiagnostic {
     // A digit that produced no amount is informative here, not alarming: the
     // labels already show it landed in the name/modifier, not a missed quantity.
@@ -97,7 +48,7 @@ fn decomposition_diagnostic(decomp: &Decomposition, diag: &ParseNotes) -> Miette
             Severity::Warning,
         )
     } else {
-        ("grammar decomposition", Severity::Advice)
+        ("final field decomposition", Severity::Advice)
     };
 
     let labels: Vec<LabeledSpan> = decomp
@@ -109,39 +60,14 @@ fn decomposition_diagnostic(decomp: &Decomposition, diag: &ParseNotes) -> Miette
     MietteDiagnostic::new(message)
         .with_severity(severity)
         .with_labels(labels)
-        .with_help(format!(
-            "{} · grammar-stage carve (refine may move prep words — see stage view)",
-            format_args!("confidence: {:?}", diag.confidence)
-        ))
+        .with_help(help_for(diag))
 }
 
-/// The fallback diagnostic when the grammar didn't carve the line: a digit caret
-/// when a number produced no amount, otherwise just the confidence header.
-fn fallback_diagnostic(decomp: &Decomposition, diag: &ParseNotes) -> MietteDiagnostic {
-    let mut d = MietteDiagnostic::new(message_for(diag))
-        .with_severity(severity_of(diag.confidence))
-        .with_help(help_for(diag));
-
-    if diag.unparsed_digit {
-        let labels: Vec<LabeledSpan> = unparsed_digit_spans(&decomp.source)
-            .into_iter()
-            .map(|span| LabeledSpan::at(span, "this number didn't become an amount"))
-            .collect();
-        d = d.with_labels(labels);
-    }
-    d
-}
-
-/// Render the miette report block for `--explain`. When the grammar carved the
-/// line, labels each amount/name/modifier span; otherwise falls back to a digit
-/// caret. Rendered over `decomp.source` (the normalized line the grammar saw).
+/// Render the miette report block for `--explain`: one label per
+/// amount/name/modifier span, over `decomp.source` (the authored line).
 /// `use_color` mirrors the caller's `IsTerminal` gate.
 pub fn render(decomp: &Decomposition, diag: &ParseNotes, use_color: bool) -> String {
-    let d = if decomp.spans.is_empty() {
-        fallback_diagnostic(decomp, diag)
-    } else {
-        decomposition_diagnostic(decomp, diag)
-    };
+    let d = decomposition_diagnostic(decomp, diag);
 
     let report = Report::new(d).with_source_code(decomp.source.clone());
     let theme = if use_color {
@@ -158,20 +84,10 @@ pub fn render(decomp: &Decomposition, diag: &ParseNotes, use_color: bool) -> Str
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rstest::rstest;
+    use std::ops::Range;
 
-    #[rstest]
-    // "5½" is one run: '5' at byte 3, '½' (2 bytes) at 4..6 → 3..6; "1" at 0..1.
-    #[case("1 (5½-ounce) piece", vec![0..1, 3..6])]
-    #[case("2 cups flour", vec![0..1])]
-    #[case("Juice of 1 lemon", vec![9..10])]
-    #[case("salt", vec![])]
-    // Two separate digit runs: '1' at 0, '2' at byte 7 (after "1 cup, ").
-    #[case("1 cup, 2 tbsp", vec![0..1, 7..8])]
-    fn finds_quantity_runs(#[case] input: &str, #[case] expected: Vec<Range<usize>>) {
-        assert_eq!(unparsed_digit_spans(input), expected);
-    }
+    use super::*;
+    use ingredient::Confidence;
 
     fn decomp(source: &str, spans: Vec<ingredient::FieldSpan>) -> Decomposition {
         Decomposition {
@@ -188,22 +104,25 @@ mod tests {
         }
     }
 
+    /// The help line carries the parser's review reasons, so a parse worth a
+    /// human look says why right in the header block.
     #[test]
-    fn render_underlines_unparsed_digit_when_no_grammar_spans() {
-        // Empty spans (recognizer/fallback path) + a digit that produced no
-        // amount → the digit-caret fallback fires.
-        let diag = ParseNotes {
-            confidence: Confidence::Low,
-            fell_back: false,
-            unparsed_digit: true,
-        };
-        let out = render(&decomp("1+1 vitamins", vec![]), &diag, false);
-        assert!(out.contains("quantity not parsed into an amount"));
-        assert!(out.contains("this number didn't become an amount"));
+    fn render_help_carries_review_reasons() {
+        let parsed = ingredient::from_str("1+1 vitamins");
+        let out = render(
+            &ingredient::decompose("1+1 vitamins"),
+            &parsed.parse_notes,
+            false,
+        );
+        assert!(out.contains("confidence: Low"), "{out}");
+        for reason in parsed.parse_notes.review_reasons() {
+            assert!(out.contains(&reason.to_string()), "missing {reason}: {out}");
+        }
+        assert!(out.contains("route the fix via parser/mod.rs"), "{out}");
     }
 
     #[test]
-    fn render_labels_grammar_decomposition() {
+    fn render_labels_final_field_decomposition() {
         // Spans present → each field is labeled, no digit-miss caret.
         let diag = ParseNotes {
             confidence: Confidence::High,
@@ -215,7 +134,7 @@ mod tests {
             span(Field::Name, 7..12, "flour"),
         ];
         let out = render(&decomp("2 cups flour", spans), &diag, false);
-        assert!(out.contains("grammar decomposition"));
+        assert!(out.contains("final field decomposition"));
         assert!(out.contains("amount"));
         assert!(out.contains("name"));
         assert!(!out.contains("this number didn't become an amount"));
@@ -223,9 +142,9 @@ mod tests {
 
     #[test]
     fn render_digit_in_name_is_informative_not_alarming() {
-        // "Pierre Ferrand 1840 Cognac": grammar carves a Name span covering the
-        // whole line; the digit is part of the name, so we say so rather than
-        // warning about a missed quantity.
+        // "Pierre Ferrand 1840 Cognac": the Name span covers the whole line, so
+        // the digit is visibly part of the name — say so rather than warning
+        // about a missed quantity.
         let diag = ParseNotes {
             confidence: Confidence::Low,
             fell_back: false,
