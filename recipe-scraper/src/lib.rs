@@ -7,10 +7,8 @@
 //! recipe markup) when a page has no usable LD+JSON. [`parse_sections`] runs
 //! each scraped ingredient line through `ingredient`'s parser.
 //!
-//! Several items are `pub` beyond what this workspace itself needs because
-//! cubby's `recipebridge` crate (a separate, external repo) depends on this
-//! crate directly and calls them — see the `parse_yield_string` re-export
-//! below for the canonical example; don't narrow visibility without checking.
+//! Public re-exports such as `parse_yield_string` are used by external callers;
+//! preserve their visibility even when no workspace caller needs them.
 
 use chefsteps::parse_chefsteps;
 use html::scrape_from_html;
@@ -21,8 +19,7 @@ use ingredient::{
     rich_text::{Rich, RichParser},
 };
 use ld_json::extract_ld;
-// Re-exported on purpose: cubby's recipebridge wasm crate (separate repo)
-// calls `recipe_scraper::parse_yield_string` — pub(crate) breaks its build.
+// Public entrypoint for callers parsing yields without scraping a page.
 pub use ld_json::parse_yield_string;
 use scraper::Html;
 

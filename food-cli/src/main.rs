@@ -57,15 +57,12 @@ enum Commands {
         #[arg(long)]
         no_cache: bool,
     },
-    /// Debug a single EPUB: re-run every chunk through the model and report any
-    /// whose raw payload fails to deserialize, with the offending JSON path. This
-    /// is the view `scrape-epub` HIDES — it silently skips bad chunks (and the
-    /// wasm cookbook import aborts the whole book on the first one). Bypasses the
-    /// cache. Defaults to `claude-haiku-4-5` to mirror cubby's cookbook import.
+    /// Debug a single EPUB: re-run every chunk and report malformed payloads.
+    /// Bypasses the cache. Defaults to `claude-haiku-4-5`.
     DebugEpub {
         /// Path to the .epub file
         path: String,
-        /// Model id override (default: claude-haiku-4-5, matching cubby's import)
+        /// Model id override (default: claude-haiku-4-5)
         #[arg(long)]
         model: Option<String>,
         /// Print the full raw JSON payload of each failed chunk (can be large)
@@ -425,9 +422,7 @@ async fn main() {
                 eprintln!("failed to read {path}: {e}");
                 std::process::exit(1);
             });
-            // Default to Haiku (cubby's cookbook-import model) so a failure here
-            // reproduces the real import; the cache is off because a failed parse
-            // is never cached anyway and we want a live payload every run.
+            // Disable caching to inspect a fresh payload on every run.
             let opts = recipe_epub::Options {
                 model: Some(
                     model
