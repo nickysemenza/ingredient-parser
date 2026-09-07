@@ -698,6 +698,29 @@ impl Measure {
         }
     }
 
+    /// Format this measure with the larger units a shopper would expect on a list.
+    ///
+    /// This is intentionally opt-in: [`std::fmt::Display`] continues to render
+    /// the parser's regular denormalized form. Grams only become pounds at one
+    /// pound, and milliliters only become liters at one liter; every other unit
+    /// uses the regular formatter unchanged.
+    pub fn format_shopper(&self) -> String {
+        let measure = self.denormalize();
+        let value = measure.value();
+        let (unit, factor) = match measure.unit() {
+            Unit::Gram if value >= GRAM_TO_OZ * OZ_TO_LB => (Unit::Pound, GRAM_TO_OZ * OZ_TO_LB),
+            Unit::Milliliter if value >= G_TO_K => (Unit::Liter, G_TO_K),
+            _ => return measure.to_string(),
+        };
+
+        Measure::new_with_upper(
+            unit,
+            value / factor,
+            measure.upper_value().map(|upper| upper / factor),
+        )
+        .to_string()
+    }
+
     /// Convert this measure to a target kind using user-provided mappings.
     ///
     /// This is a convenience wrapper around `convert_measure_via_mappings`.
@@ -988,6 +1011,59 @@ mod tests {
     fn test_second_denormalize_unit(#[case] value: f64, #[case] expected: Unit) {
         let m = Measure::new_with_upper(Unit::Second, value, None);
         assert_eq!(*m.denormalize().unit(), expected);
+    }
+
+    // ============================================================================
+    // Shopper Formatting (opt-in; Display and denormalize stay unchanged)
+    // ============================================================================
+
+    #[rstest]
+    #[case::one_pound_threshold("g", GRAM_TO_OZ * OZ_TO_LB, "1 lb")]
+    #[case::above_pound_threshold("g", 1360.0, "3 lb")]
+    #[case::five_hundred_grams("g", 500.0, "1.1 lb")]
+    #[case::below_pound_threshold("g", 300.0, "300 g")]
+    #[case::one_liter_threshold("ml", G_TO_K, "1 l")]
+    #[case::above_liter_threshold("ml", 1500.0, "1½ l")]
+    #[case::below_liter_threshold("ml", 250.0, "250 ml")]
+    #[case::zero("g", 0.0, "0 g")]
+    #[case::negative("ml", -1500.0, "-1500 ml")]
+    #[case::passthrough_count("whole", 3.0, "3")]
+    #[case::existing_volume_ladder("tsp", 48.0, "1 cup")]
+    fn test_measure_format_shopper(#[case] unit: &str, #[case] value: f64, #[case] expected: &str) {
+        assert_eq!(Measure::new(unit, value).format_shopper(), expected);
+    }
+
+    #[test]
+    fn test_measure_format_shopper_scales_ranges_together() {
+        let shopper = Measure::with_range("g", 1000.0, 2000.0).format_shopper();
+        assert_eq!(shopper, "2.2 - 4.41 lb");
+    }
+
+    #[test]
+    fn test_measure_format_shopper_only_changes_at_the_lower_threshold() {
+        let pound = GRAM_TO_OZ * OZ_TO_LB;
+        let just_below = Measure::new("g", pound - 0.01);
+        let just_above = Measure::new("g", pound + 0.01);
+        let range_crossing_threshold = Measure::with_range("g", 300.0, 1000.0);
+        let upper_only_range = Measure::with_range("g", 0.0, 1000.0);
+
+        assert_eq!(just_below.format_shopper(), just_below.to_string());
+        assert_eq!(just_above.format_shopper(), "1 lb");
+        assert_eq!(
+            range_crossing_threshold.format_shopper(),
+            range_crossing_threshold.to_string()
+        );
+        assert_eq!(
+            upper_only_range.format_shopper(),
+            upper_only_range.to_string()
+        );
+    }
+
+    #[test]
+    fn test_measure_format_shopper_does_not_change_default_formatting() {
+        let measure = Measure::new("g", 1360.0);
+        assert_eq!(measure.denormalize(), measure);
+        assert_eq!(measure.to_string(), "1360 g");
     }
 
     // ============================================================================
