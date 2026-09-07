@@ -16,9 +16,9 @@ use serde_json::json;
 use crate::library::BookMeta;
 use crate::{
     CallFailure, CallResult, Chunk, ChunkExtractionFailure, ChunkOutcome, CookbookRecipe,
-    EpubError, ExtractProgress, ExtractionStats, ModelTier, OrchestrationOptions, RecipeExtractor,
-    Usage, build_chunk_request, cache, chunk_epub, extract_chunks_with, parse_recipes_payload,
-    try_extract_chunk_detailed,
+    EpubError, ExtractProgress, ExtractionAccounting, ExtractionStats, ModelTier,
+    OrchestrationOptions, RecipeExtractor, Usage, build_chunk_request, cache, chunk_epub,
+    extract_chunks_with, parse_recipes_payload, try_extract_chunk_detailed,
 };
 
 // ===========================================================================
@@ -27,7 +27,7 @@ use crate::{
 // the per-provider HTTP plumbing.
 // ===========================================================================
 
-/// Tunables for [`extract_cookbook`].
+/// Tunables shared by legacy and detailed cookbook extraction.
 #[derive(Debug, Clone)]
 pub struct Options {
     /// Model id override (default: `gemini-2.5-flash`, via the OpenAI-compatible backend).
@@ -64,6 +64,8 @@ impl Default for Options {
 ///
 /// `bytes` is the full `.epub` (a zip). `source` labels each recipe (book path
 /// or title). Auth comes from the environment (see [`ClaudeExtractor::from_env`]).
+/// For per-model costs and truncation evidence, use [`extract_cookbook_detailed`].
+/// Mixed-model legacy stats leave `model` empty and report an unknown cost.
 pub async fn extract_cookbook(
     bytes: &[u8],
     source: &str,
@@ -83,6 +85,27 @@ pub async fn extract_cookbook_with_progress(
     opts: &Options,
     progress: impl Fn(ExtractProgress) + Send + Sync,
 ) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
+    let (recipes, accounting) =
+        extract_cookbook_detailed_with_progress(bytes, source, opts, progress).await?;
+    Ok((recipes, accounting.legacy_stats()))
+}
+
+/// Extract a cookbook with model-attributed accounting and truncation evidence.
+pub async fn extract_cookbook_detailed(
+    bytes: &[u8],
+    source: &str,
+    opts: &Options,
+) -> Result<(Vec<CookbookRecipe>, ExtractionAccounting), EpubError> {
+    extract_cookbook_detailed_with_progress(bytes, source, opts, |_| {}).await
+}
+
+/// Detailed extraction with the existing progress callback contract.
+pub async fn extract_cookbook_detailed_with_progress(
+    bytes: &[u8],
+    source: &str,
+    opts: &Options,
+    progress: impl Fn(ExtractProgress) + Send + Sync,
+) -> Result<(Vec<CookbookRecipe>, ExtractionAccounting), EpubError> {
     let extractor = Backend::from_env(opts, source)?;
     // Build the escalation backend once (a different, usually stronger model),
     // skipped when unset or identical to the primary. Deliberately uncached: it
@@ -245,7 +268,7 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor, F: RecipeExtractor>(
     extractor: &E,
     escalation: Option<&F>,
     progress: &(impl Fn(ExtractProgress) + Send + Sync),
-) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
+) -> Result<(Vec<CookbookRecipe>, ExtractionAccounting), EpubError> {
     let chunks = chunk_epub(bytes)?;
     let total = chunks.len();
     tracing::info!("epub {source}: {total} chunk(s)");
@@ -305,13 +328,7 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor, F: RecipeExtractor>(
         }
     }
 
-    let stats = ExtractionStats {
-        model: extractor.model().to_string(),
-        chunks_total: report.chunks.len() + report.failures.len(),
-        chunks_cached: report.chunks_cached,
-        chunks_failed: report.failures.len(),
-        usage: report.usage,
-    };
+    let stats = report.accounting(extractor.model(), escalation.map(RecipeExtractor::model));
     let recipes = report.recipes;
     tracing::info!(
         "epub {source}: {} recipe(s); {}",
@@ -1089,6 +1106,9 @@ mod tests {
     }
 
     impl RecipeExtractor for FixedExtractor {
+        fn model(&self) -> &str {
+            "claude-sonnet"
+        }
         async fn extract(&self, _chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
             Ok(ChunkOutcome {
                 recipes: Vec::new(),
@@ -1379,6 +1399,9 @@ mod tests {
     }
 
     impl RecipeExtractor for DetailedFailingExtractor {
+        fn model(&self) -> &str {
+            "claude-haiku"
+        }
         async fn extract(&self, _chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
             Err(EpubError::Proxy("failed".to_string()))
         }
@@ -1494,8 +1517,13 @@ mod tests {
         assert!(stats.summary().contains("1 chunk(s) FAILED"));
     }
 
+    #[rstest::rstest]
+    #[case(false)]
+    #[case(true)]
     #[tokio::test]
-    async fn native_driver_accounts_for_failed_primary_before_fallback_recovery() {
+    async fn native_driver_accounts_for_failed_primary_before_fallback_recovery(
+        #[case] truncated: bool,
+    ) {
         let bytes = minimal_epub();
         let (recipes, stats) = extract_cookbook_with_stats(
             &bytes,
@@ -1503,7 +1531,7 @@ mod tests {
             &Options::default(),
             &DetailedFailingExtractor { input_tokens: 11 },
             Some(&FixedExtractor {
-                truncated: false,
+                truncated,
                 input_tokens: 17,
             }),
             &|_| {},
@@ -1514,7 +1542,14 @@ mod tests {
         assert!(recipes.is_empty());
         assert_eq!(stats.chunks_total, 1);
         assert_eq!(stats.chunks_failed, 0);
+        assert_eq!(stats.chunks_truncated, usize::from(truncated));
+        assert_eq!(stats.is_incomplete(), truncated);
+        assert_eq!(stats.summary().contains("INCOMPLETE"), truncated);
         assert_eq!(stats.usage.input_tokens, 28);
+        assert_eq!(stats.models.len(), 2);
+        assert!((stats.cost_estimate().known_usd - 0.000062).abs() < 1e-12);
+        assert!(stats.cost_estimate().complete);
+        assert!(stats.legacy_stats().cost_usd().is_none());
     }
 
     #[tokio::test]

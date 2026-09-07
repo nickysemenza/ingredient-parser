@@ -2,11 +2,13 @@ use std::collections::HashSet;
 
 use crate::{
     IngredientParser, Res,
-    parser::measurement::single::leading_qualifier,
     parser::{MeasurementMode, MeasurementParser},
     unit::Measure,
 };
-use nom::{Parser, branch::alt, character::complete::satisfy, error::context, multi::many0};
+use nom::{
+    Parser, branch::alt, character::complete::anychar, combinator::all_consuming, error::context,
+    multi::many0,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -234,75 +236,13 @@ fn extract_ingredients(r: Rich, ingredient_names: &[String]) -> Rich {
 }
 
 fn amounts_chunk<'a>(units: &HashSet<String>, input: &'a str) -> Res<&'a str, Vec<Chunk>> {
-    // Always use rich text mode (true) for instruction parsing
     let mp = MeasurementParser::new(units, MeasurementMode::RichText);
-    let (next_input, measures) =
-        context("amounts_chunk", |a| mp.parse_measurement_list(a)).parse(input)?;
-
-    // The measurement parser swallows a leading approximation qualifier
-    // ("about ", "roughly ", …) and a trailing sentence boundary (". " / "." /
-    // " of") around the measure. Those are noise for ingredient amounts but
-    // real prose in instructions, so re-emit them as Text instead of deleting
-    // them — otherwise the measure glues onto the next sentence (e.g.
-    // "...foamy, about 3 minutes. Continue" → "...foamy, 3 minutesContinue").
-    let consumed = &input[..input.len() - next_input.len()];
-    let leading_len = match leading_qualifier(input) {
-        Ok((rest, ())) => input.len() - rest.len(),
-        Err(_) => 0,
-    };
-
-    let mut chunks = Vec::with_capacity(3);
-    if leading_len > 0 {
-        chunks.push(Chunk::Text(input[..leading_len].to_string()));
-    }
-    chunks.push(Chunk::Measure(measures));
-    let trailing = trailing_boundary(consumed);
-    if !trailing.is_empty() {
-        chunks.push(Chunk::Text(trailing.to_string()));
-    } else {
-        // A unitless bare count ("12 cookies") consumes the trailing space via
-        // `space0` but never uses it; re-emit it so the next word keeps its
-        // leading space (otherwise "12 cookies" → measure + "cookies").
-        let stripped = consumed.trim_end_matches(char::is_whitespace);
-        if stripped.len() < consumed.len() {
-            chunks.push(Chunk::Text(consumed[stripped.len()..].to_string()));
-        }
-    }
-    Ok((next_input, chunks))
-}
-
-/// The sentence boundary the measure parser's `optional_period_or_of` swallows
-/// after a measure, so rich text can re-emit it as prose.
-fn trailing_boundary(consumed: &str) -> &'static str {
-    if consumed.ends_with(". ") {
-        ". "
-    } else if consumed.ends_with(" of") {
-        " of"
-    } else if consumed.ends_with('.') {
-        "."
-    } else {
-        ""
-    }
+    mp.parse_prose_measurement(input)
+        .map(|(rest, measures)| (rest, vec![Chunk::Measure(measures)]))
 }
 
 fn text_chunk(input: &str) -> Res<&str, Vec<Chunk>> {
-    parse_rich_char(input).map(|(next_input, res)| (next_input, vec![Chunk::Text(res)]))
-}
-/// Parse a single text character for rich text (recipe instructions).
-///
-/// Allows: alphanumeric, whitespace, plus additional punctuation
-/// (commas, parentheses, semicolons, colons, slashes, etc.)
-///
-/// Note: This is more permissive than `parser::helpers::parse_ingredient_text()` which is
-/// designed for ingredient names only.
-fn parse_rich_char(input: &str) -> Res<&str, String> {
-    satisfy(|c| match c {
-        '-' | '\u{2014}' | '\'' | '\u{2019}' | '.' | '\\' => true,
-        ',' | '(' | ')' | ';' | '#' | '/' | ':' | '!' => true,
-        c => c.is_alphanumeric() || c.is_whitespace(),
-    })
-    .parse(input)
-    .map(|(next_input, res)| (next_input, res.to_string()))
+    anychar(input).map(|(rest, c)| (rest, vec![Chunk::Text(c.to_string())]))
 }
 /// Parse some rich text that has some parsable [Measure] scattered around in it. Useful for displaying text with fancy formatting.
 /// returns [Rich]
@@ -353,7 +293,7 @@ impl RichParser {
         let units = self.ip.units();
         match context(
             "amts",
-            many0(alt((|a| amounts_chunk(units, a), text_chunk))),
+            all_consuming(many0(alt((|a| amounts_chunk(units, a), text_chunk)))),
         )
         .parse(input)
         {
@@ -403,6 +343,38 @@ mod tests {
             reason: "boom".into(),
         };
         assert_eq!(err.to_string(), "unable to parse '2 cups flour': boom");
+    }
+
+    #[rstest]
+    #[case("Mix? Add 2 cups flour 😀", "Mix? Add <2 cups> flour 😀")]
+    #[case(
+        "Salt & pepper\nthen 2 cups flour",
+        "Salt & pepper\nthen <2 cups> flour"
+    )]
+    #[case("About 3 minutes. Continue", "About <3 minutes>. Continue")]
+    #[case("Add (2 cups) of flour", "Add (<2 cups>) of flour")]
+    #[case("Use 12\t cookies", "Use <12>\t cookies")]
+    #[case("Use 2 cups, 3 tbsp; then stir", "Use <2 cups>, <3 tbsp>; then stir")]
+    #[case("Add 2 cups of flour", "Add <2 cups> of flour")]
+    #[case("Use 2 tsp to 3 tbsp. Stir", "Use <2 tsp|3 tbsp>. Stir")]
+    #[case("Use 1 (well beaten) egg", "Use <1> (well beaten) egg")]
+    #[case("Use ½ cup flour", "Use <½ cup> flour")]
+    fn test_prose_survives_measure_recognition(#[case] input: &str, #[case] expected: &str) {
+        let parsed = RichParser::default().parse(input).unwrap();
+        let rendered: String = parsed
+            .into_iter()
+            .map(|chunk| match chunk {
+                Chunk::Text(s) | Chunk::Ing(s) => s,
+                Chunk::Measure(ms) => format!(
+                    "<{}>",
+                    ms.iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("|")
+                ),
+            })
+            .collect();
+        assert_eq!(rendered, expected);
     }
 
     #[rstest]
@@ -708,7 +680,7 @@ mod tests {
     }
 
     // ============================================================================
-    // parse_rich_char() Parser Tests
+    // Complete prose through the public parser
     // ============================================================================
 
     #[rstest]
@@ -719,8 +691,11 @@ mod tests {
     #[case::comma(",")]
     #[case::slash("/")]
     #[case::hash("#")]
-    fn test_parse_rich_char_special_chars(#[case] input: &str) {
-        assert!(parse_rich_char(input).is_ok());
+    fn test_prose_special_chars(#[case] input: &str) {
+        assert_eq!(
+            RichParser::default().parse(input).unwrap(),
+            vec![Chunk::Text(input.to_string())]
+        );
     }
 
     // ============================================================================

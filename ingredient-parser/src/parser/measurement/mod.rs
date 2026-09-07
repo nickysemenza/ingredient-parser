@@ -8,13 +8,15 @@
 //! The same parsers serve two modes, selected by the [`MeasurementMode`] on
 //! [`MeasurementParser`]: **ingredient-list** mode (the default — "2 cups flour")
 //! and **rich-text/prose** mode (measurements embedded in instructions — "cook for
-//! 30 minutes"). The modes share ~90% of the logic; prose mode only adds a few
-//! *rejections* so noise isn't mistaken for a quantity. Every fork point:
+//! 30 minutes"). Both share number and unit recognition. Prose leaves surrounding
+//! text unconsumed instead of using ingredient-list assembly shortcuts:
 //!
 //! - `number::parse_number` — prose mode excludes spelled-out text numbers
 //!   ("one", "a") so words like "a pinch" or "one more" aren't read as counts.
 //! - `single::rejected_in_rich_text` — prose mode rejects step numbers
-//!   ("1. Bring…") and dimension suffixes ("1-inch piece"). See that method.
+//!   ("1. Bring…"); dimensions such as "1-inch piece" remain Measures.
+//! - `parse_prose_measurement` — leaves list separators and parentheses as prose.
+//! - `single::leading_qualifier` / `trailing_prose` — retain surrounding text.
 //! - `single::parse_unit_only` — disabled entirely in prose (a bare unit like
 //!   "cup" in prose is a noun, not "1 cup"); only fires in ingredient-list mode.
 //!
@@ -34,8 +36,6 @@ use nom::{Parser, branch::alt, bytes::complete::tag, error::context, multi::sepa
 use crate::parser::Res;
 use crate::traced_parser;
 use crate::unit::Measure;
-
-use self::guards::optional_period_or_of;
 
 /// Shared test fixture data for the measurement submodules' co-located tests.
 #[cfg(test)]
@@ -102,6 +102,21 @@ impl<'a> MeasurementParser<'a> {
     /// Create a new measurement parser with the given configuration
     pub fn new(units: &'a HashSet<String>, mode: MeasurementMode) -> Self {
         Self { units, mode }
+    }
+
+    /// Recognize one Measure expression in prose. Ingredient-list separators,
+    /// parentheses and assembly shortcuts are prose here, so they stay with the
+    /// caller. Cross-unit ranges still belong to a single Measure expression.
+    pub(crate) fn parse_prose_measurement<'b>(&self, input: &'b str) -> Res<&'b str, Vec<Measure>> {
+        alt((
+            |i| self.parse_cross_unit_range(i),
+            nom::combinator::map_opt(|i| self.parse_range_with_units(i), |m| m.map(|m| vec![m])),
+            |i| {
+                self.parse_single_measurement(i)
+                    .map(|(rest, m)| (rest, vec![m]))
+            },
+        ))
+        .parse(input)
     }
 
     /// Parse a list of measurements with different separators

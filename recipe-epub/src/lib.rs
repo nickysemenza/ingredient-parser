@@ -32,6 +32,8 @@ mod orchestration;
 // preserve downstream compatibility even when an API has no in-tree caller.
 // CI tests the non-native library and compiles the browser callback example
 // for wasm32.
+mod accounting;
+pub use accounting::{CostEstimate, ExtractionAccounting, ModelUsage};
 pub use epub_text::chunk_epub;
 pub use extractor::{
     CallFailure, CallResult, ChunkExtractionFailure, ChunkOutcome, ChunkRequest, DrivenChunk,
@@ -54,8 +56,8 @@ pub use library::{
 // Keep their existing crate-root paths stable.
 #[cfg(feature = "native")]
 pub use backend::{
-    ChunkDebug, Options, debug_extract_cookbook, extract_cookbook, extract_cookbook_with,
-    extract_cookbook_with_progress,
+    ChunkDebug, Options, debug_extract_cookbook, extract_cookbook, extract_cookbook_detailed,
+    extract_cookbook_detailed_with_progress, extract_cookbook_with, extract_cookbook_with_progress,
 };
 // Section + time types are shared with the web scraper — one shape workspace-wide.
 pub use recipe_scraper::{ParsedSection, RecipeSection, RecipeTimes};
@@ -214,7 +216,8 @@ pub struct ExtractProgress {
 /// Token usage + cost summary for one `extract_cookbook` run.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ExtractionStats {
-    /// Resolved model id (empty for the mock).
+    /// Resolved model id. Empty for mocks or mixed-model extraction, whose
+    /// cost cannot be represented here; use the detailed extraction entry points.
     pub model: String,
     /// Total chunks the book was split into.
     pub chunks_total: usize,
@@ -234,14 +237,7 @@ impl ExtractionStats {
     /// Estimated USD cost of the API calls, or `None` if the model's pricing is
     /// unknown. Cache writes bill ~1.25× input, cache reads ~0.1× input.
     pub fn cost_usd(&self) -> Option<f64> {
-        let (in_rate, out_rate) = price_per_mtok(&self.model)?;
-        let u = &self.usage;
-        let cost = (u.input_tokens as f64 * in_rate
-            + u.cache_creation_input_tokens as f64 * in_rate * 1.25
-            + u.cache_read_input_tokens as f64 * in_rate * 0.1
-            + u.output_tokens as f64 * out_rate)
-            / 1_000_000.0;
-        Some(cost)
+        accounting::cost_for_usage(&self.model, &self.usage)
     }
 
     /// One-line human summary for CLI stderr / UI.
@@ -270,33 +266,6 @@ impl ExtractionStats {
             u.cache_read_input_tokens
         )
     }
-}
-
-/// Per-million-token (input, output) USD rates for known models. Matched by
-/// substring so dated ids (`claude-haiku-4-5-20251001`) resolve. `None` → the
-/// cost is reported as "n/a" rather than guessed.
-fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
-    let m = model.to_lowercase();
-    let table = [
-        ("haiku", (1.0, 5.0)),
-        ("sonnet", (3.0, 15.0)),
-        // Pinned to opus-4-5: older Opus models have different (higher) rates,
-        // so they fall through to "n/a" rather than a wrong estimate.
-        ("opus-4-5", (5.0, 25.0)),
-        ("gemini-2.5-flash-lite", (0.10, 0.40)),
-        ("gemini-2.5-flash", (0.30, 2.50)),
-        ("gemini-2.0-flash-lite", (0.075, 0.30)),
-        ("gemini-2.0-flash", (0.10, 0.40)),
-    ];
-    // Longest matching key wins, so the most specific id resolves regardless of
-    // table order: "gemini-2.5-flash-lite" must not match the shorter
-    // "gemini-2.5-flash" prefix. This removes the order-dependence that a plain
-    // first-match `find` would silently rely on.
-    table
-        .iter()
-        .filter(|(key, _)| m.contains(key))
-        .max_by_key(|(key, _)| key.len())
-        .map(|(_, rate)| *rate)
 }
 
 /// Assemble per-chunk extractor output into final recipes and resolve
@@ -799,26 +768,6 @@ mod tests {
             ..Default::default()
         };
         assert!(lossy.summary().contains("2 chunk(s) FAILED"));
-    }
-
-    #[test]
-    fn price_per_mtok_prefers_most_specific_key() {
-        // "...flash-lite" must resolve to the lite rate, not the shorter "flash"
-        // prefix it also contains — longest-match-wins, independent of table order.
-        assert_eq!(
-            price_per_mtok("gemini-2.5-flash-lite-preview"),
-            Some((0.10, 0.40))
-        );
-        assert_eq!(price_per_mtok("gemini-2.5-flash-002"), Some((0.30, 2.50)));
-        assert_eq!(price_per_mtok("gemini-2.0-flash-lite"), Some((0.075, 0.30)));
-        assert_eq!(price_per_mtok("gemini-2.0-flash"), Some((0.10, 0.40)));
-        // Dated Anthropic ids still resolve by substring.
-        assert_eq!(
-            price_per_mtok("claude-haiku-4-5-20251001"),
-            Some((1.0, 5.0))
-        );
-        // Unmapped → None.
-        assert_eq!(price_per_mtok("opus-4-1"), None);
     }
 
     fn er(title: &str, ings: &[&str]) -> ExtractedRecipe {

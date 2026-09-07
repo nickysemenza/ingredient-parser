@@ -83,3 +83,6 @@
 {"input": "Roll into 1-inch balls", "chunks": [{"text": "Roll into "}, {"measure": [{"unit": "inch", "value": 1.0}]}, {"text": " balls"}]}
 // Garnish callout with ingredient mid-sentence.
 {"input": "Serve hot, sprinkled with parsley", "ingredients": ["flat-leaf parsley"], "chunks": [{"text": "Serve hot, sprinkled with "}, {"ing": "parsley"}]}
+
+// Prose survives Measure recognition, including a range with attached units.
+{"input":"Use 78g to 104g. Stir? Then serve 😀","chunks":[{"text":"Use "},{"measure":[{"unit":"g","value":78.0,"upper_value":104.0}]},{"text":". Stir? Then serve 😀"}]}

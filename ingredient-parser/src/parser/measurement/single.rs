@@ -26,15 +26,16 @@ impl<'a> MeasurementParser<'a> {
     /// description appears between the number and unit.
     pub(super) fn parse_single_measurement<'b>(&self, input: &'b str) -> Res<&'b str, Measure> {
         let measurement_parser = (
-            opt(leading_qualifier),
+            |i| self.leading_qualifier(i),
             opt(|a| self.parse_multiplier(a)),
             |a| self.parse_value(a),
+            peek(nom::combinator::rest),
             space0,
             optional_dash_separator,
             optional_article,
             opt(amount_qualifier_between),
             opt(|a| self.unit(a)),
-            optional_period_or_of,
+            |i| self.trailing_prose(i),
         );
 
         traced_parser!(
@@ -47,6 +48,7 @@ impl<'a> MeasurementParser<'a> {
                         _estimate_prefix,
                         multiplier,
                         value,
+                        after_value,
                         _,
                         _dash,
                         _article,
@@ -63,6 +65,7 @@ impl<'a> MeasurementParser<'a> {
                         Some(m) => (value.0 * m, value.1.map(|upper| upper * m)),
                         None => (value.0, value.1),
                     };
+                    let explicit_unit = unit.is_some();
                     let (final_next_input, final_unit) = self.resolve_single_measurement_unit(
                         input,
                         next_input,
@@ -70,14 +73,45 @@ impl<'a> MeasurementParser<'a> {
                         period_consumed,
                     )?;
 
+                    // A bare count has no unit to justify consuming the space,
+                    // article or qualifier following its value. Leave that prose
+                    // untouched instead of asking callers to reconstruct it.
+                    let rest = if self.mode == MeasurementMode::RichText
+                        && !explicit_unit
+                        && final_unit == DEFAULT_UNIT
+                        && final_next_input.len() == next_input.len()
+                    {
+                        after_value
+                    } else {
+                        final_next_input
+                    };
                     Ok((
-                        final_next_input,
+                        rest,
                         Measure::from_parts(final_unit.as_ref(), final_value, final_upper),
                     ))
                 }),
             |m: &Measure| m.to_string(),
             "no measurement"
         )
+    }
+
+    /// Prose keeps leading qualifiers as text; ingredient lines discard them.
+    pub(super) fn leading_qualifier<'b>(&self, input: &'b str) -> Res<&'b str, Option<()>> {
+        if self.mode == MeasurementMode::RichText {
+            Ok((input, None))
+        } else {
+            opt(leading_qualifier).parse(input)
+        }
+    }
+
+    /// Inspect a terminator for number disambiguation, but only consume it in
+    /// ingredient-list mode. The grammar owns this choice for all callers.
+    pub(super) fn trailing_prose<'b>(&self, input: &'b str) -> Res<&'b str, Option<&'b str>> {
+        if self.mode == MeasurementMode::RichText {
+            peek(optional_period_or_of).parse(input)
+        } else {
+            optional_period_or_of(input)
+        }
     }
 
     /// In rich-text (prose) mode, reject a bare number whose continuation is not
@@ -108,7 +142,9 @@ impl<'a> MeasurementParser<'a> {
             return Ok((next_input, unit.to_lowercase()));
         }
 
-        if let Some((after_paren, unit)) = self.parse_unit_after_parens(next_input) {
+        if self.mode == MeasurementMode::IngredientList
+            && let Some((after_paren, unit)) = self.parse_unit_after_parens(next_input)
+        {
             return Ok((after_paren, unit));
         }
 
@@ -409,8 +445,7 @@ fn size_word_before_discardable_unit(input: &str) -> Res<&str, &str> {
 /// Consume a leading approximation/size qualifier ("about", "roughly",
 /// "generous", "scant", …), optionally preceded by an article ("a"/"an"), so
 /// the amount after it still parses. Case-insensitive; the qualifier text is
-/// discarded — except by `rich_text`, which re-emits the consumed span as
-/// prose (the reason this is pub(crate)).
+/// discarded in ingredient-list mode. Rich-text mode leaves it unconsumed.
 ///
 /// Wrapped in `opt(...)` by the caller, so a partial match (e.g. consuming "a "
 /// then failing) backtracks and consumes nothing.

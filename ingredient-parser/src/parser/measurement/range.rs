@@ -13,7 +13,7 @@ use crate::parser::Res;
 use crate::traced_parser;
 use crate::unit::{Measure, Unit};
 
-use super::{DEFAULT_UNIT, MeasurementParser, optional_period_or_of};
+use super::{DEFAULT_UNIT, MeasurementParser};
 
 /// Canonical [`Unit`] for a raw unit spelling, so range endpoints compare by
 /// unit identity rather than spelling ("tsp" == "teaspoons", "g" == "G").
@@ -46,7 +46,7 @@ impl<'a> MeasurementParser<'a> {
             |a| self.parse_number(a), // upper value
             space1,
             |a| self.unit(a), // upper unit (required)
-            optional_period_or_of,
+            |i| self.trailing_prose(i),
         );
 
         traced_parser!(
@@ -140,13 +140,13 @@ impl<'a> MeasurementParser<'a> {
         // Format for a measurement with a range
         let range_format = (
             // Optional approximation qualifier ("about", "roughly", …, any case)
-            nom::combinator::opt(super::single::leading_qualifier),
+            |i| self.leading_qualifier(i),
             |a| self.parse_value(a),                // The lower value
             space0,                                 // Optional whitespace
             nom::combinator::opt(|a| self.unit(a)), // Optional unit for lower value
             |a| self.parse_range_end(a),            // The upper range value
             nom::combinator::opt(|a| self.unit(a)), // Optional unit for upper value
-            optional_period_or_of,                  // Optional period or "of"
+            |i| self.trailing_prose(i),             // Optional period or "of"
         );
 
         traced_parser!(
