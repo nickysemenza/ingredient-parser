@@ -14,8 +14,8 @@ use petgraph::Directed;
 use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use poll_promise::Promise;
 use recipe_epub::{
-    BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionStats, ImageRef, Options,
-    ParsedCookbookRecipe,
+    BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionAccounting, ImageRef,
+    Options, ParsedCookbookRecipe,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// the first frame they're observed, then referenced by `Image::from_uri`.
 struct LoadedBook {
     recipes: Vec<CookbookRecipe>,
-    stats: ExtractionStats,
+    stats: ExtractionAccounting,
     /// The book's cover reference (URI key), if any.
     cover: Option<ImageRef>,
     /// De-duplicated `(archive_path, bytes)` for the cover + all heroes.
@@ -376,25 +376,8 @@ impl CookbookTab {
                     }
                     ui.label(RichText::new(format!("{} recipes", recipes.len())).weak());
                     ui.separator();
-                    let cost = stats
-                        .cost_usd()
-                        .map_or_else(|| "cost n/a".to_string(), |c| format!("~${c:.4}"));
-                    ui.label(
-                        RichText::new(format!(
-                            "{cost} · {}/{} chunks cached",
-                            stats.chunks_cached, stats.chunks_total
-                        ))
-                        .weak()
-                        .small(),
-                    )
-                    .on_hover_text(format!(
-                        "model: {}\n{} input tok\n{} output tok\n{} cache-read tok\n{} cache-write tok",
-                        stats.model,
-                        stats.usage.input_tokens,
-                        stats.usage.output_tokens,
-                        stats.usage.cache_read_input_tokens,
-                        stats.usage.cache_creation_input_tokens,
-                    ));
+                    ui.label(RichText::new(stats.status_summary()).weak().small())
+                        .on_hover_text(stats.summary());
                     ui.separator();
                     // Browse | Graph toggle. The graph is only useful when there
                     // are references to draw.
@@ -562,7 +545,7 @@ impl CookbookTab {
                     ..Default::default()
                 };
                 let (recipes, stats) = rt
-                    .block_on(recipe_epub::extract_cookbook_with_progress(
+                    .block_on(recipe_epub::extract_cookbook_detailed_with_progress(
                         &bytes,
                         &path,
                         &opts,

@@ -356,10 +356,10 @@ async fn main() {
                 use_cache: !no_cache,
                 ..Default::default()
             };
-            match recipe_epub::extract_cookbook(&bytes, path, &opts).await {
+            match recipe_epub::extract_cookbook_detailed(&bytes, path, &opts).await {
                 Ok((recipes, stats)) => {
                     // Cost/cache summary goes to stderr so --json stdout stays clean.
-                    eprintln!("[{}] {}", stats.model, stats.summary());
+                    eprintln!("{}", stats.summary());
                     // A valid EPUB that yields nothing is almost always an
                     // extraction bug (e.g. a content-decode failure), not an empty
                     // book — make it loud instead of exiting 0 with no output.
@@ -520,7 +520,7 @@ async fn main() {
                             Ok(b) => b,
                             Err(e) => return (p, Err(format!("read error: {e}"))),
                         };
-                        let result = recipe_epub::extract_cookbook(&bytes, &p, opts)
+                        let result = recipe_epub::extract_cookbook_detailed(&bytes, &p, opts)
                             .await
                             .map_err(|e| e.to_string());
                         (p, result)
@@ -542,10 +542,9 @@ async fn main() {
                         total_recipes += recipes.len();
                         total_chunks += stats.chunks_total;
                         total_chunks_cached += stats.chunks_cached;
-                        match stats.cost_usd() {
-                            Some(c) => total_cost += c,
-                            None => cost_known = false,
-                        }
+                        let estimate = stats.cost_estimate();
+                        total_cost += estimate.known_usd;
+                        cost_known &= estimate.complete;
                         for r in &recipes {
                             total_lines += r
                                 .sections
@@ -567,7 +566,7 @@ async fn main() {
             let cost_str = if cost_known {
                 format!("~${total_cost:.4}")
             } else {
-                "n/a".to_string()
+                format!("~${total_cost:.4} known subtotal (pricing incomplete)")
             };
             println!(
                 "scanned {} book(s): {total_recipes} recipes, {total_lines} ingredient lines, \

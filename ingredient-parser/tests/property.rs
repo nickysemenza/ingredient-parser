@@ -31,6 +31,25 @@ prop_compose! {
 }
 
 proptest! {
+    /// With no numeric expressions to normalize, every authored character must
+    /// survive the same rich-text interface used by recipe readers.
+    #[test]
+    fn rich_prose_preserves_nonnumeric_unicode(
+        chars in prop::collection::vec(any::<char>().prop_filter("prose", |c| !c.is_numeric()), 0..100)
+    ) {
+        use ingredient::rich_text::{Chunk, RichParser};
+        let input: String = chars.into_iter().collect();
+        let rich = RichParser::new(["flour", "salt"]).parse(&input).unwrap();
+        let mut text = String::new();
+        for chunk in rich {
+            match chunk {
+                Chunk::Text(s) | Chunk::Ing(s) => text.push_str(&s),
+                Chunk::Measure(_) => prop_assert!(false, "unexpected Measure in {input:?}"),
+            }
+        }
+        prop_assert_eq!(text, input);
+    }
+
     /// Test that parser never panics on arbitrary input
     #[test]
     fn parser_never_panics(input in arb_text_input()) {

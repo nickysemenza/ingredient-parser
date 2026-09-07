@@ -90,3 +90,13 @@ _Avoid_: section, segment, page
 The section title carried forward onto a continuation chunk, so a recipe split across a
 chunk seam is re-emitted under the same title and can be merged back together.
 _Avoid_: continuation marker, carryover
+
+**Extraction accounting**:
+The usage attributable to each model that processed a cookbook, together with evidence
+of failed or truncated Chunks. Recovered recipes remain usable even when extraction is incomplete.
+_Avoid_: billing record, invoice
+
+**Known cost subtotal**:
+The estimated cost of extraction usage for which the model's rate is known. It is a
+complete estimate only when every model with reported usage has a known rate.
+_Avoid_: total cost (when rates are missing)
