@@ -270,8 +270,8 @@ fn strip_plural(s: &str) -> &str {
 }
 
 /// Lowercase + strip a plural suffix from a unit word ("Scoops" -> "scoop",
-/// "pouches" -> "pouch"). Public because downstream boundary code (e.g.
-/// recipebridge's bare-count serving guard) must relabel units with exactly
+/// "pouches" -> "pouch"). Public because downstream boundary code
+/// must relabel units with exactly
 /// the form this parser would read off a recipe line — reimplementing the
 /// rule there would drift.
 pub fn singular(s: &str) -> Cow<'_, str> {

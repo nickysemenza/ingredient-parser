@@ -8,32 +8,40 @@
 //! *strings* come back verbatim; [`CookbookRecipe::parse`] runs the core
 //! `ingredient` nom parser over them. The LLM never parses quantities.
 //!
-//! Entry point: [`extract_cookbook`] (selects a backend from `Options.model`) or
-//! [`extract_cookbook_with`] (any [`RecipeExtractor`], e.g. a mock in tests).
+//! [`extract_chunks_with`] drives a book using caller-supplied transport on
+//! native or browser runtimes. With the `native` feature, `extract_cookbook`
+//! selects a configured backend and `extract_cookbook_with` accepts any
+//! [`RecipeExtractor`], including mocks.
 
 // `backend`, `cache`, and `library` are native-only — each gates itself with an
 // inner `#![cfg(feature = "native")]`, so their `mod` lines stay unconditional
-// here. `epub_text` + `extractor` are the pure contract, compiled everywhere.
+// here. The other modules form the runtime-independent contract.
 mod backend;
 mod cache;
 mod epub_text;
 mod extractor;
 mod library;
+mod orchestration;
 
 // Pure extraction API — compiles to wasm32: EPUB unzip + text chunking
 // (`chunk_epub`), per-chunk request building (`build_chunk_request`), LLM
-// response parsing (`parse_recipes_payload`), and assembly (`assemble_recipes`).
+// response parsing (`parse_recipes_payload`), whole-book scheduling
+// (`extract_chunks_with`), and assembly (`assemble_recipes`).
 //
-// NOTHING IN THIS REPO CALLS THESE. They exist for cubby's recipebridge, which
-// builds this crate with `default-features = false` and drives extraction in
-// the browser; a repo-local caller search will say they are dead (see
-// CONTRIBUTING.md). CI keeps them honest with
-// `cargo check -p recipe-epub --no-default-features`.
+// These APIs support external browser callers with `default-features = false`;
+// preserve downstream compatibility even when an API has no in-tree caller.
+// CI tests the non-native library and compiles the browser callback example
+// for wasm32.
 pub use epub_text::chunk_epub;
 pub use extractor::{
-    CallResult, ChunkOutcome, ChunkRequest, DrivenChunk, ExtractedRecipe, MockExtractor, MockMatch,
-    PARSE_RETRIES, RecipeExtractor, RecipeMeta, Usage, build_chunk_request, parse_recipes_payload,
-    recipes_tool_schema, try_extract_chunk,
+    CallFailure, CallResult, ChunkExtractionFailure, ChunkOutcome, ChunkRequest, DrivenChunk,
+    ExtractedRecipe, FailedAttempt, MockExtractor, MockMatch, PARSE_RETRIES, RecipeExtractor,
+    RecipeMeta, Usage, build_chunk_request, parse_recipes_payload, recipes_tool_schema,
+    try_extract_chunk, try_extract_chunk_detailed,
+};
+pub use orchestration::{
+    ChunkFailure, ChunkReport, ChunkTruncation, ExtractionProgress, ExtractionReport, ModelTier,
+    OrchestrationOptions, TierFailure, extract_chunks_with,
 };
 // Library scanning: list + classify the cookbooks in a directory of epubs
 // (native: needs std::fs + the LLM classifier).
@@ -42,9 +50,8 @@ pub use library::{
     BookMeta, CookbookGuess, book_cover, book_metadata, classify_by_tags, classify_cookbooks_ai,
     find_epubs,
 };
-// The native extraction orchestration (backends + cache + async) lives in
-// `backend`; re-export the public entry points so `recipe_epub::extract_cookbook`
-// (etc.) paths stay stable.
+// Native entrypoints configure backends and caching, then use the shared driver.
+// Keep their existing crate-root paths stable.
 #[cfg(feature = "native")]
 pub use backend::{
     ChunkDebug, Options, debug_extract_cookbook, extract_cookbook, extract_cookbook_with,
@@ -192,8 +199,8 @@ impl CookbookRecipeExt for CookbookRecipe {
 
 /// Progress snapshot emitted during [`extract_cookbook_with_progress`]: how many
 /// chunks have finished extracting (`done`) out of `total`, and how many of those
-/// came from the on-disk cache (`cached`). Each snapshot is internally consistent
-/// (the counts come from monotonic atomic increments).
+/// came from the on-disk cache (`cached`). Counts are monotonic and internally
+/// consistent.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ExtractProgress {
     /// Chunks finished so far.
@@ -295,7 +302,7 @@ fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
 /// Assemble per-chunk extractor output into final recipes and resolve
 /// cross-recipe references — the pure post-LLM stage, no I/O.
 ///
-/// `per_chunk` is `(doc_path, recipes)` in spine reading order (one entry per
+/// `per_chunk` is `(Chunk, recipes)` in spine reading order (one entry per
 /// chunk); `links` is the book-wide set of internal anchor links (the Layer-2
 /// reference-confirmation signal, gathered from every chunk). This is the wasm
 /// boundary's counterpart to [`chunk_epub`]: the browser runs the LLM per chunk,
@@ -318,7 +325,7 @@ pub fn assemble_recipes(
 /// into the first (sections, instructions, and notes are unioned) rather than
 /// dropped. This recovers the recipe's tail (extra steps, "Do Ahead" notes)
 /// instead of discarding it. For the common single-chunk recipe it's a no-op.
-/// `pub(crate)` so the native orchestration in [`crate::backend`] can call it.
+/// Used by [`assemble_recipes`] after the driver restores input order.
 pub(crate) fn assemble(
     per_chunk: Vec<(Chunk, Vec<ExtractedRecipe>)>,
     source: &str,

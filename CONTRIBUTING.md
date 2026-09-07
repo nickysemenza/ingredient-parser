@@ -22,22 +22,12 @@ when deciding what a line *should* parse to.
 
 ## Downstream consumers
 
-Only `ingredient-parser` is published (as `ingredient`). The other library
-crates are `publish = false`, which normally means "internal, change freely" —
-**they aren't.** [cubby](https://github.com/nickysemenza/cubby)'s `recipebridge`
-depends on `ingredient`, `recipe-scraper`, `recipe-epub` and `recipe-types` by
-git branch with no rev pin, and gitignores its lockfile, so a breaking change
-here breaks its CI on the next run with no semver step to absorb it.
+Only `ingredient-parser` is published (as `ingredient`). The library crates
+`recipe-scraper`, `recipe-epub` and `recipe-types` also have external git consumers.
+Treat their public APIs as compatibility contracts even when no workspace caller
+uses them. Prefer additive changes; coordinate breaking changes with consumers.
 
-- **A repo-local caller search is not evidence a `pub` item in those four is
-  unused.** cubby is the only consumer of much of the unit-conversion surface
-  (`find_connected_components`, `make_graph`, `convert_measure_with_graph_explained`,
-  `is_valid`, `util::format_quantity_ascii`) and of `recipe-epub`'s entire
-  non-`native` half.
-- Additive changes are safe. Narrowing one is a two-repo change: prepare the
-  cubby side first.
-- `ingredient-corpus`, `food-cli` and `food-app` have no external consumer, so
-  for those a local search *is* evidence.
+`ingredient-corpus`, `food-cli` and `food-app` have no external consumers.
 
 ## Quick commands
 

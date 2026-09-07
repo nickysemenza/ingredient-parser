@@ -92,6 +92,7 @@ impl Usage {
 }
 
 /// One chunk's extraction result plus its cost signal.
+#[derive(Debug, Clone)]
 pub struct ChunkOutcome {
     pub recipes: Vec<ExtractedRecipe>,
     /// Token usage for the API call. Zero when served from cache.
@@ -253,20 +254,205 @@ pub fn parse_recipes_payload(input: serde_json::Value) -> Result<Vec<ExtractedRe
 /// disjoint-failure escalation (a *different* model) is the caller's job.
 pub const PARSE_RETRIES: usize = 1;
 
-/// One model's structured output for a chunk: the raw tool `input` (`None` if the
-/// model returned no tool block) plus the cost/limit signals the native backend
-/// tracks. The wasm driver passes `Usage::default()` + `truncated: false`.
+/// One model call's structured output: the raw tool `input` (`None` if the model
+/// returned no tool block) plus caller-supplied cost/limit signals.
 pub struct CallResult {
     pub input: Option<serde_json::Value>,
     pub usage: Usage,
     pub truncated: bool,
 }
 
+/// A failed model call with any usage and truncation metadata the transport was
+/// still able to recover.
+///
+/// Use [`CallFailure::retryable_payload`] when a response arrived but its tool
+/// arguments were malformed. The shared driver retries those failures under the
+/// same policy as a decoded payload that fails [`parse_recipes_payload`].
+#[derive(Debug)]
+pub struct CallFailure {
+    pub error: EpubError,
+    pub usage: Usage,
+    pub truncated: bool,
+    retryable: bool,
+}
+
+impl CallFailure {
+    /// A transport/provider failure. It is not retried as a parse failure.
+    pub fn transport(error: EpubError) -> Self {
+        Self {
+            error,
+            usage: Usage::default(),
+            truncated: false,
+            retryable: false,
+        }
+    }
+
+    /// A transport/provider failure carrying metadata recovered from a response.
+    pub fn transport_with_metadata(error: EpubError, usage: Usage, truncated: bool) -> Self {
+        Self {
+            error,
+            usage,
+            truncated,
+            retryable: false,
+        }
+    }
+
+    /// Malformed structured output that can be retried with the same model.
+    pub fn retryable_payload(error: EpubError, usage: Usage, truncated: bool) -> Self {
+        Self {
+            error,
+            usage,
+            truncated,
+            retryable: true,
+        }
+    }
+}
+
+impl core::fmt::Display for CallFailure {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.error, formatter)
+    }
+}
+
+impl std::error::Error for CallFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
+/// One failed call/parse attempt within a model tier.
+#[derive(Debug, Clone, Serialize)]
+pub struct FailedAttempt {
+    /// Zero-based call attempt within the tier.
+    pub attempt: usize,
+    pub message: String,
+    pub usage: Usage,
+    pub truncated: bool,
+}
+
+/// A model tier that could not produce a parseable chunk after its allowed
+/// attempts. Usage includes every attempt, successful HTTP response or not.
+#[derive(Debug)]
+pub struct ChunkExtractionFailure {
+    pub error: EpubError,
+    pub usage: Usage,
+    pub truncated: bool,
+    pub attempts: Vec<FailedAttempt>,
+}
+
+impl From<EpubError> for ChunkExtractionFailure {
+    fn from(error: EpubError) -> Self {
+        Self {
+            // The legacy interface exposes no attempt-level information.
+            attempts: Vec::new(),
+            error,
+            usage: Usage::default(),
+            truncated: false,
+        }
+    }
+}
+
+impl core::fmt::Display for ChunkExtractionFailure {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.error, formatter)
+    }
+}
+
+impl std::error::Error for ChunkExtractionFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
 /// Recipes decoded from one model for one chunk, with accumulated usage.
+#[derive(Debug, Clone)]
 pub struct DrivenChunk {
     pub recipes: Vec<ExtractedRecipe>,
     pub usage: Usage,
     pub truncated: bool,
+}
+
+/// Detailed form of [`try_extract_chunk`] for transports that can report usage
+/// and truncation even when the call itself fails.
+pub async fn try_extract_chunk_detailed<F, Fut>(
+    doc_path: &str,
+    call: F,
+) -> Result<DrivenChunk, ChunkExtractionFailure>
+where
+    F: Fn() -> Fut,
+    Fut: core::future::Future<Output = Result<CallResult, CallFailure>>,
+{
+    let mut usage = Usage::default();
+    let mut attempts = Vec::new();
+    let mut attempt = 0;
+    loop {
+        let result = match call().await {
+            Ok(result) => result,
+            Err(failure) => {
+                usage.add(&failure.usage);
+                let failed = FailedAttempt {
+                    attempt,
+                    message: failure.error.to_string(),
+                    usage: failure.usage,
+                    truncated: failure.truncated,
+                };
+                let can_retry = failure.retryable && !failure.truncated && attempt < PARSE_RETRIES;
+                attempts.push(failed);
+                if can_retry {
+                    tracing::warn!(
+                        "chunk {doc_path} payload didn't decode ({}); retrying",
+                        failure.error
+                    );
+                    attempt += 1;
+                    continue;
+                }
+                return Err(ChunkExtractionFailure {
+                    error: failure.error,
+                    usage,
+                    truncated: failure.truncated,
+                    attempts,
+                });
+            }
+        };
+        usage.add(&result.usage);
+        match result.input {
+            // No tool block / no recipes is a valid empty result, not a failure.
+            None => {
+                return Ok(DrivenChunk {
+                    recipes: Vec::new(),
+                    usage,
+                    truncated: result.truncated,
+                });
+            }
+            Some(input) => match parse_recipes_payload(input) {
+                Ok(recipes) => {
+                    return Ok(DrivenChunk {
+                        recipes,
+                        usage,
+                        truncated: result.truncated,
+                    });
+                }
+                Err(error) => {
+                    attempts.push(FailedAttempt {
+                        attempt,
+                        message: error.to_string(),
+                        usage: result.usage,
+                        truncated: result.truncated,
+                    });
+                    if result.truncated || attempt >= PARSE_RETRIES {
+                        return Err(ChunkExtractionFailure {
+                            error,
+                            usage,
+                            truncated: result.truncated,
+                            attempts,
+                        });
+                    }
+                    tracing::warn!("chunk {doc_path} payload didn't parse ({error}); retrying");
+                    attempt += 1;
+                }
+            },
+        }
+    }
 }
 
 /// Drive ONE model over one chunk: call it, decode the payload, and retry the
@@ -283,40 +469,11 @@ where
     F: Fn() -> Fut,
     Fut: core::future::Future<Output = Result<CallResult, EpubError>>,
 {
-    let mut usage = Usage::default();
-    let mut attempt = 0;
-    loop {
-        let CallResult {
-            input,
-            usage: call_usage,
-            truncated,
-        } = call().await?;
-        usage.add(&call_usage);
-        match input {
-            // No tool block / no recipes is a valid empty result, not a failure.
-            None => {
-                return Ok(DrivenChunk {
-                    recipes: Vec::new(),
-                    usage,
-                    truncated,
-                });
-            }
-            Some(v) => match parse_recipes_payload(v) {
-                Ok(recipes) => {
-                    return Ok(DrivenChunk {
-                        recipes,
-                        usage,
-                        truncated,
-                    });
-                }
-                Err(e) if truncated || attempt >= PARSE_RETRIES => return Err(e),
-                Err(e) => {
-                    tracing::warn!("chunk {doc_path} payload didn't parse ({e}); retrying");
-                    attempt += 1;
-                }
-            },
-        }
-    }
+    try_extract_chunk_detailed(doc_path, || async {
+        call().await.map_err(CallFailure::transport)
+    })
+    .await
+    .map_err(|failure| failure.error)
 }
 
 /// Turns a [`Chunk`] of cookbook text into zero or more recipes.
@@ -327,6 +484,18 @@ where
 #[allow(async_fn_in_trait)]
 pub trait RecipeExtractor {
     async fn extract(&self, chunk: &Chunk) -> Result<ChunkOutcome, EpubError>;
+
+    /// Detailed adapter used by whole-book orchestration. Existing implementations
+    /// remain source-compatible; their legacy error type cannot report usage or
+    /// truncation that was lost before returning `Err`.
+    async fn extract_detailed(
+        &self,
+        chunk: &Chunk,
+    ) -> Result<ChunkOutcome, ChunkExtractionFailure> {
+        self.extract(chunk)
+            .await
+            .map_err(ChunkExtractionFailure::from)
+    }
 
     /// Model id for cost attribution; empty when not applicable (e.g. the mock).
     fn model(&self) -> &str {
@@ -624,7 +793,7 @@ mod tests {
 
     use std::cell::Cell;
 
-    use super::{CallResult, Usage, try_extract_chunk};
+    use super::{CallFailure, CallResult, Usage, try_extract_chunk, try_extract_chunk_detailed};
 
     fn call_result(input: serde_json::Value, truncated: bool) -> CallResult {
         CallResult {
@@ -632,6 +801,72 @@ mod tests {
             usage: Usage::default(),
             truncated,
         }
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    #[tokio::test]
+    async fn absent_tool_output_is_empty_success_with_metadata(#[case] truncated: bool) {
+        let calls = Cell::new(0);
+        let usage = Usage {
+            input_tokens: 10,
+            output_tokens: 4,
+            cache_creation_input_tokens: 3,
+            cache_read_input_tokens: 2,
+        };
+        let driven = try_extract_chunk_detailed("empty.xhtml", || {
+            calls.set(calls.get() + 1);
+            let usage = usage.clone();
+            async move {
+                Ok(CallResult {
+                    input: None,
+                    usage,
+                    truncated,
+                })
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert!(driven.recipes.is_empty());
+        assert_eq!(driven.usage, usage);
+        assert_eq!(driven.truncated, truncated);
+    }
+
+    #[tokio::test]
+    async fn truncated_raw_payload_error_preserves_its_source_without_retry() {
+        use std::error::Error;
+
+        let calls = Cell::new(0);
+        let failure = try_extract_chunk_detailed("cut.xhtml", || {
+            calls.set(calls.get() + 1);
+            async {
+                let error = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+                let failed_call = CallFailure::retryable_payload(
+                    error.into(),
+                    Usage {
+                        output_tokens: 16_000,
+                        ..Default::default()
+                    },
+                    true,
+                );
+                assert_eq!(
+                    failed_call.to_string(),
+                    failed_call.source().unwrap().to_string()
+                );
+                Err(failed_call)
+            }
+        })
+        .await
+        .unwrap_err();
+
+        assert_eq!(calls.get(), 1);
+        assert_eq!(failure.usage.output_tokens, 16_000);
+        assert!(failure.truncated);
+        assert_eq!(failure.attempts.len(), 1);
+        assert_eq!(failure.to_string(), failure.source().unwrap().to_string());
+        assert!(failure.to_string().contains("EOF"));
     }
 
     #[tokio::test]

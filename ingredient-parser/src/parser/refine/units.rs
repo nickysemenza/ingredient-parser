@@ -51,7 +51,7 @@ impl IngredientParser {
     /// counted item: "3 medium carrots" -> `{medium:3}` carrots, "2 extra large
     /// eggs" -> `{extra large:2}` eggs. This lets the size map to USDA portion data
     /// through the unit graph — a bare `{whole}` count is not a USDA portion key,
-    /// the size is (cubby already maps "1 each = 1 large" on its egg product).
+    /// the size is (for example, a mapping can relate "1 each" to "1 large").
     ///
     /// Fires only when a real `Unit::Whole` count is present (so "medium heat", a
     /// no-count "medium onion", and "2 cups large onion" are all untouched), the

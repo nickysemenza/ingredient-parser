@@ -15,10 +15,10 @@
 
 ## Before deleting a `pub` item
 
-`recipe-scraper`, `recipe-epub` and `recipe-types` are `publish = false` but are
-consumed by cubby via an unpinned git dependency, so zero callers in this repo
-does NOT mean dead. Check `../cubby/recipebridge/src/` first. `ingredient-corpus`,
-`food-cli` and `food-app` have no external consumer. See CONTRIBUTING.md.
+`recipe-scraper`, `recipe-epub` and `recipe-types` are `publish = false` but have
+external consumers. Zero callers in this repo does not prove a public API is
+unused. Preserve compatibility and check any consumer code supplied with the
+task before narrowing an API. See CONTRIBUTING.md.
 
 ## Testing
 
