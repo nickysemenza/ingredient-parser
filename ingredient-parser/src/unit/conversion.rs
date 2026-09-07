@@ -948,6 +948,42 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case(
+        "unknown",
+        ConversionTarget::Kind(MeasureKind::Weight),
+        ConversionFailure::SourceUnavailable
+    )]
+    #[case(
+        "g",
+        ConversionTarget::Kind(MeasureKind::Volume),
+        ConversionFailure::TargetUnavailable
+    )]
+    #[case(
+        "g",
+        ConversionTarget::Unit(Unit::Liter),
+        ConversionFailure::TargetUnavailable
+    )]
+    #[case(
+        "g",
+        ConversionTarget::Kind(MeasureKind::Money),
+        ConversionFailure::NoPath
+    )]
+    fn conversion_report_distinguishes_unavailable_units_from_disconnected_paths(
+        #[case] source: &str,
+        #[case] target: ConversionTarget,
+        #[case] expected: ConversionFailure,
+    ) {
+        let conversions = MeasureConversions::new(&[
+            (Measure::new("widget", 1.0), Measure::new("g", 100.0)),
+            (Measure::new("credit", 1.0), Measure::new("$", 2.0)),
+        ]);
+        let report = conversions.explain(&Measure::new(source, 1.0), target);
+        assert_eq!(report.result, Err(expected));
+        assert!(report.hops.is_empty());
+        assert!(report.rejected_mappings.is_empty());
+    }
+
     #[test]
     fn deep_module_distinguishes_kind_from_exact_unit() {
         let conversions =
