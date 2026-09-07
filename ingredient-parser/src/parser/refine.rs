@@ -11,8 +11,7 @@
 //! alternatives list, hoisting a secondary measurement parenthetical, the
 //! leading prep-phrase swap and minus-clause split) are NOT here anymore: the
 //! clause segmentation stage resolves them at assembly time — see
-//! [`super::segment`]'s `ASSEMBLY_REPAIRS`. The sub-modules of this module
-//! still house those repair functions; only their caller moved.
+//! [`super::segment`]'s `ASSEMBLY_REPAIRS` and `segment::repairs` module.
 //!
 //! The pass order is a *tested contract*, not a comment: [`ORDER_CONSTRAINTS`]
 //! lists each load-bearing edge (`before` must precede `after`) together with a
@@ -22,18 +21,12 @@
 //! halves: the pipeline honours every edge, and every edge earns its place.
 
 mod alternatives;
-mod amounts;
 mod prep;
-mod recover;
 mod units;
 
 use std::cmp::Reverse;
 
 use super::ir::{ModifierPart, ParsedIngredient};
-// Re-exported to the child refine submodules via their `use super::*;` glob
-// (`amounts`, `recover`), which call it to tidy names they rewrite.
-use super::normalize::collapse_whitespace;
-use crate::parser::{MeasurementMode, MeasurementParser};
 use crate::unit::{self, Measure};
 use crate::{Ingredient, IngredientParser};
 
@@ -58,13 +51,15 @@ impl IngredientParser {
 
     fn run_refine_pass(&self, pass: &RefinePass, parsed: &mut ParsedIngredient) {
         let RefinePass { run, .. } = *pass;
-        if !crate::trace::is_tracing_enabled() {
+        if !crate::trace::is_diagnostics_enabled() {
             run(self, parsed);
             return;
         }
         let before = parsed.clone();
         run(self, parsed);
+        let changed = *parsed != before;
         crate::trace::trace_on_change(
+            crate::trace::Stage::Refine,
             pass.id().as_str(),
             &before.name,
             &format!(
@@ -72,7 +67,7 @@ impl IngredientParser {
                 parsed.name,
                 parsed.modifier_string().as_deref().unwrap_or("-")
             ),
-            *parsed != before,
+            changed,
         );
     }
 

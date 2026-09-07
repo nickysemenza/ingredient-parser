@@ -25,7 +25,7 @@
 //!   the line) — a whole-line-context test [`classify`] can't see from `inner`
 //!   alone. That guard stays at the site.
 //! - **`Amount`** here means "the inner text parses as a measurement list with a
-//!   simple remainder" — the same core test `refine::amounts` runs, minus its
+//!   simple remainder" — the same core test `segment::repairs` runs, minus its
 //!   distance-aside rejection and approximation-prefix stripping, which stay at
 //!   the site.
 //! - **`Descriptive`** mirrors `lift_inline_descriptive_paren`'s *inner* test
@@ -67,7 +67,7 @@ pub(crate) enum ParenKind {
     /// list. `None` units disables this check (yields a later kind).
     Amount,
     /// "(red)" in "purple (red) cabbage" — a bare alias with no digits or vulgar
-    /// fractions. Mirrors `refine::recover`'s inner-content guard.
+    /// fractions. Mirrors `segment::repairs`'s inner-content guard.
     Alias,
     /// None of the above.
     Other,
@@ -187,7 +187,7 @@ pub(crate) fn is_descriptive(inner: &str) -> bool {
 }
 
 /// The inner parses as a measurement list with a simple remainder — the core
-/// test `refine::amounts` runs before hoisting a secondary amount. Strips a
+/// test `segment::repairs` runs before hoisting a secondary amount. Strips a
 /// leading approximation word ("about"/"approximately"/…) as that site does.
 /// A distance-only aside ("(about 3-inch)") still classifies as `Amount` here;
 /// the refine site separately rejects those, since the whole-parse context is
@@ -230,7 +230,7 @@ fn strip_approximation_prefix(text: &str) -> &str {
 }
 
 /// The inner is a bare alias — non-empty, no digits, no vulgar fractions.
-/// Mirrors `refine::recover::recover_parenthetical_alias_from_modifier`'s guard.
+/// Mirrors `segment::repairs::recover_parenthetical_alias_from_modifier`'s guard.
 pub(crate) fn is_alias(inner: &str) -> bool {
     let inner = inner.trim();
     !inner.is_empty()

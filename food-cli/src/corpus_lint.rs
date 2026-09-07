@@ -56,7 +56,16 @@ pub fn report_stages_over(rows: &[String]) -> StageCoverage {
     }
 
     for input in rows {
-        let stages = parser.parse_with_trace(input).trace.stages();
+        let stages = parser
+            .parse_line(
+                input,
+                ingredient::ParseOptions {
+                    decomposition: false,
+                    trace: ingredient::TraceDetail::Stages,
+                },
+            )
+            .stages
+            .unwrap_or_default();
         // A normalize rewrite / refine pass appears in the report only when it
         // changed the line, so mere presence == it fired. A recognizer appears
         // for every attempt, so it fired only when it produced output. Segment

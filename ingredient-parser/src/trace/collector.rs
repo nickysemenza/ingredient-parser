@@ -76,6 +76,7 @@ impl TraceCollector {
             root,
             baseline_instant: Some(self.baseline_instant),
             baseline_unix_micros: self.baseline_unix_micros,
+            stage_report: None,
         }
     }
 }

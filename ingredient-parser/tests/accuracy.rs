@@ -25,7 +25,7 @@
 // Test-harness code: a malformed corpus line should fail the test loudly.
 #![allow(clippy::panic)]
 
-use ingredient::{IngredientParser, from_str};
+use ingredient::{IngredientParser, ParseOptions, TraceDetail, from_str};
 use ingredient_corpus::{CorpusRow, Status, Tally};
 
 /// Every well-formed row; a malformed line fails the suite loudly. The strict
@@ -152,5 +152,31 @@ fn trace_path_matches_from_str() {
             "empty trace tree for {:?}",
             row.input
         );
+    }
+}
+
+#[test]
+fn observation_modes_match_across_the_corpus() {
+    let parser = IngredientParser::new();
+    for row in load() {
+        let plain = parser.parse_line(&row.input, ParseOptions::default());
+        for detail in [TraceDetail::Stages, TraceDetail::Full] {
+            let observed = parser.parse_line(
+                &row.input,
+                ParseOptions {
+                    decomposition: true,
+                    trace: detail,
+                },
+            );
+            assert_eq!(observed.ingredient, plain.ingredient, "{:?}", row.input);
+            assert_eq!(
+                observed.ingredient.parse_notes, plain.ingredient.parse_notes,
+                "parse notes diverged for {:?}",
+                row.input
+            );
+            assert!(observed.decomposition.is_some());
+            assert!(observed.stages.is_some());
+            assert_eq!(observed.trace.is_some(), detail == TraceDetail::Full);
+        }
     }
 }

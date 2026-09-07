@@ -7,12 +7,7 @@
 //! the egui stages view) can show *which stage* shaped a line without
 //! re-deriving the bucketing. See the routing guide in `parser/mod.rs`.
 
-use super::{TraceNode, TraceOutcome};
-use crate::parser::recognize::RECOGNIZER_TRACE_NAMES;
-use crate::parser::segment::SEGMENT_TRACE_NAMES;
-
-/// The grammar span name (the `traced_parser!` wrapping `parse_ingredient`).
-const GRAMMAR_NAME: &str = "parse_ingredient";
+use std::cell::RefCell;
 
 /// A normalize rewrite or refine pass that changed the line/ingredient.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +40,16 @@ pub enum GrammarOutcome {
     Skipped,
 }
 
+/// Which bucket a rewrite belongs to. Passed in by the caller — every
+/// `trace_on_change` site knows its own stage statically, so the trace module
+/// never has to guess a stage from the pass name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage {
+    Normalize,
+    Segment,
+    Refine,
+}
+
 /// Stage-level summary of a parse trace (the data behind `--explain`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageReport {
@@ -73,105 +78,80 @@ impl StageReport {
     }
 }
 
-fn is_core_node(name: &str) -> bool {
-    name == GRAMMAR_NAME || RECOGNIZER_TRACE_NAMES.contains(&name)
-}
-
-fn success_preview(node: &TraceNode) -> Option<&str> {
-    match &node.outcome {
-        TraceOutcome::Success { output_preview, .. } => Some(output_preview),
-        _ => None,
+impl Default for StageReport {
+    fn default() -> Self {
+        Self::empty("")
     }
 }
 
-/// Find the grammar node among the core children, whether it's a direct child
-/// (no recognizer matched) or nested under a successful recognizer (e.g.
-/// `x_of_construction` re-parses its rewritten line through the grammar).
-fn find_grammar(core: &[TraceNode]) -> Option<&TraceNode> {
-    for c in core {
-        if c.name == GRAMMAR_NAME {
-            return Some(c);
-        }
-        if RECOGNIZER_TRACE_NAMES.contains(&c.name.as_str())
-            && let Some(g) = c.children.iter().find(|g| g.name == GRAMMAR_NAME)
-        {
-            return Some(g);
+impl StageReport {
+    pub(super) fn empty(input: &str) -> Self {
+        Self {
+            input: input.to_string(),
+            normalize: Vec::new(),
+            recognizers: Vec::new(),
+            grammar: None,
+            segment: Vec::new(),
+            refine: Vec::new(),
+            result_preview: None,
         }
     }
-    None
 }
 
-fn rewrite_from(node: &TraceNode) -> StageRewrite {
-    StageRewrite {
-        name: node.name.clone(),
-        before: node.input.clone(),
-        after: success_preview(node).unwrap_or("").to_string(),
+thread_local! {
+    static STAGE_REPORT: RefCell<Option<StageReport>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn enable_recording(input: &str) {
+    STAGE_REPORT.with(|slot| *slot.borrow_mut() = Some(StageReport::empty(input)));
+}
+
+pub(crate) fn finish_recording(result: &str) -> StageReport {
+    STAGE_REPORT.with(|slot| {
+        let mut report = slot
+            .borrow_mut()
+            .take()
+            .unwrap_or_else(|| StageReport::empty(""));
+        report.result_preview = Some(result.to_string());
+        report
+    })
+}
+
+pub(crate) fn record_rewrite(stage: Stage, id: &str, before: &str, after: &str, changed: bool) {
+    if !changed {
+        return;
     }
-}
-
-/// Bucket a trace root's direct children into pipeline stages.
-pub(super) fn build_report(root: &TraceNode) -> StageReport {
-    let children = &root.children;
-    let first_core = children.iter().position(|c| is_core_node(&c.name));
-    let last_core = children.iter().rposition(|c| is_core_node(&c.name));
-
-    // normalize — every node before the first core (recognizer/grammar) node.
-    let normalize_nodes = match first_core {
-        Some(i) => &children[..i],
-        None => &children[..],
-    };
-    let normalize = normalize_nodes.iter().map(rewrite_from).collect();
-
-    // recognize + grammar + segment — the core block. Segment decisions
-    // (clause classifications, assembly repairs) nest *inside* the grammar
-    // span on the segmented path.
-    let (recognizers, grammar, segment) = match (first_core, last_core) {
-        (Some(i), Some(j)) => {
-            let core = &children[i..=j];
-            let recognizers = core
-                .iter()
-                .filter(|c| RECOGNIZER_TRACE_NAMES.contains(&c.name.as_str()))
-                .map(|c| RecognizerAttempt {
-                    name: c.name.clone(),
-                    output: success_preview(c).map(str::to_string),
-                })
-                .collect();
-            let grammar_node = find_grammar(core);
-            let grammar = match grammar_node {
-                Some(g) => match success_preview(g) {
-                    Some(p) => GrammarOutcome::Parsed(p.to_string()),
-                    None => GrammarOutcome::FellBack,
-                },
-                None => GrammarOutcome::Skipped,
-            };
-            let segment = grammar_node
-                .map(|g| {
-                    g.children
-                        .iter()
-                        .filter(|c| SEGMENT_TRACE_NAMES.contains(&c.name.as_str()))
-                        .map(rewrite_from)
-                        .collect()
-                })
-                .unwrap_or_default();
-            (recognizers, Some(grammar), segment)
+    STAGE_REPORT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(report) = slot.as_mut() else { return };
+        let rewrite = StageRewrite {
+            name: id.to_string(),
+            before: before.to_string(),
+            after: after.to_string(),
+        };
+        match stage {
+            Stage::Normalize => report.normalize.push(rewrite),
+            Stage::Segment => report.segment.push(rewrite),
+            Stage::Refine => report.refine.push(rewrite),
         }
-        _ => (Vec::new(), None, Vec::new()),
-    };
+    });
+}
 
-    // refine — every node after the last core node.
-    let refine_nodes = match last_core {
-        Some(j) => &children[j + 1..],
-        None => &[][..],
-    };
-    let refine = refine_nodes.iter().map(rewrite_from).collect();
+pub(crate) fn record_recognizer(id: &str, output: Option<&str>) {
+    STAGE_REPORT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(report) = slot.as_mut() else { return };
+        report.recognizers.push(RecognizerAttempt {
+            name: id.to_string(),
+            output: output.map(str::to_string),
+        });
+    });
+}
 
-    StageReport {
-        input: root.input.clone(),
-        normalize,
-        recognizers,
-        grammar,
-        segment,
-        refine,
-        result_preview: success_preview(root).map(str::to_string),
-    }
+pub(crate) fn record_grammar(outcome: GrammarOutcome) {
+    STAGE_REPORT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(report) = slot.as_mut() else { return };
+        report.grammar = Some(outcome);
+    });
 }

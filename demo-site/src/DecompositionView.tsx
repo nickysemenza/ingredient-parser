@@ -19,10 +19,11 @@ const FIELD_STYLES: Record<
 const FIELD_ORDER: WField[] = ["amount", "name", "modifier"];
 
 /**
- * Diagnostic-style view of how the grammar carved the line: the (normalized)
- * source in monospace with a colored underline under each amount/name/modifier
- * span, plus a legend. Mirrors `parse-ingredient --explain`. Renders nothing
- * until there's input.
+ * Diagnostic-style view of where each parsed field came from: the authored line
+ * in monospace with a colored underline under the text that became each
+ * amount/name/modifier, plus a legend. The labels describe the *final* fields,
+ * so a prep word the parser moved out of the name shows as modifier. Mirrors
+ * `parse-ingredient --explain`. Renders nothing until there's input.
  */
 export function DecompositionView({
   decomp,
@@ -38,7 +39,7 @@ export function DecompositionView({
   return (
     <div className="mb-5">
       <div className="mb-2 text-sm font-medium text-zinc-500">
-        How the grammar carved it
+        Where each field came from
       </div>
       <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
         <div className="font-mono text-base whitespace-pre text-zinc-900">
