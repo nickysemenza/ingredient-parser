@@ -18,6 +18,38 @@ use tracing::debug;
 
 pub type MeasureGraph = Graph<Unit, EdgeFactor>;
 
+/// Pick the measure a multi-amount ingredient should resolve from.
+///
+/// A stated weight is preferred over the written order because it is directly
+/// comparable across products. If no weight is present, retain the first amount
+/// as written. An amount-less ingredient has no canonical measure.
+pub fn canonical_amount(amounts: &[Measure]) -> Option<&Measure> {
+    amounts
+        .iter()
+        .find(|measure| matches!(measure.kind(), MeasureKind::Weight))
+        .or_else(|| amounts.first())
+}
+
+/// Convert written amounts to a target kind, preferring the canonical amount.
+///
+/// If that preferred measure has no path to `target`, retry every written amount
+/// in input order. This keeps the canonical basis when possible while allowing,
+/// for example, a later volume measure to provide a price when the preferred
+/// weight has no money mapping.
+pub fn convert_with_fallback(
+    amounts: &[Measure],
+    graph: &MeasureGraph,
+    target: MeasureKind,
+) -> Option<Measure> {
+    canonical_amount(amounts)
+        .and_then(|measure| convert_measure_with_graph(measure, target.clone(), graph))
+        .or_else(|| {
+            amounts
+                .iter()
+                .find_map(|measure| convert_measure_with_graph(measure, target.clone(), graph))
+        })
+}
+
 /// A directed edge's conversion factor as a closed interval `[lower, upper]`.
 ///
 /// For an ordinary point mapping (the common case — "1 cup = 120 g", a price, a
@@ -534,6 +566,87 @@ pub(crate) fn convert_measure_via_mappings(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_amount_prefers_the_first_weight() {
+        let amounts = [
+            Measure::new("cup", 1.0),
+            Measure::new("g", 50.0),
+            Measure::new("oz", 2.0),
+        ];
+
+        assert_eq!(canonical_amount(&amounts), Some(&amounts[1]));
+    }
+
+    #[test]
+    fn canonical_amount_uses_first_amount_or_none() {
+        let amounts = [Measure::new("cup", 1.0), Measure::new("tbsp", 2.0)];
+
+        assert_eq!(canonical_amount(&amounts), Some(&amounts[0]));
+        assert_eq!(canonical_amount(&[]), None);
+    }
+
+    #[test]
+    fn convert_with_fallback_uses_first_reachable_written_amount() {
+        let graph = make_graph(&[
+            (Measure::new("first", 1.0), Measure::new("$", 2.0)),
+            (Measure::new("second", 1.0), Measure::new("$", 1.0)),
+        ]);
+        let amounts = [
+            Measure::new("g", 100.0),
+            Measure::new("first", 1.0),
+            Measure::new("second", 1.0),
+        ];
+
+        assert_eq!(
+            convert_with_fallback(&amounts, &graph, MeasureKind::Money),
+            Some(Measure::new("$", 2.0))
+        );
+    }
+
+    #[test]
+    fn convert_with_fallback_keeps_the_canonical_conversion_when_it_reaches() {
+        let graph = make_graph(&[
+            (Measure::new("first", 1.0), Measure::new("$", 2.0)),
+            (Measure::new("g", 100.0), Measure::new("$", 1.0)),
+        ]);
+        let amounts = [Measure::new("first", 1.0), Measure::new("g", 100.0)];
+
+        assert_eq!(
+            convert_with_fallback(&amounts, &graph, MeasureKind::Money),
+            Some(Measure::new("$", 1.0))
+        );
+    }
+
+    #[test]
+    fn convert_with_fallback_returns_none_without_a_target_path() {
+        let graph = make_graph(&[(Measure::new("cup", 1.0), Measure::new("g", 120.0))]);
+        let amounts = [Measure::new("g", 100.0), Measure::new("cup", 1.0)];
+
+        assert_eq!(
+            convert_with_fallback(&amounts, &graph, MeasureKind::Money),
+            None
+        );
+    }
+
+    #[test]
+    fn convert_with_fallback_returns_none_for_empty_amounts() {
+        assert_eq!(
+            convert_with_fallback(&[], &make_graph(&[]), MeasureKind::Money),
+            None
+        );
+    }
+
+    #[test]
+    fn convert_with_fallback_preserves_conversion_ranges() {
+        let graph = make_graph(&[(Measure::new("cup", 1.0), Measure::with_range("$", 2.0, 4.0))]);
+        let amounts = [Measure::new("g", 100.0), Measure::new("cup", 2.0)];
+
+        assert_eq!(
+            convert_with_fallback(&amounts, &graph, MeasureKind::Money),
+            Some(Measure::with_range("$", 4.0, 8.0))
+        );
+    }
 
     #[test]
     fn mapping_target_kind_uses_normalized_graph_node() {
