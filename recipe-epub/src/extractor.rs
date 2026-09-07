@@ -793,7 +793,7 @@ mod tests {
 
     use std::cell::Cell;
 
-    use super::{CallResult, Usage, try_extract_chunk};
+    use super::{CallFailure, CallResult, Usage, try_extract_chunk, try_extract_chunk_detailed};
 
     fn call_result(input: serde_json::Value, truncated: bool) -> CallResult {
         CallResult {
@@ -801,6 +801,72 @@ mod tests {
             usage: Usage::default(),
             truncated,
         }
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    #[tokio::test]
+    async fn absent_tool_output_is_empty_success_with_metadata(#[case] truncated: bool) {
+        let calls = Cell::new(0);
+        let usage = Usage {
+            input_tokens: 10,
+            output_tokens: 4,
+            cache_creation_input_tokens: 3,
+            cache_read_input_tokens: 2,
+        };
+        let driven = try_extract_chunk_detailed("empty.xhtml", || {
+            calls.set(calls.get() + 1);
+            let usage = usage.clone();
+            async move {
+                Ok(CallResult {
+                    input: None,
+                    usage,
+                    truncated,
+                })
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert!(driven.recipes.is_empty());
+        assert_eq!(driven.usage, usage);
+        assert_eq!(driven.truncated, truncated);
+    }
+
+    #[tokio::test]
+    async fn truncated_raw_payload_error_preserves_its_source_without_retry() {
+        use std::error::Error;
+
+        let calls = Cell::new(0);
+        let failure = try_extract_chunk_detailed("cut.xhtml", || {
+            calls.set(calls.get() + 1);
+            async {
+                let error = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+                let failed_call = CallFailure::retryable_payload(
+                    error.into(),
+                    Usage {
+                        output_tokens: 16_000,
+                        ..Default::default()
+                    },
+                    true,
+                );
+                assert_eq!(
+                    failed_call.to_string(),
+                    failed_call.source().unwrap().to_string()
+                );
+                Err(failed_call)
+            }
+        })
+        .await
+        .unwrap_err();
+
+        assert_eq!(calls.get(), 1);
+        assert_eq!(failure.usage.output_tokens, 16_000);
+        assert!(failure.truncated);
+        assert_eq!(failure.attempts.len(), 1);
+        assert_eq!(failure.to_string(), failure.source().unwrap().to_string());
+        assert!(failure.to_string().contains("EOF"));
     }
 
     #[tokio::test]

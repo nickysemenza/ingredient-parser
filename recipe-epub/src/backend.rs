@@ -137,7 +137,7 @@ pub async fn extract_cookbook_with<E: RecipeExtractor>(
     progress: impl Fn(ExtractProgress) + Send + Sync,
 ) -> Result<Vec<CookbookRecipe>, EpubError> {
     let (recipes, _stats) =
-        extract_cookbook_with_stats(bytes, source, opts, extractor, None, &progress).await?;
+        extract_cookbook_with_stats(bytes, source, opts, extractor, None::<&E>, &progress).await?;
     Ok(recipes)
 }
 
@@ -238,12 +238,12 @@ pub async fn debug_extract_cookbook(
 
 /// Like [`extract_cookbook_with`] but also returns token-usage/cost stats and
 /// reports per-chunk progress through `progress`.
-async fn extract_cookbook_with_stats<E: RecipeExtractor>(
+async fn extract_cookbook_with_stats<E: RecipeExtractor, F: RecipeExtractor>(
     bytes: &[u8],
     source: &str,
     opts: &Options,
     extractor: &E,
-    escalation: Option<&Backend>,
+    escalation: Option<&F>,
     progress: &(impl Fn(ExtractProgress) + Send + Sync),
 ) -> Result<(Vec<CookbookRecipe>, ExtractionStats), EpubError> {
     let chunks = chunk_epub(bytes)?;
@@ -553,6 +553,8 @@ fn warn_truncated(doc_path: &str) {
     tracing::warn!("chunk {doc_path} hit token limit; some recipes may be truncated");
 }
 
+type ToolResponse = Result<(Option<serde_json::Value>, Usage, Option<String>), CallFailure>;
+
 /// One forced-tool LLM call, abstracted over the provider wire format so callers
 /// (`extract`, `classify_cookbooks`) don't switch on the backend variant.
 #[allow(async_fn_in_trait)]
@@ -560,11 +562,7 @@ trait CallTool {
     /// Issue one forced-tool `call`, tagged for the gateway logs with `meta`.
     /// Returns the tool's decoded `input` object (`None` if the model returned no
     /// tool block), token usage, and the stop/finish reason.
-    async fn call_tool(
-        &self,
-        call: ToolCall<'_>,
-        meta: &CallMeta<'_>,
-    ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), CallFailure>;
+    async fn call_tool(&self, call: ToolCall<'_>, meta: &CallMeta<'_>) -> ToolResponse;
 }
 
 /// Run one chunk through any [`CallTool`] backend: build the request, issue the
@@ -652,11 +650,7 @@ impl CallTool for ClaudeExtractor {
     /// Issue one Anthropic Messages call with forced tool output. Returns the
     /// tool's `input` object (`None` if the model returned no tool block), the
     /// token usage, and the stop reason.
-    async fn call_tool(
-        &self,
-        call: ToolCall<'_>,
-        meta: &CallMeta<'_>,
-    ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), CallFailure> {
+    async fn call_tool(&self, call: ToolCall<'_>, meta: &CallMeta<'_>) -> ToolResponse {
         let body = json!({
             "model": self.conn.model,
             "max_tokens": call.max_tokens,
@@ -784,11 +778,7 @@ impl CallTool for OpenAiExtractor {
     /// Issue one OpenAI-compatible chat-completions call with a forced function
     /// call. Returns the function's decoded arguments object (`None` if the model
     /// returned no tool call), token usage, and finish reason.
-    async fn call_tool(
-        &self,
-        call: ToolCall<'_>,
-        meta: &CallMeta<'_>,
-    ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), CallFailure> {
+    async fn call_tool(&self, call: ToolCall<'_>, meta: &CallMeta<'_>) -> ToolResponse {
         // OpenAI reasoning models (o1/o3/o4) and the gpt-5 family reject
         // `max_tokens` with a 400; they require `max_completion_tokens`.
         // Gemini's OpenAI-compat endpoint still takes `max_tokens`.
@@ -904,9 +894,7 @@ impl From<OpenAiUsage> for Usage {
     }
 }
 
-fn decode_openai_response(
-    text: &str,
-) -> Result<(Option<serde_json::Value>, Usage, Option<String>), CallFailure> {
+fn decode_openai_response(text: &str) -> ToolResponse {
     let parsed: OpenAiResponse = serde_json::from_str(text)
         .map_err(|error| CallFailure::retryable_payload(error.into(), Usage::default(), false))?;
     let usage: Usage = parsed.usage.into();
@@ -991,11 +979,7 @@ impl Backend {
 }
 
 impl CallTool for Backend {
-    async fn call_tool(
-        &self,
-        call: ToolCall<'_>,
-        meta: &CallMeta<'_>,
-    ) -> Result<(Option<serde_json::Value>, Usage, Option<String>), CallFailure> {
+    async fn call_tool(&self, call: ToolCall<'_>, meta: &CallMeta<'_>) -> ToolResponse {
         match self {
             Backend::Claude(e) => e.call_tool(call, meta).await,
             Backend::OpenAi(e) => e.call_tool(call, meta).await,
@@ -1092,19 +1076,26 @@ impl RecipeExtractor for Backend {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+
     use super::*;
     use crate::extractor::{RecipesPayload, TOOL_NAME};
 
     /// Inner extractor returning a fixed outcome, for cache-policy tests.
     struct FixedExtractor {
         truncated: bool,
+        input_tokens: u64,
     }
 
     impl RecipeExtractor for FixedExtractor {
         async fn extract(&self, _chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
             Ok(ChunkOutcome {
                 recipes: Vec::new(),
-                usage: Usage::default(),
+                usage: Usage {
+                    input_tokens: self.input_tokens,
+                    ..Usage::default()
+                },
                 cached: false,
                 truncated: self.truncated,
             })
@@ -1129,7 +1120,10 @@ mod tests {
             ));
             let _ = std::fs::remove_dir_all(&dir);
             let caching = CachingExtractor {
-                inner: &FixedExtractor { truncated },
+                inner: &FixedExtractor {
+                    truncated,
+                    input_tokens: 0,
+                },
                 dir: dir.clone(),
                 model: "test-model".to_string(),
             };
@@ -1255,20 +1249,12 @@ mod tests {
         })
         .to_string();
 
-        let parsed: OpenAiResponse = serde_json::from_str(&raw).unwrap();
-        let usage: Usage = parsed.usage.into();
+        let (input, usage, finish_reason) = decode_openai_response(&raw).unwrap();
         assert_eq!(usage.input_tokens, 179);
         assert_eq!(usage.output_tokens, 45);
+        assert_eq!(finish_reason.as_deref(), Some("tool_calls"));
 
-        let args = parsed
-            .choices
-            .into_iter()
-            .next()
-            .and_then(|c| c.message.tool_calls)
-            .and_then(|calls| calls.into_iter().next())
-            .map(|call| call.function.arguments)
-            .unwrap();
-        let payload: RecipesPayload = serde_json::from_str(&args).unwrap();
+        let payload: RecipesPayload = serde_json::from_value(input.unwrap()).unwrap();
         assert_eq!(payload.recipes.len(), 1);
         assert_eq!(payload.recipes[0].meta.title, "Pancakes");
         assert_eq!(
@@ -1296,6 +1282,86 @@ mod tests {
         assert!(failure.truncated);
     }
 
+    #[test]
+    fn malformed_openai_response_is_a_metadata_free_payload_failure() {
+        let failure = decode_openai_response("{").unwrap_err();
+        assert_eq!(failure.usage, Usage::default());
+        assert!(!failure.truncated);
+    }
+
+    struct ScriptedCallTool {
+        responses: RefCell<VecDeque<ToolResponse>>,
+    }
+
+    impl CallTool for ScriptedCallTool {
+        async fn call_tool(&self, call: ToolCall<'_>, meta: &CallMeta<'_>) -> ToolResponse {
+            assert_eq!(call.tool_name, TOOL_NAME);
+            assert_eq!(call.max_tokens, 16000);
+            assert_eq!(meta.call, "extract");
+            self.responses.borrow_mut().pop_front().unwrap()
+        }
+    }
+
+    fn extraction_chunk() -> Chunk {
+        Chunk {
+            title_hint: None,
+            text: "Pancakes\n1 cup flour\nMix.".to_string(),
+            doc_path: "chapter.xhtml".to_string(),
+            links: Vec::new(),
+            images: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn native_chunk_adapter_preserves_usage_and_truncation() {
+        let backend = ScriptedCallTool {
+            responses: RefCell::new(VecDeque::from([Ok((
+                Some(json!({
+                    "recipes": [{
+                        "title": "Pancakes",
+                        "sections": [{ "ingredients": ["1 cup flour"] }]
+                    }]
+                })),
+                Usage {
+                    input_tokens: 23,
+                    output_tokens: 7,
+                    ..Usage::default()
+                },
+                Some("length".to_string()),
+            ))])),
+        };
+
+        let outcome = extract_chunk_detailed(&backend, &extraction_chunk(), &["length"])
+            .await
+            .unwrap();
+        assert_eq!(outcome.recipes[0].meta.title, "Pancakes");
+        assert_eq!(outcome.usage.input_tokens, 23);
+        assert_eq!(outcome.usage.output_tokens, 7);
+        assert!(outcome.truncated);
+        assert!(!outcome.cached);
+    }
+
+    #[tokio::test]
+    async fn native_chunk_adapter_preserves_failed_call_metadata() {
+        let backend = ScriptedCallTool {
+            responses: RefCell::new(VecDeque::from([Err(CallFailure::transport_with_metadata(
+                EpubError::Proxy("offline".to_string()),
+                Usage {
+                    input_tokens: 13,
+                    ..Usage::default()
+                },
+                true,
+            ))])),
+        };
+
+        let failure = extract_chunk_detailed(&backend, &extraction_chunk(), &["length"])
+            .await
+            .unwrap_err();
+        assert_eq!(failure.usage.input_tokens, 13);
+        assert!(failure.truncated);
+        assert_eq!(failure.attempts.len(), 1);
+    }
+
     /// Inner extractor that always fails, for [`chunks_failed`] accounting tests.
     struct FailingExtractor;
 
@@ -1304,6 +1370,31 @@ mod tests {
             Err(EpubError::Api {
                 status: 500,
                 body: "boom".to_string(),
+            })
+        }
+    }
+
+    struct DetailedFailingExtractor {
+        input_tokens: u64,
+    }
+
+    impl RecipeExtractor for DetailedFailingExtractor {
+        async fn extract(&self, _chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
+            Err(EpubError::Proxy("failed".to_string()))
+        }
+
+        async fn extract_detailed(
+            &self,
+            _chunk: &Chunk,
+        ) -> Result<ChunkOutcome, ChunkExtractionFailure> {
+            Err(ChunkExtractionFailure {
+                error: EpubError::Proxy("failed".to_string()),
+                usage: Usage {
+                    input_tokens: self.input_tokens,
+                    ..Usage::default()
+                },
+                truncated: false,
+                attempts: Vec::new(),
             })
         }
     }
@@ -1391,7 +1482,7 @@ mod tests {
             "failing.epub",
             &Options::default(),
             &FailingExtractor,
-            None,
+            None::<&FailingExtractor>,
             &|_| {},
         )
         .await
@@ -1401,6 +1492,70 @@ mod tests {
         assert_eq!(stats.chunks_total, 1);
         assert_eq!(stats.chunks_failed, 1);
         assert!(stats.summary().contains("1 chunk(s) FAILED"));
+    }
+
+    #[tokio::test]
+    async fn native_driver_accounts_for_failed_primary_before_fallback_recovery() {
+        let bytes = minimal_epub();
+        let (recipes, stats) = extract_cookbook_with_stats(
+            &bytes,
+            "book.epub",
+            &Options::default(),
+            &DetailedFailingExtractor { input_tokens: 11 },
+            Some(&FixedExtractor {
+                truncated: false,
+                input_tokens: 17,
+            }),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(recipes.is_empty());
+        assert_eq!(stats.chunks_total, 1);
+        assert_eq!(stats.chunks_failed, 0);
+        assert_eq!(stats.usage.input_tokens, 28);
+    }
+
+    #[tokio::test]
+    async fn native_driver_salvages_book_when_both_tiers_fail() {
+        let bytes = minimal_epub();
+        let (recipes, stats) = extract_cookbook_with_stats(
+            &bytes,
+            "book.epub",
+            &Options::default(),
+            &DetailedFailingExtractor { input_tokens: 11 },
+            Some(&DetailedFailingExtractor { input_tokens: 17 }),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(recipes.is_empty());
+        assert_eq!(stats.chunks_total, 1);
+        assert_eq!(stats.chunks_failed, 1);
+        assert_eq!(stats.usage.input_tokens, 28);
+    }
+
+    #[tokio::test]
+    async fn cache_adapter_preserves_detailed_failure_metadata() {
+        let dir = std::env::temp_dir().join(format!(
+            "recipe-epub-failure-cache-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let caching = CachingExtractor {
+            inner: &DetailedFailingExtractor { input_tokens: 19 },
+            dir: dir.clone(),
+            model: "test-model".to_string(),
+        };
+
+        let failure = caching
+            .extract_detailed(&extraction_chunk())
+            .await
+            .unwrap_err();
+        assert_eq!(failure.usage.input_tokens, 19);
+        assert!(!dir.exists());
     }
 
     #[test]

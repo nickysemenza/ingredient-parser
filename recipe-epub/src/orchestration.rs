@@ -795,6 +795,44 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn failed_primary_truncation_survives_report_serialization() {
+        let progress = RefCell::new(Vec::new());
+        let report = extract_chunks_with(
+            vec![chunk("cut.xhtml", "Incomplete recipe")],
+            "book.epub",
+            &OrchestrationOptions {
+                previews: true,
+                ..Default::default()
+            },
+            |_, _, _| async { Err(failure("token limit", 16_000, true)) },
+            |snapshot| progress.borrow_mut().push(snapshot),
+        )
+        .await;
+
+        let serialized = serde_json::to_value(&report).unwrap();
+        assert_eq!(serialized["failures"][0]["index"], 0);
+        assert_eq!(serialized["failures"][0]["doc_path"], "cut.xhtml");
+        assert_eq!(
+            serialized["failures"][0]["primary"]["message"],
+            "chunk extraction call failed: token limit"
+        );
+        assert_eq!(serialized["truncations"][0]["tier"], "primary");
+        assert_eq!(report.usage.input_tokens, 16_000);
+        let progress = progress.borrow();
+        assert_eq!(progress.last().unwrap().failed, 1);
+        assert_eq!(progress.last().unwrap().done, 1);
+        assert!(
+            progress
+                .last()
+                .unwrap()
+                .preview
+                .as_ref()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn detailed_retry_keeps_usage_from_retryable_call_failures() {
         let calls = Cell::new(0);
         let result = try_extract_chunk_detailed("doc", || {
