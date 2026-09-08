@@ -1,6 +1,9 @@
 # Cookbook label review
 
-The four holdout books were labeled blind from `sources.jsonl`; parser output and parser implementation were not consulted.
+The former four-book cohort was labeled blind from `sources.jsonl`; parser
+output and parser implementation were not consulted. It is now development
+data because contamination history is unknown; replacement holdout labels
+must use new books and remain isolated from implementation work.
 
 - The sampler now excludes publisher-styled section headings before ranking. The removed Honey heading caused IDs 32–49 to shift and added a new ingredient at ID 50; all shifted labels were regenerated.
 - `honey-co-14` contains a trailing backslash from source extraction. The exact `input` and the corresponding preparation modifier retain it.

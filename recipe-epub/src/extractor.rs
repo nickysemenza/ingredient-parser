@@ -382,6 +382,40 @@ where
     F: Fn() -> Fut,
     Fut: core::future::Future<Output = Result<CallResult, CallFailure>>,
 {
+    try_extract_chunk_detailed_with_validator(doc_path, call, |_| Ok(())).await
+}
+
+/// Like [`try_extract_chunk_detailed`], but rejects model strings that do not
+/// occur in the supplied chunk before they can enter the assembled cookbook.
+///
+/// Browser callbacks should use this form: it gives native and wasm callers
+/// the same source-preservation retry and failure accounting. The source is the
+/// exact text sent to the model; a continuation title hint is accepted only for
+/// the same-document continuation that supplied it.
+pub async fn try_extract_chunk_detailed_for_chunk<F, Fut>(
+    chunk: &Chunk,
+    call: F,
+) -> Result<DrivenChunk, ChunkExtractionFailure>
+where
+    F: Fn() -> Fut,
+    Fut: core::future::Future<Output = Result<CallResult, CallFailure>>,
+{
+    try_extract_chunk_detailed_with_validator(&chunk.doc_path, call, |recipes| {
+        validate_chunk_recipes(chunk, recipes)
+    })
+    .await
+}
+
+async fn try_extract_chunk_detailed_with_validator<F, Fut, V>(
+    doc_path: &str,
+    call: F,
+    validate: V,
+) -> Result<DrivenChunk, ChunkExtractionFailure>
+where
+    F: Fn() -> Fut,
+    Fut: core::future::Future<Output = Result<CallResult, CallFailure>>,
+    V: Fn(&[ExtractedRecipe]) -> Result<(), EpubError>,
+{
     let mut usage = Usage::default();
     let mut attempts = Vec::new();
     let mut attempt = 0;
@@ -425,13 +459,35 @@ where
                 });
             }
             Some(input) => match parse_recipes_payload(input) {
-                Ok(recipes) => {
-                    return Ok(DrivenChunk {
-                        recipes,
-                        usage,
-                        truncated: result.truncated,
-                    });
-                }
+                Ok(recipes) => match validate(&recipes) {
+                    Ok(()) => {
+                        return Ok(DrivenChunk {
+                            recipes,
+                            usage,
+                            truncated: result.truncated,
+                        });
+                    }
+                    Err(error) => {
+                        attempts.push(FailedAttempt {
+                            attempt,
+                            message: error.to_string(),
+                            usage: result.usage,
+                            truncated: result.truncated,
+                        });
+                        if result.truncated || attempt >= PARSE_RETRIES {
+                            return Err(ChunkExtractionFailure {
+                                error,
+                                usage,
+                                truncated: result.truncated,
+                                attempts,
+                            });
+                        }
+                        tracing::warn!(
+                            "chunk {doc_path} violated source fidelity ({error}); retrying"
+                        );
+                        attempt += 1;
+                    }
+                },
                 Err(error) => {
                     attempts.push(FailedAttempt {
                         attempt,
@@ -453,6 +509,167 @@ where
             },
         }
     }
+}
+
+/// Enforce the extractor's literal-source contract without attempting to repair
+/// model output. We only normalize whitespace introduced by XHTML inline markup
+/// (including a space before punctuation or around a hyphen); letters, numbers,
+/// units, ranges, and punctuation must still occur in the sent source text.
+pub fn validate_chunk_recipes(chunk: &Chunk, recipes: &[ExtractedRecipe]) -> Result<(), EpubError> {
+    let source = normalize_source_whitespace(&chunk.text);
+    let hint = chunk.title_hint.as_deref().map(normalize_source_whitespace);
+    for (recipe_index, recipe) in recipes.iter().enumerate() {
+        validate_source_field(
+            &source,
+            hint.as_deref(),
+            recipe_index,
+            "title",
+            &recipe.meta.title,
+        )?;
+        for section in &recipe.sections {
+            if let Some(name) = &section.name {
+                validate_source_field(&source, None, recipe_index, "section label", name)?;
+            }
+            for ingredient in &section.ingredients {
+                validate_source_field(&source, None, recipe_index, "ingredient", ingredient)?;
+            }
+            for instruction in &section.instructions {
+                validate_source_field(&source, None, recipe_index, "instruction", instruction)?;
+            }
+        }
+    }
+    validate_component_heading_placement(chunk, recipes)?;
+    Ok(())
+}
+
+/// Preserve authored component and serving labels structurally. A short,
+/// standalone `For …` or `To serve` line is an unambiguous section heading; it
+/// must therefore become a section name, never an ingredient string. We only
+/// inspect spans whose emitted title maps to one unique source line. Repeated
+/// titles and other uncertain boundaries are deliberately left alone.
+fn validate_component_heading_placement(
+    chunk: &Chunk,
+    recipes: &[ExtractedRecipe],
+) -> Result<(), EpubError> {
+    let lines: Vec<String> = chunk
+        .text
+        .lines()
+        .map(normalize_source_whitespace)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let mut mapped = Vec::new();
+    for (recipe_index, recipe) in recipes.iter().enumerate() {
+        let title = normalize_source_whitespace(&recipe.meta.title);
+        let positions: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(line_index, line)| (line == &title).then_some(line_index))
+            .collect();
+        let output_title_count = recipes
+            .iter()
+            .filter(|other| normalize_source_whitespace(&other.meta.title) == title)
+            .count();
+        if positions.len() != 1 || output_title_count != 1 {
+            // A later repeated or absent title makes every preceding span's end
+            // uncertain. Do not let an ambiguous occurrence's heading be
+            // attributed to a neighboring recipe.
+            return Ok(());
+        }
+        mapped.push((positions[0], recipe_index));
+    }
+    mapped.sort_unstable_by_key(|(line_index, _)| *line_index);
+    for (span_index, &(start, recipe_index)) in mapped.iter().enumerate() {
+        let end = mapped
+            .get(span_index + 1)
+            .map_or(lines.len(), |(next, _)| *next);
+        let recipe = &recipes[recipe_index];
+        for heading in lines[start + 1..end]
+            .iter()
+            .filter(|line| is_component_heading(line))
+        {
+            let heading = heading.trim_end_matches(':').trim();
+            let has_section = recipe.sections.iter().any(|section| {
+                section.name.as_deref().is_some_and(|name| {
+                    normalize_source_whitespace(name)
+                        .trim_end_matches(':')
+                        .trim()
+                        == heading
+                })
+            });
+            let heading_as_ingredient = recipe
+                .sections
+                .iter()
+                .flat_map(|section| {
+                    section.ingredients.iter().map(|ingredient| {
+                        normalize_source_whitespace(ingredient)
+                            .trim_end_matches(':')
+                            .trim()
+                            == heading
+                    })
+                })
+                .any(|is_heading| is_heading);
+            if !has_section || heading_as_ingredient {
+                return Err(EpubError::Proxy(format!(
+                    "source coverage violation in recipe {}: component heading must be a section label",
+                    recipe_index + 1
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_component_heading(line: &str) -> bool {
+    let trimmed = line.trim();
+    let bare = trimmed.trim_end_matches(':').trim();
+    if bare.is_empty()
+        || bare.len() > 80
+        || bare
+            .chars()
+            .last()
+            .is_some_and(|c| matches!(c, '.' | '!' | '?' | ','))
+    {
+        return false;
+    }
+    let lower = bare.to_lowercase();
+    lower.starts_with("for ") || lower == "to serve"
+}
+
+fn validate_source_field(
+    source: &str,
+    hint: Option<&str>,
+    recipe_index: usize,
+    field: &str,
+    value: &str,
+) -> Result<(), EpubError> {
+    let value = normalize_source_whitespace(value);
+    if value.is_empty() || source.contains(&value) || hint == Some(value.as_str()) {
+        return Ok(());
+    }
+    Err(EpubError::Proxy(format!(
+        "source fidelity violation in recipe {}: {field} is not present in the supplied text",
+        recipe_index + 1
+    )))
+}
+
+fn normalize_source_whitespace(value: &str) -> String {
+    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = String::with_capacity(collapsed.len());
+    let mut chars = collapsed.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == ' ' {
+            let previous = out.chars().last();
+            let next = chars.peek().copied();
+            if next.is_some_and(|c| {
+                matches!(c, ',' | '.' | ';' | ':' | ')' | ']' | '}' | '–' | '—' | '-')
+            }) || previous.is_some_and(|c| matches!(c, '(' | '[' | '{' | '–' | '—' | '-'))
+            {
+                continue;
+            }
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// Drive ONE model over one chunk: call it, decode the payload, and retry the
@@ -513,12 +730,13 @@ const SYSTEM_PROMPT: &str = "\
 You extract structured recipes from the text of one section of a cookbook. The \
 section may contain zero, one, or many recipes. For every recipe actually \
 present, return an object with:\n\
-- title: the recipe's name.\n\
+- title: the recipe's name copied VERBATIM. Do not abbreviate, expand, or reword it.\n\
 - description: the headnote / intro blurb, if any (omit otherwise).\n\
 - sections: the recipe's components as an array. Most recipes have ONE section \
 (omit its name). Component recipes have several. Each section has:\n\
-    - name: the component label (e.g. \"For the curry paste\"), or omit for the \
-main/only section.\n\
+    - name: the component label copied VERBATIM (e.g. \"For the curry paste\"). \
+A standalone `For …` or `To serve` label is a section name, NEVER an ingredient; \
+omit the name only for the main/only section.\n\
     - ingredients: each ingredient line copied VERBATIM, one per entry. Do NOT \
 parse, normalize, convert, or reword quantities or units — preserve the original \
 text exactly (e.g. \"1\\u2153 cups all-purpose flour (6.1 oz / 173g)\").\n\
@@ -793,7 +1011,11 @@ mod tests {
 
     use std::cell::Cell;
 
-    use super::{CallFailure, CallResult, Usage, try_extract_chunk, try_extract_chunk_detailed};
+    use super::{
+        CallFailure, CallResult, Usage, try_extract_chunk, try_extract_chunk_detailed,
+        try_extract_chunk_detailed_for_chunk, validate_chunk_recipes,
+    };
+    use crate::Chunk;
 
     fn call_result(input: serde_json::Value, truncated: bool) -> CallResult {
         CallResult {
@@ -801,6 +1023,143 @@ mod tests {
             usage: Usage::default(),
             truncated,
         }
+    }
+
+    fn source_chunk(text: &str) -> Chunk {
+        Chunk {
+            title_hint: None,
+            text: text.to_string(),
+            doc_path: "chapter.xhtml".to_string(),
+            links: Vec::new(),
+            images: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn source_fidelity_rejects_invented_measurement_alternative() {
+        let chunk =
+            source_chunk("Carrot salad\n100ml ( cup) neutral oil\nStir with a wooden spoon.");
+        let recipes = parse_recipes_payload(json!({ "recipes": [{
+            "title": "Carrot salad",
+            "sections": [{
+                "ingredients": ["100ml (¾ cup) neutral oil"],
+                "instructions": ["Stir with a wooden spoon."]
+            }]
+        }] }))
+        .unwrap();
+        let error = validate_chunk_recipes(&chunk, &recipes).unwrap_err();
+        assert!(error.to_string().contains("source fidelity violation"));
+        assert!(error.to_string().contains("ingredient"));
+    }
+
+    #[tokio::test]
+    async fn source_fidelity_retries_then_accounts_for_valid_output() {
+        let chunk = source_chunk("Carrot salad\n100ml ( cup) neutral oil");
+        let calls = Cell::new(0);
+        let driven = try_extract_chunk_detailed_for_chunk(&chunk, || {
+            let call = calls.get();
+            calls.set(call + 1);
+            async move {
+                let ingredient = if call == 0 {
+                    "100ml (¾ cup) neutral oil"
+                } else {
+                    "100ml ( cup) neutral oil"
+                };
+                Ok(CallResult {
+                    input: Some(json!({ "recipes": [{
+                        "title": "Carrot salad",
+                        "sections": [{ "ingredients": [ingredient] }]
+                    }] })),
+                    usage: Usage {
+                        input_tokens: 5,
+                        ..Default::default()
+                    },
+                    truncated: false,
+                })
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(calls.get(), 2);
+        assert_eq!(driven.usage.input_tokens, 10);
+        assert_eq!(
+            driven.recipes[0].sections[0].ingredients,
+            vec!["100ml ( cup) neutral oil"]
+        );
+    }
+
+    #[test]
+    fn wok_component_headings_must_be_section_names() {
+        let chunk = source_chunk(
+            "BEER-BATTERED FISH WITH EASY GARLIC AIOLI\nFOR THE GARLIC AIOLI:\n1 cup mayonnaise\nFOR THE BATTER:\n2 cups flour\nTO SERVE:\nlemon wedges",
+        );
+        let misplaced = parse_recipes_payload(json!({ "recipes": [{
+            "title": "BEER-BATTERED FISH WITH EASY GARLIC AIOLI",
+            "sections": [
+                { "name": "FOR THE GARLIC AIOLI", "ingredients": ["1 cup mayonnaise", "FOR THE BATTER:"] },
+                { "ingredients": ["2 cups flour", "TO SERVE:", "lemon wedges"] }
+            ]
+        }] }))
+        .unwrap();
+        assert!(
+            validate_chunk_recipes(&chunk, &misplaced)
+                .unwrap_err()
+                .to_string()
+                .contains("component heading must be a section label")
+        );
+
+        let preserved = parse_recipes_payload(json!({ "recipes": [{
+            "title": "BEER-BATTERED FISH WITH EASY GARLIC AIOLI",
+            "sections": [
+                { "name": "FOR THE GARLIC AIOLI", "ingredients": ["1 cup mayonnaise"] },
+                { "name": "FOR THE BATTER", "ingredients": ["2 cups flour"] },
+                { "name": "TO SERVE", "ingredients": ["lemon wedges"] }
+            ]
+        }] }))
+        .unwrap();
+        validate_chunk_recipes(&chunk, &preserved).unwrap();
+
+        let mut duplicated_in_ingredients = preserved.clone();
+        duplicated_in_ingredients[0].sections[2]
+            .ingredients
+            .push("TO SERVE:".to_string());
+        assert!(
+            validate_chunk_recipes(&chunk, &duplicated_in_ingredients)
+                .unwrap_err()
+                .to_string()
+                .contains("component heading must be a section label")
+        );
+    }
+
+    #[test]
+    fn heading_guard_skips_ordinary_sentences_and_repeated_titles() {
+        let ordinary = source_chunk("Salad\n1 cup greens\nTo serve, scatter herbs over the salad.");
+        let recipe = parse_recipes_payload(json!({ "recipes": [{
+            "title": "Salad",
+            "sections": [{ "ingredients": ["1 cup greens"], "instructions": ["To serve, scatter herbs over the salad."] }]
+        }] }))
+        .unwrap();
+        validate_chunk_recipes(&ordinary, &recipe).unwrap();
+
+        let repeated = source_chunk("Sauce\nFOR THE DRESSING:\nSauce\nFOR THE DRESSING:");
+        let recipes = parse_recipes_payload(json!({ "recipes": [
+            { "title": "Sauce", "sections": [] },
+            { "title": "Sauce", "sections": [] }
+        ] }))
+        .unwrap();
+        validate_chunk_recipes(&repeated, &recipes).unwrap();
+
+        // Even though Salad has a unique title, its end is uncertain once the
+        // chunk contains the repeated Sauce occurrence, so the whole guard
+        // conservatively declines to assign Sauce's heading to Salad.
+        let mixed = source_chunk("Salad\n1 cup greens\nSauce\nFOR THE DRESSING:\nSauce");
+        let recipes = parse_recipes_payload(json!({ "recipes": [
+            { "title": "Salad", "sections": [{ "ingredients": ["1 cup greens"] }] },
+            { "title": "Sauce", "sections": [] },
+            { "title": "Sauce", "sections": [] }
+        ] }))
+        .unwrap();
+        validate_chunk_recipes(&mixed, &recipes).unwrap();
     }
 
     #[rstest]

@@ -146,9 +146,27 @@ fn try_spelled_number_words(input: &str) -> Res<&str, f64> {
 /// the articles "a"/"an" (which mean a quantity of one). Numeric words require a
 /// word boundary so they never match inside a larger word.
 pub(crate) fn text_number(input: &str) -> Res<&str, f64> {
+    // An article in an indefinite quantity is not a count of one. Keep the
+    // authored phrase opaque rather than inventing a precise measurement.
+    if ["a little", "a few", "a bit"].iter().any(|prefix| {
+        input
+            .get(..prefix.len())
+            .is_some_and(|s| s.eq_ignore_ascii_case(prefix))
+            && input[prefix.len()..]
+                .chars()
+                .next()
+                .is_none_or(char::is_whitespace)
+    }) {
+        return Err(nom::Err::Error(VerboseError::from_error_kind(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
+    }
     context(
         "text_number",
         alt((
+            |i| tag_no_case("a couple of ").parse(i).map(|(r, _)| (r, 2.0)),
+            |i| tag_no_case("couple of ").parse(i).map(|(r, _)| (r, 2.0)),
             try_spelled_number_words,
             |i| tag_no_case("an ").parse(i).map(|(r, _)| (r, 1.0)),
             |i| tag_no_case("a ").parse(i).map(|(r, _)| (r, 1.0)),

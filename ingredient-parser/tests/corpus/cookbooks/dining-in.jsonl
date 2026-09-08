@@ -1,7 +1,7 @@
 {"id": "dining-in-01", "input": "1 small shallot, thinly sliced into rings", "name": "shallot", "amounts": [{"unit": "small", "value": 1}], "modifier": "thinly sliced into rings"}
 {"id": "dining-in-02", "input": "2 tablespoons light brown sugar", "name": "light brown sugar", "amounts": [{"unit": "tbsp", "value": 2}]}
 {"id": "dining-in-03", "input": "2 small red onions or large shallots, unpeeled, and quartered", "name": "red onions or large shallots", "amounts": [{"unit": "small", "value": 2}], "modifier": "unpeeled, and quartered"}
-{"id": "dining-in-04", "input": "3 tablespoons coconut oil, melted, or olive oil", "name": "coconut oil or olive oil", "amounts": [{"unit": "tbsp", "value": 3}], "modifier": "melted"}
+{"id": "dining-in-04", "input": "3 tablespoons coconut oil, melted, or olive oil", "name": "coconut oil, melted, or olive oil", "amounts": [{"unit": "tbsp", "value": 3}]}
 {"id": "dining-in-05", "input": "3½ pounds small littleneck clams, steamers, or mussels, scrubbed and rinsed", "name": "small littleneck clams, steamers, or mussels", "amounts": [{"unit": "lb", "value": "7/2"}], "modifier": "scrubbed and rinsed"}
 {"id": "dining-in-06", "input": "2 medium tomatoes, chopped", "name": "tomatoes", "amounts": [{"unit": "medium", "value": 2}], "modifier": "chopped"}
 {"id": "dining-in-07", "input": "Olive or vegetable oil, for cooking, grilling, or baking", "name": "Olive or vegetable oil", "amounts": [], "modifier": "for cooking, grilling, or baking"}
@@ -10,7 +10,7 @@
 {"id": "dining-in-10", "input": "½ cup skin-on roasted almonds or raw walnuts or pecans, chopped (see Note)", "name": "skin-on roasted almonds or raw walnuts or pecans", "amounts": [{"unit": "cup", "value": "1/2"}], "modifier": "chopped"}
 {"id": "dining-in-11", "input": "2 tablespoons granulated or dehydrated onion (optional)", "name": "granulated or dehydrated onion", "amounts": [{"unit": "tbsp", "value": 2}], "optional": true}
 {"id": "dining-in-12", "input": "1½ cups all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": "3/2"}]}
-{"id": "dining-in-13", "input": "3 cups small spicy greens, such as watercress, mizuna, or arugula", "name": "small spicy greens, such as watercress, mizuna, or arugula", "amounts": [{"unit": "cup", "value": 3}]}
+{"id": "dining-in-13", "input": "3 cups small spicy greens, such as watercress, mizuna, or arugula", "name": "small spicy greens", "amounts": [{"unit": "cup", "value": 3}], "modifier": "such as watercress, mizuna, or arugula"}
 {"id": "dining-in-14", "input": "2 tablespoons fresh lime juice", "name": "lime juice", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "fresh"}
 {"id": "dining-in-15", "input": "¼ cup olive oil or chicken fat", "name": "olive oil or chicken fat", "amounts": [{"unit": "cup", "value": "1/4"}]}
 {"id": "dining-in-16", "input": "Wilted kale, sautéed mushrooms, and/or crisped and crumbled bacon, for topping (optional)", "name": "Wilted kale, sautéed mushrooms, and/or crisped and crumbled bacon", "amounts": [], "modifier": "for topping", "optional": true}
@@ -31,8 +31,8 @@
 {"id": "dining-in-31", "input": "3 tablespoons tahini", "name": "tahini", "amounts": [{"unit": "tbsp", "value": 3}]}
 {"id": "dining-in-32", "input": "1 teaspoon light brown sugar", "name": "light brown sugar", "amounts": [{"unit": "tsp", "value": 1}]}
 {"id": "dining-in-33", "input": "¼ cup chopped fresh flat-leaf parsley", "name": "flat-leaf parsley", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "chopped, fresh"}
-{"id": "dining-in-34", "input": "Crushed red pepper flakes (optional)", "name": "Crushed red pepper flakes", "amounts": [], "optional": true}
-{"id": "dining-in-35", "input": "Nonstick cooking spray, for the pan", "name": "Nonstick cooking spray", "amounts": [], "usage": "pan_grease"}
+{"id": "dining-in-34", "input": "Crushed red pepper flakes (optional)", "name": "red pepper flakes", "amounts": [], "optional": true, "modifier": "Crushed"}
+{"id": "dining-in-35", "input": "Nonstick cooking spray, for the pan", "name": "Nonstick cooking spray", "amounts": [], "usage": "pan_grease", "modifier": "for the pan"}
 {"id": "dining-in-36", "input": "4 anchovy fillets (optional)", "name": "anchovy fillets", "amounts": [{"unit": "whole", "value": 4}], "optional": true}
 {"id": "dining-in-37", "input": "2 teaspoons whole-grain mustard", "name": "whole-grain mustard", "amounts": [{"unit": "tsp", "value": 2}]}
 {"id": "dining-in-38", "input": "2 teaspoons finely grated lime zest, plus more for garnish", "name": "lime zest", "amounts": [{"unit": "tsp", "value": 2}], "modifier": "finely grated, plus more for garnish"}
@@ -44,7 +44,7 @@
 {"id": "dining-in-44", "input": "1 tablespoon yuzu kosho (optional)", "name": "yuzu kosho", "amounts": [{"unit": "tbsp", "value": 1}], "optional": true}
 {"id": "dining-in-45", "input": "½ cup millet, quinoa, or white sesame seeds", "name": "millet, quinoa, or white sesame seeds", "amounts": [{"unit": "cup", "value": "1/2"}]}
 {"id": "dining-in-46", "input": "1 lemon or lime, halved", "name": "lemon or lime", "amounts": [{"unit": "whole", "value": 1}], "modifier": "halved"}
-{"id": "dining-in-47", "input": "2 cups fresh herbs, such as parsley, cilantro, dill, and tarragon", "name": "herbs, such as parsley, cilantro, dill, and tarragon", "amounts": [{"unit": "cup", "value": 2}], "modifier": "fresh"}
+{"id": "dining-in-47", "input": "2 cups fresh herbs, such as parsley, cilantro, dill, and tarragon", "name": "herbs", "amounts": [{"unit": "cup", "value": 2}], "modifier": "fresh, such as parsley, cilantro, dill, and tarragon"}
 {"id": "dining-in-48", "input": "1 tablespoon finely grated fresh ginger", "name": "ginger", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "finely grated, fresh"}
 {"id": "dining-in-49", "input": "2 pints yellow (Sun Gold) or red cherry tomatoes", "name": "yellow (Sun Gold) or red cherry tomatoes", "amounts": [{"unit": "pint", "value": 2}]}
 {"id": "dining-in-50", "input": "¼ cup fresh parsley, chopped", "name": "parsley", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "fresh, chopped"}

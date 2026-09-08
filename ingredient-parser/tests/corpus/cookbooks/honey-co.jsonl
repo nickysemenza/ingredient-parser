@@ -1,10 +1,10 @@
 {"id": "honey-co-01", "input": "juice of 1 lemon, plus more to taste", "name": "lemon", "amounts": [{"unit": "whole", "value": 1}], "modifier": "juice of, plus more to taste"}
-{"id": "honey-co-02", "input": "1 tbsp plus ¾ tsp red wine vinegar", "name": "red wine vinegar", "amounts": [{"unit": "tbsp", "value": 1}, {"unit": "tsp", "value": "3/4"}]}
+{"id": "honey-co-02", "input": "1 tbsp plus ¾ tsp red wine vinegar", "name": "red wine vinegar", "amounts": [{"unit": "tsp", "value": "15/4"}]}
 {"id": "honey-co-03", "input": "3 tbsp pomegranate molasses", "name": "pomegranate molasses", "amounts": [{"unit": "tbsp", "value": 3}]}
-{"id": "honey-co-04", "input": "1 small bunch of parsley, chopped (½cup)", "name": "bunch of parsley", "amounts": [{"unit": "small", "value": 1}, {"unit": "cup", "value": "1/2"}], "modifier": "chopped"}
+{"id": "honey-co-04", "input": "1 small bunch of parsley, chopped (½cup)", "name": "parsley", "amounts": [{"unit": "bunch", "value": 1}, {"unit": "cup", "value": "1/2"}], "modifier": "chopped"}
 {"id": "honey-co-05", "input": "3 sprigs of fresh dill", "name": "dill", "amounts": [{"unit": "sprig", "value": 3}], "modifier": "fresh"}
-{"id": "honey-co-06", "input": "1 small bunch of cilantro, chopped (about ¾ cup)", "name": "bunch of cilantro", "amounts": [{"unit": "small", "value": 1}, {"unit": "cup", "value": "3/4"}], "modifier": "chopped"}
-{"id": "honey-co-07", "input": "generous 1 tbsp pomegranate molasses", "name": "pomegranate molasses", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "generous"}
+{"id": "honey-co-06", "input": "1 small bunch of cilantro, chopped (about ¾ cup)", "name": "cilantro", "amounts": [{"unit": "bunch", "value": 1}, {"unit": "cup", "value": "3/4"}], "modifier": "chopped"}
+{"id": "honey-co-07", "input": "generous 1 tbsp pomegranate molasses", "name": "pomegranate molasses", "amounts": [{"unit": "tbsp", "value": 1}]}
 {"id": "honey-co-08", "input": "2 cups/250g pre-cooked whole chestnuts", "name": "pre-cooked whole chestnuts", "amounts": [{"unit": "cup", "value": 2}, {"unit": "g", "value": 250}]}
 {"id": "honey-co-09", "input": "3 tbsp vegetable oil", "name": "vegetable oil", "amounts": [{"unit": "tbsp", "value": 3}]}
 {"id": "honey-co-10", "input": "¼ cup/60g melted butter (or oil / other fat if avoiding dairy)", "name": "butter", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "g", "value": 60}], "modifier": "melted, or oil / other fat if avoiding dairy"}
@@ -12,13 +12,13 @@
 {"id": "honey-co-12", "input": "1½ tbsp dried mint", "name": "dried mint", "amounts": [{"unit": "tbsp", "value": "3/2"}]}
 {"id": "honey-co-13", "input": "8 chicken thighs with skin and bones (about 2lb /1kg)", "name": "chicken thighs with skin and bones", "amounts": [{"unit": "whole", "value": 8}, {"unit": "lb", "value": 2}, {"unit": "kg", "value": 1}]}
 {"id": "honey-co-14", "input": "1 large onion, peeled and finely diced \\", "name": "onion", "amounts": [{"unit": "large", "value": 1}], "modifier": "peeled and finely diced \\"}
-{"id": "honey-co-15", "input": "1 small bunch of parsley (about ½ cup), picked and chopped", "name": "bunch of parsley", "amounts": [{"unit": "small", "value": 1}, {"unit": "cup", "value": "1/2"}], "modifier": "picked and chopped"}
+{"id": "honey-co-15", "input": "1 small bunch of parsley (about ½ cup), picked and chopped", "name": "parsley", "amounts": [{"unit": "bunch", "value": 1}, {"unit": "cup", "value": "1/2"}], "modifier": "picked and chopped"}
 {"id": "honey-co-16", "input": "3–6 tbsp water", "name": "water", "amounts": [{"unit": "tbsp", "value": 3, "upper_value": 6}]}
 {"id": "honey-co-17", "input": "2½ tbsp gram flour (use pastry flour, if need be)", "name": "gram flour", "amounts": [{"unit": "tbsp", "value": "5/2"}], "modifier": "use pastry flour, if need be"}
 {"id": "honey-co-18", "input": "1 large onion, peeled", "name": "onion", "amounts": [{"unit": "large", "value": 1}], "modifier": "peeled"}
 {"id": "honey-co-19", "input": "1 dried red chili", "name": "dried red chili", "amounts": [{"unit": "whole", "value": 1}]}
 {"id": "honey-co-20", "input": "½–1 green chili, deseeded and chopped", "name": "green chili", "amounts": [{"unit": "whole", "value": "1/2", "upper_value": 1}], "modifier": "deseeded and chopped"}
-{"id": "honey-co-21", "input": "1¼ cups/250g soaked chickpeas (from mounded ½ cup/125g dried—see note here)", "name": "soaked chickpeas", "amounts": [{"unit": "cup", "value": "5/4"}, {"unit": "g", "value": 250}], "modifier": "from mounded ½ cup/125g dried"}
+{"id": "honey-co-21", "input": "1¼ cups/250g soaked chickpeas (from mounded ½ cup/125g dried—see note here)", "name": "soaked chickpeas", "amounts": [{"unit": "cup", "value": "5/4"}, {"unit": "g", "value": 250}], "modifier": "from mounded ½ cup/125g dried—see note here"}
 {"id": "honey-co-22", "input": "3 cups/700ml boiling water", "name": "water", "amounts": [{"unit": "cup", "value": 3}, {"unit": "ml", "value": 700}], "modifier": "boiling"}
 {"id": "honey-co-23", "input": "1 green chili, deseeded", "name": "green chili", "amounts": [{"unit": "whole", "value": 1}], "modifier": "deseeded"}
 {"id": "honey-co-24", "input": "1 clove of garlic, peeled and crushed", "name": "garlic", "amounts": [{"unit": "clove", "value": 1}], "modifier": "peeled and crushed"}
@@ -30,7 +30,7 @@
 {"id": "honey-co-30", "input": "4 cloves", "name": "cloves", "amounts": [{"unit": "whole", "value": 4}]}
 {"id": "honey-co-31", "input": "½ small green chili", "name": "green chili", "amounts": [{"unit": "small", "value": "1/2"}]}
 {"id": "honey-co-32", "input": "⅔ cup/150ml white wine vinegar", "name": "white wine vinegar", "amounts": [{"unit": "cup", "value": "2/3"}, {"unit": "ml", "value": 150}]}
-{"id": "honey-co-33", "input": "scant ¼ cup/50ml whiskey", "name": "whiskey", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "ml", "value": 50}], "modifier": "scant"}
+{"id": "honey-co-33", "input": "scant ¼ cup/50ml whiskey", "name": "whiskey", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "ml", "value": 50}]}
 {"id": "honey-co-34", "input": "⅓ cup/40g pine nuts, roasted till golden (see method here)", "name": "pine nuts", "amounts": [{"unit": "cup", "value": "1/3"}, {"unit": "g", "value": 40}], "modifier": "roasted till golden"}
 {"id": "honey-co-35", "input": "½ small red chili", "name": "red chili", "amounts": [{"unit": "small", "value": "1/2"}]}
 {"id": "honey-co-36", "input": "2 large red plums, cut into thin wedges", "name": "red plums", "amounts": [{"unit": "large", "value": 2}], "modifier": "cut into thin wedges"}
@@ -41,9 +41,9 @@
 {"id": "honey-co-41", "input": "4–6 sprigs of lemon thyme or verbena, to serve", "name": "lemon thyme or verbena", "amounts": [{"unit": "sprig", "value": 4, "upper_value": 6}], "modifier": "to serve"}
 {"id": "honey-co-42", "input": "4 cloves of garlic, peeled", "name": "garlic", "amounts": [{"unit": "clove", "value": 4}], "modifier": "peeled"}
 {"id": "honey-co-43", "input": "⅔ cup/150ml warm water", "name": "water", "amounts": [{"unit": "cup", "value": "2/3"}, {"unit": "ml", "value": 150}], "modifier": "warm"}
-{"id": "honey-co-44", "input": "1 heaped tbsp sea salt", "name": "sea salt", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "heaped"}
+{"id": "honey-co-44", "input": "1 heaped tbsp sea salt", "name": "sea salt", "amounts": [{"unit": "tbsp", "value": 1}]}
 {"id": "honey-co-45", "input": "3 medium celery sticks", "name": "celery sticks", "amounts": [{"unit": "medium", "value": 3}]}
-{"id": "honey-co-46", "input": "a generous pinch of salt", "name": "salt", "amounts": [{"unit": "pinch", "value": 1}], "modifier": "generous"}
+{"id": "honey-co-46", "input": "a generous pinch of salt", "name": "salt", "amounts": [{"unit": "pinch", "value": 1}]}
 {"id": "honey-co-47", "input": "2 large onions, peeled and sliced", "name": "onions", "amounts": [{"unit": "large", "value": 2}], "modifier": "peeled and sliced"}
 {"id": "honey-co-48", "input": "2 tsp white mustard seeds", "name": "white mustard seeds", "amounts": [{"unit": "tsp", "value": 2}]}
 {"id": "honey-co-49", "input": "sea salt", "name": "sea salt", "amounts": []}

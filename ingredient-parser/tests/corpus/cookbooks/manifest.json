@@ -1,5 +1,6 @@
 {
   "seed": "2026-09-07-architecture-v1",
+  "holdout_seed": "2026-09-07-independent-holdout-v2",
   "method": "sha256-ranked distinct publisher ingredient elements",
   "excluded": "excluded-inputs.json",
   "books": [
@@ -77,7 +78,7 @@
     },
     {
       "book_id": "rintaro",
-      "split": "holdout",
+      "split": "development",
       "epub": "Sylvan Mishima Brackett/Rintaro (384)/Rintaro - Sylvan Mishima Brackett.epub",
       "sha256": "6f5056e842c3650ad5a001b49e93eacfd690ea11d6e1410f6e2b0a03f1bc701d",
       "ingredient_classes": [
@@ -89,7 +90,7 @@
     },
     {
       "book_id": "honey-co",
-      "split": "holdout",
+      "split": "development",
       "epub": "Itamar Srulovich/Honey & Co._ The Cookbook (4)/Honey & Co._ The Cookbook - Itamar Srulovich.epub",
       "sha256": "05beac91798d08e0d3af05c78ec4ed2de70b89b78a022ee5deb4568be6a3d8f3",
       "ingredient_classes": [
@@ -101,7 +102,7 @@
     },
     {
       "book_id": "dining-in",
-      "split": "holdout",
+      "split": "development",
       "epub": "Alison Roman/Dining In (174)/Dining In - Alison Roman.epub",
       "sha256": "1bc9faca7725d477912172de3079a1795948e456fbc414502178fd870853cc5c",
       "ingredient_classes": [
@@ -114,7 +115,7 @@
     },
     {
       "book_id": "six-seasons",
-      "split": "holdout",
+      "split": "development",
       "epub": "Joshua McFadden/Six Seasons (262)/Six Seasons - Joshua McFadden.epub",
       "sha256": "34b2da66f084695c5a9f00ce32104dcb3defac4c64cab3969ddb217f41214861",
       "ingredient_classes": [
@@ -122,6 +123,53 @@
         "RIB"
       ],
       "candidate_count": 1025,
+      "sample_size": 50
+    },
+    {
+      "book_id": "baking-republique",
+      "split": "holdout",
+      "epub": "Margarita Manzke/Baking at Republique_ Masterful Techniques and Recipes (373)/Baking at Republique_ Masterful Techniques - Margarita Manzke.epub",
+      "sha256": "a0efebf4d8423d4c408a360299eabd8dfd492ed08099814dae4972f5ada2b9c4",
+      "ingredient_classes": [
+        "ril",
+        "rilf",
+        "rils"
+      ],
+      "candidate_count": 561,
+      "sample_size": 50
+    },
+    {
+      "book_id": "bangkok",
+      "split": "holdout",
+      "epub": "Leela Punyaratabandhu/Bangkok (13)/Bangkok - Leela Punyaratabandhu.epub",
+      "sha256": "1f3279d16adbe70d9f40a941ee0757eaffe34579d3851b81dd10093962342d3b",
+      "ingredient_classes": [
+        "ril"
+      ],
+      "candidate_count": 1155,
+      "sample_size": 50
+    },
+    {
+      "book_id": "bouchon",
+      "split": "holdout",
+      "epub": "Thomas Keller/Bouchon (264)/Bouchon - Thomas Keller.epub",
+      "sha256": "574b8d6b2641a6c518334d30f408322901ca26b8dab4f0b0b41fb48ac05b4abb",
+      "ingredient_classes": [
+        "hang"
+      ],
+      "candidate_count": 971,
+      "sample_size": 50
+    },
+    {
+      "book_id": "burma-superstar",
+      "split": "holdout",
+      "epub": "DESMOND TAN/Burma Superstar (277)/Burma Superstar - DESMOND TAN.epub",
+      "sha256": "f63da5d24df286b649b0277dfc22e012f1ee7007ae26f750148610a15bdaf524",
+      "ingredient_classes": [
+        "ril",
+        "rilf"
+      ],
+      "candidate_count": 523,
       "sample_size": 50
     }
   ]

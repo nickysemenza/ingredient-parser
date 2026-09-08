@@ -1,0 +1,50 @@
+{"id":"bouchon-01","input":"1 cup shelled English peas (about 1 pound in the pod)","name":"shelled English peas","amounts":[{"unit":"cup","value":"1"}],"modifier":"about 1 pound in the pod","optional":false,"usage":"normal"}
+{"id":"bouchon-02","input":"Beurre manié","name":"Beurre manié","amounts":[],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-03","input":"The skin and fat can be discarded or rendered. To render the fat, place the trimmed fat and skin in a small saucepan with a tablespoon of water. Heat on a heat diffuser over low heat for several hours, allowing the fat to melt and render, then strain the fat. Use in the confit or save for other uses. Cover and refrigerate.","name":"The skin and fat can be discarded or rendered. To render the fat, place the trimmed fat and skin in a small saucepan with a tablespoon of water. Heat on a heat diffuser over low heat for several hours, allowing the fat to melt and render, then strain the fat. Use in the confit or save for other uses. Cover and refrigerate.","amounts":[],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-04","input":"4 garlic cloves, peeled and smashed","name":"garlic","amounts":[{"unit":"clove","value":"4"}],"modifier":"peeled and smashed","optional":false,"usage":"normal"}
+{"id":"bouchon-05","input":"2 bay leaves","name":"bay leaves","amounts":[{"unit":"leaf","value":"2"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-06","input":"2 tablespoons minced cornichons","name":"minced cornichons","amounts":[{"unit":"tablespoon","value":"2"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-07","input":"4 cups thinly sliced shallots","name":"thinly sliced shallots","amounts":[{"unit":"cup","value":"4"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-08","input":"½ teaspoon pure vanilla extract","name":"pure vanilla extract","amounts":[{"unit":"teaspoon","value":"1/2"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-09","input":"3 to 4 cups extra virgin olive oil","name":"extra virgin olive oil","amounts":[{"unit":"cup","value":"3","upper_value":"4"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-10","input":"1 tablespoon chervil leaves","name":"chervil leaves","amounts":[{"unit":"tablespoon","value":"1"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-11","input":"28 Luc or Picholine olives","name":"Luc or Picholine olives","amounts":[{"unit":"olive","value":"28"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-12","input":"⅓ cup minced shallots","name":"minced shallots","amounts":[{"unit":"cup","value":"1/3"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-13","input":"8 slices (about ½ ounce each) Swiss cheese","name":"Swiss cheese","amounts":[{"unit":"slice","value":"8"}],"modifier":"about ½ ounce each","optional":false,"usage":"normal"}
+{"id":"bouchon-14","input":"8 ounces fingerling potatoes, preferably small","name":"fingerling potatoes","amounts":[{"unit":"ounce","value":"8"}],"modifier":"preferably small","optional":false,"usage":"normal"}
+{"id":"bouchon-15","input":"2 teaspoons granulated sugar","name":"granulated sugar","amounts":[{"unit":"teaspoon","value":"2"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-16","input":"4 hard-cooked large eggs (see hard cooking eggs), peeled","name":"hard-cooked eggs","amounts":[{"unit":"egg","value":"4"}],"modifier":"see hard cooking eggs, peeled","optional":false,"usage":"normal"}
+{"id":"bouchon-17","input":"Honeycomb tripe, trimmed","name":"Honeycomb tripe","amounts":[],"modifier":"trimmed","optional":false,"usage":"normal"}
+{"id":"bouchon-18","input":"1 teaspoon black peppercorns","name":"black peppercorns","amounts":[{"unit":"teaspoon","value":"1"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-19","input":"4 thyme sprigs","name":"thyme","amounts":[{"unit":"sprig","value":"4"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-20","input":"1 teaspoon kosher salt","name":"kosher salt","amounts":[{"unit":"teaspoon","value":"1"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-21","input":"¼ teaspoon black peppercorns","name":"black peppercorns","amounts":[{"unit":"teaspoon","value":"1/4"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-22","input":"4 russet potatoes (about 3½ pounds total), peeled","name":"russet potatoes","amounts":[{"unit":"potato","value":"4"}],"modifier":"about 3½ pounds total, peeled","optional":false,"usage":"normal"}
+{"id":"bouchon-23","input":"4 teaspoons fresh lemon juice","name":"fresh lemon juice","amounts":[{"unit":"teaspoon","value":"4"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-24","input":"8 tablespoons (4 ounces) unsalted butter","name":"unsalted butter","amounts":[{"unit":"tablespoon","value":"8"},{"unit":"ounce","value":"4"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-25","input":"½ cup Aïoli","name":"Aïoli","amounts":[{"unit":"cup","value":"1/2"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-26","input":"¼ cup fine bread crumbs (see Note)","name":"fine bread crumbs","amounts":[{"unit":"cup","value":"1/4"}],"modifier":"see Note","optional":false,"usage":"normal"}
+{"id":"bouchon-27","input":"1 cup Chicken Jus, warmed","name":"Chicken Jus","amounts":[{"unit":"cup","value":"1"}],"modifier":"warmed","optional":false,"usage":"normal"}
+{"id":"bouchon-28","input":"1 cup all-purpose flour","name":"all-purpose flour","amounts":[{"unit":"cup","value":"1"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-29","input":"1 cup sliced (¼ inch) shallots","name":"shallots","amounts":[{"unit":"cup","value":"1"}],"modifier":"sliced ¼ inch","optional":false,"usage":"normal"}
+{"id":"bouchon-30","input":"2 tablespoons plus 1 teaspoon kosher salt","name":"kosher salt","amounts":[{"unit":"tablespoon","value":"7/3"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-31","input":"1 tablespoon fresh lemon juice","name":"fresh lemon juice","amounts":[{"unit":"tablespoon","value":"1"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-32","input":"1½ cups couscous (not instant)","name":"couscous","amounts":[{"unit":"cup","value":"3/2"}],"modifier":"not instant","optional":false,"usage":"normal"}
+{"id":"bouchon-33","input":"16 (about 12 ounces) Brussels sprouts","name":"Brussels sprouts","amounts":[{"unit":"sprout","value":"16"}],"modifier":"about 12 ounces","optional":false,"usage":"normal"}
+{"id":"bouchon-34","input":"2 to 3 tablespoons Walnut Vinaigrette","name":"Walnut Vinaigrette","amounts":[{"unit":"tablespoon","value":"2","upper_value":"3"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-35","input":"1 cinnamon stick","name":"cinnamon","amounts":[{"unit":"stick","value":"1"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-36","input":"2 teaspoons finely chopped Italian parsley","name":"finely chopped Italian parsley","amounts":[{"unit":"teaspoon","value":"2"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-37","input":"1 tablespoon plus 1 teaspoon House Vinaigrette","name":"House Vinaigrette","amounts":[{"unit":"tablespoon","value":"4/3"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-38","input":"2 garlic cloves","name":"garlic","amounts":[{"unit":"clove","value":"2"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-39","input":"3½ to 4 ounces (1 to 2 bunches) watercress, preferably hydroponic","name":"watercress","amounts":[{"unit":"ounce","value":"7/2","upper_value":"4"}],"modifier":"1 to 2 bunches, preferably hydroponic","optional":false,"usage":"normal"}
+{"id":"bouchon-40","input":"Four ¾-inch-thick slices Brioche, about 4 inches square","name":"Brioche","amounts":[{"unit":"slice","value":"4"}],"modifier":"¾-inch-thick, about 4 inches square","optional":false,"usage":"normal"}
+{"id":"bouchon-41","input":"1 large Italian parsley sprig, plus 1 teaspoon minced parsley","name":"Italian parsley","amounts":[{"unit":"sprig","value":"1"}],"modifier":"plus 1 teaspoon minced parsley","optional":false,"usage":"normal"}
+{"id":"bouchon-42","input":"32 ounces (1 quart) crème fraîche","name":"crème fraîche","amounts":[{"unit":"ounce","value":"32"},{"unit":"quart","value":"1"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-43","input":"1 tablespoon plus 1 teaspoon minced Italian parsley","name":"minced Italian parsley","amounts":[{"unit":"tablespoon","value":"4/3"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-44","input":"Freshly ground white pepper","name":"Freshly ground white pepper","amounts":[],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-45","input":"⅓ cup all-purpose flour, sifted","name":"all-purpose flour","amounts":[{"unit":"cup","value":"1/3"}],"modifier":"sifted","optional":false,"usage":"normal"}
+{"id":"bouchon-46","input":"Butter and flour for the timbale molds","name":"Butter and flour","amounts":[],"modifier":"for the timbale molds","optional":false,"usage":"normal"}
+{"id":"bouchon-47","input":"2 leeks","name":"leeks","amounts":[{"unit":"leek","value":"2"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-48","input":"1 pound (2 bunches) cavolo nero (Tuscan kale)","name":"cavolo nero (Tuscan kale)","amounts":[{"unit":"pound","value":"1"}],"modifier":"2 bunches","optional":false,"usage":"normal"}
+{"id":"bouchon-49","input":"2 cups fresh orange juice","name":"fresh orange juice","amounts":[{"unit":"cup","value":"2"}],"modifier":null,"optional":false,"usage":"normal"}
+{"id":"bouchon-50","input":"About 1 pound (8 large) apricots, halved and pitted","name":"apricots","amounts":[{"unit":"pound","value":"1"},{"unit":"apricot","value":"8"}],"modifier":"halved and pitted","optional":false,"usage":"normal"}

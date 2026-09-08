@@ -33,7 +33,13 @@ impl<'a> MeasurementParser<'a> {
             space0,
             optional_dash_separator,
             optional_article,
-            opt(amount_qualifier_between),
+            opt(|input| {
+                let (rest, qualifier) = amount_qualifier_between(input)?;
+                // A qualifier cannot consume text unless the configured unit
+                // vocabulary actually accepts the following unit.
+                self.unit(rest)?;
+                Ok((rest, qualifier))
+            }),
             opt(|a| self.unit(a)),
             |i| self.trailing_prose(i),
         );
@@ -274,6 +280,15 @@ impl<'a> MeasurementParser<'a> {
         if let Ok((rest, _)) = fluid_ounce_text(input) {
             return Ok((rest, "fl oz".to_string()));
         }
+        // Rich instruction text needs to retain temperature and dimension
+        // semantics when it is scaled for presentation. These spellings either
+        // contain multiple tokens ("degrees F") or are intentionally outside
+        // ingredient-list vocabulary ("cm"), so recognize them only here.
+        if self.mode == MeasurementMode::RichText
+            && let Some((rest, canon)) = rich_text_fixed_unit(input)
+        {
+            return Ok((rest, canon.to_string()));
+        }
         // Single-letter spoon abbreviations are case-sensitive: lowercase "t" =
         // teaspoon, uppercase "T" = tablespoon (standard cooking shorthand). They
         // differ only by case, so they must be resolved to canonical "tsp"/"tbsp"
@@ -303,6 +318,45 @@ impl<'a> MeasurementParser<'a> {
             "not an addon unit",
         )
     }
+}
+
+/// Rich-text-only spellings whose numeric values are descriptive rather than
+/// recipe quantities. A complete match and trailing word boundary prevent a
+/// prefix such as "degrees food" from being consumed as a temperature.
+fn rich_text_fixed_unit(input: &str) -> Option<(&str, &'static str)> {
+    const FORMS: &[(&str, &str)] = &[
+        ("degrees fahrenheit", "fahrenheit"),
+        ("degree fahrenheit", "fahrenheit"),
+        ("degrees celsius", "°c"),
+        ("degree celsius", "°c"),
+        ("degrees f", "fahrenheit"),
+        ("degree f", "fahrenheit"),
+        ("degrees c", "°c"),
+        ("degree c", "°c"),
+        ("° f", "fahrenheit"),
+        ("° c", "°c"),
+        ("°f", "fahrenheit"),
+        ("°c", "°c"),
+        ("centimeters", "cm"),
+        ("centimetres", "cm"),
+        ("millimeters", "mm"),
+        ("millimetres", "mm"),
+        ("centimeter", "cm"),
+        ("centimetre", "cm"),
+        ("millimeter", "mm"),
+        ("millimetre", "mm"),
+        ("cm", "cm"),
+        ("mm", "mm"),
+    ];
+
+    FORMS.iter().find_map(|(form, canon)| {
+        let matched = input.get(..form.len())?;
+        if !matched.eq_ignore_ascii_case(form) {
+            return None;
+        }
+        let remaining = &input[form.len()..];
+        (!remaining.chars().next().is_some_and(char::is_alphabetic)).then_some((remaining, *canon))
+    })
 }
 
 /// Recognize the spellings of the fluid-ounce unit ("fl oz", "fl. oz.", "fluid
@@ -427,7 +481,9 @@ fn unit_only_qualifier(input: &str) -> Res<&str, ()> {
 /// the name.
 fn size_word_before_discardable_unit(input: &str) -> Res<&str, &str> {
     let (rest, word) = verify(parse_unit_text, |s: &str| {
-        crate::parser::vocab::SIZE_WORDS.contains(&s.to_lowercase().as_str())
+        let lower = s.to_lowercase();
+        crate::parser::vocab::SIZE_WORDS.contains(&lower.as_str())
+            || matches!(lower.as_str(), "big" | "loose")
     })
     .parse(input)?;
     peek((
@@ -580,8 +636,7 @@ mod tests {
 
     /// In prose a dimension is highlighted as a measure (describing shape, not
     /// quantity) rather than rejected — consistent with how hyphenated weight/time
-    /// units surface. `Inch` is `MeasureKind::Length` (non-scalable); other
-    /// distance units surface as `Other`.
+    /// units surface. Distance units are `MeasureKind::Length` (non-scalable).
     #[rstest]
     #[case::inch_piece("1-inch piece ginger", 1.0, "\"")]
     #[case::cm_piece("2-cm knob ginger", 2.0, "cm")]
@@ -595,6 +650,51 @@ mod tests {
         let (_, measure) = parser.parse_single_measurement(input).unwrap();
         assert_eq!(measure.value(), value, "input: {input}");
         assert_eq!(measure.unit_as_string(), unit, "input: {input}");
+        assert_eq!(measure.scale(2.0), measure, "input: {input}");
+    }
+
+    /// Multi-token and degree-sign temperatures need a canonical non-scalable
+    /// unit in rich text. Otherwise their numeric prefix becomes `Whole` and the
+    /// recipe UI doubles oven temperatures along with ingredient quantities.
+    #[rstest]
+    #[case::degrees_f("365 degrees F", "fahrenheit")]
+    #[case::degrees_c("180 degrees C", "celsius")]
+    #[case::degree_sign_f("350°F", "fahrenheit")]
+    #[case::spaced_degree_sign_c("180° C", "celsius")]
+    fn test_explicit_temperature_unit_is_non_scalable_in_rich_text(
+        units_fx: HashSet<String>,
+        #[case] input: &str,
+        #[case] unit: &str,
+    ) {
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::RichText);
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        assert_eq!(measure.unit_as_string(), unit, "input: {input}");
+        assert_eq!(measure.scale(2.0), measure, "input: {input}");
+    }
+
+    #[rstest]
+    #[case::centimeters("3cm", "cm")]
+    #[case::written_millimeters("5 millimeters", "mm")]
+    fn test_dimensions_are_non_scalable_in_rich_text(
+        units_fx: HashSet<String>,
+        #[case] input: &str,
+        #[case] unit: &str,
+    ) {
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::RichText);
+        let (_, measure) = parser.parse_single_measurement(input).unwrap();
+        assert_eq!(measure.unit_as_string(), unit, "input: {input}");
+        assert_eq!(measure.scale(2.0), measure, "input: {input}");
+    }
+
+    /// Rich-text-only recognition must not broaden ingredient-list vocabulary.
+    /// The same unsupported compact dimension remains the historical bare count
+    /// there, while instruction presentation classifies it as fixed length.
+    #[test]
+    fn test_compact_dimension_remains_unrecognized_in_ingredient_lists() {
+        let units = units();
+        let parser = MeasurementParser::new(&units, MeasurementMode::IngredientList);
+        let (_, measure) = parser.parse_single_measurement("3cm carrot").unwrap();
+        assert_eq!(measure.unit_as_string(), "whole");
     }
 
     /// The multi-word fluid-ounce unit is recognized across the space the generic

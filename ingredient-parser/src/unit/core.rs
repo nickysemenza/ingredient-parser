@@ -152,6 +152,9 @@ impl Unit {
             // Other/custom units
             Unit::Whole => MeasureKind::Other("whole".to_string()),
             Unit::Other(s) => {
+                if is_length_unit(s) {
+                    return MeasureKind::Length;
+                }
                 // Nutrient unit pattern like "g protein", "mg sodium", "ug vitamin_b12"
                 if is_nutrient_unit(s) {
                     MeasureKind::Nutrient(s.clone())
@@ -247,6 +250,16 @@ impl FromStr for Unit {
         Ok(Unit::Other(s.to_string()))
     }
 }
+
+/// Length aliases deliberately remain `Unit::Other` to preserve the public unit
+/// representation. Rich instruction parsing recognizes them explicitly, and
+/// their semantic kind must remain fixed when recipe quantities scale.
+fn is_length_unit(unit: &str) -> bool {
+    matches!(
+        singular(unit).as_ref(),
+        "in" | "inch" | "cm" | "centimeter" | "centimetre" | "mm" | "millimeter" | "millimetre"
+    )
+}
 impl fmt::Display for Unit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.to_str())
@@ -266,7 +279,13 @@ fn strip_plural(s: &str) -> &str {
     {
         return base;
     }
-    s.strip_suffix('s').unwrap_or(s)
+    match s.strip_suffix('s') {
+        // These accepted temperature names are already singular. Check this
+        // exception only when a plural suffix would otherwise be removed.
+        Some(_) if matches!(s, "celsius" | "celcius") => s,
+        Some(base) => base,
+        None => s,
+    }
 }
 
 /// Lowercase + strip a plural suffix from a unit word ("Scoops" -> "scoop",
@@ -302,6 +321,8 @@ mod tests {
         // Already singular stays put
         assert_eq!(singular("bunch"), "bunch");
         assert_eq!(singular("box"), "box");
+        assert_eq!(singular("Celsius"), "celsius");
+        assert_eq!(singular("celcius"), "celcius");
     }
 
     #[test]

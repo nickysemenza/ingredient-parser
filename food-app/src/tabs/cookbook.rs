@@ -14,8 +14,8 @@ use petgraph::Directed;
 use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use poll_promise::Promise;
 use recipe_epub::{
-    BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionAccounting, ImageRef,
-    Options, ParsedCookbookRecipe,
+    BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionAccounting,
+    ExtractionReport, ImageRef, Options, ParsedCookbookRecipe,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -28,6 +28,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct LoadedBook {
     recipes: Vec<CookbookRecipe>,
     stats: ExtractionAccounting,
+    /// Complete per-chunk outcome evidence. The compact accounting summary is
+    /// useful at a glance; this preserves the failures and truncations needed
+    /// to tell an incomplete import from a cookbook with fewer recipes.
+    report: ExtractionReport,
     /// The book's cover reference (URI key), if any.
     cover: Option<ImageRef>,
     /// De-duplicated `(archive_path, bytes)` for the cover + all heroes.
@@ -131,7 +135,14 @@ pub struct CookbookTab {
     /// When the in-flight load started — drives the elapsed label shown before
     /// the chunk count is known.
     load_started: Option<std::time::Instant>,
+    /// Immutable source identity for the current load. The editable picker path
+    /// must not rename an already-running import in its progress label.
+    active_path: Option<String>,
     selected: usize,
+    /// Presentation-only multiplier for the selected cookbook recipe. Parsing
+    /// and source strings remain unchanged; `Measure::scale` owns which values
+    /// are safe to resize.
+    recipe_scale: f64,
     /// Memoized parse of the selected recipe, keyed by its index. `r.parse()`
     /// rebuilds both nom parsers (`IngredientParser`/`RichParser`) and re-parses
     /// every line — wasteful to redo on every immediate-mode repaint (scroll,
@@ -178,7 +189,9 @@ impl Default for CookbookTab {
             promise: None,
             extract_progress: None,
             load_started: None,
+            active_path: None,
             selected: 0,
+            recipe_scale: 1.0,
             parsed_cache: None,
             reference_index: None,
             show_graph: false,
@@ -201,36 +214,39 @@ impl Default for CookbookTab {
 impl CookbookTab {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        let load_pending = self.load_pending();
 
         // Source controls: pick a single EPUB, pick a whole library, or type a path.
-        ui.horizontal(|ui| {
-            if ui.button("📂 Pick EPUB…").clicked()
-                && let Some(p) = self.file_dialog().add_filter("EPUB", &["epub"]).pick_file()
-            {
-                self.path = p.to_string_lossy().into_owned();
-                self.start_load(ctx.clone());
-            }
-            if ui
-                .button("🗂 Pick library…")
-                .on_hover_text("Pick a Calibre root (or any folder); finds every .epub inside")
-                .clicked()
-                && let Some(dir) = self.file_dialog().pick_folder()
-            {
-                self.start_scan(dir, ctx.clone());
-            }
-            ui.add(
-                egui::TextEdit::singleline(&mut self.path)
-                    .hint_text("/path/to/cookbook.epub")
-                    .desired_width(340.0),
-            );
-            ui.checkbox(&mut self.no_cache, "No cache");
-            let can_load = !self.path.trim().is_empty();
-            if ui
-                .add_enabled(can_load, egui::Button::new("Load"))
-                .clicked()
-            {
-                self.start_load(ctx.clone());
-            }
+        ui.add_enabled_ui(!load_pending, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("📂 Pick EPUB…").clicked()
+                    && let Some(p) = self.file_dialog().add_filter("EPUB", &["epub"]).pick_file()
+                {
+                    self.path = p.to_string_lossy().into_owned();
+                    self.start_load(ctx.clone());
+                }
+                if ui
+                    .button("🗂 Pick library…")
+                    .on_hover_text("Pick a Calibre root (or any folder); finds every .epub inside")
+                    .clicked()
+                    && let Some(dir) = self.file_dialog().pick_folder()
+                {
+                    self.start_scan(dir, ctx.clone());
+                }
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.path)
+                        .hint_text("/path/to/cookbook.epub")
+                        .desired_width(340.0),
+                );
+                ui.checkbox(&mut self.no_cache, "No cache");
+                let can_load = !self.path.trim().is_empty();
+                if ui
+                    .add_enabled(can_load, egui::Button::new("Load"))
+                    .clicked()
+                {
+                    self.start_load(ctx.clone());
+                }
+            });
         });
         ui.label(
             RichText::new(
@@ -281,8 +297,15 @@ impl CookbookTab {
                                 ui.colored_label(ui.visuals().error_fg_color, err);
                             }
                             Some(Ok(books)) => {
-                                action =
-                                    show_library(ui, books, cookbooks_only, use_ai, filter, grid);
+                                action = show_library(
+                                    ui,
+                                    books,
+                                    cookbooks_only,
+                                    use_ai,
+                                    filter,
+                                    grid,
+                                    !load_pending,
+                                );
                             }
                         }
                     }
@@ -295,8 +318,10 @@ impl CookbookTab {
                     }
                 }
                 LibraryAction::Load(path) => {
-                    self.path = path;
-                    self.start_load(ctx.clone());
+                    if !load_pending {
+                        self.path = path;
+                        self.start_load(ctx.clone());
+                    }
                 }
             }
         }
@@ -325,10 +350,7 @@ impl CookbookTab {
                 } else {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        let file = Path::new(&self.path)
-                            .file_name()
-                            .map(|f| f.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "recipes".to_string());
+                        let file = self.loading_file_name();
                         let elapsed = self.load_started.map_or(0, |t| t.elapsed().as_secs());
                         ui.label(format!("Extracting {file}… ({elapsed}s)"));
                     });
@@ -348,6 +370,7 @@ impl CookbookTab {
                 let LoadedBook {
                     recipes,
                     stats,
+                    report,
                     cover,
                     images: _,
                 } = book;
@@ -360,10 +383,16 @@ impl CookbookTab {
                 let show_graph = &mut self.show_graph;
                 let graph_slot = &mut self.graph;
                 let graph_prewarmed = &mut self.graph_prewarmed;
+                let recipe_scale = &mut self.recipe_scale;
                 if *selected >= recipes.len() {
                     *selected = 0;
                 }
-                let ref_count: usize = recipes.iter().map(|r| r.references.len()).sum();
+                let index = reference_index.get_or_insert_with(|| ReferenceIndex::build(recipes));
+                let ref_count: usize = recipes
+                    .iter()
+                    .flat_map(|recipe| &recipe.references)
+                    .filter(|reference| index.resolve(&reference.title).is_some())
+                    .count();
 
                 ui.horizontal(|ui| {
                     // The book's cover as a small thumbnail at the head of the row.
@@ -394,6 +423,18 @@ impl CookbookTab {
                         );
                     }
                     ui.separator();
+                    ui.label(RichText::new("Scale").small());
+                    for (factor, label) in [(0.5, "½×"), (1.0, "1×"), (2.0, "2×"), (3.0, "3×")]
+                    {
+                        ui.selectable_value(recipe_scale, factor, label);
+                    }
+                    ui.add(
+                        egui::DragValue::new(recipe_scale)
+                            .range(0.1..=20.0)
+                            .speed(0.1)
+                            .suffix("×"),
+                    );
+                    ui.separator();
                     // Copy the whole book's extracted recipes (verbatim lines +
                     // references) as pretty JSON to the clipboard — the same
                     // shape as `scrape-epub --json`.
@@ -408,6 +449,16 @@ impl CookbookTab {
                         }
                     }
                 });
+                if has_extraction_diagnostics(report) {
+                    ui.collapsing(
+                        RichText::new("Extraction diagnostics").color(ui.visuals().warn_fg_color),
+                        |ui| {
+                            for diagnostic in extraction_diagnostics(report) {
+                                ui.label(diagnostic);
+                            }
+                        },
+                    );
+                }
 
                 egui::Panel::left("cookbook_list")
                     .resizable(true)
@@ -452,10 +503,9 @@ impl CookbookTab {
                         if stale {
                             *parsed_cache = Some((sel, recipes[sel].parse()));
                         }
-                        let index =
-                            reference_index.get_or_insert_with(|| ReferenceIndex::build(recipes));
                         if let Some((_, parsed)) = parsed_cache.as_ref()
-                            && let Some(nav) = show_recipe_detail(ui, recipes, sel, parsed, index)
+                            && let Some(nav) =
+                                show_recipe_detail(ui, recipes, sel, parsed, index, *recipe_scale)
                         {
                             // Clicked a "Uses recipes" link → navigate to it.
                             *selected = nav;
@@ -517,13 +567,18 @@ impl CookbookTab {
     }
 
     fn start_load(&mut self, ctx: egui::Context) {
+        if self.load_pending() {
+            return;
+        }
         let path = self.path.trim().to_string();
         let no_cache = self.no_cache;
         self.selected = 0;
+        self.recipe_scale = 1.0;
         // A new book reuses recipe indices, so both caches are stale by identity.
         self.parsed_cache = None;
         self.reference_index = None;
         self.load_started = Some(std::time::Instant::now());
+        self.active_path = Some(path.clone());
         self.graph = None; // rebuilt for the newly loaded book
         self.graph_prewarmed = false;
         self.images_registered = false; // re-register for the newly loaded book
@@ -544,8 +599,8 @@ impl CookbookTab {
                     use_cache: !no_cache,
                     ..Default::default()
                 };
-                let (recipes, stats) = rt
-                    .block_on(recipe_epub::extract_cookbook_detailed_with_progress(
+                let extraction = rt
+                    .block_on(recipe_epub::extract_cookbook_report_with_progress(
                         &bytes,
                         &path,
                         &opts,
@@ -559,12 +614,14 @@ impl CookbookTab {
                         },
                     ))
                     .map_err(|e| e.to_string())?;
+                let recipes = extraction.report.recipes.clone();
                 // Materialize the cover + each recipe's hero photo in one EPUB open,
                 // off the UI thread, so the views just reference the registered bytes.
                 let (cover, images) = recipe_epub::collect_recipe_images(&bytes, &recipes);
                 Ok(LoadedBook {
                     recipes,
-                    stats,
+                    stats: extraction.accounting,
+                    report: extraction.report,
                     cover,
                     images,
                 })
@@ -574,6 +631,19 @@ impl CookbookTab {
             ctx.request_repaint();
             result
         }));
+    }
+
+    fn load_pending(&self) -> bool {
+        self.promise
+            .as_ref()
+            .is_some_and(|promise| promise.ready().is_none())
+    }
+
+    fn loading_file_name(&self) -> String {
+        Path::new(self.active_path.as_deref().unwrap_or(&self.path))
+            .file_name()
+            .map(|file| file.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "recipes".to_string())
     }
 
     /// Scan a directory for epubs and classify each as cookbook-or-not. Runs off
@@ -671,6 +741,7 @@ fn show_library(
     use_ai: &mut bool,
     filter: &mut String,
     grid: &mut bool,
+    can_load: bool,
 ) -> LibraryAction {
     let mut action = LibraryAction::None;
     let cookbook_count = books.iter().filter(|b| b.is_cookbook).count();
@@ -729,40 +800,43 @@ fn show_library(
     };
 
     // Fill the remaining sidebar height; the panel bounds the scroll region.
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            if *grid {
-                // A wrapped grid of cover cards (cover thumbnail above the title).
-                ui.horizontal_wrapped(|ui| {
+    ui.add_enabled_ui(can_load, |ui| {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if *grid {
+                    // A wrapped grid of cover cards (cover thumbnail above the title).
+                    ui.horizontal_wrapped(|ui| {
+                        for b in visible() {
+                            if book_card(ui, b).clicked() {
+                                action =
+                                    LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
+                            }
+                        }
+                    });
+                } else {
+                    // A compact one-line-per-book list (the space-saving view).
                     for b in visible() {
-                        if book_card(ui, b).clicked() {
+                        let label = if b.meta.authors.is_empty() {
+                            b.meta.title.clone()
+                        } else {
+                            format!("{} — {}", b.meta.title, b.meta.authors.join(", "))
+                        };
+                        let resp = ui.selectable_label(false, label).on_hover_text(
+                            if b.meta.subjects.is_empty() {
+                                "no tags".to_string()
+                            } else {
+                                b.meta.subjects.join(", ")
+                            },
+                        );
+                        if resp.clicked() {
                             action =
                                 LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
                         }
                     }
-                });
-            } else {
-                // A compact one-line-per-book list (the space-saving view).
-                for b in visible() {
-                    let label = if b.meta.authors.is_empty() {
-                        b.meta.title.clone()
-                    } else {
-                        format!("{} — {}", b.meta.title, b.meta.authors.join(", "))
-                    };
-                    let resp = ui.selectable_label(false, label).on_hover_text(
-                        if b.meta.subjects.is_empty() {
-                            "no tags".to_string()
-                        } else {
-                            b.meta.subjects.join(", ")
-                        },
-                    );
-                    if resp.clicked() {
-                        action = LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
-                    }
                 }
-            }
-        });
+            });
+    });
     action
 }
 
@@ -819,6 +893,7 @@ fn show_recipe_detail(
     selected: usize,
     parsed: &ParsedCookbookRecipe,
     index: &ReferenceIndex,
+    scale: f64,
 ) -> Option<usize> {
     let r = &recipes[selected];
     let mut navigate_to = None;
@@ -865,11 +940,18 @@ fn show_recipe_detail(
             ui.label(RichText::new(description).italics());
         }
 
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Scale").strong());
+            ui.label(format!("{scale}×"));
+        });
+
         ui.separator();
         // `parsed` (the caller's memoized `r.parse()`) drives the color-coded
         // view. Ingredient lines that reference another recipe get a clickable
         // "→ <recipe>" link.
-        if let Some(nav) = show_sections_with_links(ui, &r.sections, &parsed.sections, r, index) {
+        if let Some(nav) =
+            show_sections_with_links(ui, &r.sections, &parsed.sections, r, index, scale)
+        {
             navigate_to = Some(nav);
         }
 
@@ -938,6 +1020,7 @@ fn show_sections_with_links(
     parsed: &[recipe_epub::ParsedSection],
     recipe: &CookbookRecipe,
     index: &ReferenceIndex,
+    scale: f64,
 ) -> Option<usize> {
     let mut navigate_to = None;
     for (raw_sec, sec) in raw.iter().zip(parsed) {
@@ -949,7 +1032,7 @@ fn show_sections_with_links(
                 for (raw_line, ing) in raw_sec.ingredients.iter().zip(&sec.ingredients) {
                     theme::card_compact(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
-                            super::recipe::show_ingredient_collapsing(ui, ing);
+                            super::recipe::show_ingredient_collapsing_scaled(ui, ing, scale);
                             // If this verbatim line is a cross-recipe reference, add
                             // a link to the target recipe.
                             if let Some(idx) = recipe
@@ -972,7 +1055,7 @@ fn show_sections_with_links(
             });
             ui.vertical(|ui| {
                 for instr in &sec.instructions {
-                    super::recipe::show_instruction_chunks(ui, instr);
+                    super::recipe::show_instruction_chunks_scaled(ui, instr, scale);
                 }
             });
         });
@@ -980,14 +1063,56 @@ fn show_sections_with_links(
     navigate_to
 }
 
+/// Compact, source-oriented diagnostics that can sit behind the summary row
+/// without drowning the recipe browser in transport details.
+fn extraction_diagnostics(report: &ExtractionReport) -> Vec<String> {
+    let mut lines = Vec::new();
+    for chunk in &report.chunks {
+        if let Some(primary) = &chunk.primary_failure {
+            lines.push(format!(
+                "Chunk {} ({}) recovered with {:?} after primary failure: {}",
+                chunk.index, chunk.doc_path, chunk.tier, primary.message
+            ));
+        }
+    }
+    for failure in &report.failures {
+        let fallback = failure
+            .fallback
+            .as_ref()
+            .map(|f| format!("; fallback: {}", f.message))
+            .unwrap_or_default();
+        lines.push(format!(
+            "Chunk {} ({}) failed: {}{fallback}",
+            failure.index, failure.doc_path, failure.primary.message
+        ));
+    }
+    for truncation in &report.truncations {
+        lines.push(format!(
+            "Chunk {} ({}) {:?} attempt was truncated",
+            truncation.index, truncation.doc_path, truncation.tier
+        ));
+    }
+    lines
+}
+
+fn has_extraction_diagnostics(report: &ExtractionReport) -> bool {
+    !report.failures.is_empty()
+        || !report.truncations.is_empty()
+        || report
+            .chunks
+            .iter()
+            .any(|chunk| chunk.primary_failure.is_some())
+}
+
 /// Build the recipe-reference digraph: a node per recipe that participates in at
 /// least one reference (uses or is used), and a directed edge A→B for every
 /// "recipe A uses recipe B" reference. Node payload = the recipe's index in
 /// `recipes` (for click-to-select); node label = the recipe title.
-/// Title → recipe index for one book. Titles are unique per book, so this is
-/// the one way to resolve a cross-reference's target.
+/// Title → recipe index for one book. Repeated titles remain
+/// deliberately unresolved: picking the last occurrence would make a visible
+/// link point somewhere the extraction contract called ambiguous.
 pub(crate) struct ReferenceIndex {
-    forward: std::collections::HashMap<String, usize>,
+    forward: std::collections::HashMap<String, Option<usize>>,
     /// For each recipe, the distinct recipes that reference it. The reverse edge
     /// used to be an O(n·refs) scan inside the detail view, recomputed every
     /// repaint.
@@ -998,11 +1123,17 @@ impl ReferenceIndex {
     /// Owned so it can be cached with the loaded book — built once per load,
     /// not once (or twice) per frame.
     pub(crate) fn build(recipes: &[CookbookRecipe]) -> Self {
-        let forward: std::collections::HashMap<String, usize> = recipes
-            .iter()
-            .enumerate()
-            .map(|(i, r)| (r.meta.title.clone(), i))
-            .collect();
+        let mut forward = std::collections::HashMap::new();
+        for (i, recipe) in recipes.iter().enumerate() {
+            match forward.entry(recipe.meta.title.clone()) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(Some(i));
+                }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    entry.insert(None);
+                }
+            }
+        }
         let mut reverse: Vec<Vec<usize>> = vec![Vec::new(); recipes.len()];
         for (src, r) in recipes.iter().enumerate() {
             for reference in &r.references {
@@ -1010,11 +1141,11 @@ impl ReferenceIndex {
                 // so a recipe naming the same target twice must still appear
                 // once. The scan this replaced used `.any(...)`, which deduped
                 // implicitly.
-                if let Some(&dst) = forward.get(reference.title.as_str())
-                    && src != dst
-                    && !reverse[dst].contains(&src)
+                if let Some(Some(dst)) = forward.get(reference.title.as_str())
+                    && src != *dst
+                    && !reverse[*dst].contains(&src)
                 {
-                    reverse[dst].push(src);
+                    reverse[*dst].push(src);
                 }
             }
         }
@@ -1022,7 +1153,7 @@ impl ReferenceIndex {
     }
 
     pub(crate) fn resolve(&self, title: &str) -> Option<usize> {
-        self.forward.get(title).copied()
+        self.forward.get(title).copied().flatten()
     }
 
     /// Recipes that reference `idx`, excluding itself.
@@ -1353,6 +1484,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn pending_import_cannot_be_replaced_or_renamed() {
+        let mut tab = CookbookTab {
+            path: "/books/active.epub".to_string(),
+            active_path: Some("/books/active.epub".to_string()),
+            selected: 3,
+            ..Default::default()
+        };
+        let (_sender, promise) = Promise::new();
+        tab.promise = Some(promise);
+        tab.path = "/books/replacement.epub".to_string();
+
+        tab.start_load(egui::Context::default());
+
+        assert!(tab.load_pending());
+        assert_eq!(tab.selected, 3);
+        assert_eq!(tab.active_path.as_deref(), Some("/books/active.epub"));
+        assert_eq!(tab.loading_file_name(), "active.epub");
+    }
+
     /// One title→index answer for the three places that used to each scan the
     /// recipe list themselves — two of them inside render functions.
     #[test]
@@ -1365,6 +1516,45 @@ mod tests {
         assert_eq!(index.resolve("Pie Dough"), Some(0));
         assert_eq!(index.resolve("Apple Pie"), Some(1));
         assert_eq!(index.resolve("Nonexistent"), None);
+    }
+
+    /// The extractor deliberately leaves repeated-title references ambiguous.
+    /// Keep that safety boundary in the presentation index too: a HashMap's
+    /// normal last-write-wins behavior would silently open the wrong recipe.
+    #[test]
+    fn reference_index_does_not_resolve_duplicate_titles() {
+        let recipes = [
+            recipe("Sauce", &[]),
+            recipe("Sauce", &[]),
+            recipe("Pasta", &["Sauce"]),
+        ];
+        let index = ReferenceIndex::build(&recipes);
+        assert_eq!(index.resolve("Sauce"), None);
+        assert!(index.used_by(0).is_empty());
+        assert!(index.used_by(1).is_empty());
+    }
+
+    #[test]
+    fn truncation_diagnostics_remain_visible_without_a_failed_chunk() {
+        let report = ExtractionReport {
+            recipes: Vec::new(),
+            chunks: Vec::new(),
+            failures: Vec::new(),
+            usage: recipe_epub::Usage::default(),
+            primary_usage: recipe_epub::Usage::default(),
+            fallback_usage: recipe_epub::Usage::default(),
+            chunks_cached: 0,
+            truncations: vec![recipe_epub::ChunkTruncation {
+                index: 4,
+                doc_path: "chapter.xhtml".to_string(),
+                tier: recipe_epub::ModelTier::Fallback,
+            }],
+        };
+        assert!(has_extraction_diagnostics(&report));
+        assert_eq!(
+            extraction_diagnostics(&report),
+            vec!["Chunk 4 (chapter.xhtml) Fallback attempt was truncated".to_string()]
+        );
     }
 
     /// A source that references the same target on two ingredient lines gets

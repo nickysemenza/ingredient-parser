@@ -326,6 +326,15 @@ mod decompose_tests {
         (Field::Modifier, "chopped"), (Field::Name, "walnuts"), (Field::Amount, "1 cup")])]
     #[case("1 cup flour, flour for dusting", &[
         (Field::Amount, "1 cup"), (Field::Name, "flour"), (Field::Modifier, "flour for dusting")])]
+    #[case("4 (4- to 6-ounce) halibut fillets", &[
+        (Field::Amount, "4 (4- to 6-ounce"), (Field::Name, "halibut"), (Field::Amount, "fillets")])]
+    #[case("2 medium (8-ounce) cones piloncillo", &[
+        (Field::Amount, "2"), (Field::Modifier, "medium"),
+        (Field::Amount, "8-ounce) cones"), (Field::Name, "piloncillo")])]
+    #[case("Chicharrónes (recipe follows; optional)", &[
+        (Field::Name, "Chicharrónes"), (Field::Modifier, "recipe follows")])]
+    #[case("¼ cup plus 1 tablespoon flour", &[
+        (Field::Amount, "¼ cup plus 1 tablespoon"), (Field::Name, "flour")])]
     fn decomposition_tracks_consumed_occurrences(#[case] input: &str, #[case] expected: Expected) {
         let result = IngredientParser::new().decompose(input);
         let fields: Vec<_> = result

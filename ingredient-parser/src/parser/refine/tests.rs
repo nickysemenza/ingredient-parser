@@ -88,6 +88,13 @@ fn ing_with_amounts(name: &str, amounts: Vec<Measure>, modifier: Option<&str>) -
 // bare "grated" extracts; "fresh" (implied default) extracts…
 #[case::grated_extracts("grated lemon zest", "lemon zest", Some("grated"))]
 #[case::cubed_extracts("cubed seedless watermelon", "seedless watermelon", Some("cubed"))]
+#[case::hyphenated_prep("medium-diced onions", "onions", Some("medium-diced"))]
+#[case::manner_prep(
+    "gently cracked cardamom pods",
+    "cardamom pods",
+    Some("gently cracked")
+)]
+#[case::crushed_extracts("crushed pistachios", "pistachios", Some("crushed"))]
 #[case::fresh_extracts("fresh mint", "mint", Some("fresh"))]
 // …except "fresh or frozen" — a genuine contrast — keeps "fresh" in the name.
 #[case::fresh_or_kept("fresh or frozen blueberries", "fresh or frozen blueberries", None)]

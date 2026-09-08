@@ -8,6 +8,45 @@ use std::{
 };
 
 #[test]
+fn cookbook_label_corrections_retain_source_and_match_current_labels() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../ingredient-parser/tests/corpus/cookbooks");
+    let ledger: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("label-corrections.json")).unwrap())
+            .unwrap();
+    let sources: BTreeMap<String, Value> = std::fs::read_to_string(dir.join("sources.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let row: Value = serde_json::from_str(line).unwrap();
+            (row["id"].as_str().unwrap().to_owned(), row)
+        })
+        .collect();
+    let mut seen = BTreeSet::new();
+    for correction in ledger["corrections"].as_array().unwrap() {
+        let id = correction["id"].as_str().unwrap();
+        assert!(seen.insert(id));
+        let source = &sources[id];
+        assert_eq!(correction["input"], source["input"]);
+        assert_eq!(correction["source"], source["source"]);
+        assert_ne!(correction["before"], correction["after"]);
+        assert!(!correction["reason"].as_str().unwrap().is_empty());
+        let labels = std::fs::read_to_string(
+            dir.join(format!("{}.jsonl", source["book_id"].as_str().unwrap())),
+        )
+        .unwrap();
+        let mut label: Value = labels
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .find(|row| row["id"] == id)
+            .unwrap();
+        label.as_object_mut().unwrap().remove("id");
+        label.as_object_mut().unwrap().remove("input");
+        assert_eq!(correction["after"], label, "stale correction for {id}");
+    }
+}
+
+#[test]
 fn cookbook_sources_labels_and_accepted_fields_are_consistent() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../ingredient-parser/tests/corpus/cookbooks");
@@ -25,7 +64,13 @@ fn cookbook_sources_labels_and_accepted_fields_are_consistent() {
             (row["id"].as_str().unwrap().to_owned(), row)
         })
         .collect();
-    assert_eq!(sources.len(), 500);
+    let expected_total: usize = manifest["books"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|book| book["sample_size"].as_u64().unwrap() as usize)
+        .sum();
+    assert_eq!(sources.len(), expected_total);
     let mut labeled = BTreeSet::new();
     let mut split_counts = BTreeMap::new();
     let mut regressions = Vec::new();
@@ -76,8 +121,16 @@ fn cookbook_sources_labels_and_accepted_fields_are_consistent() {
         assert_eq!(book_count, 50, "{id}");
         *split_counts.entry(split.to_owned()).or_insert(0) += book_count;
     }
-    assert_eq!(split_counts.get("development"), Some(&300));
-    assert_eq!(split_counts.get("holdout"), Some(&200));
+    let expected_split_counts: BTreeMap<String, usize> = manifest["books"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .fold(BTreeMap::new(), |mut counts, book| {
+            let split = book["split"].as_str().unwrap().to_owned();
+            *counts.entry(split).or_default() += book["sample_size"].as_u64().unwrap() as usize;
+            counts
+        });
+    assert_eq!(split_counts, expected_split_counts);
     assert_eq!(labeled, sources.keys().cloned().collect());
     assert_eq!(labeled, accepted.keys().cloned().collect());
     assert!(

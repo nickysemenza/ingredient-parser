@@ -14,6 +14,7 @@ import zipfile
 
 CORPUS = Path(__file__).resolve().parents[1] / 'ingredient-parser/tests/corpus'
 SEED = '2026-09-07-architecture-v1'
+HOLDOUT_SEED = '2026-09-07-independent-holdout-v2'
 BOOKS = [
     ('wok', 'development', 'The Everyday Wok Cookbook -', ['bl_hanging']),
     ('arabiyya', 'development', 'Arabiyya_ Recipes from the Life', ['ril', 'rilf', 'r1il', 'r1ilf', 'rils']),
@@ -21,11 +22,22 @@ BOOKS = [
     ('home-kitchen', 'development', 'At Home in the Kitchen -', ['ril', 'rilf']),
     ('bakers-companion', 'development', 'The King Arthur Flour All-Purpose Baker', ['ing', 'ing1']),
     ('nopalito', 'development', 'Nopalito -', ['ril']),
-    ('rintaro', 'holdout', 'Rintaro -', ['hang', 'hang-1']),
-    ('honey-co', 'holdout', 'Honey & Co._ The Cookbook -', ['ingredient', 'ingredient1']),
-    ('dining-in', 'holdout', 'Dining In -', ['ril', 'rilf', 'rils']),
-    ('six-seasons', 'holdout', 'Six Seasons -', ['RI', 'RIB']),
+    # The former holdout cohort is development data after the contamination
+    # audit. Keep the original six-book benchmark isolated below so its 300
+    # inputs remain byte-for-byte stable for performance comparisons.
+    ('rintaro', 'development', 'Rintaro -', ['hang', 'hang-1']),
+    ('honey-co', 'development', 'Honey & Co._ The Cookbook -', ['ingredient', 'ingredient1']),
+    ('dining-in', 'development', 'Dining In -', ['ril', 'rilf', 'rils']),
+    ('six-seasons', 'development', 'Six Seasons -', ['RI', 'RIB']),
+    ('baking-republique', 'holdout', 'Baking at Republique_ Masterful Techniques -', ['ril', 'rilf', 'rils']),
+    ('bangkok', 'holdout', 'Bangkok -', ['ril']),
+    ('bouchon', 'holdout', 'Bouchon -', ['hang']),
+    ('burma-superstar', 'holdout', 'Burma Superstar -', ['ril', 'rilf']),
 ]
+
+BENCHMARK_BOOK_IDS = {
+    'wok', 'arabiyya', 'charred', 'home-kitchen', 'bakers-companion', 'nopalito',
+}
 
 
 def normalize(text):
@@ -76,7 +88,8 @@ def sample(root):
                                    'element_id': element.attrib.get('id')},
                     })
         def rank(row):
-            return hashlib.sha256(f'{SEED}\0{book_id}\0{row["input"]}'.encode()).hexdigest()
+            seed = HOLDOUT_SEED if split == 'holdout' else SEED
+            return hashlib.sha256(f'{seed}\0{book_id}\0{row["input"]}'.encode()).hexdigest()
         selected = sorted(candidates.values(), key=rank)[:50]
         if len(selected) != 50:
             raise ValueError(f'{book_id}: fewer than 50 candidate lines')
@@ -87,7 +100,8 @@ def sample(root):
                          'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
                          'ingredient_classes': classes, 'candidate_count': len(candidates),
                          'sample_size': len(selected)})
-    return records, {'seed': SEED, 'method': 'sha256-ranked distinct publisher ingredient elements',
+    return records, {'seed': SEED, 'holdout_seed': HOLDOUT_SEED,
+                     'method': 'sha256-ranked distinct publisher ingredient elements',
                      'excluded': 'excluded-inputs.json', 'books': manifest}
 
 
@@ -109,7 +123,11 @@ def main():
         else:
             (out / name).write_text(text)
     benchmark = CORPUS.parent.parent / 'benches/cookbook-lines.txt'
-    text = ''.join(row['input'] + '\n' for row in rows if row['split'] == 'development')
+    text = ''.join(
+        row['input'] + '\n'
+        for row in rows
+        if row['book_id'] in BENCHMARK_BOOK_IDS
+    )
     if args.verify:
         if benchmark.read_text() != text:
             raise ValueError('benchmark input differs from development sample')

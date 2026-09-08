@@ -6,7 +6,18 @@ use std::sync::Arc;
 use eframe::epaint::text::LayoutJob;
 
 pub(crate) fn make_rich(i: &ingredient::ingredient::Ingredient) -> WidgetText {
-    let amounts: Vec<String> = i.amounts.iter().map(|id| id.to_string()).collect();
+    make_rich_scaled(i, 1.0)
+}
+
+/// The recipe views share this display path so cookbook scaling applies to every
+/// authored alternative (for example, cup and gram), without changing the
+/// parsed source object shown in the disclosure below.
+pub(crate) fn make_rich_scaled(i: &ingredient::ingredient::Ingredient, scale: f64) -> WidgetText {
+    let amounts: Vec<String> = i
+        .amounts
+        .iter()
+        .map(|amount| amount.scale(scale).to_string())
+        .collect();
     let modifier = i
         .modifier
         .as_ref()
@@ -62,10 +73,33 @@ pub(crate) fn show_ingredient_collapsing(
     });
 }
 
+/// A scaled ingredient display with the original parsed JSON retained for
+/// source inspection.
+pub(crate) fn show_ingredient_collapsing_scaled(
+    ui: &mut egui::Ui,
+    i: &ingredient::ingredient::Ingredient,
+    scale: f64,
+) {
+    ui.collapsing(make_rich_scaled(i, scale), |ui| {
+        ui.label(serde_json::to_string_pretty(&i).unwrap())
+    });
+}
+
 /// One instruction line as a card of measurement-aware chunks (amounts and
 /// ingredient names color-coded). Shared by the web Recipe tab and the
 /// Cookbook (EPUB) tab.
 pub(crate) fn show_instruction_chunks(ui: &mut egui::Ui, chunks: &[ingredient::rich_text::Chunk]) {
+    show_instruction_chunks_scaled(ui, chunks, 1.0);
+}
+
+/// Render instruction chunks with the same scaling semantics as ingredients.
+/// `Measure::scale` deliberately leaves dimensions, temperatures, and times
+/// alone while scaling every alternative quantity in a measure chunk.
+pub(crate) fn show_instruction_chunks_scaled(
+    ui: &mut egui::Ui,
+    chunks: &[ingredient::rich_text::Chunk],
+    scale: f64,
+) {
     ui.horizontal_wrapped(|ui| {
         theme::card(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
@@ -73,7 +107,10 @@ pub(crate) fn show_instruction_chunks(ui: &mut egui::Ui, chunks: &[ingredient::r
                 match chunk {
                     ingredient::rich_text::Chunk::Measure(ms) => {
                         for m in ms {
-                            ui.label(RichText::new(m.to_string()).color(theme::palette().amount()));
+                            ui.label(
+                                RichText::new(m.scale(scale).to_string())
+                                    .color(theme::palette().amount()),
+                            );
                         }
                     }
                     ingredient::rich_text::Chunk::Text(t) => {

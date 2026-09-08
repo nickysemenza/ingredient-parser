@@ -20,7 +20,22 @@ use super::{DEFAULT_UNIT, MeasurementParser};
 
 use crate::parser::vocab::CONTAINER_NOUNS;
 
+fn after_container(input: &str) -> &str {
+    if input
+        .get(..3)
+        .is_some_and(|s| s.eq_ignore_ascii_case("of "))
+    {
+        input[3..].trim_start()
+    } else {
+        input
+    }
+}
+
 impl<'a> MeasurementParser<'a> {
+    pub(crate) fn is_container_unit(&self, word: &str) -> bool {
+        CONTAINER_NOUNS.contains(&word.to_ascii_lowercase().as_str())
+            || crate::unit::is_addon_unit(self.units, word)
+    }
     /// Parse measurements enclosed in matching delimiters
     fn parse_delimited_amounts<'b>(
         &self,
@@ -115,6 +130,36 @@ impl<'a> MeasurementParser<'a> {
         let (rest, value) = self.parse_value(input).map_err(|_| reject())?;
         let (rest, _) = space0::<_, VerboseError<&str>>(rest).map_err(|_| reject())?;
 
+        // The multiplication sign is a package separator, not arithmetic:
+        // "2 × 200g (7oz) blocks" counts two blocks with two authored sizes.
+        // Resolve the container before a unit-only parser can invent a third
+        // measurement (one block). ASCII `x` retains its multiplier semantics.
+        if let Some(size) = rest.strip_prefix('×') {
+            let (rest, primary) = self.parse_single_measurement(size.trim_start())?;
+            if matches!(primary.unit(), crate::unit::Unit::Whole) {
+                return Err(reject());
+            }
+            let mut sizes = vec![primary];
+            let rest = rest.trim_start();
+            let (rest, secondary) = if rest.starts_with('(') {
+                self.parse_parenthesized_amounts(rest)?
+            } else {
+                (rest, Vec::new())
+            };
+            sizes.extend(secondary);
+            let rest = rest.trim_start();
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let container = rest[..end].to_lowercase();
+            if !self.is_container_unit(&container) {
+                return Err(reject());
+            }
+            let after = rest[end..].trim_start();
+            let after = after_container(after);
+            let mut measures = vec![Measure::from_parts(&container, value.0, value.1)];
+            measures.extend(sizes);
+            return Ok((after, measures));
+        }
+
         // Extract the size string and the remainder after it, for either the
         // parenthesized form "(…)" or the bare hyphenated adjective "10-ounce".
         let (inner, after) = if rest.starts_with('(') {
@@ -155,28 +200,27 @@ impl<'a> MeasurementParser<'a> {
         // the input so the parser can return the unconsumed remainder.
         let first_end = after.find(char::is_whitespace).unwrap_or(after.len());
         let first_word = after[..first_end].to_lowercase();
-        let (container, after_rest): (String, &str) =
-            if CONTAINER_NOUNS.contains(&first_word.as_str()) {
-                // "piece ginger" → container "piece", remainder "ginger" (drop a
-                // connecting " of ", mirroring how units consume a trailing "of").
-                let r = after[first_end..].trim_start();
-                let remainder = r.strip_prefix("of ").unwrap_or(r);
-                (first_word, remainder)
+        let (container, after_rest): (String, &str) = if self.is_container_unit(&first_word) {
+            // "piece ginger" → container "piece", remainder "ginger" (drop a
+            // connecting " of ", mirroring how units consume a trailing "of").
+            let r = after[first_end..].trim_start();
+            let remainder = after_container(r);
+            (first_word, remainder)
+        } else {
+            // "halibut fillets" → container = trailing "fillets", name "halibut".
+            let last_word = after.rsplit(char::is_whitespace).next().unwrap_or("");
+            let last_lower = last_word.to_lowercase();
+            if self.is_container_unit(&last_lower) {
+                let name = after[..after.len() - last_word.len()].trim_end();
+                (last_lower, name)
             } else {
-                // "halibut fillets" → container = trailing "fillets", name "halibut".
-                let last_word = after.rsplit(char::is_whitespace).next().unwrap_or("");
-                let last_lower = last_word.to_lowercase();
-                if CONTAINER_NOUNS.contains(&last_lower.as_str()) {
-                    let name = after[..after.len() - last_word.len()].trim_end();
-                    (last_lower, name)
-                } else {
-                    // No container noun: the count is of whole items that each
-                    // carry the parenthetical size, e.g. "1 (3½ to 4 pound)
-                    // chicken" → [1 whole, 3.5–4 lb] / "chicken" and "2 (8-ounce)
-                    // swordfish steaks, …" → [2 whole, 8 oz] / "swordfish steaks".
-                    (DEFAULT_UNIT.to_string(), after)
-                }
-            };
+                // No container noun: the count is of whole items that each
+                // carry the parenthetical size, e.g. "1 (3½ to 4 pound)
+                // chicken" → [1 whole, 3.5–4 lb] / "chicken" and "2 (8-ounce)
+                // swordfish steaks, …" → [2 whole, 8 oz] / "swordfish steaks".
+                (DEFAULT_UNIT.to_string(), after)
+            }
+        };
 
         // The size must fully parse as a measurement (hyphen → space).
         let inner_norm = inner.replace('-', " ");

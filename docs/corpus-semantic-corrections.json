@@ -1469,5 +1469,39 @@
       ],
       "modifier": "from about 15 sprigs"
     }
+  },
+  {
+    "input": "1 × 400g tin pinto beans",
+    "reason": "The authored count is one tin with a 400g size; resolving its container must not create a second implicit count. Matches the existing count-plus-parenthetical-size contract.",
+    "before": {
+      "name": "pinto beans",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        },
+        {
+          "unit": "g",
+          "value": 400.0
+        },
+        {
+          "unit": "tin",
+          "value": 1.0
+        }
+      ]
+    },
+    "after": {
+      "name": "pinto beans",
+      "amounts": [
+        {
+          "unit": "tin",
+          "value": 1
+        },
+        {
+          "unit": "g",
+          "value": 400
+        }
+      ]
+    }
   }
 ]

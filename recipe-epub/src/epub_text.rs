@@ -138,8 +138,10 @@ const CHUNK_SLACK: usize = 6000;
 ///
 /// Spine docs are cleaned to lines, concatenated in reading order, then windowed
 /// into ~[`CHUNK_BUDGET`]-sized chunks broken at title-like lines. This caps each
-/// model call's output (no truncation on dense chapters) while merging small
-/// consecutive docs so a recipe split across files stays in one chunk.
+/// model call's output (no truncation on dense chapters). A chunk never crosses
+/// a spine-document boundary: `Chunk::doc_path` is published as each recipe's
+/// authored source, so combining documents would make every later recipe claim
+/// the first document's provenance.
 pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
     // Borrow the bytes (`Cursor<&[u8]>` is Read+Seek) rather than copying them.
     // Image-heavy cookbooks can be hundreds of MB — an extra `.to_vec()` would
@@ -211,6 +213,27 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
     let mut next_hint: Option<String> = None;
 
     for (path, line) in tagged {
+        // `doc_path` is the source attribution carried into every assembled
+        // recipe. Never let a small next spine document borrow the current
+        // chunk's path. A cross-file continuation has no explicit identity
+        // evidence, so it must not inherit a title hint and merge speculatively.
+        if !lines.is_empty()
+            && doc
+                .as_deref()
+                .is_some_and(|current| current != path.as_str())
+        {
+            chunks.push(Chunk {
+                title_hint: next_hint.take(),
+                text: lines.join("\n"),
+                doc_path: doc.take().unwrap_or_default(),
+                links: std::mem::take(&mut chunk_links),
+                images: std::mem::take(&mut chunk_images),
+            });
+            lines = Vec::new();
+            len = 0;
+            last_title = None;
+            next_hint = None;
+        }
         let at_title = len >= CHUNK_BUDGET && looks_like_title(&line.text);
         let hard_split = len >= CHUNK_BUDGET + CHUNK_SLACK;
         let want_break = !lines.is_empty() && (at_title || hard_split);
@@ -782,11 +805,45 @@ mod tests {
         // The split starts a fresh chunk at the second recipe's title.
         assert!(chunks.iter().any(|c| c.text.starts_with("Vanilla Cake")));
 
-        // Two tiny docs merge into a single chunk (split-across-files case).
+        // Small spine documents remain distinct so every assembled recipe has
+        // the authored content-document URL rather than its predecessor's.
         let small = vec![tag("a.html", "Pancakes"), tag("b.html", "1 cup flour")];
-        let merged = window_chunks(small);
-        assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0].doc_path, "a.html");
+        let separate = window_chunks(small);
+        assert_eq!(separate.len(), 2);
+        assert_eq!(separate[0].doc_path, "a.html");
+        assert_eq!(separate[1].doc_path, "b.html");
+        assert!(separate.iter().all(|chunk| chunk.title_hint.is_none()));
+    }
+
+    #[test]
+    fn document_boundary_keeps_same_title_occurrences_and_urls_distinct() {
+        let chunks = window_chunks(vec![
+            tag("one.xhtml", "Sauce"),
+            tag("one.xhtml", "1 cup water"),
+            tag("two.xhtml", "Sauce"),
+            tag("two.xhtml", "1 cup stock"),
+        ]);
+        assert_eq!(chunks.len(), 2);
+        let recipe = |ingredient: &str| crate::ExtractedRecipe {
+            meta: crate::RecipeMeta {
+                title: "Sauce".to_string(),
+                ..Default::default()
+            },
+            sections: vec![crate::RecipeSection::new(
+                vec![ingredient.to_string()],
+                Vec::new(),
+            )],
+        };
+        let assembled = crate::assemble(
+            vec![
+                (chunks[0].clone(), vec![recipe("1 cup water")]),
+                (chunks[1].clone(), vec![recipe("1 cup stock")]),
+            ],
+            "book.epub",
+        );
+        assert_eq!(assembled.len(), 2);
+        assert_eq!(assembled[0].url, "book.epub#one.xhtml");
+        assert_eq!(assembled[1].url, "book.epub#two.xhtml");
     }
 
     #[test]

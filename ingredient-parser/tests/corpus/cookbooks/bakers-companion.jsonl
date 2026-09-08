@@ -10,12 +10,12 @@
 {"id": "bakers-companion-10", "input": "½ cup (113g) yogurt or sour cream", "name": "yogurt or sour cream", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 113}]}
 {"id": "bakers-companion-11", "input": "1 teaspoon dried basil", "name": "dried basil", "amounts": [{"unit": "tsp", "value": 1}]}
 {"id": "bakers-companion-12", "input": "zest of 3 lemons", "name": "lemons", "amounts": [{"unit": "whole", "value": 3}], "modifier": "zest of"}
-{"id": "bakers-companion-13", "input": "¼ cup plus 1 tablespoon (35g) coconut milk powder", "name": "coconut milk powder", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "tbsp", "value": 1}, {"unit": "g", "value": 35}]}
+{"id": "bakers-companion-13", "input": "¼ cup plus 1 tablespoon (35g) coconut milk powder", "name": "coconut milk powder", "amounts": [{"unit": "tsp", "value": 15}, {"unit": "g", "value": 35}]}
 {"id": "bakers-companion-14", "input": "8 tablespoons (1 stick, 113g) unsalted butter, at room temperature (at least 65°F)", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 8}, {"unit": "stick", "value": 1}, {"unit": "g", "value": 113}], "modifier": "at room temperature (at least 65°F)"}
 {"id": "bakers-companion-15", "input": "4 large eggs, separated", "name": "eggs", "amounts": [{"unit": "large", "value": 4}], "modifier": "separated"}
 {"id": "bakers-companion-16", "input": "¾ cup (63g) Dutch-process cocoa or black cocoa", "name": "Dutch-process cocoa or black cocoa", "amounts": [{"unit": "cup", "value": "3/4"}, {"unit": "g", "value": 63}]}
 {"id": "bakers-companion-17", "input": "½ teaspoon chipotle powder", "name": "chipotle powder", "amounts": [{"unit": "tsp", "value": "1/2"}]}
-{"id": "bakers-companion-18", "input": "1 cup (227g) boiling water", "name": "boiling water", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 227}]}
+{"id": "bakers-companion-18", "input": "1 cup (227g) boiling water", "name": "water", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 227}], "modifier": "boiling"}
 {"id": "bakers-companion-19", "input": "½ cup (57g) chopped walnuts or pecans (optional)", "name": "walnuts or pecans", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 57}], "modifier": "chopped", "optional": true}
 {"id": "bakers-companion-20", "input": "½ cup (57g) chopped walnuts or almonds", "name": "walnuts or almonds", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 57}], "modifier": "chopped"}
 {"id": "bakers-companion-21", "input": "6 to 10 tablespoons (85g to 142g) ice water", "name": "ice water", "amounts": [{"unit": "tbsp", "value": 6, "upper_value": 10}, {"unit": "g", "value": 85, "upper_value": 142}]}

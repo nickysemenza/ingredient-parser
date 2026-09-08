@@ -1,6 +1,6 @@
 {"id": "nopalito-01", "input": "¾ pound (12 ounces) cold pork fat, cut into small (½-inch) cubes", "name": "cold pork fat", "amounts": [{"unit": "lb", "value": "3/4"}, {"unit": "oz", "value": 12}], "modifier": "cut into small (½-inch) cubes"}
 {"id": "nopalito-02", "input": "¼ white onion, thinly sliced", "name": "white onion", "amounts": [{"unit": "whole", "value": "1/4"}], "modifier": "thinly sliced"}
-{"id": "nopalito-03", "input": "2 cups small cherry tomatoes, halved, or chopped heirloom tomatoes", "name": "small cherry tomatoes", "amounts": [{"unit": "cup", "value": 2}], "modifier": "halved, or chopped heirloom tomatoes"}
+{"id": "nopalito-03", "input": "2 cups small cherry tomatoes, halved, or chopped heirloom tomatoes", "name": "small cherry tomatoes, halved, or chopped heirloom tomatoes", "amounts": [{"unit": "cup", "value": 2}]}
 {"id": "nopalito-04", "input": "Salt, as needed", "name": "Salt", "amounts": [], "modifier": "as needed"}
 {"id": "nopalito-05", "input": "1 cup diced bacon", "name": "bacon", "amounts": [{"unit": "cup", "value": 1}], "modifier": "diced"}
 {"id": "nopalito-06", "input": "2 cups (16 ounces) canned diced tomatoes and their juices", "name": "canned tomatoes and their juices", "amounts": [{"unit": "cup", "value": 2}, {"unit": "oz", "value": 16}], "modifier": "diced"}

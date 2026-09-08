@@ -1,11 +1,11 @@
 {"id": "home-kitchen-01", "input": "1 egg, beaten", "name": "egg", "amounts": [{"unit": "whole", "value": 1}], "modifier": "beaten"}
 {"id": "home-kitchen-02", "input": "4 tablespoons dry white wine", "name": "dry white wine", "amounts": [{"unit": "tbsp", "value": 4}]}
 {"id": "home-kitchen-03", "input": "Freshly ground black pepper (optional)", "name": "black pepper", "amounts": [], "modifier": "Freshly ground", "optional": true}
-{"id": "home-kitchen-04", "input": "¼ cup plus 1 tablespoon white wine vinegar", "name": "white wine vinegar", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "tbsp", "value": 1}]}
+{"id": "home-kitchen-04", "input": "¼ cup plus 1 tablespoon white wine vinegar", "name": "white wine vinegar", "amounts": [{"unit": "tsp", "value": 15}]}
 {"id": "home-kitchen-05", "input": "½ (750-ml) bottle sweet dessert wine, such as a Sauternes or sweet Riesling", "name": "sweet dessert wine", "amounts": [{"unit": "bottle", "value": "1/2"}, {"unit": "ml", "value": 750}], "modifier": "such as a Sauternes or sweet Riesling"}
 {"id": "home-kitchen-06", "input": "½ teaspoon smoked pimento powder or other smoked chile powder", "name": "smoked pimento powder or other smoked chile powder", "amounts": [{"unit": "tsp", "value": "1/2"}]}
 {"id": "home-kitchen-07", "input": "¾ ounce Aperol", "name": "Aperol", "amounts": [{"unit": "oz", "value": "3/4"}]}
-{"id": "home-kitchen-08", "input": "8 ounces strawberries, washed, hulled (see below), and halved lengthwise", "name": "strawberries", "amounts": [{"unit": "oz", "value": 8}], "modifier": "washed, hulled (see below), and halved lengthwise"}
+{"id": "home-kitchen-08", "input": "8 ounces strawberries, washed, hulled (see below), and halved lengthwise", "name": "strawberries", "amounts": [{"unit": "oz", "value": 8}], "modifier": "washed, hulled, and halved lengthwise"}
 {"id": "home-kitchen-09", "input": "½ teaspoon cayenne", "name": "cayenne", "amounts": [{"unit": "tsp", "value": "1/2"}]}
 {"id": "home-kitchen-10", "input": "¼ cup butter, softened", "name": "butter", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "softened"}
 {"id": "home-kitchen-11", "input": "1 baguette, cut into 1-inch slices and lightly toasted", "name": "baguette", "amounts": [{"unit": "whole", "value": 1}], "modifier": "cut into 1-inch slices and lightly toasted"}

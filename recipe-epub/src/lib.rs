@@ -39,7 +39,7 @@ pub use extractor::{
     CallFailure, CallResult, ChunkExtractionFailure, ChunkOutcome, ChunkRequest, DrivenChunk,
     ExtractedRecipe, FailedAttempt, MockExtractor, MockMatch, PARSE_RETRIES, RecipeExtractor,
     RecipeMeta, Usage, build_chunk_request, parse_recipes_payload, recipes_tool_schema,
-    try_extract_chunk, try_extract_chunk_detailed,
+    try_extract_chunk, try_extract_chunk_detailed, try_extract_chunk_detailed_for_chunk,
 };
 pub use orchestration::{
     ChunkFailure, ChunkReport, ChunkTruncation, ExtractionProgress, ExtractionReport, ModelTier,

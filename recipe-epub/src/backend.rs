@@ -18,7 +18,7 @@ use crate::{
     CallFailure, CallResult, Chunk, ChunkExtractionFailure, ChunkOutcome, CookbookRecipe,
     EpubError, ExtractProgress, ExtractionAccounting, ExtractionStats, ModelTier,
     OrchestrationOptions, RecipeExtractor, Usage, build_chunk_request, cache, chunk_epub,
-    extract_chunks_with, parse_recipes_payload, try_extract_chunk_detailed,
+    extract_chunks_with, parse_recipes_payload, try_extract_chunk_detailed_for_chunk,
 };
 
 // ===========================================================================
@@ -193,7 +193,8 @@ pub async fn extract_cookbook_with<E: RecipeExtractor>(
 }
 
 /// Per-chunk diagnostics from [`debug_extract_cookbook`]: the RAW model tool
-/// `input` captured BEFORE `parse_recipes_payload`, plus the parse outcome.
+/// `input` captured BEFORE `parse_recipes_payload` and source-fidelity
+/// validation, plus the parse outcome.
 ///
 /// The debug counterpart to [`extract_cookbook`], which returns assembled
 /// recipes and counts failed chunks. Use this to inspect the model's raw
@@ -218,7 +219,9 @@ pub struct ChunkDebug {
 
 /// Re-run an EPUB's chunks through the live model, capturing each chunk's RAW
 /// tool payload and parse outcome — WITHOUT the cache and WITHOUT skipping
-/// failures the way [`extract_cookbook`] does. Powers `food-cli debug-epub`.
+/// failures the way [`extract_cookbook`] does. This is deliberately a raw model
+/// debugger, not evidence of import-valid source fidelity. Powers `food-cli
+/// debug-epub`.
 ///
 /// Never aborts on one bad chunk: a chunk's transport or deserialize failure is
 /// recorded in its [`ChunkDebug::error`] instead of failing the whole book — the
@@ -642,7 +645,7 @@ async fn extract_chunk_detailed<T: CallTool>(
     truncated_reasons: &[&str],
 ) -> Result<ChunkOutcome, ChunkExtractionFailure> {
     let req = build_chunk_request(chunk);
-    let driven = try_extract_chunk_detailed(&chunk.doc_path, || async {
+    let driven = try_extract_chunk_detailed_for_chunk(chunk, || async {
         let (input, usage, reason) = backend
             .call_tool(
                 ToolCall {

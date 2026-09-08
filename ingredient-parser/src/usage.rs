@@ -108,9 +108,11 @@ pub fn classify_usage(
                 if let Some(pos) = find_phrase(hay, phrase) {
                     // "plus more for dusting" / "plus 20 or so for garnish"
                     // describe surplus beyond the measured amount — the row's
-                    // own role stays Normal. Only "for …" phrases can be
-                    // surplus-qualified; "or more to taste" is still Seasoning.
-                    if phrase.starts_with("for ") && is_surplus_mention(hay, pos) {
+                    // own role stays Normal. "plus more to taste" is likewise
+                    // surplus, while "or more to taste" still seasons the row.
+                    if (phrase.starts_with("for ") && is_surplus_mention(hay, pos))
+                        || (*phrase == "to taste" && has_recent_word(hay, pos, "plus"))
+                    {
                         continue;
                     }
                     return *usage;
@@ -171,6 +173,18 @@ fn is_surplus_mention(haystack: &str, pos: usize) -> bool {
         .take(4)
         .collect();
     matches!(recent.first(), Some(&"more") | Some(&"extra")) || recent.contains(&"plus")
+}
+
+/// Whether `word` occurs among the last four authored words before a phrase.
+/// This is deliberately narrower than [`is_surplus_mention`]: for `to taste`,
+/// only an explicit `plus` marks a surplus, while `or more to taste` continues
+/// to describe the measured ingredient itself.
+fn has_recent_word(haystack: &str, pos: usize, word: &str) -> bool {
+    haystack[..pos]
+        .rsplit(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .take(4)
+        .any(|part| part == word)
 }
 
 #[cfg(test)]
@@ -319,6 +333,13 @@ mod tests {
     #[case(
         "butter",
         Some("plus extra for greasing"),
+        None,
+        None,
+        IngredientUsage::Normal
+    )]
+    #[case(
+        "lemon juice",
+        Some("plus more to taste"),
         None,
         None,
         IngredientUsage::Normal
