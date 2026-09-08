@@ -1831,6 +1831,7 @@ dependencies = [
  "poll-promise",
  "rand 0.10.1",
  "recipe-epub",
+ "recipe-parsing",
  "recipe-scraper",
  "rfd",
  "ron",
@@ -2666,9 +2667,11 @@ dependencies = [
  "console_error_panic_hook",
  "ingredient",
  "js-sys",
+ "recipe-parsing",
  "recipe-scraper",
  "serde",
  "serde-wasm-bindgen",
+ "serde_json",
  "tracing",
  "tsify-next",
  "wasm-bindgen",
@@ -4415,7 +4418,7 @@ dependencies = [
  "epub",
  "futures",
  "ingredient",
- "recipe-scraper",
+ "recipe-parsing",
  "recipe-types",
  "reqwest",
  "rstest",
@@ -4431,12 +4434,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "recipe-parsing"
+version = "0.1.0"
+dependencies = [
+ "ingredient",
+ "recipe-types",
+ "serde",
+]
+
+[[package]]
 name = "recipe-scraper"
 version = "0.1.0"
 dependencies = [
  "html-escape",
  "ingredient",
  "pretty_assertions",
+ "recipe-parsing",
  "recipe-types",
  "rstest",
  "scraper",

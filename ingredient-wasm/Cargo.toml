@@ -21,6 +21,7 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
+recipe-parsing.workspace = true
 wasm-bindgen = "0.2.100"
 ingredient.workspace = true
 recipe-scraper.workspace = true
@@ -43,6 +44,7 @@ wasm-tracing = "2.1"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 
 [dev-dependencies]
+serde_json.workspace = true
 wasm-bindgen-test = "0.3"
 
 [lints]

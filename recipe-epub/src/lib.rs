@@ -60,12 +60,13 @@ pub use backend::{
     extract_cookbook_detailed_with_progress, extract_cookbook_with, extract_cookbook_with_progress,
 };
 // Section + time types are shared with the web scraper — one shape workspace-wide.
-pub use recipe_scraper::{ParsedSection, RecipeSection, RecipeTimes};
+pub use recipe_parsing::ParsedSection;
+pub use recipe_types::{RecipeSection, RecipeTimes};
 
 use std::io::Cursor;
 
 use epub::doc::EpubDoc;
-use recipe_scraper::parse_sections;
+use recipe_parsing::parse_sections;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -165,7 +166,7 @@ pub struct ParsedCookbookRecipe {
 /// `recipe.parse()` / `recipe.low_confidence_lines()`.
 pub trait CookbookRecipeExt {
     /// Parse every section's verbatim lines with the shared core parser (the same
-    /// [`recipe_scraper::parse_sections`] the web scraper uses).
+    /// [`recipe_parsing::parse_sections`] the web scraper uses).
     fn parse(&self) -> ParsedCookbookRecipe;
 
     /// Ingredient lines that look quantified (contain a digit or unicode

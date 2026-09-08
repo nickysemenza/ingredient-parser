@@ -9,6 +9,7 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+recipe-parsing.workspace = true
 # Theme is hand-applied in src/theme.rs (Catppuccin Mocha palette): the
 # catppuccin-egui crate only supports egui <=0.33, and we're on 0.34.
 egui_extras = { version = "0.35.0", features = ["image", "http"] }

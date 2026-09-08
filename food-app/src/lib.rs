@@ -183,11 +183,29 @@ impl eframe::App for MyApp {
                         match response.and_then(parse_response) {
                             Ok(r) => {
                                 let parser = ingredient::IngredientParser::new();
-                                let traces: Vec<ParseTrace> = r
-                                    .ingredients()
-                                    .map(|ing| parser.parse_with_trace(ing).trace)
+                                let execution = recipe_parsing::execute_sections(
+                                    &r.sections,
+                                    &parser,
+                                    ingredient::ParseOptions {
+                                        decomposition: false,
+                                        trace: ingredient::TraceDetail::Full,
+                                    },
+                                );
+                                for diagnostic in &execution.instruction_diagnostics {
+                                    tracing::warn!(
+                                        section = diagnostic.section,
+                                        instruction = diagnostic.instruction,
+                                        "{}",
+                                        diagnostic.message
+                                    );
+                                }
+                                let traces = execution
+                                    .observations
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(|observation| observation.trace)
                                     .collect();
-                                let parsed = r.parse();
+                                let parsed = execution.recipe;
                                 sender.send(Ok(Wrapper {
                                     recipe: r,
                                     parsed,

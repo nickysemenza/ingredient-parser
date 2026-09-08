@@ -9,6 +9,7 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+recipe-parsing.workspace = true
 scraper = "0.27.0"
 html-escape = "0.2"
 url = "2"

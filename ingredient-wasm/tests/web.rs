@@ -263,3 +263,43 @@ fn test_scale_amount_leaves_dimensions_alone() {
         9.0
     );
 }
+
+/// Exercise recipe input/output through the browser's serde representation, as
+/// used by the demo's batch call (including omitted optional section names).
+#[wasm_bindgen_test]
+fn test_recipe_batch_browser_representation_preserves_sections_and_measures() {
+    let input = js_sys::JSON::parse(
+        r#"{"sections":[{"name":"Sauce","ingredients":["1 cup flour"],"instructions":[]},{"ingredients":[],"instructions":["Add 2 tsp to 3 tbsp flour. Bake at 350°F.",""]}]}"#,
+    ).unwrap();
+    let input: ingredient_wasm::WRecipeInput = serde_wasm_bindgen::from_value(input).unwrap();
+    let output = ingredient_wasm::parse_recipe(input);
+    let value = serde_wasm_bindgen::to_value(&output).unwrap();
+    let json = js_sys::JSON::stringify(&value)
+        .unwrap()
+        .as_string()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let sections = json["sections"].as_array().unwrap();
+    assert_eq!(sections.len(), 2);
+    assert_eq!(sections[0]["name"], "Sauce");
+    assert!(sections[1].get("name").is_none());
+    assert_eq!(sections[1]["instructions"].as_array().unwrap().len(), 2);
+    let chunks = sections[1]["instructions"][0].as_array().unwrap();
+    assert!(chunks.iter().any(|chunk| {
+        chunk["kind"] == "Measure"
+            && chunk["value"]
+                .as_array()
+                .is_some_and(|amounts| amounts.len() == 2)
+    }));
+    assert!(
+        chunks
+            .iter()
+            .any(|chunk| chunk["kind"] == "Ing" && chunk["value"] == "flour")
+    );
+    assert!(
+        json["instruction_diagnostics"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}

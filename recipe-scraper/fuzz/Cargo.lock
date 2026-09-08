@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "ingredient"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "nom",
  "nom-language",
@@ -610,11 +610,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "recipe-parsing"
+version = "0.1.0"
+dependencies = [
+ "ingredient",
+ "recipe-types",
+ "serde",
+]
+
+[[package]]
 name = "recipe-scraper"
 version = "0.1.0"
 dependencies = [
  "html-escape",
  "ingredient",
+ "recipe-parsing",
  "recipe-types",
  "scraper",
  "serde",
@@ -1066,7 +1076,3 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[patch.unused]]
-name = "recipe-epub"
-version = "0.1.0"

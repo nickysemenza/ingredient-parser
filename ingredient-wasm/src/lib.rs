@@ -80,13 +80,58 @@ impl From<Measure> for WAmount {
     }
 }
 
+/// Exhaustive adapters keep generated TypeScript unions aligned with Rust.
+#[derive(Tsify, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WConfidence {
+    High,
+    Medium,
+    Low,
+}
+
+impl From<ingredient::Confidence> for WConfidence {
+    fn from(value: ingredient::Confidence) -> Self {
+        match value {
+            ingredient::Confidence::High => Self::High,
+            ingredient::Confidence::Medium => Self::Medium,
+            ingredient::Confidence::Low => Self::Low,
+        }
+    }
+}
+
+#[derive(Tsify, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WIngredientUsage {
+    Normal,
+    FryingMedium,
+    PanGrease,
+    Seasoning,
+    Dredging,
+    Garnish,
+    Marinade,
+}
+
+impl From<ingredient::IngredientUsage> for WIngredientUsage {
+    fn from(value: ingredient::IngredientUsage) -> Self {
+        match value {
+            ingredient::IngredientUsage::Normal => Self::Normal,
+            ingredient::IngredientUsage::FryingMedium => Self::FryingMedium,
+            ingredient::IngredientUsage::PanGrease => Self::PanGrease,
+            ingredient::IngredientUsage::Seasoning => Self::Seasoning,
+            ingredient::IngredientUsage::Dredging => Self::Dredging,
+            ingredient::IngredientUsage::Garnish => Self::Garnish,
+            ingredient::IngredientUsage::Marinade => Self::Marinade,
+        }
+    }
+}
+
 /// Parse-fidelity notes (mirrors `ParseNotes`). Into-only. Always present on a
 /// `WIngredient`; review-queue consumers should key off the discrete
 /// `fell_back` / `unparsed_digit` booleans rather than a `confidence` threshold.
 #[derive(Tsify, Serialize)]
 pub struct WParseNotes {
     /// Convenience rollup of the booleans below.
-    #[tsify(type = "\"high\" | \"medium\" | \"low\"")]
+    #[tsify(type = "WConfidence")]
     pub confidence: ingredient::Confidence,
     /// The parse fell back to a name-only ingredient (no recognizer/core parse).
     /// Always emitted (no `skip_serializing_if`) so the TS `boolean` type matches
@@ -144,9 +189,7 @@ pub struct WIngredient {
     pub optional: bool,
     /// The role the line declares (snake_case `IngredientUsage`, e.g.
     /// "frying_medium" for "oil, for frying").
-    #[tsify(
-        type = "\"normal\" | \"frying_medium\" | \"pan_grease\" | \"seasoning\" | \"dredging\" | \"garnish\" | \"marinade\""
-    )]
+    #[tsify(type = "WIngredientUsage")]
     pub usage: ingredient::IngredientUsage,
     /// Non-failing metadata about how this line parsed (confidence + flags).
     pub parse_notes: WParseNotes,
@@ -205,10 +248,10 @@ impl WUnitMappings {
     }
 }
 
-/// Prep/cook/total times (mirrors `RecipeTimes`). Into-only. Each time crosses
+/// Prep/cook/total times (mirrors `RecipeTimes`). Each time crosses
 /// as both the display string and, where it could be parsed, a minute count for
 /// sorting — a present string does not imply a present count.
-#[derive(Tsify, Serialize)]
+#[derive(Tsify, Serialize, Deserialize)]
 pub struct WRecipeTimes {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<String>,
@@ -244,8 +287,8 @@ impl From<RecipeTimes> for WRecipeTimes {
 }
 
 /// A recipe component with raw ingredient/instruction lines (mirrors
-/// `RecipeSection`). Into-only.
-#[derive(Tsify, Serialize)]
+/// `RecipeSection`). Also accepted by batch recipe parsing.
+#[derive(Tsify, Serialize, Deserialize)]
 pub struct WRecipeSection {
     /// Component label (e.g., "For the sauce"); absent for the main/only section.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -266,8 +309,8 @@ impl From<RecipeSection> for WRecipeSection {
 
 /// A scraped recipe (mirrors `ScrapedRecipe`). `recipe_yield`/`servings` from the
 /// upstream struct are intentionally omitted — the demo never consumes them.
-#[derive(Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
+#[derive(Tsify, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct WScrapedRecipe {
     /// Recipe components; most recipes have a single unnamed section.
     pub sections: Vec<WRecipeSection>,
@@ -281,9 +324,9 @@ pub struct WScrapedRecipe {
     pub times: Option<WRecipeTimes>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub equipment: Vec<String>,
 }
 
@@ -419,9 +462,7 @@ extern "C" {
 // render as `other:<unit>` / `nutrient:<unit>` (a bare "other" is never
 // produced — `Unit::Whole` is `other:whole`). Pinned by `amount_kind_strings`.
 #[wasm_bindgen(typescript_custom_section)]
-const HAND_AUTHORED_TS: &str = r#"
-type AmountKind = "weight" | "volume" | "money" | "calories" | "time" | "temperature" | "length" | `other:${string}` | `nutrient:${string}`;
-"#;
+const HAND_AUTHORED_TS: &str = include_str!("amount-kind.d.ts");
 
 fn from_js<T: for<'de> Deserialize<'de>>(v: impl Into<JsValue>, ctx: &str) -> Result<T, String> {
     serde_wasm_bindgen::from_value(v.into()).map_err(|e| format!("Failed to parse {ctx}: {e}"))
@@ -432,6 +473,80 @@ fn to_js<T: Serialize>(v: &T, ctx: &str) -> Result<JsValue, String> {
 }
 
 // Public API
+
+/// A complete parsed section; instructions retain every measurement alternative.
+#[derive(Tsify, Serialize)]
+pub struct WParsedSection {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub ingredients: Vec<WIngredient>,
+    pub instructions: Vec<Vec<RichItem>>,
+}
+
+#[derive(Tsify, Serialize)]
+pub struct WInstructionDiagnostic {
+    pub section: usize,
+    pub instruction: usize,
+    pub message: String,
+}
+
+#[derive(Tsify, Serialize)]
+#[tsify(into_wasm_abi)]
+pub struct WParsedRecipe {
+    pub sections: Vec<WParsedSection>,
+    pub instruction_diagnostics: Vec<WInstructionDiagnostic>,
+}
+
+/// Raw recipe sections, independent of web or cookbook metadata.
+#[derive(Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct WRecipeInput {
+    pub sections: Vec<WRecipeSection>,
+}
+
+/// Parse all sections once, sharing ingredient names and parser configuration.
+#[wasm_bindgen]
+pub fn parse_recipe(recipe: WRecipeInput) -> WParsedRecipe {
+    let sections: Vec<RecipeSection> = recipe
+        .sections
+        .into_iter()
+        .map(|s| RecipeSection {
+            name: s.name,
+            ingredients: s.ingredients,
+            instructions: s.instructions,
+        })
+        .collect();
+    let execution = recipe_parsing::execute_sections(
+        &sections,
+        &ingredient::IngredientParser::new(),
+        ParseOptions::default(),
+    );
+    WParsedRecipe {
+        sections: execution
+            .recipe
+            .sections
+            .into_iter()
+            .map(|s| WParsedSection {
+                name: s.name,
+                ingredients: s.ingredients.into_iter().map(WIngredient::from).collect(),
+                instructions: s
+                    .instructions
+                    .into_iter()
+                    .map(|chunks| chunks.into_iter().map(RichItem::from).collect())
+                    .collect(),
+            })
+            .collect(),
+        instruction_diagnostics: execution
+            .instruction_diagnostics
+            .into_iter()
+            .map(|d| WInstructionDiagnostic {
+                section: d.section,
+                instruction: d.instruction,
+                message: d.message,
+            })
+            .collect(),
+    }
+}
 
 /// Ingredient and final-field decomposition produced by one parser execution.
 #[derive(Tsify, Serialize)]
@@ -613,6 +728,70 @@ pub fn parse_rich_text(text: &str, ingredient_names: Vec<String>) -> Result<Rich
 mod tests {
     use super::*;
 
+    #[test]
+    fn generated_enum_adapters_preserve_wire_values() {
+        use ingredient::{Confidence, IngredientUsage};
+        for value in [Confidence::High, Confidence::Medium, Confidence::Low] {
+            assert_eq!(
+                serde_json::to_value(value).unwrap(),
+                serde_json::to_value(WConfidence::from(value)).unwrap()
+            );
+        }
+        for value in [
+            IngredientUsage::Normal,
+            IngredientUsage::FryingMedium,
+            IngredientUsage::PanGrease,
+            IngredientUsage::Seasoning,
+            IngredientUsage::Dredging,
+            IngredientUsage::Garnish,
+            IngredientUsage::Marinade,
+        ] {
+            assert_eq!(
+                serde_json::to_value(value).unwrap(),
+                serde_json::to_value(WIngredientUsage::from(value)).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn recipe_batch_preserves_sections_and_all_instruction_measures() {
+        let recipe = ScrapedRecipe {
+            sections: vec![
+                RecipeSection {
+                    name: Some("Sauce".into()),
+                    ingredients: vec!["1 cup flour".into()],
+                    instructions: vec![],
+                },
+                RecipeSection {
+                    name: Some("Finish".into()),
+                    ingredients: vec![],
+                    instructions: vec!["Add 2 tsp to 3 tbsp flour. Bake at 350°F.".into()],
+                },
+            ],
+            ..Default::default()
+        };
+        let parsed = parse_recipe(WRecipeInput {
+            sections: recipe
+                .sections
+                .into_iter()
+                .map(WRecipeSection::from)
+                .collect(),
+        });
+        assert_eq!(parsed.sections.len(), 2);
+        assert_eq!(parsed.sections[1].name.as_deref(), Some("Finish"));
+        assert!(
+            parsed.sections[1].instructions[0]
+                .iter()
+                .any(|chunk| { matches!(chunk, RichItem::Measure(amounts) if amounts.len() == 2) })
+        );
+        assert!(
+            parsed.sections[1].instructions[0]
+                .iter()
+                .any(|chunk| { matches!(chunk, RichItem::Ing(name) if name == "flour") })
+        );
+        assert!(parsed.instruction_diagnostics.is_empty());
+    }
+
     fn amount(unit: &str, value: f64) -> WAmount {
         WAmount {
             unit: unit.to_string(),
@@ -654,15 +833,27 @@ mod tests {
     #[test]
     fn amount_kind_strings_match_ts_union() {
         let kind_str = |unit: &str| {
-            WAmount {
+            let kind = WAmount {
                 unit: unit.to_string(),
                 value: 1.0,
                 upper_value: None,
             }
             .to_measure()
-            .kind()
-            .to_str()
-            .into_owned()
+            .kind();
+            // Exhaustive: a new Rust kind must be accounted for at the TS seam.
+            let union_member = match &kind {
+                MeasureKind::Weight => "\"weight\"".to_string(),
+                MeasureKind::Volume => "\"volume\"".to_string(),
+                MeasureKind::Money => "\"money\"".to_string(),
+                MeasureKind::Calories => "\"calories\"".to_string(),
+                MeasureKind::Time => "\"time\"".to_string(),
+                MeasureKind::Temperature => "\"temperature\"".to_string(),
+                MeasureKind::Length => "\"length\"".to_string(),
+                MeasureKind::Other(_) => "`other:${string}`".to_string(),
+                MeasureKind::Nutrient(_) => "`nutrient:${string}`".to_string(),
+            };
+            assert!(include_str!("amount-kind.d.ts").contains(&union_member));
+            kind.to_str().into_owned()
         };
         assert_eq!(kind_str("g"), "weight");
         assert_eq!(kind_str("cup"), "volume");

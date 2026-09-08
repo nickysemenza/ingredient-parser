@@ -288,6 +288,18 @@ impl RichParser {
         }
     }
 
+    /// Use the same configured measurement vocabulary as ingredient parsing.
+    pub fn with_parser<I, S>(ingredient_names: I, parser: &IngredientParser) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            ingredient_names: ingredient_names.into_iter().map(Into::into).collect(),
+            ip: parser.clone(),
+        }
+    }
+
     #[tracing::instrument(level = "trace", skip_all)]
     pub fn parse(&self, input: &str) -> Result<Rich, RichParseError> {
         let units = self.ip.units();
