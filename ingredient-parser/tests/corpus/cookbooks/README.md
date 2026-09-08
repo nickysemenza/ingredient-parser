@@ -7,8 +7,10 @@ claim that every natural-language ambiguity has one correct interpretation.
 ## Source selection
 
 `sources.jsonl` contains 500 distinct-within-book ingredient lines: 50 from each
-of six development books and four held-out books. `manifest.json` records book
-identity, format hash, publisher ingredient classes, candidate count, and split.
+of ten development books. `manifest.json` records book identity, format hash,
+publisher ingredient classes, candidate count, and split. The first six books
+are the fixed 300-line benchmark cohort; the remaining four are development
+extensions pending replacement holdout sampling.
 Each line records the EPUB member and DOM element index/ID. Full books remain in
 the user's Calibre library and are not copied into this repository.
 
@@ -35,10 +37,12 @@ not reference excluded test files.
 
 The per-book JSONL files pair each source ID and exact input with desired fields.
 They were authored by agents without running the parser or inspecting its output.
-The four holdout books were labeled by a separate agent. These are reviewable
-annotations, not independently human-adjudicated gold labels. Ambiguous cases and
-source defects should be corrected from source evidence and the written contract,
-never to make an implementation's output pass.
+These are reviewable annotations, not independently human-adjudicated gold
+labels. Ambiguous cases and source defects should be corrected from source
+evidence and the written contract, never to make an implementation's output
+pass. The former holdout cohort is treated as development because its
+contamination history is unknown; replacement holdout labels must come from
+new books and remain isolated from implementation work.
 
 Labels follow the conservative parsing contract: no inferred food ontology or
 shared head noun; preserve ambiguous no-quantity alternatives; retain explicit
@@ -47,6 +51,11 @@ keeps source case, extracted modifiers follow source order, dimensional cuts and
 temperatures describe the food. `ground`, `dried`, `frozen`, `roasted`, `toasted`,
 `crumbled`, and `shelled` can describe identity; the documented preparation
 vocabulary governs extraction. Explicit post-comma preparation remains Modifier.
+
+`label-corrections.json` records source locations, before/after labels, and contract
+evidence for development-label adjudications. These are agent reviews, not human
+adjudication. Compare implementations against the same label revision; report
+results against the original labels separately when discussing label changes.
 
 Known source defects are retained, including `AR BOR IO` / `ON ION` / `SMASH ED`
 in Everyday Wok and parenthetical `( cup)` with a missing quantity in Charred.
@@ -63,12 +72,27 @@ cargo run -p ingredient-corpus --example evaluate -- \
   ingredient-parser/tests/corpus/cookbooks holdout
 ```
 
+Save evaluator output to compare two frozen implementations without reopening
+labels:
+
+```sh
+python3 scripts/compare_cookbook_eval.py before.json after.json
+python3 scripts/compare_cookbook_eval.py before.json after.json \
+  --book-id wok --book-id arabiyya --book-id charred \
+  --book-id home-kitchen --book-id bakers-companion --book-id nopalito
+```
+
+The comparison validates identical row IDs and fields, then reports exact and
+per-field before/after counts plus improved and regressed IDs. Use the cohort
+filter when comparing the fixed 300-line benchmark separately from other
+development books.
+
 The evaluator prints exact matches, five per-field counts (name, amounts,
 modifier, optional, usage), and row-level differences. It never updates labels.
 The existing regression corpus continues rejecting each unapproved regression.
 This independent sample intentionally includes unresolved cases: passing rows
 and field counts are ratcheted separately from their desired labels.
 
-Evaluate holdout after a substantial implementation milestone, report its results,
-and do not tune the same milestone against its failures. If its cases later guide
-fixes, it becomes development data and new books must supply fresh holdout data.
+Evaluate a replacement holdout only after a substantial implementation
+milestone, report its results, and do not tune the same milestone against its
+failures.

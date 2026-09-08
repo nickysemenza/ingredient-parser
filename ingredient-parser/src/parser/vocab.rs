@@ -39,8 +39,14 @@ pub(crate) const MODIFIER_STOPWORDS: &[&str] = &[
 pub(crate) const DEFAULT_PREPARATION_ADJECTIVES: &[&str] = &[
     "chopped",
     "minced",
+    "medium-diced",
     "diced",
     "cubed",
+    "crushed",
+    "cracked",
+    "beaten",
+    "shaved",
+    "boiling",
     "freshly ground",
     "freshly grated",
     "freshly squeezed",
@@ -103,6 +109,8 @@ pub(crate) const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
     "for dusting",
     "for garnish",
     "for garnishing",
+    "to garnish",
+    "per person",
     "for serving",
     "for decoration",
     "for topping",
@@ -132,6 +140,7 @@ pub(crate) const DEFAULT_PURPOSE_PHRASES: &[&str] = &[
 pub(crate) const GARNISH_PHRASES: &[&str] = &[
     "for garnish",
     "for garnishing",
+    "to garnish",
     "for decoration",
     "for decorating",
 ];
@@ -214,6 +223,14 @@ pub(crate) const NON_STANDARD_UNITS: &[&str] = &[
     "handfuls",
     "dash",
     "dashes",
+    "drizzle",
+    "drizzles",
+    "pod",
+    "pods",
+    "cone",
+    "cones",
+    "shot",
+    "shots",
     // Sealed retail containers/packages, mirroring can/tin/package: a leading
     // "Bottle of red wine vinegar" / "jar of salsa" / "bag of flour" has an
     // implied count of 1 ({bottle:1} vinegar). Most also appear in CONTAINER_NOUNS
@@ -325,6 +342,7 @@ pub(crate) const MANNER_ADVERBS: &[&str] = &[
     "roughly",
     "finely",
     "coarsely",
+    "gently",
 ];
 
 /// Container nouns that can follow a parenthesized size, e.g. the "piece" in
@@ -347,6 +365,8 @@ pub(crate) const CONTAINER_NOUNS: &[&str] = &[
     "jars",
     "block",
     "blocks",
+    "cone",
+    "cones",
     "bunch",
     "bunches",
     "head",

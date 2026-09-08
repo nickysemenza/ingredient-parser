@@ -18,7 +18,7 @@
 {"id": "wok-18", "input": "3 TABLESPOONS FRESHLY SQUEEZED LEMON JUICE (FROM 1 LARGE LEMON)", "name": "LEMON JUICE", "amounts": [{"unit": "tbsp", "value": 3}], "modifier": "FRESHLY SQUEEZED, FROM 1 LARGE LEMON"}
 {"id": "wok-19", "input": "3 TABLESPOONS FRESH DILL, FINELY CHOPPED", "name": "DILL", "amounts": [{"unit": "tbsp", "value": 3}], "modifier": "FRESH, FINELY CHOPPED"}
 {"id": "wok-20", "input": "1 TABLESPOON LEMON ZEST", "name": "LEMON ZEST", "amounts": [{"unit": "tbsp", "value": 1}]}
-{"id": "wok-21", "input": "½ TEASPOON CHOPPED FRESH THYME", "name": "THYME", "amounts": [{"unit": "tsp", "value": "1/2"}], "modifier": "CHOPPED FRESH"}
+{"id": "wok-21", "input": "½ TEASPOON CHOPPED FRESH THYME", "name": "THYME", "amounts": [{"unit": "tsp", "value": "1/2"}], "modifier": "CHOPPED, FRESH"}
 {"id": "wok-22", "input": "⅓ CUP DARK BROWN SUGAR, PACKED", "name": "DARK BROWN SUGAR", "amounts": [{"unit": "cup", "value": "1/3"}], "modifier": "PACKED"}
 {"id": "wok-23", "input": "½ CUP MILK (AND UP TO 2 TABLESPOONS MORE, IF NEEDED)", "name": "MILK", "amounts": [{"unit": "cup", "value": "1/2"}], "modifier": "AND UP TO 2 TABLESPOONS MORE, IF NEEDED"}
 {"id": "wok-24", "input": "1 TABLESPOON CAYENNE", "name": "CAYENNE", "amounts": [{"unit": "tbsp", "value": 1}]}

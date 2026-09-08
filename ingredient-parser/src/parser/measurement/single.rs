@@ -33,7 +33,13 @@ impl<'a> MeasurementParser<'a> {
             space0,
             optional_dash_separator,
             optional_article,
-            opt(amount_qualifier_between),
+            opt(|input| {
+                let (rest, qualifier) = amount_qualifier_between(input)?;
+                // A qualifier cannot consume text unless the configured unit
+                // vocabulary actually accepts the following unit.
+                self.unit(rest)?;
+                Ok((rest, qualifier))
+            }),
             opt(|a| self.unit(a)),
             |i| self.trailing_prose(i),
         );
@@ -427,7 +433,9 @@ fn unit_only_qualifier(input: &str) -> Res<&str, ()> {
 /// the name.
 fn size_word_before_discardable_unit(input: &str) -> Res<&str, &str> {
     let (rest, word) = verify(parse_unit_text, |s: &str| {
-        crate::parser::vocab::SIZE_WORDS.contains(&s.to_lowercase().as_str())
+        let lower = s.to_lowercase();
+        crate::parser::vocab::SIZE_WORDS.contains(&lower.as_str())
+            || matches!(lower.as_str(), "big" | "loose")
     })
     .parse(input)?;
     peek((

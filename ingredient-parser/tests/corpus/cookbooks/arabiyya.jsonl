@@ -6,7 +6,7 @@
 {"id": "arabiyya-06", "input": "2 cups/480ml (57%) water", "name": "water", "amounts": [{"unit": "cup", "value": 2}, {"unit": "ml", "value": 480}], "modifier": "57%"}
 {"id": "arabiyya-07", "input": "1 cup/200g sugar", "name": "sugar", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 200}]}
 {"id": "arabiyya-08", "input": "½ cup Blossom Syrup (this page)", "name": "Blossom Syrup", "amounts": [{"unit": "cup", "value": "1/2"}]}
-{"id": "arabiyya-09", "input": "2¾ cups plus 2 tablespoons/400g all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": "11/4"}, {"unit": "tbsp", "value": 2}, {"unit": "g", "value": 400}]}
+{"id": "arabiyya-09", "input": "2¾ cups plus 2 tablespoons/400g all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "tsp", "value": 138}, {"unit": "g", "value": 400}]}
 {"id": "arabiyya-10", "input": "½ teaspoon sumac", "name": "sumac", "amounts": [{"unit": "tsp", "value": "1/2"}]}
 {"id": "arabiyya-11", "input": "¼ cup pomegranate molasses", "name": "pomegranate molasses", "amounts": [{"unit": "cup", "value": "1/4"}]}
 {"id": "arabiyya-12", "input": "2 cups white champagne vinegar", "name": "white champagne vinegar", "amounts": [{"unit": "cup", "value": 2}]}
@@ -26,7 +26,7 @@
 {"id": "arabiyya-26", "input": "2 cups medium-diced onions (about 1 onion)", "name": "onions", "amounts": [{"unit": "cup", "value": 2}, {"unit": "whole", "value": 1}], "modifier": "medium-diced"}
 {"id": "arabiyya-27", "input": "¼ teaspoon/0.5g ground nutmeg", "name": "ground nutmeg", "amounts": [{"unit": "tsp", "value": "1/4"}, {"unit": "g", "value": "1/2"}]}
 {"id": "arabiyya-28", "input": "1 tablespoon sumac, plus more as needed", "name": "sumac", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "plus more as needed"}
-{"id": "arabiyya-29", "input": "¼ cup crumbled feta (optional)", "name": "feta", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "crumbled", "optional": true}
+{"id": "arabiyya-29", "input": "¼ cup crumbled feta (optional)", "name": "crumbled feta", "amounts": [{"unit": "cup", "value": "1/4"}], "optional": true}
 {"id": "arabiyya-30", "input": "1½ cups melting cheese, such as Akkawi, mozzarella, or Oaxaca cheese", "name": "melting cheese", "amounts": [{"unit": "cup", "value": "3/2"}], "modifier": "such as Akkawi, mozzarella, or Oaxaca cheese"}
 {"id": "arabiyya-31", "input": "½ cup/120ml whole milk", "name": "whole milk", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "ml", "value": 120}]}
 {"id": "arabiyya-32", "input": "Neutral oil, such as canola or sunflower, for greasing the bowl", "name": "Neutral oil", "amounts": [], "modifier": "such as canola or sunflower, for greasing the bowl", "usage": "pan_grease"}

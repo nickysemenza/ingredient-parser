@@ -98,6 +98,34 @@ fn test_adjective_extraction_multibyte_no_panic(parser: IngredientParser, #[case
     let _ = parser.from_str(input);
 }
 
+/// Regression (found by cargo-fuzz): a leading newline could make nom return
+/// an empty static remainder. Source-offset projection must handle that case
+/// without subtracting unrelated pointers, while decomposition and ordinary
+/// parsing continue to observe the same ingredient.
+#[test]
+fn leading_newline_empty_remainder_preserves_observations_and_spans() {
+    let parser = IngredientParser::new();
+    let input = "\na T";
+    let execution = parser.parse_line(
+        input,
+        ingredient::ParseOptions {
+            decomposition: true,
+            trace: ingredient::TraceDetail::None,
+        },
+    );
+
+    assert_eq!(execution.ingredient, parser.from_str(input));
+    assert!(
+        execution.decomposition.is_some(),
+        "decomposition was requested"
+    );
+    if let Some(decomposition) = execution.decomposition {
+        for span in &decomposition.spans {
+            assert_eq!(&decomposition.source[span.range.clone()], span.text);
+        }
+    }
+}
+
 // ============================================================================
 // Custom Parser Configuration Tests
 // ============================================================================

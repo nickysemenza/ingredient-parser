@@ -362,6 +362,8 @@ impl IngredientParser {
         let authored = input;
         let alternative = quantified_alternative(input, &self.units);
         let input = alternative.map_or(input, |start| input[..start].trim_end_matches([',', ' ']));
+        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
+        let container_descriptor = container_descriptor(input, &mp);
         // Only ingredient-side dimensions are removed from the grammar view.
         // A preparation tail keeps its dimensions inside the authored phrase.
         let dimension_limit = ingredient_dimension_limit(input);
@@ -391,6 +393,7 @@ impl IngredientParser {
             .cloned()
             .chain(semantic_parens.iter().map(|(r, _, _)| r.clone()))
             .chain(optional_word.iter().cloned())
+            .chain(container_descriptor.iter().cloned())
             .collect();
         ignored.sort_by_key(|r| r.start);
         ignored.dedup();
@@ -401,9 +404,10 @@ impl IngredientParser {
             }
             syntax.replace_range(range.clone(), &" ".repeat(range.len()));
         }
-        let view = leading_measure_view(syntax.trim_start());
-        let measure_start = syntax.len() - view.len();
-        let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
+        let terminal_name = terminal_count_name(&syntax, &mp, &self.segmenter());
+        let measure_input = terminal_name.map_or(syntax.as_str(), |start| &syntax[..start]);
+        let view = leading_measure_view(measure_input.trim_start());
+        let measure_start = view.as_ptr() as usize - syntax.as_ptr() as usize;
         let Ok((mut rest, (primary, _, bracketed, _))) = (
             opt(|a| mp.parse_measurement_list(a)),
             space0,
@@ -419,6 +423,9 @@ impl IngredientParser {
                 )],
             }));
         };
+        if let Some(start) = terminal_name {
+            rest = &syntax[start..];
+        }
         // An unconsumed arithmetic operator followed by another quantity is
         // an unsupported amount expression, not the beginning of a food name.
         if rest
@@ -447,6 +454,9 @@ impl IngredientParser {
                     .any(|(_, kind, _)| *kind == ParenKind::Optional),
             ..Default::default()
         };
+        if let Some(span) = container_descriptor {
+            parsed.push_modifier(ModifierPart::raw(input[span.clone()].to_string()).at_range(span));
+        }
         // "N batches of X" expresses N recipes. Resolve its count-unit role
         // while the authored words still have explicit source positions.
         if let Some(index) = parsed
@@ -459,13 +469,24 @@ impl IngredientParser {
                 && (batch.eq_ignore_ascii_case("batch") || batch.eq_ignore_ascii_case("batches"))
                 && of.eq_ignore_ascii_case("of")
             {
-                let base = input.len() - rest.len();
+                let base = rest.as_ptr() as usize - syntax.as_ptr() as usize;
                 parsed.amounts[index] = parsed.amounts[index].relabel_unit("recipe");
                 ignored.push(base + of_start..base + name_start);
                 rest = &rest[*name_start..];
             }
         }
-        let base = input.len() - rest.len();
+        // A counted trailing container can leave a middle slice ("halibut"
+        // in "4 (6-ounce) halibut fillets"). Length subtraction would then
+        // attribute the food to the container's source occurrence.
+        let base = if rest.is_empty() {
+            syntax.len()
+        } else {
+            rest.as_ptr() as usize - syntax.as_ptr() as usize
+        };
+        let rest_end = base + rest.len();
+        if rest_end < syntax.len() {
+            parsed.measure_spans.push(rest_end..syntax.len());
+        }
         ignored.sort_by_key(|r| r.start);
         let mut cursor = measure_start;
         for range in &ignored {
@@ -493,6 +514,16 @@ impl IngredientParser {
             );
         }
         for (range, kind, inner) in &semantic_parens {
+            if *kind == ParenKind::Optional
+                && let Some(note) = paren::optional_note(inner)
+                && !paren::is_cross_reference(note)
+                && !paren::is_note_reference(note)
+            {
+                let start = note.as_ptr() as usize - authored.as_ptr() as usize;
+                parsed.push_modifier(
+                    ModifierPart::raw(note.to_string()).at_range(start..start + note.len()),
+                );
+            }
             if *kind == ParenKind::MinusEquivalence && parsed.amounts.is_empty() {
                 parsed.unresolved_quantity = true;
                 parsed.push_modifier(
@@ -506,6 +537,8 @@ impl IngredientParser {
         let mut leading_prep = false;
         let mut coordination_end = None;
         for (clause_index, clause) in clauses.iter().enumerate() {
+            let coordinated_name = coordination_end.is_some_and(|end| clause_index <= end)
+                || (!found_name && opaque_coordination_end(&clauses, clause_index, &mp).is_some());
             let mut text = SourceText::default();
             let mut cursor = clause.range.start;
             for p in &clause.parens {
@@ -518,6 +551,9 @@ impl IngredientParser {
                         parsed.amounts.extend(p.measures.iter().cloned());
                         parsed.measure_spans.push(origin);
                     }
+                    ParenKind::Alias if coordinated_name => {
+                        text.append(&rest[p.range.clone()], base + p.range.start);
+                    }
                     ParenKind::Descriptive | ParenKind::Alias | ParenKind::Other if found_name => {
                         // Parenthetical details in a descriptive tail stay in
                         // their host phrase: "cut into (1-inch) pieces".
@@ -526,6 +562,9 @@ impl IngredientParser {
                     ParenKind::Alias
                         if !found_name
                             && !self.adjectives.contains(&p.inner.trim().to_lowercase())
+                            // A unit without its quantity is incomplete measure
+                            // evidence, not an alias for the following food.
+                            && !crate::unit::is_valid(&self.units, p.inner.trim())
                             && rest[p.range.end..clause.range.end]
                                 .trim()
                                 .chars()
@@ -621,6 +660,73 @@ impl IngredientParser {
         }
         Ok(("", parsed))
     }
+}
+
+/// A size before a parenthetical package weight describes its following
+/// container: "2 medium (8-ounce) cones". Hide only that descriptive source
+/// slot from the measurement view, leaving the count/size/container grammar to
+/// resolve the measures. A size directly before a food remains a count unit.
+fn container_descriptor(input: &str, mp: &MeasurementParser<'_>) -> Option<Range<usize>> {
+    let paren = paren::spans(input).next()?;
+    let before = input[..paren.range.start].trim_end();
+    let size = super::vocab::SIZE_UNIT_WORDS.iter().find(|size| {
+        before.len() > size.len()
+            && before
+                .get(before.len() - size.len()..)
+                .is_some_and(|tail| tail.eq_ignore_ascii_case(size))
+            && before[..before.len() - size.len()].ends_with(char::is_whitespace)
+    })?;
+    let start = before.len() - size.len();
+    let (remaining, measures) = mp.parse_measurement_list(before[..start].trim()).ok()?;
+    if !remaining.is_empty()
+        || measures.len() != 1
+        || !matches!(measures[0].unit(), crate::unit::Unit::Whole)
+    {
+        return None;
+    }
+    let after = input[paren.range.end..].trim_start();
+    let word = after.split_whitespace().next()?.to_lowercase();
+    (mp.is_container_unit(&word)
+        && !paren::amounts(&paren.inner.replace('-', " "), mp.units).is_empty())
+    .then_some(start..before.len())
+}
+
+/// With no following food, an authored count noun is the ingredient's name:
+/// "4 cloves" must not become a nameless garlic-clove measure. This is a
+/// structural boundary for ingredient lines only; standalone amount parsing
+/// and rich-text measurements still recognize the configured count unit.
+fn terminal_count_name(
+    input: &str,
+    mp: &MeasurementParser<'_>,
+    segmenter: &Segmenter<'_>,
+) -> Option<usize> {
+    let end = separator_offsets(input)
+        .first()
+        .map_or(input.len(), |(offset, _)| *offset);
+    let word = input[..end].split_whitespace().next_back()?;
+    let lower = word.to_lowercase();
+    if !crate::unit::is_addon_unit(mp.units, &lower)
+        || crate::unit::Unit::is_known(&crate::unit::singular(&lower))
+    {
+        return None;
+    }
+    if end < input.len()
+        && segmenter.segment(input).iter().skip(1).any(|clause| {
+            !matches!(
+                clause.kind,
+                ClauseKind::PrepChain | ClauseKind::KnownPrepPhrase | ClauseKind::Purpose
+            )
+        })
+    {
+        return None;
+    }
+    let start = word.as_ptr() as usize - input.as_ptr() as usize;
+    let prefix = input[..start].trim();
+    let (remaining, measures) = mp.parse_measurement_list(prefix).ok()?;
+    (remaining.is_empty()
+        && measures.len() == 1
+        && matches!(measures[0].unit(), crate::unit::Unit::Whole))
+    .then_some(start)
 }
 
 fn trace_clauses(source: &str, clauses: &[Clause<'_>]) {
@@ -734,7 +840,7 @@ fn opaque_coordination_end(
             return None;
         }
         match clause.kind {
-            ClauseKind::HeadCandidate => {}
+            ClauseKind::HeadCandidate | ClauseKind::PrepChain | ClauseKind::KnownPrepPhrase => {}
             ClauseKind::Alternative => {
                 let rest = clause
                     .stripped

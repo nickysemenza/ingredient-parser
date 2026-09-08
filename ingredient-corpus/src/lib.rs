@@ -371,8 +371,10 @@ pub fn score(row: &CorpusRow) -> Scored {
         diff(
             LabeledField::Amounts,
             got.amounts == row.measures(),
-            format!("[{}]", render_parsed(&row.measures())),
-            format!("[{}]", render_parsed(&got.amounts)),
+            // Display denormalizes units and rounds quantities: different
+            // stored measures can otherwise print identically in a failure.
+            format!("[{}] {:?}", render_parsed(&row.measures()), row.measures()),
+            format!("[{}] {:?}", render_parsed(&got.amounts), got.amounts),
         ),
         diff(
             LabeledField::Modifier,

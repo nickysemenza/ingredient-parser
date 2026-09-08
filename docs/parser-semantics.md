@@ -32,6 +32,26 @@ not infer a food ontology or expose its private structural representation.
 - Ingredient, usage, notes, decomposition, and diagnostics must agree across
   observation settings and come from the same resolution. The configured unit
   and preparation vocabulary applies across recipe ingredients and instructions.
+- Compatible `plus` measures sum exactly in the existing normalized unit (for
+  example, `¼ cup plus 1 tablespoon` is 15 teaspoons); this differs from separate
+  equivalent measures or a quantified ingredient alternative. Their source
+  attribution includes both authored terms.
+- Measure qualifiers such as `generous`, `scant`, and sizes before vague/container
+  units do not change the quantity and are omitted from structured text. `big`
+  and `loose` before a bunch/handful follow this same rule. Sizes describing the
+  food itself retain the existing count-unit interpretation.
+- `such as` examples and `preferably` descriptions belong in Modifier. Food
+  choices whose preparation cannot be attached to one branch in the public
+  representation remain opaque, including their internal punctuation and prep.
+- Indefinite quantities such as `a little` do not imply a count of one. A
+  parenthetical containing only a recognized unit, with no quantity, remains
+  descriptive text; the parser does not supply the missing number.
+- A package count owns its container in both `2 (200g) blocks` and
+  `2 × 200g blocks`. The latter does not introduce a second implicit count;
+  ASCII `x` retains its existing arithmetic-multiplier meaning.
+- A count noun with no following food, such as `4 cloves, toasted`, remains the
+  ingredient name with a whole count. This also applies to configured count
+  units; standalone amount parsing still recognizes `4 cloves` as a clove measure.
 
 ## Historical label corrections
 

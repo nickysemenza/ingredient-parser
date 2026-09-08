@@ -1,0 +1,1469 @@
+{
+  "baseline": "671c656327b238cc7bd9b4027d7b4a4e52d65da4",
+  "adjudication": "agent source-and-contract review; not human-adjudicated gold",
+  "corrections": [
+    {
+      "id": "arabiyya-09",
+      "input": "2¾ cups plus 2 tablespoons/400g all-purpose flour",
+      "source": {
+        "href": "OEBPS/xhtml/c04.xhtml",
+        "element_index": 605,
+        "element_id": null
+      },
+      "reason": "Compatible plus quantities use the established exact normalized sum, not separate alternatives; retain the independent metric alternative when authored.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "all-purpose flour",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "11/4"
+          },
+          {
+            "unit": "tbsp",
+            "value": 2
+          },
+          {
+            "unit": "g",
+            "value": 400
+          }
+        ]
+      },
+      "after": {
+        "name": "all-purpose flour",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": 138
+          },
+          {
+            "unit": "g",
+            "value": 400
+          }
+        ]
+      }
+    },
+    {
+      "id": "arabiyya-29",
+      "input": "¼ cup crumbled feta (optional)",
+      "source": {
+        "href": "OEBPS/xhtml/c05.xhtml",
+        "element_index": 468,
+        "element_id": null
+      },
+      "reason": "Opaque identity text remains in Name: this leading descriptor is outside the configured preparation vocabulary; do not infer a food ontology.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "feta",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/4"
+          }
+        ],
+        "modifier": "crumbled",
+        "optional": true
+      },
+      "after": {
+        "name": "crumbled feta",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/4"
+          }
+        ],
+        "optional": true
+      }
+    },
+    {
+      "id": "bakers-companion-13",
+      "input": "¼ cup plus 1 tablespoon (35g) coconut milk powder",
+      "source": {
+        "href": "OEBPS/Chapter-8_split_029.xhtml",
+        "element_index": 38,
+        "element_id": null
+      },
+      "reason": "Compatible plus quantities use the established exact normalized sum, not separate alternatives; retain the independent metric alternative when authored.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "coconut milk powder",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/4"
+          },
+          {
+            "unit": "tbsp",
+            "value": 1
+          },
+          {
+            "unit": "g",
+            "value": 35
+          }
+        ]
+      },
+      "after": {
+        "name": "coconut milk powder",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": 15
+          },
+          {
+            "unit": "g",
+            "value": 35
+          }
+        ]
+      }
+    },
+    {
+      "id": "bakers-companion-18",
+      "input": "1 cup (227g) boiling water",
+      "source": {
+        "href": "OEBPS/Chapter-8_split_004.xhtml",
+        "element_index": 30,
+        "element_id": null
+      },
+      "reason": "Explicit preparation vocabulary now includes boiling and crushed; preserve authored case and move that preparation to Modifier. This is a documented vocabulary extension, not a previously passing field improvement.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "boiling water",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 1
+          },
+          {
+            "unit": "g",
+            "value": 227
+          }
+        ]
+      },
+      "after": {
+        "name": "water",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 1
+          },
+          {
+            "unit": "g",
+            "value": 227
+          }
+        ],
+        "modifier": "boiling"
+      }
+    },
+    {
+      "id": "charred-09",
+      "input": "2 × 200g (7oz) blocks of tempeh, each cut into 9 equal pieces",
+      "source": {
+        "href": "OEBPS/chapter01.xhtml",
+        "element_index": 316,
+        "element_id": null
+      },
+      "reason": "The explicit count describes blocks, with 200g and 7oz size alternatives; the container owns the count as in parenthetical package syntax.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "tempeh",
+        "amounts": [
+          {
+            "unit": "whole",
+            "value": 2
+          },
+          {
+            "unit": "g",
+            "value": 200
+          },
+          {
+            "unit": "oz",
+            "value": 7
+          }
+        ],
+        "modifier": "each cut into 9 equal pieces"
+      },
+      "after": {
+        "name": "tempeh",
+        "amounts": [
+          {
+            "unit": "block",
+            "value": 2
+          },
+          {
+            "unit": "g",
+            "value": 200
+          },
+          {
+            "unit": "oz",
+            "value": 7
+          }
+        ],
+        "modifier": "each cut into 9 equal pieces"
+      }
+    },
+    {
+      "id": "charred-13",
+      "input": "a loose handful of mint leaves, chopped",
+      "source": {
+        "href": "OEBPS/chapter04.xhtml",
+        "element_index": 361,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "mint leaves",
+        "amounts": [
+          {
+            "unit": "handful",
+            "value": 1
+          }
+        ],
+        "modifier": "loose, chopped"
+      },
+      "after": {
+        "name": "mint leaves",
+        "amounts": [
+          {
+            "unit": "handful",
+            "value": 1
+          }
+        ],
+        "modifier": "chopped"
+      }
+    },
+    {
+      "id": "charred-26",
+      "input": "2 big bunches of basil, tough stalks trimmed",
+      "source": {
+        "href": "OEBPS/chapter05.xhtml",
+        "element_index": 116,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "basil",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 2
+          }
+        ],
+        "modifier": "big, tough stalks trimmed"
+      },
+      "after": {
+        "name": "basil",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 2
+          }
+        ],
+        "modifier": "tough stalks trimmed"
+      }
+    },
+    {
+      "id": "charred-27",
+      "input": "2 generous slices of sourdough bread",
+      "source": {
+        "href": "OEBPS/chapter02.xhtml",
+        "element_index": 484,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "sourdough bread",
+        "amounts": [
+          {
+            "unit": "slice",
+            "value": 2
+          }
+        ],
+        "modifier": "generous"
+      },
+      "after": {
+        "name": "sourdough bread",
+        "amounts": [
+          {
+            "unit": "slice",
+            "value": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "charred-43",
+      "input": "big bunch of coriander (cilantro), chopped",
+      "source": {
+        "href": "OEBPS/chapter02.xhtml",
+        "element_index": 334,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "coriander (cilantro)",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 1
+          }
+        ],
+        "modifier": "big, chopped"
+      },
+      "after": {
+        "name": "coriander (cilantro)",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 1
+          }
+        ],
+        "modifier": "chopped"
+      }
+    },
+    {
+      "id": "charred-44",
+      "input": "a small bunch of coriander (cilantro), leaves finely chopped (save the stalks for another dish, they are full of flavour)",
+      "source": {
+        "href": "OEBPS/chapter01.xhtml",
+        "element_index": 97,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "coriander (cilantro)",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 1
+          }
+        ],
+        "modifier": "small, leaves finely chopped (save the stalks for another dish, they are full of flavour)"
+      },
+      "after": {
+        "name": "coriander (cilantro)",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 1
+          }
+        ],
+        "modifier": "leaves finely chopped (save the stalks for another dish, they are full of flavour)"
+      }
+    },
+    {
+      "id": "dining-in-04",
+      "input": "3 tablespoons coconut oil, melted, or olive oil",
+      "source": {
+        "href": "OEBPS/c01.xhtml",
+        "element_index": 217,
+        "element_id": null
+      },
+      "reason": "An unquantified food choice remains opaque including internal preparation, because the public fields cannot attach preparation to one branch without changing its scope.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "coconut oil or olive oil",
+        "amounts": [
+          {
+            "unit": "tbsp",
+            "value": 3
+          }
+        ],
+        "modifier": "melted"
+      },
+      "after": {
+        "name": "coconut oil, melted, or olive oil",
+        "amounts": [
+          {
+            "unit": "tbsp",
+            "value": 3
+          }
+        ]
+      }
+    },
+    {
+      "id": "dining-in-13",
+      "input": "3 cups small spicy greens, such as watercress, mizuna, or arugula",
+      "source": {
+        "href": "OEBPS/c03.xhtml",
+        "element_index": 79,
+        "element_id": null
+      },
+      "reason": "Existing corpus contract assigns such-as examples and preferably descriptions to free-form Modifier, preserving authored source order.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "small spicy greens, such as watercress, mizuna, or arugula",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 3
+          }
+        ]
+      },
+      "after": {
+        "name": "small spicy greens",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 3
+          }
+        ],
+        "modifier": "such as watercress, mizuna, or arugula"
+      }
+    },
+    {
+      "id": "dining-in-34",
+      "input": "Crushed red pepper flakes (optional)",
+      "source": {
+        "href": "OEBPS/c04.xhtml",
+        "element_index": 104,
+        "element_id": null
+      },
+      "reason": "Explicit preparation vocabulary now includes boiling and crushed; preserve authored case and move that preparation to Modifier. This is a documented vocabulary extension, not a previously passing field improvement.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "Crushed red pepper flakes",
+        "amounts": [],
+        "optional": true
+      },
+      "after": {
+        "name": "red pepper flakes",
+        "amounts": [],
+        "optional": true,
+        "modifier": "Crushed"
+      }
+    },
+    {
+      "id": "dining-in-35",
+      "input": "Nonstick cooking spray, for the pan",
+      "source": {
+        "href": "OEBPS/c08.xhtml",
+        "element_index": 230,
+        "element_id": null
+      },
+      "reason": "Usage classification does not remove the authored purpose phrase from Modifier.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "Nonstick cooking spray",
+        "amounts": [],
+        "usage": "pan_grease"
+      },
+      "after": {
+        "name": "Nonstick cooking spray",
+        "amounts": [],
+        "usage": "pan_grease",
+        "modifier": "for the pan"
+      }
+    },
+    {
+      "id": "dining-in-47",
+      "input": "2 cups fresh herbs, such as parsley, cilantro, dill, and tarragon",
+      "source": {
+        "href": "OEBPS/c06.xhtml",
+        "element_index": 366,
+        "element_id": null
+      },
+      "reason": "Existing corpus contract assigns such-as examples and preferably descriptions to free-form Modifier, preserving authored source order.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "herbs, such as parsley, cilantro, dill, and tarragon",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 2
+          }
+        ],
+        "modifier": "fresh"
+      },
+      "after": {
+        "name": "herbs",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 2
+          }
+        ],
+        "modifier": "fresh, such as parsley, cilantro, dill, and tarragon"
+      }
+    },
+    {
+      "id": "home-kitchen-04",
+      "input": "¼ cup plus 1 tablespoon white wine vinegar",
+      "source": {
+        "href": "OEBPS/xhtml/c05.xhtml",
+        "element_index": 31,
+        "element_id": null
+      },
+      "reason": "Compatible plus quantities use the established exact normalized sum, not separate alternatives; retain the independent metric alternative when authored.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "white wine vinegar",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/4"
+          },
+          {
+            "unit": "tbsp",
+            "value": 1
+          }
+        ]
+      },
+      "after": {
+        "name": "white wine vinegar",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": 15
+          }
+        ]
+      }
+    },
+    {
+      "id": "home-kitchen-08",
+      "input": "8 ounces strawberries, washed, hulled (see below), and halved lengthwise",
+      "source": {
+        "href": "OEBPS/xhtml/c02.xhtml",
+        "element_index": 138,
+        "element_id": null
+      },
+      "reason": "Pure parenthetical see-below reference is discarded while surrounding preparation remains in source order.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "strawberries",
+        "amounts": [
+          {
+            "unit": "oz",
+            "value": 8
+          }
+        ],
+        "modifier": "washed, hulled (see below), and halved lengthwise"
+      },
+      "after": {
+        "name": "strawberries",
+        "amounts": [
+          {
+            "unit": "oz",
+            "value": 8
+          }
+        ],
+        "modifier": "washed, hulled, and halved lengthwise"
+      }
+    },
+    {
+      "id": "honey-co-02",
+      "input": "1 tbsp plus ¾ tsp red wine vinegar",
+      "source": {
+        "href": "text/part0088_split_000.html",
+        "element_index": 23,
+        "element_id": null
+      },
+      "reason": "Compatible plus quantities use the established exact normalized sum, not separate alternatives; retain the independent metric alternative when authored.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "red wine vinegar",
+        "amounts": [
+          {
+            "unit": "tbsp",
+            "value": 1
+          },
+          {
+            "unit": "tsp",
+            "value": "3/4"
+          }
+        ]
+      },
+      "after": {
+        "name": "red wine vinegar",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": "15/4"
+          }
+        ]
+      }
+    },
+    {
+      "id": "honey-co-04",
+      "input": "1 small bunch of parsley, chopped (½cup)",
+      "source": {
+        "href": "text/part0128_split_001.html",
+        "element_index": 20,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "bunch of parsley",
+        "amounts": [
+          {
+            "unit": "small",
+            "value": 1
+          },
+          {
+            "unit": "cup",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "chopped"
+      },
+      "after": {
+        "name": "parsley",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 1
+          },
+          {
+            "unit": "cup",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "chopped"
+      }
+    },
+    {
+      "id": "honey-co-06",
+      "input": "1 small bunch of cilantro, chopped (about ¾ cup)",
+      "source": {
+        "href": "text/part0114_split_001.html",
+        "element_index": 22,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "bunch of cilantro",
+        "amounts": [
+          {
+            "unit": "small",
+            "value": 1
+          },
+          {
+            "unit": "cup",
+            "value": "3/4"
+          }
+        ],
+        "modifier": "chopped"
+      },
+      "after": {
+        "name": "cilantro",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 1
+          },
+          {
+            "unit": "cup",
+            "value": "3/4"
+          }
+        ],
+        "modifier": "chopped"
+      }
+    },
+    {
+      "id": "honey-co-07",
+      "input": "generous 1 tbsp pomegranate molasses",
+      "source": {
+        "href": "text/part0097_split_005.html",
+        "element_index": 28,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "pomegranate molasses",
+        "amounts": [
+          {
+            "unit": "tbsp",
+            "value": 1
+          }
+        ],
+        "modifier": "generous"
+      },
+      "after": {
+        "name": "pomegranate molasses",
+        "amounts": [
+          {
+            "unit": "tbsp",
+            "value": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "honey-co-15",
+      "input": "1 small bunch of parsley (about ½ cup), picked and chopped",
+      "source": {
+        "href": "text/part0142_split_001.html",
+        "element_index": 28,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "bunch of parsley",
+        "amounts": [
+          {
+            "unit": "small",
+            "value": 1
+          },
+          {
+            "unit": "cup",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "picked and chopped"
+      },
+      "after": {
+        "name": "parsley",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 1
+          },
+          {
+            "unit": "cup",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "picked and chopped"
+      }
+    },
+    {
+      "id": "honey-co-21",
+      "input": "1¼ cups/250g soaked chickpeas (from mounded ½ cup/125g dried—see note here)",
+      "source": {
+        "href": "text/part0070_split_004.html",
+        "element_index": 21,
+        "element_id": null
+      },
+      "reason": "Mixed source/yield prose is retained whole; only a wholly referential aside is discarded.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "soaked chickpeas",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "5/4"
+          },
+          {
+            "unit": "g",
+            "value": 250
+          }
+        ],
+        "modifier": "from mounded ½ cup/125g dried"
+      },
+      "after": {
+        "name": "soaked chickpeas",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "5/4"
+          },
+          {
+            "unit": "g",
+            "value": 250
+          }
+        ],
+        "modifier": "from mounded ½ cup/125g dried—see note here"
+      }
+    },
+    {
+      "id": "honey-co-33",
+      "input": "scant ¼ cup/50ml whiskey",
+      "source": {
+        "href": "text/part0150_split_001.html",
+        "element_index": 18,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "whiskey",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/4"
+          },
+          {
+            "unit": "ml",
+            "value": 50
+          }
+        ],
+        "modifier": "scant"
+      },
+      "after": {
+        "name": "whiskey",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/4"
+          },
+          {
+            "unit": "ml",
+            "value": 50
+          }
+        ]
+      }
+    },
+    {
+      "id": "honey-co-44",
+      "input": "1 heaped tbsp sea salt",
+      "source": {
+        "href": "text/part0122_split_001.html",
+        "element_index": 14,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "sea salt",
+        "amounts": [
+          {
+            "unit": "tbsp",
+            "value": 1
+          }
+        ],
+        "modifier": "heaped"
+      },
+      "after": {
+        "name": "sea salt",
+        "amounts": [
+          {
+            "unit": "tbsp",
+            "value": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "honey-co-46",
+      "input": "a generous pinch of salt",
+      "source": {
+        "href": "text/part0112_split_006.html",
+        "element_index": 18,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "salt",
+        "amounts": [
+          {
+            "unit": "pinch",
+            "value": 1
+          }
+        ],
+        "modifier": "generous"
+      },
+      "after": {
+        "name": "salt",
+        "amounts": [
+          {
+            "unit": "pinch",
+            "value": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "nopalito-03",
+      "input": "2 cups small cherry tomatoes, halved, or chopped heirloom tomatoes",
+      "source": {
+        "href": "OEBPS/c02.xhtml",
+        "element_index": 55,
+        "element_id": null
+      },
+      "reason": "An unquantified food choice remains opaque including internal preparation, because the public fields cannot attach preparation to one branch without changing its scope.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "small cherry tomatoes",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 2
+          }
+        ],
+        "modifier": "halved, or chopped heirloom tomatoes"
+      },
+      "after": {
+        "name": "small cherry tomatoes, halved, or chopped heirloom tomatoes",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "rintaro-22",
+      "input": "4 cups / 950ml cold water",
+      "source": {
+        "href": "OEBPS/chapter77.xhtml",
+        "element_index": 25,
+        "element_id": null
+      },
+      "reason": "Opaque identity text remains in Name: this leading descriptor is outside the configured preparation vocabulary; do not infer a food ontology.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "water",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 4
+          },
+          {
+            "unit": "ml",
+            "value": 950
+          }
+        ],
+        "modifier": "cold"
+      },
+      "after": {
+        "name": "cold water",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 4
+          },
+          {
+            "unit": "ml",
+            "value": 950
+          }
+        ]
+      }
+    },
+    {
+      "id": "rintaro-25",
+      "input": "Generous ¼ teaspoon black pepper",
+      "source": {
+        "href": "OEBPS/chapter61.xhtml",
+        "element_index": 66,
+        "element_id": null
+      },
+      "reason": "Established measure-qualifier policy omits generous/scant/heaped and size qualifiers before a container or vague unit; the authored container, not its size adjective, owns the count.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "black pepper",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": "1/4"
+          }
+        ],
+        "modifier": "Generous"
+      },
+      "after": {
+        "name": "black pepper",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": "1/4"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rintaro-36",
+      "input": "1½ tablespoons plus ½ teaspoon mirin",
+      "source": {
+        "href": "OEBPS/chapter37.xhtml",
+        "element_index": 14,
+        "element_id": null
+      },
+      "reason": "Compatible plus quantities use the established exact normalized sum, not separate alternatives; retain the independent metric alternative when authored.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "mirin",
+        "amounts": [
+          {
+            "unit": "tbsp",
+            "value": "3/2"
+          },
+          {
+            "unit": "tsp",
+            "value": "1/2"
+          }
+        ]
+      },
+      "after": {
+        "name": "mirin",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": 5
+          }
+        ]
+      }
+    },
+    {
+      "id": "rintaro-39",
+      "input": "Hot Japanese mustard, for serving",
+      "source": {
+        "href": "OEBPS/chapter74.xhtml",
+        "element_index": 32,
+        "element_id": null
+      },
+      "reason": "Opaque identity text remains in Name: this leading descriptor is outside the configured preparation vocabulary; do not infer a food ontology.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "Japanese mustard",
+        "amounts": [],
+        "modifier": "Hot, for serving"
+      },
+      "after": {
+        "name": "Hot Japanese mustard",
+        "amounts": [],
+        "modifier": "for serving"
+      }
+    },
+    {
+      "id": "rintaro-43",
+      "input": "3 gal plus 3 cups / 12L vodka",
+      "source": {
+        "href": "OEBPS/chapter114.xhtml",
+        "element_index": 31,
+        "element_id": null
+      },
+      "reason": "Compatible plus quantities use the established exact normalized sum, not separate alternatives; retain the independent metric alternative when authored.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "vodka",
+        "amounts": [
+          {
+            "unit": "gal",
+            "value": 3
+          },
+          {
+            "unit": "cup",
+            "value": 3
+          },
+          {
+            "unit": "l",
+            "value": 12
+          }
+        ]
+      },
+      "after": {
+        "name": "vodka",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": 2448
+          },
+          {
+            "unit": "l",
+            "value": 12
+          }
+        ]
+      }
+    },
+    {
+      "id": "six-seasons-10",
+      "input": "1 or 2 small fresh hot chiles, such as jalapeño, seeded, deribbed, and minced",
+      "source": {
+        "href": "OEBPS/season4.xhtml",
+        "element_index": 107,
+        "element_id": null
+      },
+      "reason": "Existing corpus contract assigns such-as examples and preferably descriptions to free-form Modifier, preserving authored source order.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "hot chiles, such as jalapeño",
+        "amounts": [
+          {
+            "unit": "small",
+            "value": 1,
+            "upper_value": 2
+          }
+        ],
+        "modifier": "fresh, seeded, deribbed, and minced"
+      },
+      "after": {
+        "name": "hot chiles",
+        "amounts": [
+          {
+            "unit": "small",
+            "value": 1,
+            "upper_value": 2
+          }
+        ],
+        "modifier": "fresh, such as jalapeño, seeded, deribbed, and minced"
+      }
+    },
+    {
+      "id": "six-seasons-12",
+      "input": "6 medium pickled peppers, such as pepperoncini, cored and sliced into rings",
+      "source": {
+        "href": "OEBPS/season2.xhtml",
+        "element_index": 218,
+        "element_id": null
+      },
+      "reason": "Existing corpus contract assigns such-as examples and preferably descriptions to free-form Modifier, preserving authored source order.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "pickled peppers, such as pepperoncini",
+        "amounts": [
+          {
+            "unit": "medium",
+            "value": 6
+          }
+        ],
+        "modifier": "cored and sliced into rings"
+      },
+      "after": {
+        "name": "pickled peppers",
+        "amounts": [
+          {
+            "unit": "medium",
+            "value": 6
+          }
+        ],
+        "modifier": "such as pepperoncini, cored and sliced into rings"
+      }
+    },
+    {
+      "id": "six-seasons-13",
+      "input": "4 large celery stalks (about ½ pound), tough fibers peeled off, sliced on an angle into ¼-inch-thick pieces",
+      "source": {
+        "href": "OEBPS/season2.xhtml",
+        "element_index": 345,
+        "element_id": null
+      },
+      "reason": "Existing postfix count-unit interpretation assigns stalk to the count and preserves the displaced food-size descriptor in Modifier.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "celery stalks",
+        "amounts": [
+          {
+            "unit": "large",
+            "value": 4
+          },
+          {
+            "unit": "lb",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "tough fibers peeled off, sliced on an angle into ¼-inch-thick pieces"
+      },
+      "after": {
+        "name": "celery",
+        "amounts": [
+          {
+            "unit": "stalk",
+            "value": 4
+          },
+          {
+            "unit": "lb",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "large, tough fibers peeled off, sliced on an angle into ¼-inch-thick pieces"
+      }
+    },
+    {
+      "id": "six-seasons-18",
+      "input": "1 bunch scallions, trimmed (including ½ inch off the green tops), thinly sliced on an angle",
+      "source": {
+        "href": "OEBPS/season4.xhtml",
+        "element_index": 160,
+        "element_id": null
+      },
+      "reason": "Preserve punctuation inside an authored preparation phrase; comma joining applies only between separately resolved modifier parts.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "scallions",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 1
+          }
+        ],
+        "modifier": "trimmed, including ½ inch off the green tops, thinly sliced on an angle"
+      },
+      "after": {
+        "name": "scallions",
+        "amounts": [
+          {
+            "unit": "bunch",
+            "value": 1
+          }
+        ],
+        "modifier": "trimmed (including ½ inch off the green tops), thinly sliced on an angle"
+      }
+    },
+    {
+      "id": "six-seasons-19",
+      "input": "⅓ cup roughly chopped pitted Castelvetrano or other nice green olives",
+      "source": {
+        "href": "OEBPS/season2.xhtml",
+        "element_index": 159,
+        "element_id": null
+      },
+      "reason": "Opaque identity text remains in Name: this leading descriptor is outside the configured preparation vocabulary; do not infer a food ontology.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "Castelvetrano or other nice green olives",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/3"
+          }
+        ],
+        "modifier": "roughly chopped, pitted"
+      },
+      "after": {
+        "name": "pitted Castelvetrano or other nice green olives",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/3"
+          }
+        ],
+        "modifier": "roughly chopped"
+      }
+    },
+    {
+      "id": "six-seasons-21",
+      "input": "8 cups rich meat or poultry broth, preferably homemade (see Note)",
+      "source": {
+        "href": "OEBPS/season6.xhtml",
+        "element_index": 478,
+        "element_id": null
+      },
+      "reason": "Existing corpus contract assigns such-as examples and preferably descriptions to free-form Modifier, preserving authored source order.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "rich meat or poultry broth, preferably homemade",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 8
+          }
+        ]
+      },
+      "after": {
+        "name": "rich meat or poultry broth",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": 8
+          }
+        ],
+        "modifier": "preferably homemade"
+      }
+    },
+    {
+      "id": "six-seasons-22",
+      "input": "Butter, for the pan",
+      "source": {
+        "href": "OEBPS/season6.xhtml",
+        "element_index": 594,
+        "element_id": null
+      },
+      "reason": "Usage classification does not remove the authored purpose phrase from Modifier.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "Butter",
+        "amounts": [],
+        "usage": "pan_grease"
+      },
+      "after": {
+        "name": "Butter",
+        "amounts": [],
+        "modifier": "for the pan",
+        "usage": "pan_grease"
+      }
+    },
+    {
+      "id": "six-seasons-29",
+      "input": "½ pound fresh garlicky sausage, such as mild Italian sausage, casings removed, meat pulled into small pieces",
+      "source": {
+        "href": "OEBPS/season4.xhtml",
+        "element_index": 666,
+        "element_id": null
+      },
+      "reason": "Existing corpus contract assigns such-as examples and preferably descriptions to free-form Modifier, preserving authored source order.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "garlicky sausage, such as mild Italian sausage",
+        "amounts": [
+          {
+            "unit": "lb",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "fresh, casings removed, meat pulled into small pieces"
+      },
+      "after": {
+        "name": "garlicky sausage",
+        "amounts": [
+          {
+            "unit": "lb",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "fresh, such as mild Italian sausage, casings removed, meat pulled into small pieces"
+      }
+    },
+    {
+      "id": "six-seasons-35",
+      "input": "½ cup pitted mixed olives (a mix of colors if possible)",
+      "source": {
+        "href": "OEBPS/season3.xhtml",
+        "element_index": 525,
+        "element_id": null
+      },
+      "reason": "Opaque identity text remains in Name: this leading descriptor is outside the configured preparation vocabulary; do not infer a food ontology.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "mixed olives",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "pitted, a mix of colors if possible"
+      },
+      "after": {
+        "name": "pitted mixed olives",
+        "amounts": [
+          {
+            "unit": "cup",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "a mix of colors if possible"
+      }
+    },
+    {
+      "id": "six-seasons-38",
+      "input": "3 large scallions, trimmed (including ½ inch off the green tops), sliced on a sharp angle, soaked in ice water for 20 minutes, and drained well",
+      "source": {
+        "href": "OEBPS/season1.xhtml",
+        "element_index": 472,
+        "element_id": null
+      },
+      "reason": "Preserve punctuation inside an authored preparation phrase; comma joining applies only between separately resolved modifier parts.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "scallions",
+        "amounts": [
+          {
+            "unit": "large",
+            "value": 3
+          }
+        ],
+        "modifier": "trimmed, including ½ inch off the green tops, sliced on a sharp angle, soaked in ice water for 20 minutes, and drained well"
+      },
+      "after": {
+        "name": "scallions",
+        "amounts": [
+          {
+            "unit": "large",
+            "value": 3
+          }
+        ],
+        "modifier": "trimmed (including ½ inch off the green tops), sliced on a sharp angle, soaked in ice water for 20 minutes, and drained well"
+      }
+    },
+    {
+      "id": "six-seasons-39",
+      "input": "8 ounces short dried pasta, such as orecchiette, penne, or ditalini",
+      "source": {
+        "href": "OEBPS/season2.xhtml",
+        "element_index": 251,
+        "element_id": null
+      },
+      "reason": "Existing corpus contract assigns such-as examples and preferably descriptions to free-form Modifier, preserving authored source order.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "short dried pasta, such as orecchiette, penne, or ditalini",
+        "amounts": [
+          {
+            "unit": "oz",
+            "value": 8
+          }
+        ]
+      },
+      "after": {
+        "name": "short dried pasta",
+        "amounts": [
+          {
+            "unit": "oz",
+            "value": 8
+          }
+        ],
+        "modifier": "such as orecchiette, penne, or ditalini"
+      }
+    },
+    {
+      "id": "six-seasons-47",
+      "input": "1½ pounds small medium-starch potatoes, such as Yukon Gold",
+      "source": {
+        "href": "OEBPS/season6.xhtml",
+        "element_index": 662,
+        "element_id": null
+      },
+      "reason": "Existing corpus contract assigns such-as examples and preferably descriptions to free-form Modifier, preserving authored source order.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "small medium-starch potatoes, such as Yukon Gold",
+        "amounts": [
+          {
+            "unit": "lb",
+            "value": "3/2"
+          }
+        ]
+      },
+      "after": {
+        "name": "small medium-starch potatoes",
+        "amounts": [
+          {
+            "unit": "lb",
+            "value": "3/2"
+          }
+        ],
+        "modifier": "such as Yukon Gold"
+      }
+    },
+    {
+      "id": "wok-21",
+      "input": "½ TEASPOON CHOPPED FRESH THYME",
+      "source": {
+        "href": "OEBPS/Yee_9781570618390_epub_c46_r1.htm",
+        "element_index": 29,
+        "element_id": null
+      },
+      "reason": "Separate recognized preparation parts use the existing comma-joining contract while preserving authored uppercase.",
+      "contract": "docs/parser-semantics.md",
+      "before": {
+        "name": "THYME",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "CHOPPED FRESH"
+      },
+      "after": {
+        "name": "THYME",
+        "amounts": [
+          {
+            "unit": "tsp",
+            "value": "1/2"
+          }
+        ],
+        "modifier": "CHOPPED, FRESH"
+      }
+    }
+  ]
+}

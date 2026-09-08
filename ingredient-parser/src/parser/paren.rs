@@ -88,6 +88,12 @@ pub(crate) static MINUS_PAREN: std::sync::LazyLock<regex::Regex> = std::sync::La
 /// so the whole inner must match, mirroring `strip_cross_reference`'s scope: a
 /// paren mixing a page ref with real content is not a cross-reference.
 pub(crate) fn is_cross_reference(inner: &str) -> bool {
+    if matches!(
+        inner.trim().to_ascii_lowercase().as_str(),
+        "here" | "see below" | "see above" | "see method" | "see method here"
+    ) {
+        return true;
+    }
     // CROSS_REF matches "(...)"; wrap the inner so the anchored regex sees the
     // parens it expects, and require the whole span to be consumed.
     let wrapped = format!("({inner})");
@@ -114,6 +120,14 @@ pub(crate) fn is_minus_equivalence(inner: &str) -> bool {
 pub(crate) fn is_optional(inner: &str) -> bool {
     inner.trim().eq_ignore_ascii_case("optional")
         || CROSS_REF_OPTIONAL.is_match(&format!("({inner})"))
+        || optional_note(inner).is_some()
+}
+
+/// A semicolon separates an optional marker from an authored note. Unlike a
+/// pure reference, the note remains display text and retains its own origin.
+pub(crate) fn optional_note(inner: &str) -> Option<&str> {
+    let (note, marker) = inner.rsplit_once(';')?;
+    (marker.trim().eq_ignore_ascii_case("optional") && !note.trim().is_empty()).then(|| note.trim())
 }
 
 /// The inner is a *descriptive* aside — a temperature (`°`) or a distance-unit
@@ -159,6 +173,15 @@ pub(crate) fn is_descriptive(inner: &str) -> bool {
 /// approximation qualifiers are supported; source/yield descriptions are not.
 pub(crate) fn amounts(inner: &str, units: &std::collections::HashSet<String>) -> Vec<Measure> {
     let mut text = inner.trim();
+    // A per-item weight describes the counted food; it is not an equivalent
+    // total amount. Do not mistake "each" for an opaque counted noun.
+    if text
+        .split_whitespace()
+        .next_back()
+        .is_some_and(|word| word.eq_ignore_ascii_case("each"))
+    {
+        return Vec::new();
+    }
     for prefix in ["about ", "approximately ", "roughly ", "around "] {
         if text
             .get(..prefix.len())
@@ -176,18 +199,52 @@ pub(crate) fn amounts(inner: &str, units: &std::collections::HashSet<String>) ->
         return Vec::new();
     }
     let parser = MeasurementParser::new(units, MeasurementMode::IngredientList);
-    let Ok((remaining, measures)) = parser.parse_measurement_list(text) else {
-        return Vec::new();
-    };
-    let remaining = remaining.trim();
-    if remaining.is_empty()
-        || remaining.eq_ignore_ascii_case("in total")
-        || (remaining.split_whitespace().count() == 1 && remaining.chars().all(char::is_alphabetic))
-    {
-        measures
-    } else {
-        Vec::new()
+    let mut amounts = Vec::new();
+    // A counted noun can separate equivalent measures: "12 peaches, 4 pounds".
+    // Every comma-delimited part must independently be a measure; a descriptive
+    // continuation such as "12 peaches, peeled" keeps the entire aside intact.
+    let separators = text.match_indices(',').filter_map(|(i, _)| {
+        // A thousands separator belongs to the quantity, not the aside list.
+        let numeric = i > 0
+            && text.as_bytes()[i - 1].is_ascii_digit()
+            && text.as_bytes().get(i + 1).is_some_and(u8::is_ascii_digit);
+        (!numeric).then_some(i)
+    });
+    let mut start = 0;
+    for end in separators.chain(std::iter::once(text.len())) {
+        let part = &text[start..end];
+        start = end + 1;
+        let Ok((remaining, mut measures)) = parser.parse_measurement_list(part.trim()) else {
+            return Vec::new();
+        };
+        let remaining = remaining.trim();
+        let count_size = super::vocab::SIZE_UNIT_WORDS.iter().find(|size| {
+            remaining
+                .get(..size.len())
+                .is_some_and(|s| s.eq_ignore_ascii_case(size))
+                && remaining[size.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace)
+        });
+        let counted_noun = count_size.map_or(remaining, |size| remaining[size.len()..].trim());
+        if !(remaining.is_empty()
+            || remaining.eq_ignore_ascii_case("in total")
+            || counted_noun.is_empty()
+            || (counted_noun.split_whitespace().count() == 1
+                && counted_noun.chars().all(char::is_alphabetic)))
+        {
+            return Vec::new();
+        }
+        if let Some(size) = count_size
+            && let Some(measure) = measures.last_mut()
+            && matches!(measure.unit(), crate::unit::Unit::Whole)
+        {
+            *measure = measure.relabel_unit(size);
+        }
+        amounts.extend(measures);
     }
+    amounts
 }
 
 /// The inner is a bare alias — non-empty, no digits, no vulgar fractions.

@@ -196,7 +196,7 @@
 {"input": "2 cups chicken breast, cooked and diced into small cubes", "name": "chicken breast", "amounts": [{"unit": "cup", "value": 2.0}], "modifier": "cooked and diced into small cubes"}
 {"input": "2 cups water", "name": "water", "amounts": [{"unit": "cup", "value": 2.0}]}
 {"input": "3–4 — tablespoons lemon juice", "name": "lemon juice", "amounts": [{"unit": "tbsp", "value": 3.0, "upper_value": 4.0}]}
-{"input": "1 × 400g tin pinto beans", "name": "pinto beans", "amounts": [{"unit": "whole", "value": 1.0}, {"unit": "g", "value": 400.0}, {"unit": "tin", "value": 1.0}]}
+{"input": "1 × 400g tin pinto beans", "name": "pinto beans", "amounts": [{"unit": "tin", "value": 1}, {"unit": "g", "value": 400}]}
 {"input": "4 TBSP [56 G] UNSALTED BUTTER", "name": "UNSALTED BUTTER", "amounts": [{"unit": "tbsp", "value": 4.0}, {"unit": "g", "value": 56.0}]}
 {"input": "3/4    cups whole milk", "name": "whole milk", "amounts": [{"unit": "cup", "value": 0.75}]}
 {"input": "  2   cups   flour  ", "name": "flour", "amounts": [{"unit": "cup", "value": 2.0}]}
@@ -572,3 +572,42 @@
 {"input": "water — 80°F", "name": "water", "amounts": [], "modifier": "80°F"}
 {"input":"flour — 1 cup / 2 inches","name":"flour","amounts":[{"unit":"cup","value":1}],"modifier":"2 inches"}
 {"input":"water — 1 cup / 80°F","name":"water","amounts":[{"unit":"cup","value":1}],"modifier":"80°F"}
+// Count expressions and structural parenthetical scope from development books.
+{"input":"4 cloves","name":"cloves","amounts":[{"unit":"whole","value":4}]}
+{"input":"(⅓–⅔ cloves)","name":"cloves","amounts":[{"unit":"whole","value":"1/3","upper_value":"2/3"}],"optional":true}
+{"input":"75g ( cup) pine nuts","name":"pine nuts","amounts":[{"unit":"g","value":75}],"modifier":"cup"}
+{"input":"50g ( cup) pumpkin seeds","name":"pumpkin seeds","amounts":[{"unit":"g","value":50}],"modifier":"cup"}
+{"input":"3 tablespoons coconut oil, melted, or olive oil","name":"coconut oil, melted, or olive oil","amounts":[{"unit":"tbsp","value":3}]}
+{"input":"2 cups flour, sifted, or more to taste","name":"flour","amounts":[{"unit":"cup","value":2}],"modifier":"sifted, or more to taste","usage":"seasoning"}
+{"input":"7 oz/200g curd cheese (here) or ricotta","name":"curd cheese or ricotta","amounts":[{"unit":"oz","value":7},{"unit":"g","value":200}]}
+{"input":"1 cup nuts, roasted till golden (see method here)","name":"nuts","amounts":[{"unit":"cup","value":1}],"modifier":"roasted till golden"}
+{"input":"1 cup nuts (see below for storage)","name":"nuts","amounts":[{"unit":"cup","value":1}],"modifier":"see below for storage"}
+{"input":"2 × 200g (7oz) blocks of tempeh, each cut into 9 equal pieces","name":"tempeh","amounts":[{"unit":"block","value":2},{"unit":"g","value":200},{"unit":"oz","value":7}],"modifier":"each cut into 9 equal pieces"}
+{"input":"2 medium (8-ounce) cones piloncillo or 1 cup brown sugar","name":"piloncillo","amounts":[{"unit":"cone","value":2},{"unit":"oz","value":8}],"modifier":"medium, or 1 cup brown sugar"}
+{"input":"a couple of handfuls of soft leaves, such as lamb’s lettuce or round lettuce","name":"soft leaves","amounts":[{"unit":"handful","value":2}],"modifier":"such as lamb’s lettuce or round lettuce"}
+{"input":"a drizzle of olive oil","name":"olive oil","amounts":[{"unit":"drizzle","value":1}]}
+{"input":"a loose handful of mint leaves, chopped","name":"mint leaves","amounts":[{"unit":"handful","value":1}],"modifier":"chopped"}
+{"input":"2 big bunches of basil, tough stalks trimmed","name":"basil","amounts":[{"unit":"bunch","value":2}],"modifier":"tough stalks trimmed"}
+{"input":"big bunch of basil, chopped","name":"basil","amounts":[{"unit":"bunch","value":1}],"modifier":"chopped"}
+{"input":"a little vegetable oil, for oiling the grill or griddle","name":"a little vegetable oil","amounts":[],"modifier":"for oiling the grill or griddle","usage":"pan_grease"}
+{"input":"500–600g (18–21oz) sweet potatoes, peeled and grated (about 1 large)","name":"sweet potatoes","amounts":[{"unit":"g","value":500,"upper_value":600},{"unit":"oz","value":18,"upper_value":21},{"unit":"large","value":1}],"modifier":"peeled and grated"}
+{"input":"5 cups (12 to 13 peaches, 4 to 4½ pounds, 1.81 to 2.04kg) peeled, sliced peaches","name":"peaches","amounts":[{"unit":"cup","value":5},{"unit":"whole","value":12,"upper_value":13},{"unit":"lb","value":4,"upper_value":"9/2"},{"unit":"kg","value":"181/100","upper_value":"51/25"}],"modifier":"peeled, sliced"}
+{"input":"Chicharrónes (recipe follows; optional)","name":"Chicharrónes","amounts":[],"modifier":"recipe follows","optional":true}
+{"input":"clarified butter (preferred), olive oil, or sunflower oil","name":"clarified butter (preferred), olive oil, or sunflower oil","amounts":[]}
+{"input":"½ TEASPOON CRUSHED RED PEPPER FLAKES (OR MORE)","name":"RED PEPPER FLAKES","amounts":[{"unit":"tsp","value":"1/2"}],"modifier":"CRUSHED, OR MORE"}
+{"input":"¼ cup crushed pistachios, toasted","name":"pistachios","amounts":[{"unit":"cup","value":"1/4"}],"modifier":"crushed, toasted"}
+{"input":"2 cups medium-diced onions (about 1 onion)","name":"onions","amounts":[{"unit":"cup","value":2},{"unit":"whole","value":1}],"modifier":"medium-diced"}
+{"input":"1 tablespoon gently cracked cardamom pods","name":"cardamom pods","amounts":[{"unit":"tbsp","value":1}],"modifier":"gently cracked"}
+{"input":"1 large egg beaten with a pinch of salt until well combined","name":"egg","amounts":[{"unit":"large","value":1}],"modifier":"beaten with a pinch of salt until well combined"}
+{"input":"Ground cinnamon (preferably freshly ground), to garnish","name":"Ground cinnamon","amounts":[],"modifier":"preferably freshly ground, to garnish","usage":"garnish"}
+{"input":"¼ cup crumbled feta","name":"crumbled feta","amounts":[{"unit":"cup","value":"1/4"}]}
+// Former holdout rows promoted to development: bounded vocabulary and usage fixes.
+{"input":"1 cup / 16 g finely shaved katsuobushi","name":"katsuobushi","amounts":[{"unit":"cup","value":1},{"unit":"g","value":16}],"modifier":"finely shaved"}
+{"input":"1 cup / 16 g shaved katsuobushi, for serving","name":"katsuobushi","amounts":[{"unit":"cup","value":1},{"unit":"g","value":16}],"modifier":"shaved, for serving"}
+{"input":"3 cups/700ml boiling water","name":"water","amounts":[{"unit":"cup","value":3},{"unit":"ml","value":700}],"modifier":"boiling"}
+{"input":"1–2 shots of rum per person","name":"rum","amounts":[{"unit":"shot","value":1,"upper_value":2}],"modifier":"per person"}
+{"input":"juice of 1 lemon, plus more to taste","name":"lemon","amounts":[{"unit":"whole","value":1}],"modifier":"juice of, plus more to taste","usage":"normal"}
+{"input":"Hot Japanese mustard, for serving","name":"Hot Japanese mustard","amounts":[],"modifier":"for serving"}
+{"input":"½ cup pitted mixed olives","name":"pitted mixed olives","amounts":[{"unit":"cup","value":"1/2"}]}
+{"input": "2 chicken breasts (about 9 oz / 255 g each)", "name": "chicken breasts", "amounts": [{"unit": "whole", "value": 2}], "modifier": "about 9 oz / 255 g each"}
+{"input": "2 chicken breasts (about 18 oz / 510 g in total), sliced", "name": "chicken breasts", "amounts": [{"unit": "whole", "value": 2}, {"unit": "oz", "value": 18}, {"unit": "g", "value": 510}], "modifier": "sliced"}
