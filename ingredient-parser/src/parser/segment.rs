@@ -257,21 +257,20 @@ fn is_prose(_seg: &Segmenter<'_>, text: &str) -> bool {
 /// Byte offsets (in `source`) of every top-level clause separator: a `", "` or
 /// `"; "` at paren depth zero. Returns `(offset, separator_len)` pairs;
 /// separators inside parentheses never split.
-fn separator_offsets(source: &str) -> Vec<(usize, usize)> {
+fn separator_offsets(source: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
     let bytes = source.as_bytes();
     let mut depth = 0usize;
-    let mut out = Vec::new();
-    for (i, &b) in bytes.iter().enumerate() {
+    bytes.iter().enumerate().filter_map(move |(i, &b)| {
         match b {
             b'(' => depth += 1,
             b')' => depth = depth.saturating_sub(1),
             b',' | b';' if depth == 0 && bytes.get(i + 1) == Some(&b' ') => {
-                out.push((i, 2));
+                return Some((i, 2));
             }
             _ => {}
         }
-    }
-    out
+        None
+    })
 }
 
 impl Segmenter<'_> {
@@ -537,8 +536,13 @@ impl IngredientParser {
         let mut leading_prep = false;
         let mut coordination_end = None;
         for (clause_index, clause) in clauses.iter().enumerate() {
+            let candidate_coordination_end = if found_name {
+                None
+            } else {
+                opaque_coordination_end(&clauses, clause_index, &mp)
+            };
             let coordinated_name = coordination_end.is_some_and(|end| clause_index <= end)
-                || (!found_name && opaque_coordination_end(&clauses, clause_index, &mp).is_some());
+                || candidate_coordination_end.is_some();
             let mut text = SourceText::default();
             let mut cursor = clause.range.start;
             for p in &clause.parens {
@@ -624,7 +628,7 @@ impl IngredientParser {
                 continue;
             }
             parsed.set_name(text);
-            coordination_end = opaque_coordination_end(&clauses, clause_index, &mp);
+            coordination_end = candidate_coordination_end;
             if clause.kind == ClauseKind::MinusMeasure {
                 let prefix = parsed.name.split_once(' ').map(|(_, r)| r).unwrap_or("");
                 if let Ok((remaining, _)) = mp.parse_measurement_list(prefix)
@@ -701,13 +705,11 @@ fn terminal_count_name(
     segmenter: &Segmenter<'_>,
 ) -> Option<usize> {
     let end = separator_offsets(input)
-        .first()
-        .map_or(input.len(), |(offset, _)| *offset);
+        .next()
+        .map_or(input.len(), |(offset, _)| offset);
     let word = input[..end].split_whitespace().next_back()?;
     let lower = word.to_lowercase();
-    if !crate::unit::is_addon_unit(mp.units, &lower)
-        || crate::unit::Unit::is_known(&crate::unit::singular(&lower))
-    {
+    if !mp.units.contains(&lower) || crate::unit::Unit::is_known(&crate::unit::singular(&lower)) {
         return None;
     }
     if end < input.len()
@@ -862,8 +864,8 @@ fn opaque_coordination_end(
 /// Inside the ingredient clause, a preparation preposition also starts a tail.
 fn ingredient_dimension_limit(input: &str) -> usize {
     let clause_end = separator_offsets(input)
-        .first()
-        .map(|(offset, _)| *offset)
+        .next()
+        .map(|(offset, _)| offset)
         .unwrap_or(input.len());
     token::offsets(&input[..clause_end])
         .find(|(_, word)| matches!(token::norm(word).as_str(), "into" | "for" | "in"))
