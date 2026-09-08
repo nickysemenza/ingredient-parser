@@ -1,0 +1,142 @@
+{
+  "baseline_commit": "cbd43a5",
+  "protocol": "Labels frozen before parser evaluation; holdout evaluated after core test milestone without subsequent tuning against its errors. Agent annotations, not human-adjudicated gold.",
+  "before": {
+    "development": {
+      "exact": 223,
+      "per_field": [
+        247,
+        274,
+        232,
+        299,
+        299
+      ],
+      "rows": 300
+    },
+    "holdout": {
+      "exact": 127,
+      "per_field": [
+        151,
+        189,
+        135,
+        200,
+        199
+      ],
+      "rows": 200
+    }
+  },
+  "after": {
+    "development": {
+      "exact": 272,
+      "per_field": [
+        282,
+        286,
+        280,
+        299,
+        299
+      ],
+      "rows": 300
+    },
+    "holdout": {
+      "exact": 154,
+      "per_field": [
+        171,
+        189,
+        163,
+        200,
+        199
+      ],
+      "rows": 200
+    }
+  },
+  "transitions": {
+    "development": {
+      "exact": {
+        "improved": 49,
+        "regressed": 0,
+        "unchanged_correct": 223,
+        "unchanged_incorrect": 28
+      },
+      "name": {
+        "improved": 35,
+        "regressed": 0,
+        "unchanged_correct": 247,
+        "unchanged_incorrect": 18
+      },
+      "amounts": {
+        "improved": 12,
+        "regressed": 0,
+        "unchanged_correct": 274,
+        "unchanged_incorrect": 14
+      },
+      "modifier": {
+        "improved": 48,
+        "regressed": 0,
+        "unchanged_correct": 232,
+        "unchanged_incorrect": 20
+      },
+      "optional": {
+        "improved": 0,
+        "regressed": 0,
+        "unchanged_correct": 299,
+        "unchanged_incorrect": 1
+      },
+      "usage": {
+        "improved": 0,
+        "regressed": 0,
+        "unchanged_correct": 299,
+        "unchanged_incorrect": 1
+      }
+    },
+    "holdout": {
+      "exact": {
+        "improved": 27,
+        "regressed": 0,
+        "unchanged_correct": 127,
+        "unchanged_incorrect": 46
+      },
+      "name": {
+        "improved": 20,
+        "regressed": 0,
+        "unchanged_correct": 151,
+        "unchanged_incorrect": 29
+      },
+      "amounts": {
+        "improved": 0,
+        "regressed": 0,
+        "unchanged_correct": 189,
+        "unchanged_incorrect": 11
+      },
+      "modifier": {
+        "improved": 28,
+        "regressed": 0,
+        "unchanged_correct": 135,
+        "unchanged_incorrect": 37
+      },
+      "optional": {
+        "improved": 0,
+        "regressed": 0,
+        "unchanged_correct": 200,
+        "unchanged_incorrect": 0
+      },
+      "usage": {
+        "improved": 0,
+        "regressed": 0,
+        "unchanged_correct": 199,
+        "unchanged_incorrect": 1
+      }
+    }
+  },
+  "labels_sha256": {
+    "charred.jsonl": "e97749419fa046543a7bff0b4594bd836fc392f8e1c00542275c758cfcdebdf0",
+    "dining-in.jsonl": "a2bf770f09169f219543eaab93130e4851b32033412ee7184151f5011794e5b5",
+    "bakers-companion.jsonl": "5a562d5c7ab8d31b644628c50d331a39dcea075569d4e23013ee95452cf49d5f",
+    "rintaro.jsonl": "e2f65fc63d3e581f3e2f37649dcf94e060e0af8e53c3c90eac78c7f79c242b76",
+    "wok.jsonl": "e40996440a4d70dee595429c46baf57a1a67a821ec7a116bba52a3a7a8a7df8e",
+    "nopalito.jsonl": "b22aa433ba44e9dfa35a8fcfe250ef480c39763fb1699db7b75cc98ff8be0271",
+    "honey-co.jsonl": "525a78bcc89ef58b2fda0edcdb094776f2a919614255a50f3db31fc5c1060e9b",
+    "six-seasons.jsonl": "cf679ad81554eec91490bf8a0af882c5b5d8c9c8db0ef5a655c3c28474ce0fa2",
+    "arabiyya.jsonl": "168abce6c12540a456ea4857969d908c93405de6d2349ff8f7428bdbe2689b58",
+    "home-kitchen.jsonl": "ae28ef3d8e4bccab665d38990e6fe6720da8370f3faaba6647f8f9c856a91ca7"
+  }
+}

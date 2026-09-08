@@ -122,11 +122,36 @@ fn benchmark_batch_parsing(c: &mut Criterion) {
     });
 }
 
+// Fixed source samples keep this workload identical across implementation revisions.
+fn benchmark_structural_workloads(c: &mut Criterion) {
+    let parser = IngredientParser::new();
+    let lines: Vec<&str> = include_str!("cookbook-lines.txt").lines().collect();
+    c.bench_function("corpus_development_300", |b| {
+        b.iter(|| {
+            for line in &lines {
+                black_box(parser.from_str(black_box(line)));
+            }
+        });
+    });
+    let mut group = c.benchmark_group("long_ambiguous_lines");
+    for repeats in [10, 100, 500] {
+        let line = format!(
+            "1 cup {}flour (120 g), sifted",
+            "red or white (fine), ".repeat(repeats)
+        );
+        group.bench_with_input(BenchmarkId::from_parameter(repeats), &line, |b, line| {
+            b.iter(|| black_box(parser.from_str(black_box(line))))
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     benchmark_ingredient_parsing,
     benchmark_amount_parsing,
     benchmark_parsing_vs_creation,
-    benchmark_batch_parsing
+    benchmark_batch_parsing,
+    benchmark_structural_workloads
 );
 criterion_main!(benches);
