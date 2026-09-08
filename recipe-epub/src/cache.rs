@@ -12,7 +12,7 @@ use crate::{EpubError, ExtractedRecipe};
 
 /// Bump when the system prompt or tool schema changes — old entries then miss
 /// and are re-extracted rather than returning stale-shaped data.
-pub(crate) const PROMPT_VERSION: &str = "2026-05-31-notes";
+pub(crate) const PROMPT_VERSION: &str = "2026-09-08-source-fidelity";
 
 /// Default cache directory: `$XDG_CACHE_HOME/recipe-epub` or `$TMPDIR/recipe-epub`.
 pub(crate) fn default_dir() -> PathBuf {
@@ -90,7 +90,7 @@ mod tests {
         );
         assert_eq!(
             k,
-            "a2c51fc09480ac5794a205b8b11d00d48a8be1f91884c6e38ee8c6530b3c877f"
+            "eb44ca09c7e992f15b5dc93be20085555b309f92bcc857d52dee745ed277f253"
         );
     }
 

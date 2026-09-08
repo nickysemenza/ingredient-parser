@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use recipe_epub::{
     CallFailure, CallResult, Chunk, ChunkOutcome, ExtractionReport, ModelTier,
-    OrchestrationOptions, Usage, extract_chunks_with, try_extract_chunk_detailed,
+    OrchestrationOptions, Usage, extract_chunks_with, try_extract_chunk_detailed_for_chunk,
 };
 
 /// Drive chunks with a browser-local transport. This concrete example returns
@@ -30,7 +30,7 @@ pub async fn browser_callback_example(chunks: Vec<Chunk>) -> ExtractionReport {
             let calls = Rc::clone(&calls);
             async move {
                 calls.borrow_mut().push((index, tier));
-                let driven = try_extract_chunk_detailed(&chunk.doc_path, || async {
+                let driven = try_extract_chunk_detailed_for_chunk(&chunk, || async {
                     call_model(&chunk, tier).await
                 })
                 .await?;
