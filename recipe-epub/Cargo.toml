@@ -8,7 +8,7 @@ publish = false
 
 # Extract recipes from EPUB cookbooks: an LLM segments + labels structure
 # (title / ingredient lines / instruction steps); the core `ingredient` parser
-# (via recipe-scraper's ScrapedRecipe::parse) still parses each ingredient line.
+# (via recipe-parsing) still parses each ingredient line.
 
 # The `native` feature carries everything that can't compile to
 # wasm32-unknown-unknown: the reqwest-based LLM backends, the std::fs extraction
@@ -27,7 +27,7 @@ ego-tree = "0.11"  # DOM traversal of scraper's tree (same version scraper uses)
 sha2 = "0.11"  # content-hash keys for the cache (native) + chunk ids (wasm)
 ingredient.workspace = true
 recipe-types.workspace = true  # plain data shapes (RecipeMeta/CookbookRecipe/…)
-recipe-scraper.workspace = true  # shared RecipeSection/ParsedSection + parse_sections
+recipe-parsing.workspace = true  # shared parsed shapes and section execution
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

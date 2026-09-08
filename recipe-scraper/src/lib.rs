@@ -13,11 +13,6 @@
 use chefsteps::parse_chefsteps;
 use html::scrape_from_html;
 use html_escape::decode_html_entities;
-use ingredient::{
-    IngredientParser,
-    ingredient::Ingredient,
-    rich_text::{Rich, RichParser},
-};
 use ld_json::extract_ld;
 // Public entrypoint for callers parsing yields without scraping a page.
 pub use ld_json::parse_yield_string;
@@ -50,14 +45,7 @@ pub enum ScrapeError {
 // (etc.) paths and the workspace-wide "one shape" guarantee are unchanged.
 pub use recipe_types::{RecipeSection, RecipeTimes, RecipeYield};
 
-/// A section with its ingredient/instruction lines parsed.
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-pub struct ParsedSection {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    pub ingredients: Vec<Ingredient>,
-    pub instructions: Vec<Rich>,
-}
+pub use recipe_parsing::{ParsedRecipe, ParsedSection, parse_sections};
 
 /// A scraped recipe: sections plus the metadata we can source from a page.
 ///
@@ -98,42 +86,6 @@ pub struct ScrapedRecipe {
     /// Special equipment (best-effort: schema.org HowTo `tool`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub equipment: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-pub struct ParsedRecipe {
-    pub sections: Vec<ParsedSection>,
-}
-
-/// Parse each section's raw ingredient/instruction lines with the core parser.
-/// The [`RichParser`] is seeded with every ingredient name across all sections
-/// so instructions in one component can reference ingredients from another.
-/// Shared by [`ScrapedRecipe::parse`] and `recipe-epub`.
-pub fn parse_sections(sections: &[RecipeSection]) -> Vec<ParsedSection> {
-    let ip = IngredientParser::new();
-    let parsed_ings: Vec<Vec<Ingredient>> = sections
-        .iter()
-        .map(|s| s.ingredients.iter().map(|i| ip.from_str(i)).collect())
-        .collect();
-    let names: Vec<String> = parsed_ings
-        .iter()
-        .flatten()
-        .map(|i| i.name.clone())
-        .collect();
-    let rtp = RichParser::new(names);
-    sections
-        .iter()
-        .zip(parsed_ings)
-        .map(|(s, ingredients)| ParsedSection {
-            name: s.name.clone(),
-            ingredients,
-            instructions: s
-                .instructions
-                .iter()
-                .filter_map(|i| rtp.parse(i).ok())
-                .collect(),
-        })
-        .collect()
 }
 
 impl ScrapedRecipe {

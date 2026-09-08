@@ -1,24 +1,7 @@
-//! Post-parse refinement passes.
-//!
-//! After the segmenter (or, in legacy mode, the grammar tail) captures the raw
-//! shape, these passes work *inside* the name: they pull preparation
-//! adjectives, purpose clauses, and alternatives out of the name into the
-//! modifier, and resolve produce/size count-units. They run in a fixed,
-//! load-bearing order (see `postprocess_ingredient`).
-//!
-//! Clause-structure repairs (recovering a head noun stranded behind a prep
-//! chain, re-attaching an alias parenthetical, grafting a shared head off an
-//! alternatives list, hoisting a secondary measurement parenthetical, the
-//! leading prep-phrase swap and minus-clause split) are NOT here anymore: the
-//! clause segmentation stage resolves them at assembly time — see
-//! [`super::segment`]'s `ASSEMBLY_REPAIRS` and `segment::repairs` module.
-//!
-//! The pass order is a *tested contract*, not a comment: [`ORDER_CONSTRAINTS`]
-//! lists each load-bearing edge (`before` must precede `after`) together with a
-//! `witness` — a real line that parses correctly in declared order and *wrong*
-//! when the two passes are swapped. The `declared_order_matches_pipeline` and
-//! `constraints_are_load_bearing` tests (in `refine/tests.rs`) enforce both
-//! halves: the pipeline honours every edge, and every edge earns its place.
+//! Name-local vocabulary resolution over the structurally assembled ingredient.
+//! Structural ownership (clauses and parentheticals) belongs to `segment`.
+//! Every name extraction transfers its source ownership before the next pass;
+//! final modifier ordering follows source positions, not extraction order.
 
 mod alternatives;
 mod prep;
@@ -26,19 +9,13 @@ mod units;
 
 use std::cmp::Reverse;
 
-use super::ir::{ModifierPart, ParsedIngredient};
+#[cfg(test)]
+use super::ir::ModifierPart;
+use super::ir::{ModifierKind, ParsedIngredient};
+use crate::IngredientParser;
 use crate::unit::{self, Measure};
-use crate::{Ingredient, IngredientParser};
 
 impl IngredientParser {
-    /// Run the ordered refinement passes on the parsed IR, then lower it to the
-    /// public [`Ingredient`] (which joins the typed modifier parts back into a
-    /// string and finalizes it).
-    pub(super) fn postprocess_ingredient(&self, mut parsed: ParsedIngredient) -> Ingredient {
-        self.refine(&mut parsed);
-        parsed.into()
-    }
-
     /// Run the ordered refinement passes in place, without lowering. Split out so
     /// a caller that needs to append more modifier text *after* refinement (the
     /// inline-descriptive-paren path) can do so through the IR before lowering,
@@ -69,16 +46,6 @@ impl IngredientParser {
             ),
             changed,
         );
-    }
-
-    /// Run the refine passes in an arbitrary caller-supplied order. Test-only:
-    /// [`ORDER_CONSTRAINTS`] uses this to run a witness once in declared order and
-    /// once with two passes swapped, proving the edge changes the result.
-    #[cfg(test)]
-    pub(super) fn refine_with_order(&self, order: &[&RefinePass], parsed: &mut ParsedIngredient) {
-        for pass in order {
-            self.run_refine_pass(pass, parsed);
-        }
     }
 }
 
@@ -115,77 +82,17 @@ crate::define_stage_pipeline! {
         IngredientParser::extract_trailing_prep_clause
     ),
     (
-        ExtractAdjectivesFromName,
-        "extract_adjectives_from_name",
-        IngredientParser::extract_adjectives_from_name
-    ),
-    (
         ExtractPurposeGerund,
         "extract_purpose_gerund",
         IngredientParser::extract_purpose_gerund
     ),
     (
-        ExtractAlternativesFromName,
-        "extract_alternatives_from_name",
-        IngredientParser::extract_alternatives_from_name
+        ExtractAdjectivesFromName,
+        "extract_adjectives_from_name",
+        IngredientParser::extract_adjectives_from_name
     ),
-}
 
-/// A load-bearing ordering edge in [`REFINE_PIPELINE`]: `before` must run before
-/// `after`, for the reason given, and `witness` is a line that proves it — it
-/// parses correctly in declared order and differently (wrong) when the two passes
-/// are swapped. The pairing is verified from both sides by the tests in
-/// `refine/tests.rs`; it exists only for those tests.
-#[cfg(test)]
-pub(super) struct OrderConstraint {
-    pub before: PassId,
-    pub after: PassId,
-    pub reason: &'static str,
-    /// A line that parses correctly in declared order and WRONG when the two
-    /// passes are swapped — proves the edge is load-bearing.
-    pub witness: &'static str,
 }
-
-/// The ordering edges the refine pipeline depends on. Each is enforced positionally
-/// (`declared_order_matches_pipeline`) and behaviourally, via its witness
-/// (`constraints_are_load_bearing`). Keep witnesses as real ingredient lines.
-#[cfg(test)]
-pub(super) const ORDER_CONSTRAINTS: &[OrderConstraint] = &[
-    OrderConstraint {
-        before: PassId::ExtractTrailingPrepClause,
-        after: PassId::ExtractAdjectivesFromName,
-        reason: "move a trailing \"<participle> with/into …\" clause as one span \
-                 before the adjective scan; the participle is a known adjective, so \
-                 the scan would otherwise pull only that word and strand its \
-                 prepositional tail in the name",
-        witness: "2 cups spinach chopped into ribbons",
-    },
-    OrderConstraint {
-        before: PassId::ExtractLeadingPrepAlternative,
-        after: PassId::ExtractAdjectivesFromName,
-        reason: "peel a leading \"<participle> or <adj>\" prep alternative before \
-                 the adjective scan, so the shared prep words leave as one clause \
-                 instead of being split across name and modifier",
-        witness: "1 teaspoon grated or finely chopped lemon zest",
-    },
-    OrderConstraint {
-        before: PassId::ExtractAdjectivesFromName,
-        after: PassId::ExtractAlternativesFromName,
-        reason: "a leading prep adjective must leave the name before alternative \
-                 extraction, so the alternatives pass sees the bare \
-                 \"<premod> or <premod> <head>\" and can reconstruct the shared head \
-                 (\"red onion\") instead of splitting on the adjective-laden left",
-        witness: "chopped red or white onion",
-    },
-    OrderConstraint {
-        before: PassId::ExtractAdjectivesFromName,
-        after: PassId::ExtractPurposeGerund,
-        reason: "strip fixed vocab purpose phrases (\"for garnish\") from the name \
-                 first, so the gerund pass's leftmost-\" for \" match lands on the \
-                 real \"for <gerund>\" tail instead of stalling on the vocab phrase",
-        witness: "chopped parsley for garnish for brushing the bread",
-    },
-];
 
 /// Strip a single pair of parentheses that wraps the *entire* modifier, e.g.
 /// "(softened)" -> "softened". Modifiers with internal parentheses or only

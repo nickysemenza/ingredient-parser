@@ -5,13 +5,6 @@
 //! is consumed where it was before (seeding the parser's `HashSet`s, or via
 //! `.contains` checks); only the data's home moved.
 
-/// Spelled-out count tokens recognized as leading quantities ("one" … "twelve",
-/// "a"/"an"). Consumed by `normalize::is_count_token`.
-pub(crate) const SPELLED_COUNTS: &[&str] = &[
-    "a", "an", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-    "eleven", "twelve",
-];
-
 /// Spelled-out number words parsed as amounts. Order matches `helpers::text_number`
 /// precedence (longest/most-specific first). Articles "a"/"an" are handled separately
 /// there (they require a trailing space).
@@ -32,8 +25,8 @@ pub(crate) const NUMBER_WORDS: &[(&str, f64)] = &[
     ("half", 0.5),
 ];
 
-/// Stopwords that signal a modifier clause is prose, not a shared head noun. Union
-/// of the lists used in `segment::repairs` and `refine::alternatives`.
+/// Stopwords that signal a modifier clause is prose, not a shared head noun. Used
+/// by the segment classifier and `refine::alternatives`.
 pub(crate) const MODIFIER_STOPWORDS: &[&str] = &[
     "then", "to", "for", "with", "if", "until", "or", "such", "as", "plus", "about", "per", "from",
     "into", "over", "on", "in", "at", "the", "a", "an", "of",
@@ -287,38 +280,7 @@ pub(crate) const POSTFIX_PRODUCE_UNITS: &[(&str, &[&str])] = &[
     ("cabbage", &["head", "heads"]),
 ];
 
-/// Words the amount grammar swallows in front of a quantity — approximation
-/// adverbs ("about", "roughly"), measure intensifiers ("scant", "heaping") and
-/// vague-measure qualifiers ("healthy pinch"). Consumed by
-/// `measurement::single::leading_qualifier`, which discards the text, so the
-/// decomposition view reads this list to attribute the word back to the Amount
-/// span it was consumed for.
-///
-/// Kept in sync with that parser by `qualifiers_match_the_amount_grammar` below.
-/// Deliberately wider than the approximation-only subsets in `paren.rs`'s
-/// `strip_approximation_prefix` and `repairs.rs`'s secondary-amount regex: those
-/// strip a prefix *inside* a parenthetical measure, where "scant"/"generous"
-/// never appear.
-pub(crate) const AMOUNT_QUALIFIERS: &[&str] = &[
-    "less than",
-    "about",
-    "approximately",
-    "approx",
-    "roughly",
-    "around",
-    "generous",
-    "scant",
-    "heaping",
-    "heaped",
-    "rounded",
-    "brimming",
-    "healthy",
-    "good",
-];
-
-/// Size descriptors. A "size-word OR size-word" pair ("medium or large") is a
-/// range of one ingredient, never a two-ingredient alternative, so
-/// `refine::split_word_alternative` must not split/reconstruct it.
+/// Size descriptors accepted as count-unit qualifiers.
 pub(crate) const SIZE_WORDS: &[&str] = &["small", "medium", "large", "jumbo", "baby"];
 
 /// Size descriptors consumed as the *count unit* for an explicitly-counted produce
@@ -337,128 +299,6 @@ pub(crate) const SIZE_UNIT_WORDS: &[&str] = &[
     "medium",
     "large",
     "jumbo",
-];
-
-/// Premodifier words used to gate the "A or B C" alternative reconstruction in
-/// `refine::split_word_alternative`. Only when the left side is one of these — a
-/// word that commonly *premodifies* a head noun, i.e. a descriptor adjective or
-/// an attributive noun — is the right side's head grafted on: "fresh or frozen
-/// blueberries" -> "fresh blueberries", "lemon or orange zest" -> "lemon zest".
-/// A complete *ingredient* noun on the left ("amaretto or dark rum", "walnuts or
-/// macadamia nuts") is whole on its own and must NOT absorb the alternative's
-/// head noun, so it stays "amaretto" / "walnuts" with the rest in the modifier.
-///
-/// A heuristic allowlist by necessity: "lemon" and "amaretto" are both nouns, so
-/// only world knowledge separates "lemon zest" (good) from "amaretto rum" (bad).
-/// Missing a premodifier just leaves the bare left as the name (mildly wrong);
-/// wrongly including an ingredient noun would graft nonsense — so bias the list
-/// toward true modifiers and common attributive nouns, not standalone foods.
-pub(crate) const SHARED_HEAD_MODIFIERS: &[&str] = &[
-    // state / preparation
-    "fresh",
-    "frozen",
-    "dried",
-    "raw",
-    "roasted",
-    "toasted",
-    "cooked",
-    "melted",
-    "softened",
-    "salted",
-    "unsalted",
-    "smoked",
-    "pickled",
-    "canned",
-    "cured",
-    "shelled",
-    // ripeness / texture
-    "ripe",
-    "firm",
-    "soft",
-    "smooth",
-    "crunchy",
-    "fine",
-    "coarse",
-    "ground",
-    "whole",
-    // color
-    "red",
-    "white",
-    "green",
-    "yellow",
-    "black",
-    "brown",
-    "golden",
-    "purple",
-    "dark",
-    "light",
-    // flavor / heat
-    "sweet",
-    "hot",
-    "mild",
-    "spicy",
-    "bitter",
-    "sour",
-    "savory",
-    "bittersweet",
-    "semisweet",
-    // processing / grade
-    "instant",
-    "rapid",
-    "quick",
-    "bleached",
-    "unbleached",
-    "refined",
-    "virgin",
-    "fancy",
-    // fat
-    "skim",
-    "nonfat",
-    "lean",
-    // size words (small/medium/large/jumbo/baby): see SIZE_WORDS, folded in by
-    // is_shared_head_modifier so the size vocabulary has a single source of truth.
-    // common attributive nouns that premodify a shared head ("lemon zest")
-    "lemon",
-    "lime",
-    "orange",
-    "grapefruit",
-];
-
-/// Whether `word` can premodify a shared head noun in the "A or B C" alternative
-/// reconstruction (`refine::split_word_alternative`). Folds [`SIZE_WORDS`] into
-/// [`SHARED_HEAD_MODIFIERS`] so size words live in exactly one place; both are tiny
-/// slices, so the two linear scans cost the same as the previous single `.contains`.
-pub(crate) fn is_shared_head_modifier(word: &str) -> bool {
-    SHARED_HEAD_MODIFIERS.contains(&word) || SIZE_WORDS.contains(&word)
-}
-
-/// Head nouns that an "X, Y, or Z <noun>" alternatives list can share, where the
-/// noun appears only after the final alternative — "canola, vegetable, or melted
-/// coconut oil" is three kinds of *oil*. The grammar splits the list on the first
-/// comma, stranding the head noun ("oil") off the end of the modifier; the
-/// `recover_shared_head_from_alternatives` assembly repair grafts it back onto
-/// the first alternative ("canola" -> "canola oil").
-///
-/// Deliberately tiny: only nouns where the bare-modifier-list construction is
-/// idiomatic. "salt, pepper, or paprika" and "flour, sugar, or baking soda" are
-/// lists of *complete* ingredients, not premodifiers of a shared head — including
-/// their last word here would graft nonsense ("salt paprika"), so keep this to
-/// nouns that genuinely read as "<type> <noun>".
-pub(crate) const SHARED_HEAD_NOUNS: &[&str] = &["oil", "vinegar", "broth", "stock"];
-
-/// Head nouns that an inline "A or B <noun>" alternative distributes onto the
-/// primary: "chicken or vegetable stock" -> "chicken stock" (+ "or vegetable
-/// stock" modifier). Unlike the [`SHARED_HEAD_MODIFIERS`] path (which gates on the
-/// *left* being a known adjective), this gates on the *trailing head noun* — so an
-/// open-ended left ("chicken", "grainy", "Little Gem") still distributes when the
-/// noun reads as "<type> <noun>". Consumed by `refine::split_word_alternative`.
-///
-/// Deliberately excludes `oil`/`vinegar` and spirits: in "butter or olive oil" /
-/// "amaretto or dark rum" the left is a *distinct* ingredient, not a type of the
-/// head, so grafting ("butter oil") would be nonsense — those keep `name = left`.
-/// Curate toward nouns that essentially always carry a variety/type premodifier.
-pub(crate) const DISTRIBUTABLE_HEAD_NOUNS: &[&str] = &[
-    "stock", "broth", "mustard", "pepper", "lettuce", "cabbage", "flour",
 ];
 
 /// Intensifier adverbs that precede a preparation phrase ("very thinly sliced").
@@ -535,14 +375,6 @@ pub(crate) const CONTAINER_NOUNS: &[&str] = &[
     "envelopes",
 ];
 
-/// Clause boundaries that end a recovered head noun. When
-/// `segment::repairs::recover_head_noun_from_modifier` pulls a head noun out of a
-/// modifier, the noun runs up to the next clause boundary: a comma, a
-/// "such as"/"or"/"to taste" prose lead-in, or " (" — the last ends the noun at a
-/// trailing parenthetical aside ("chicken thighs (8 to 12 thighs, …)"), before the
-/// comma *inside* that aside can truncate the noun. Consumed by `segment::repairs`.
-pub(crate) const CLAUSE_BOUNDARIES: &[&str] = &[", ", " such as ", " or ", " to taste", " ("];
-
 /// Distance unit base forms for dimension detection (see
 /// `measurement::guards::is_distance_unit`, which also handles plurals).
 pub(crate) const DISTANCE_UNIT_BASES: &[&str] = &[
@@ -600,35 +432,6 @@ mod tests {
         );
     }
 
-    // "small or large onion" needs the left size word recognized as a premodifier to
-    // graft the shared head. After the Part 2 de-dup this holds by construction via
-    // `is_shared_head_modifier`; the test pins both the containment and that helper.
-    #[test]
-    fn size_words_are_shared_head_modifiers() {
-        for &w in SIZE_WORDS {
-            assert!(
-                is_shared_head_modifier(w),
-                "size word {w:?} is not recognized as a shared-head modifier"
-            );
-        }
-    }
-
-    // AMOUNT_QUALIFIERS exists so the decomposition view can attribute a qualifier
-    // back to the Amount the grammar consumed it for. That only holds if the list
-    // and the grammar agree, and they live in different modules — so pin every
-    // entry to `leading_qualifier` actually consuming it. (vocab.rs doc on
-    // AMOUNT_QUALIFIERS.)
-    #[test]
-    fn qualifiers_match_the_amount_grammar() {
-        for &qualifier in AMOUNT_QUALIFIERS {
-            let line = format!("{qualifier} 2 cups");
-            assert!(
-                crate::parser::measurement::single::leading_qualifier(&line).is_ok(),
-                "AMOUNT_QUALIFIERS entry {qualifier:?} is not consumed by leading_qualifier"
-            );
-        }
-    }
-
     // The postfix-produce parse ("1 garlic clove" -> {clove:1} garlic) only works if
     // each trailing count unit also parses as a unit. (vocab.rs doc on POSTFIX_PRODUCE_UNITS.)
     #[test]
@@ -650,38 +453,6 @@ mod tests {
     fn for_the_pan_is_in_both_purpose_and_pan_grease() {
         assert!(DEFAULT_PURPOSE_PHRASES.contains(&"for the pan"));
         assert!(PAN_GREASE_PHRASES.contains(&"for the pan"));
-    }
-
-    // The shared-head lists diverge on purpose. "broth"/"stock" belong to BOTH:
-    // they read as "<type> broth" whether the list is a bare "X, Y, or Z broth"
-    // (SHARED_HEAD_NOUNS) or an inline "A or B broth" (DISTRIBUTABLE_HEAD_NOUNS).
-    // "oil"/"vinegar" are in SHARED_HEAD_NOUNS only — in "butter or olive oil" the
-    // left is a *distinct* ingredient, so distributing would graft nonsense
-    // ("butter oil"); see the DISTRIBUTABLE_HEAD_NOUNS doc (vocab.rs ~428-431).
-    // This pins the divergence so a future "cleanup" that merges the two lists
-    // fails loudly. NOT a subset relation in either direction — do not add one.
-    #[test]
-    fn shared_head_lists_diverge_deliberately() {
-        for w in ["broth", "stock"] {
-            assert!(
-                SHARED_HEAD_NOUNS.contains(&w),
-                "{w:?} must be in SHARED_HEAD_NOUNS"
-            );
-            assert!(
-                DISTRIBUTABLE_HEAD_NOUNS.contains(&w),
-                "{w:?} must be in DISTRIBUTABLE_HEAD_NOUNS"
-            );
-        }
-        for w in ["oil", "vinegar"] {
-            assert!(
-                SHARED_HEAD_NOUNS.contains(&w),
-                "{w:?} must be in SHARED_HEAD_NOUNS"
-            );
-            assert!(
-                !DISTRIBUTABLE_HEAD_NOUNS.contains(&w),
-                "{w:?} must NOT be in DISTRIBUTABLE_HEAD_NOUNS (grafting \"butter oil\" is nonsense)"
-            );
-        }
     }
 
     // `refine::extract_size_unit_from_name` matches SIZE_UNIT_WORDS in order and
@@ -726,53 +497,6 @@ mod tests {
         }
     }
 
-    // NUMBER_WORDS (spelled amounts) and SPELLED_COUNTS (leading count tokens)
-    // overlap on the plain integers: every number word is also a count token,
-    // except "dozen"/"half" which SPELLED_COUNTS deliberately omits (a leading
-    // "dozen"/"half" isn't a count slot). Pin the overlap so the two lists stay
-    // in step.
-    #[test]
-    fn number_words_are_spelled_counts_except_dozen_and_half() {
-        for &(word, _) in NUMBER_WORDS {
-            if word == "dozen" || word == "half" {
-                assert!(
-                    !SPELLED_COUNTS.contains(&word),
-                    "{word:?} is excluded from SPELLED_COUNTS by design"
-                );
-                continue;
-            }
-            assert!(
-                SPELLED_COUNTS.contains(&word),
-                "NUMBER_WORDS entry {word:?} missing from SPELLED_COUNTS"
-            );
-        }
-    }
-
-    // CLAUSE_BOUNDARIES (where a recovered head noun ends) and MODIFIER_STOPWORDS
-    // (where a modifier turns to prose) both encode "prose starts here", so the
-    // word-boundary boundaries' lead word must be a stopword. ", " and " (" are
-    // punctuation, not words; the rest (" such as ", " or ", " to taste") lead
-    // with "such"/"or"/"to", all stopwords.
-    #[test]
-    fn clause_boundaries_lead_words_are_stopwords() {
-        assert!(!CLAUSE_BOUNDARIES.is_empty(), "CLAUSE_BOUNDARIES is empty");
-        for &boundary in CLAUSE_BOUNDARIES {
-            // Only the word-boundary entries encode "prose starts here"; the
-            // punctuation-only ones (", ", " (") have no lead word to check.
-            let Some(first) = boundary
-                .split_whitespace()
-                .next()
-                .filter(|w| w.chars().all(char::is_alphabetic))
-            else {
-                continue;
-            };
-            assert!(
-                MODIFIER_STOPWORDS.contains(&first),
-                "CLAUSE_BOUNDARIES entry {boundary:?} leads with {first:?}, not a MODIFIER_STOPWORD"
-            );
-        }
-    }
-
     // Hygiene: every membership list is duplicate-free and lowercase. Consumers
     // lowercase input before matching, so an upper-cased entry would be dead code.
     #[test]
@@ -794,9 +518,6 @@ mod tests {
             ("VAGUE_UNITS", VAGUE_UNITS),
             ("SIZE_QUALIFIABLE_UNITS", SIZE_QUALIFIABLE_UNITS),
             ("SIZE_WORDS", SIZE_WORDS),
-            ("SHARED_HEAD_MODIFIERS", SHARED_HEAD_MODIFIERS),
-            ("SHARED_HEAD_NOUNS", SHARED_HEAD_NOUNS),
-            ("DISTRIBUTABLE_HEAD_NOUNS", DISTRIBUTABLE_HEAD_NOUNS),
             ("INTENSIFIER_ADVERBS", INTENSIFIER_ADVERBS),
             ("MANNER_ADVERBS", MANNER_ADVERBS),
             ("CONTAINER_NOUNS", CONTAINER_NOUNS),

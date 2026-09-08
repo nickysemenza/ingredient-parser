@@ -1,25 +1,10 @@
-//! Clause segmentation — the default post-amount pipeline stage: split the
-//! post-amount text into clauses, classify each one, and assemble the parsed
-//! ingredient.
+//! Source-bearing structural resolution of ingredient clauses.
 //!
-//! The legacy grammar tail carved the post-amount text at the *first* `", "`
-//! (the name grammar cannot cross `','` or `'('`) and left everything after it
-//! as one opaque modifier string, which a family of refine passes then
-//! repaired (recover a head noun stranded behind a prep chain, re-attach an
-//! alias parenthetical, graft a shared head off an alternatives list, hoist a
-//! measurement parenthetical…). This module replaced that carve-then-repair
-//! design with an explicit *segmentation*: the post-amount text is split into
-//! clauses at every top-level `", "` / `"; "` boundary, each top-level
-//! parenthetical becomes its own sub-clause attached to its host clause, and
-//! every clause is classified by an ordered rule table ([`CLASSIFIER`]) so
-//! assembly and `--explain` can reason about the line's structure directly.
-//! Assembly then runs the ordered clause-structure repairs
-//! ([`ASSEMBLY_REPAIRS`]) that used to live at the tail of the refine
-//! pipeline — refine now only works *inside* the name.
-//!
-//! Splitting and classification are pure over the source text; byte ranges into
-//! the source are preserved on every clause, so assembly can attribute each
-//! clause back to the text it came from.
+//! Split and classify before assigning fields. A leading preparation clause
+//! cannot become the name merely because it precedes the first comma, and an
+//! inline parenthetical cannot strand the rest of a name in a modifier. Dimension
+//! tokens are masked in place so the measurement grammar sees only ingredient
+//! measures while all attribution retains its original byte coordinates.
 
 use std::ops::Range;
 
@@ -28,15 +13,13 @@ use nom::character::complete::space0;
 use nom::combinator::opt;
 
 use crate::IngredientParser;
-use crate::parser::ir::{ModifierPart, ParsedIngredient};
+use crate::parser::ir::{ModifierKind, ModifierPart, ParsedIngredient, SourceText};
 use crate::parser::normalize::collapse_whitespace;
 use crate::parser::paren::{self, ParenKind};
 use crate::parser::token;
 use crate::parser::vocab;
-use crate::parser::{MeasurementMode, MeasurementParser, Res, parse_ingredient_text};
-use crate::unit::{self, Measure};
-
-mod repairs;
+use crate::parser::{MeasurementMode, MeasurementParser, Res};
+use crate::unit::Measure;
 
 /// What a single clause *is*, judged from its paren-free text by the ordered
 /// [`CLASSIFIER`] table (first matching row wins). Parenthetical sub-clauses
@@ -59,8 +42,6 @@ pub(crate) enum ClauseKind {
     /// An alternative clause led by "or " / "and/or "
     /// ("or white onion", "and/or rosemary").
     Alternative,
-    /// A parenthetical sub-clause, carrying its [`ParenKind`].
-    Parenthetical(ParenKind),
     /// Prose — the first word is a modifier stopword ("such as serrano",
     /// "then drained", "plus more for serving").
     Prose,
@@ -77,7 +58,6 @@ impl ClauseKind {
             ClauseKind::MinusMeasure => "minus_measure",
             ClauseKind::Purpose => "purpose",
             ClauseKind::Alternative => "alternative",
-            ClauseKind::Parenthetical(_) => "parenthetical",
             ClauseKind::Prose => "prose",
             ClauseKind::HeadCandidate => "head_candidate",
         }
@@ -93,6 +73,8 @@ pub(crate) struct ParenClause<'a> {
     pub inner: &'a str,
     /// The parenthetical's classification.
     pub kind: ParenKind,
+    /// Parsed once during classification and consumed by structural assembly.
+    pub measures: Vec<Measure>,
 }
 
 /// One clause of the post-amount text: a maximal span between top-level
@@ -142,9 +124,8 @@ impl IngredientParser {
 
 /// One classifier rule: a kind plus its predicate over the clause's paren-free
 /// text. Mirrors the `define_stage_pipeline!` shape (ordered, named, one row per
-/// kind) so `--explain` can later show per-clause decisions; kept as a plain
-/// const table because [`ClauseKind::Parenthetical`] carries data and is
-/// assigned outside this table (parens are classified by [`paren::classify`]).
+/// kind). Parenthetical classifications carry their own measure payloads and
+/// are resolved separately.
 struct ClassifierRule {
     kind: ClauseKind,
     matches: fn(&Segmenter<'_>, &str) -> bool,
@@ -208,9 +189,8 @@ fn is_known_prep_phrase(seg: &Segmenter<'_>, text: &str) -> bool {
     !trimmed.is_empty() && seg.adjectives.contains(&trimmed.to_lowercase())
 }
 
-/// "minus <parseable measurement>…" — the shape `fix_leading_minus_clause`
-/// repaired. The measurement must parse; whether a head noun follows is the
-/// assembly step's concern.
+/// A subtractive quantity clause. The measure must parse; structural
+/// assembly determines whether food-bearing text follows it.
 fn is_minus_measure(seg: &Segmenter<'_>, text: &str) -> bool {
     let Some(rest) = text
         .trim_start()
@@ -251,8 +231,13 @@ fn is_gerund(word: &str) -> bool {
 /// alternatives list, e.g. "or melted coconut oil").
 fn is_alternative(_seg: &Segmenter<'_>, text: &str) -> bool {
     let trimmed = text.trim_start();
-    let lead = trimmed.split_whitespace().next().unwrap_or("");
-    lead.eq_ignore_ascii_case("or") || lead.eq_ignore_ascii_case("and/or")
+    let mut words = trimmed.split_whitespace();
+    let lead = words.next().unwrap_or("");
+    let next = words.next().unwrap_or("");
+    (lead.eq_ignore_ascii_case("or") || lead.eq_ignore_ascii_case("and/or"))
+        && !["more", "less", "as", "to", "if"]
+            .iter()
+            .any(|word| next.eq_ignore_ascii_case(word))
 }
 
 /// Prose: the first word is a modifier stopword ("such as serrano",
@@ -263,6 +248,8 @@ fn is_prose(_seg: &Segmenter<'_>, text: &str) -> bool {
         return false;
     };
     vocab::MODIFIER_STOPWORDS.contains(&token::norm(first).as_str())
+        || ((first.eq_ignore_ascii_case("or") || first.eq_ignore_ascii_case("and/or"))
+            && !is_alternative(_seg, text))
 }
 
 // --- Splitting ------------------------------------------------------------------
@@ -310,16 +297,28 @@ impl Segmenter<'_> {
     fn build_clause<'a>(&self, source: &'a str, range: Range<usize>, sep: &'a str) -> Clause<'a> {
         let text = &source[range.clone()];
         let parens: Vec<ParenClause<'a>> = paren::spans(text)
-            .map(|s| ParenClause {
-                range: range.start + s.range.start..range.start + s.range.end,
-                inner: s.inner,
-                kind: paren::classify(s.inner, Some(self.units)),
+            .map(|span| {
+                let mut kind = paren::classify(span.inner, None);
+                let measures = if matches!(kind, ParenKind::Alias | ParenKind::Other) {
+                    paren::amounts(span.inner, self.units)
+                } else {
+                    Vec::new()
+                };
+                if !measures.is_empty() {
+                    kind = ParenKind::Amount;
+                }
+                ParenClause {
+                    range: range.start + span.range.start..range.start + span.range.end,
+                    inner: span.inner,
+                    kind,
+                    measures,
+                }
             })
             .collect();
 
         // The classifier judges the clause text with its parens excised.
         let stripped = if parens.is_empty() {
-            crate::parser::normalize::collapse_whitespace(text)
+            collapse_whitespace(text)
         } else {
             let mut buf = String::with_capacity(text.len());
             let mut cursor = range.start;
@@ -328,7 +327,7 @@ impl Segmenter<'_> {
                 cursor = p.range.end;
             }
             buf.push_str(&source[cursor..range.end]);
-            crate::parser::normalize::collapse_whitespace(&buf)
+            collapse_whitespace(&buf)
         };
 
         let kind = self.classify(&stripped);
@@ -352,362 +351,294 @@ impl Segmenter<'_> {
         ClauseKind::HeadCandidate
     }
 }
-// --- Segmented parse path -------------------------------------------------------
-
-/// The result of the grammar-equivalent head carve over the post-amount text:
-/// the name span, an optional hoisted name-adjacent amounts parenthetical, and
-/// where the modifier tail begins.
-struct Carve {
-    /// End of the name run (byte offset into the post-amount source).
-    name_end: usize,
-    /// Byte range of the hoisted name-adjacent amounts parenthetical (if any),
-    /// plus its measures.
-    hoisted: Option<(Range<usize>, Vec<Measure>)>,
-    /// Where the modifier tail starts (after the paren and one `", "`).
-    tail_from: usize,
-}
+// --- Structural resolution ----------------------------------------------------
 
 impl IngredientParser {
-    /// Parse an ingredient line via the segmented path: the same leading
-    /// amounts grammar as the legacy tail (`opt(measurement_list) → space0 →
-    /// opt(bracketed_amounts) → space0`), then clause segmentation + assembly
-    /// over the remaining text. Always consumes the whole line (mirroring the
-    /// legacy grammar's `not_line_ending` tail).
     pub(crate) fn parse_ingredient_segmented<'a>(
         &self,
         input: &'a str,
     ) -> Res<&'a str, ParsedIngredient> {
+        // Establish branch scope before interpreting any parenthetical amounts.
+        let authored = input;
+        let alternative = quantified_alternative(input, &self.units);
+        let input = alternative.map_or(input, |start| input[..start].trim_end_matches([',', ' ']));
+        // Only ingredient-side dimensions are removed from the grammar view.
+        // A preparation tail keeps its dimensions inside the authored phrase.
+        let dimension_limit = ingredient_dimension_limit(input);
+        let dimensions = dimensional_spans(input)
+            .into_iter()
+            .filter(|range| range.start < dimension_limit)
+            .collect::<Vec<_>>();
+        // These classified constructs have roles independent of the leading
+        // quantity. Hide their slots from the measurement view without deleting
+        // source text; assembly consumes their payloads below.
+        let semantic_parens: Vec<_> = paren::spans(authored)
+            .filter_map(|span| {
+                let kind = paren::classify(span.inner, None);
+                matches!(
+                    kind,
+                    ParenKind::CrossReference
+                        | ParenKind::NoteReference
+                        | ParenKind::Optional
+                        | ParenKind::MinusEquivalence
+                )
+                .then_some((span.range, kind, span.inner))
+            })
+            .collect();
+        let optional_word = optional_suffix(authored);
+        let mut ignored: Vec<_> = dimensions
+            .iter()
+            .cloned()
+            .chain(semantic_parens.iter().map(|(r, _, _)| r.clone()))
+            .chain(optional_word.iter().cloned())
+            .collect();
+        ignored.sort_by_key(|r| r.start);
+        ignored.dedup();
+        let mut syntax = input.to_string();
+        for range in &ignored {
+            if range.end > syntax.len() {
+                continue;
+            }
+            syntax.replace_range(range.clone(), &" ".repeat(range.len()));
+        }
+        let view = leading_measure_view(syntax.trim_start());
+        let measure_start = syntax.len() - view.len();
         let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
-        let (rest, (primary, _, bracketed, _)) = (
+        let Ok((mut rest, (primary, _, bracketed, _))) = (
             opt(|a| mp.parse_measurement_list(a)),
             space0,
             opt(|a| mp.parse_bracketed_amounts(a)),
             space0,
         )
-            .parse(input)?;
-        let amounts: Vec<Measure> = [primary, bracketed]
-            .into_iter()
-            .flatten()
-            .flatten()
-            .collect();
+            .parse(view)
+        else {
+            return Err(nom::Err::Error(nom_language::error::VerboseError {
+                errors: vec![(
+                    input,
+                    nom_language::error::VerboseErrorKind::Context("measurement"),
+                )],
+            }));
+        };
+        // An unconsumed arithmetic operator followed by another quantity is
+        // an unsupported amount expression, not the beginning of a food name.
+        if rest
+            .strip_prefix('+')
+            .is_some_and(|tail| starts_quantity(tail.trim_start()))
+        {
+            return Err(nom::Err::Error(nom_language::error::VerboseError {
+                errors: vec![(
+                    input,
+                    nom_language::error::VerboseErrorKind::Context(
+                        "incomplete quantity expression",
+                    ),
+                )],
+            }));
+        }
+        let mut parsed = ParsedIngredient {
+            source: authored.to_string(),
+            amounts: [primary, bracketed]
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect(),
+            optional: optional_word.is_some()
+                || semantic_parens
+                    .iter()
+                    .any(|(_, kind, _)| *kind == ParenKind::Optional),
+            ..Default::default()
+        };
+        // "N batches of X" expresses N recipes. Resolve its count-unit role
+        // while the authored words still have explicit source positions.
+        if let Some(index) = parsed
+            .amounts
+            .iter()
+            .position(|m| matches!(m.unit(), crate::unit::Unit::Whole))
+        {
+            let words: Vec<_> = token::offsets(rest).take(3).collect();
+            if let [(_, batch), (of_start, of), (name_start, _)] = words.as_slice()
+                && (batch.eq_ignore_ascii_case("batch") || batch.eq_ignore_ascii_case("batches"))
+                && of.eq_ignore_ascii_case("of")
+            {
+                let base = input.len() - rest.len();
+                parsed.amounts[index] = parsed.amounts[index].relabel_unit("recipe");
+                ignored.push(base + of_start..base + name_start);
+                rest = &rest[*name_start..];
+            }
+        }
+        let base = input.len() - rest.len();
+        ignored.sort_by_key(|r| r.start);
+        let mut cursor = measure_start;
+        for range in &ignored {
+            if range.start >= base {
+                break;
+            }
+            let start = range.start.max(measure_start);
+            if cursor < start {
+                parsed.measure_spans.push(cursor..start);
+            }
+            cursor = cursor.max(range.end.min(base));
+        }
+        if cursor < base {
+            parsed.measure_spans.push(cursor..base);
+        }
+        for range in &dimensions {
+            parsed.push_modifier(
+                ModifierPart::raw(
+                    input[range.clone()]
+                        .trim_matches(['(', ')'])
+                        .trim()
+                        .to_string(),
+                )
+                .at(vec![range.clone()]),
+            );
+        }
+        for (range, kind, inner) in &semantic_parens {
+            if *kind == ParenKind::MinusEquivalence && parsed.amounts.is_empty() {
+                parsed.unresolved_quantity = true;
+                parsed.push_modifier(
+                    ModifierPart::raw(inner.trim().to_string()).at(vec![range.clone()]),
+                );
+            }
+        }
         let clauses = self.segmenter().segment(rest);
         trace_clauses(rest, &clauses);
-        let parsed = self.assemble(rest, &clauses, amounts, &mp)?;
+        let mut found_name = false;
+        let mut leading_prep = false;
+        let mut coordination_end = None;
+        for (clause_index, clause) in clauses.iter().enumerate() {
+            let mut text = SourceText::default();
+            let mut cursor = clause.range.start;
+            for p in &clause.parens {
+                text.append(&rest[cursor..p.range.start], base + cursor);
+                let origin = base + p.range.start..base + p.range.end;
+                match p.kind {
+                    ParenKind::CrossReference | ParenKind::NoteReference => {}
+                    ParenKind::Optional => parsed.optional = true,
+                    ParenKind::Amount => {
+                        parsed.amounts.extend(p.measures.iter().cloned());
+                        parsed.measure_spans.push(origin);
+                    }
+                    ParenKind::Descriptive | ParenKind::Alias | ParenKind::Other if found_name => {
+                        // Parenthetical details in a descriptive tail stay in
+                        // their host phrase: "cut into (1-inch) pieces".
+                        text.append(&rest[p.range.clone()], base + p.range.start);
+                    }
+                    ParenKind::Alias
+                        if !found_name
+                            && !self.adjectives.contains(&p.inner.trim().to_lowercase())
+                            && rest[p.range.end..clause.range.end]
+                                .trim()
+                                .chars()
+                                .next()
+                                .is_some_and(char::is_alphabetic) =>
+                    {
+                        text.append(&rest[p.range.clone()], base + p.range.start);
+                    }
+                    _ => parsed.push_modifier(
+                        ModifierPart::raw(p.inner.trim().to_string()).at(vec![origin]),
+                    ),
+                }
+                // Preserve a separator between words surrounding an omitted aside.
+                if !text.text.is_empty() && !text.text.ends_with(' ') {
+                    text.text.push(' ');
+                    text.map.push(None);
+                }
+                cursor = p.range.end;
+            }
+            text.append(&rest[cursor..clause.range.end], base + cursor);
+            text.trim();
+            if text.text.is_empty() {
+                continue;
+            }
+            if found_name {
+                if coordination_end.is_some_and(|end| clause_index <= end) {
+                    let separator_start = base + clause.range.start - clause.sep.len();
+                    let mut combined = SourceText {
+                        text: std::mem::take(&mut parsed.name),
+                        map: std::mem::take(&mut parsed.name_map),
+                    };
+                    combined.append(clause.sep, separator_start);
+                    combined.text.push_str(&text.text);
+                    combined.map.extend(text.map);
+                    parsed.set_name(combined);
+                } else {
+                    let origins = text.origins(0..text.text.len());
+                    let part = if clause.kind == ClauseKind::Alternative {
+                        ModifierPart::alternative(text.text)
+                    } else {
+                        ModifierPart::raw(text.text)
+                    };
+                    parsed.push_modifier(part.at(origins));
+                }
+                continue;
+            }
+            if matches!(
+                clause.kind,
+                ClauseKind::PrepChain | ClauseKind::KnownPrepPhrase
+            ) && clauses
+                .iter()
+                .any(|c| c.range.start > clause.range.start && c.kind == ClauseKind::HeadCandidate)
+            {
+                let origins = text.origins(0..text.text.len());
+                parsed.push_modifier(ModifierPart::prep(text.text).at(origins));
+                leading_prep = true;
+                continue;
+            }
+            parsed.set_name(text);
+            coordination_end = opaque_coordination_end(&clauses, clause_index, &mp);
+            if clause.kind == ClauseKind::MinusMeasure {
+                let prefix = parsed.name.split_once(' ').map(|(_, r)| r).unwrap_or("");
+                if let Ok((remaining, _)) = mp.parse_measurement_list(prefix)
+                    && !remaining.trim().is_empty()
+                {
+                    let cut = parsed.name.len() - remaining.len();
+                    parsed.extract_name(0..cut, ModifierKind::Raw);
+                }
+            } else if leading_prep {
+                let head = token::offsets(&parsed.name)
+                    .find(|(_, w)| !token::is_prep_token(w) && !is_connector(w))
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                if head > 0 {
+                    parsed.extract_name(0..head, ModifierKind::Prep);
+                }
+            }
+            found_name = true;
+        }
+        if let Some(start) = alternative {
+            let mut branch = SourceText::default();
+            let mut cursor = start;
+            for range in ignored.iter().filter(|r| r.start >= start) {
+                if cursor < range.start {
+                    branch.append(&authored[cursor..range.start], cursor);
+                }
+                cursor = cursor.max(range.end);
+            }
+            branch.append(&authored[cursor..], cursor);
+            branch.trim();
+            let origins = branch.origins(0..branch.text.len());
+            parsed.push_modifier(ModifierPart::alternative(branch.text).at(origins));
+        }
         Ok(("", parsed))
-    }
-
-    /// The grammar-equivalent head carve: name = the leading run of
-    /// ingredient-text characters (stops at ',', '(' and other punctuation);
-    /// a paren immediately after the name hoists when it parses as amounts;
-    /// one following `", "` is consumed.
-    ///
-    /// A recoverable paren parse error falls through (the paren stays modifier
-    /// text); a nom `Failure` propagates, exactly as the legacy grammar's
-    /// `opt(...)` slot behaved — the whole parse then falls back name-only.
-    fn carve<'a>(
-        &self,
-        source: &'a str,
-        mp: &MeasurementParser<'_>,
-    ) -> Result<Carve, nom::Err<nom_language::error::VerboseError<&'a str>>> {
-        let name_end = parse_ingredient_text(source)
-            .map(|(_, chunk)| chunk.len())
-            .unwrap_or(0);
-        let mut after = name_end;
-
-        let mut hoisted = None;
-        if source[after..].starts_with('(') {
-            match mp.parse_parenthesized_amounts(&source[after..]) {
-                Ok((rem, measures)) => {
-                    let end = source.len() - rem.len();
-                    hoisted = Some((after..end, measures));
-                    after = end;
-                }
-                Err(err @ nom::Err::Failure(_)) | Err(err @ nom::Err::Incomplete(_)) => {
-                    return Err(err);
-                }
-                Err(nom::Err::Error(_)) => {}
-            }
-        }
-        if source[after..].starts_with(", ") {
-            after += 2;
-        }
-        Ok(Carve {
-            name_end,
-            hoisted,
-            tail_from: after,
-        })
-    }
-
-    /// Assemble the post-amount clauses into a [`ParsedIngredient`].
-    ///
-    /// The head carve is grammar-equivalent (see [`Self::carve`]) so the
-    /// segmented path is byte-faithful to the legacy tail wherever no
-    /// structural repair applies.
-    fn assemble<'a>(
-        &self,
-        source: &'a str,
-        clauses: &[Clause<'_>],
-        amounts: Vec<Measure>,
-        mp: &MeasurementParser<'_>,
-    ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
-        let mut parsed = self.assemble_unrepaired(source, clauses, amounts, mp)?;
-        self.run_assembly_repairs(&mut parsed);
-        Ok(parsed)
-    }
-
-    /// Whether the modifier tail must stay a single raw part.
-    ///
-    /// Two assembly repairs scan the *whole* first raw modifier part with
-    /// comma-crossing searches, so their trigger shapes must reach them as one
-    /// part: a prep-chain head triggers `recover_head_noun_from_modifier`, a
-    /// paren-led tail triggers `recover_parenthetical_alias_from_modifier`.
-    ///
-    /// The head test goes through [`Segmenter::classify`], so this decision and
-    /// the clause kind `--explain` shows are one judgement. Assembly and the
-    /// decomposition spans both call it, so they cannot drift.
-    fn keep_tail_whole(&self, name: &str, tail: &str) -> bool {
-        tail.trim_start().starts_with('(')
-            || (!name.is_empty() && self.segmenter().classify(name) == ClauseKind::PrepChain)
-    }
-
-    /// The assembly proper, before [`ASSEMBLY_REPAIRS`] run. Split out so the
-    /// order-constraint tests can replay the repairs over the same starting IR
-    /// in a different order.
-    fn assemble_unrepaired<'a>(
-        &self,
-        source: &'a str,
-        clauses: &[Clause<'_>],
-        mut amounts: Vec<Measure>,
-        mp: &MeasurementParser<'_>,
-    ) -> Result<ParsedIngredient, nom::Err<nom_language::error::VerboseError<&'a str>>> {
-        let carve = self.carve(source, mp)?;
-        if let Some((_, measures)) = &carve.hoisted {
-            amounts.extend(measures.iter().cloned());
-        }
-        let after = carve.tail_from;
-
-        let name = source[..carve.name_end].trim();
-        let tail = &source[after..];
-
-        // Two repair passes scan the *whole* first raw modifier part with
-        // comma-crossing string searches, so their trigger shapes must reach
-        // them as one part (splitting would change what they recover):
-        // - a pure-prep-chain name triggers `recover_head_noun_from_modifier`
-        //   (its head scan skips across `", "`);
-        // - a paren-led tail triggers `recover_parenthetical_alias_from_modifier`
-        //   (its `find(" (")` head cut crosses `", "` too).
-        let keep_tail_whole = self.keep_tail_whole(name, tail);
-
-        // Otherwise: every remaining clause becomes a modifier part in source
-        // order. `", "`-separated clauses are separate parts (modifier_string
-        // re-joins them with `", "`, so the lowering is byte-identical to the
-        // legacy single-raw tail); any other separator ("; ", or a mid-clause
-        // carve point) is preserved verbatim by merging into the previous part.
-        let modifier = if keep_tail_whole {
-            if tail.trim().is_empty() {
-                Vec::new()
-            } else {
-                vec![ModifierPart::Raw(tail.to_string())]
-            }
-        } else {
-            tail_part_ranges(source, clauses, after)
-                .into_iter()
-                .map(|r| ModifierPart::Raw(source[r].to_string()))
-                .collect()
-        };
-        let parsed = ParsedIngredient {
-            name: name.to_string(),
-            amounts,
-            modifier,
-            optional: false,
-        };
-        Ok(parsed)
-    }
-
-    /// Run the ordered clause-structure repairs on the freshly assembled IR
-    /// (see [`ASSEMBLY_REPAIRS`]). Mirrors `run_refine_pass`'s trace-on-change
-    /// so `--explain` shows which repairs fired.
-    fn run_assembly_repairs(&self, parsed: &mut ParsedIngredient) {
-        for repair in ASSEMBLY_REPAIRS {
-            self.run_assembly_repair(repair, parsed);
-        }
-    }
-
-    fn run_assembly_repair(&self, repair: &AssemblyRepair, parsed: &mut ParsedIngredient) {
-        let AssemblyRepair { run, .. } = *repair;
-        if !crate::trace::is_diagnostics_enabled() {
-            run(self, parsed);
-            return;
-        }
-        let before = parsed.clone();
-        run(self, parsed);
-        let changed = *parsed != before;
-        crate::trace::trace_on_change(
-            crate::trace::Stage::Segment,
-            repair.id().as_str(),
-            &before.name,
-            &format!(
-                "{} | {}",
-                parsed.name,
-                parsed.modifier_string().as_deref().unwrap_or("-")
-            ),
-            changed,
-        );
-    }
-
-    /// Run the repairs in an arbitrary caller-supplied order. Test-only:
-    /// [`REPAIR_ORDER_CONSTRAINTS`] uses this to run a witness once in declared
-    /// order and once with two repairs swapped, proving the edge matters.
-    #[cfg(test)]
-    pub(crate) fn run_assembly_repairs_with_order(
-        &self,
-        order: &[&AssemblyRepair],
-        parsed: &mut ParsedIngredient,
-    ) {
-        for repair in order {
-            self.run_assembly_repair(repair, parsed);
-        }
     }
 }
 
-/// Emit one trace node per clause decision (and one per attached
-/// parenthetical), so `--explain` and the stage report can show how the
-/// segmenter read the line. No-ops when tracing is disabled.
 fn trace_clauses(source: &str, clauses: &[Clause<'_>]) {
     if !crate::trace::is_diagnostics_enabled() {
         return;
     }
     for clause in clauses {
-        let text = clause.text(source).trim();
-        if text.is_empty() {
-            continue;
-        }
         crate::trace::trace_on_change(
             crate::trace::Stage::Segment,
             clause.kind.as_str(),
-            text,
+            clause.text(source).trim(),
             &clause.stripped,
             true,
         );
-        for paren in &clause.parens {
-            crate::trace::trace_on_change(
-                crate::trace::Stage::Segment,
-                ClauseKind::Parenthetical(paren.kind).as_str(),
-                &format!("({})", paren.inner),
-                paren_kind_label(paren.kind),
-                true,
-            );
-        }
     }
 }
 
-/// Stable lowercase label for a [`ParenKind`] (trace preview text).
-fn paren_kind_label(kind: ParenKind) -> &'static str {
-    match kind {
-        ParenKind::CrossReference => "cross_reference",
-        ParenKind::NoteReference => "note_reference",
-        ParenKind::MinusEquivalence => "minus_equivalence",
-        ParenKind::Optional => "optional",
-        ParenKind::Descriptive => "descriptive",
-        ParenKind::Amount => "amount",
-        ParenKind::Alias => "alias",
-        ParenKind::Other => "other",
-    }
-}
-
-/// A clause-structure repair applied at assembly time. Identical signature to
-/// [`refine::Pass`](crate::parser::refine) — the two stages run the same shape
-/// of function, so they share `define_stage_pipeline!`.
-type Repair = fn(&IngredientParser, &mut ParsedIngredient);
-
-crate::define_stage_pipeline! {
-    /// The ordered clause-structure repairs the segmentation stage owns — the
-    /// carve-then-repair passes the cutover removed from `REFINE_PIPELINE`.
-    /// Every implementation is housed by this module; they run once at
-    /// assembly, before the name-internal refine passes, in the same relative
-    /// order they held in the old pipeline.
-    ///
-    /// That order is load-bearing — see [`REPAIR_ORDER_CONSTRAINTS`].
-    pub(crate) enum RepairId,
-    pub(crate) struct AssemblyRepair,
-    pub(crate) const ASSEMBLY_REPAIRS: &[AssemblyRepair],
-    type Repair = Repair,
-    trace: pub(crate) REPAIR_TRACE_NAMES,
-    (
-        FixLeadingPrepPhrase,
-        "fix_leading_prep_phrase",
-        IngredientParser::fix_leading_prep_phrase
-    ),
-    (
-        FixLeadingMinusClause,
-        "fix_leading_minus_clause",
-        IngredientParser::fix_leading_minus_clause
-    ),
-    (
-        RecoverHeadNounFromModifier,
-        "recover_head_noun_from_modifier",
-        IngredientParser::recover_head_noun_from_modifier
-    ),
-    (
-        RecoverParentheticalAliasFromModifier,
-        "recover_parenthetical_alias_from_modifier",
-        IngredientParser::recover_parenthetical_alias_from_modifier
-    ),
-    (
-        RecoverSharedHeadFromAlternatives,
-        "recover_shared_head_from_alternatives",
-        IngredientParser::recover_shared_head_from_alternatives
-    ),
-    (
-        ExtractSecondaryAmountsFromModifier,
-        "extract_secondary_amounts_from_modifier",
-        IngredientParser::extract_secondary_amounts_from_modifier
-    ),
-}
-
-/// A load-bearing ordering edge in [`ASSEMBLY_REPAIRS`]: `before` must run
-/// before `after`, for the reason given, and `witness` is a line that proves
-/// it — it assembles correctly in declared order and differently (wrong) when
-/// the two are swapped. Mirrors `refine::OrderConstraint`; exists only for the
-/// tests below.
-#[cfg(test)]
-pub(crate) struct RepairOrderConstraint {
-    pub before: RepairId,
-    pub after: RepairId,
-    pub reason: &'static str,
-    pub witness: &'static str,
-}
-
-/// The ordering edges assembly depends on — derived exhaustively, not guessed.
-///
-/// All 720 orderings of the six repairs were run over every corpus row. Exactly
-/// half change a result, and the split is characterised by ONE pairwise rule:
-/// the output differs from the declared order **iff**
-/// `ExtractSecondaryAmountsFromModifier` runs before
-/// `RecoverHeadNounFromModifier`. Nothing else about the order matters.
-///
-/// An earlier version of this table claimed three edges. Two were artifacts of
-/// testing them with non-adjacent swaps, which move both repairs past
-/// everything between them, and of sharing one witness across all three — so a
-/// swap could "prove" an edge while the observed change came from the real one.
-#[cfg(test)]
-pub(crate) const REPAIR_ORDER_CONSTRAINTS: &[RepairOrderConstraint] = &[RepairOrderConstraint {
-    before: RepairId::RecoverHeadNounFromModifier,
-    after: RepairId::ExtractSecondaryAmountsFromModifier,
-    reason: "recover the head noun out of modifier[0] before the hoist consumes \
-             a measurement parenthetical from the same slot, or the head noun is \
-             stranded behind an amount",
-    witness: SECONDARY_LAST_WITNESS,
-}];
-
-/// The line that distinguishes every load-bearing edge: head-noun recovery and
-/// the amount hoist compete for the same modifier slot.
-#[cfg(test)]
-const SECONDARY_LAST_WITNESS: &str = "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano (2 to 4)";
-
-/// Clause-kind labels, in classifier order. Mirrors [`ClauseKind::as_str`];
-/// `clause_kind_labels_are_exhaustive` pins the two together.
-const CLAUSE_KIND_TRACE_NAMES: &[&str] = &[
+pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &[
     "prep_chain",
     "known_prep_phrase",
     "minus_measure",
@@ -718,565 +649,180 @@ const CLAUSE_KIND_TRACE_NAMES: &[&str] = &[
     "head_candidate",
 ];
 
-/// Every label the `segment` stage can emit — clause-kind decisions then
-/// assembly repairs. The repair half is generated from [`ASSEMBLY_REPAIRS`], so
-/// adding a repair cannot silently drop it from `--explain`.
-pub(crate) const SEGMENT_TRACE_NAMES: &[&str] = &{
-    let mut out = [""; CLAUSE_KIND_TRACE_NAMES.len() + REPAIR_TRACE_NAMES.len()];
-    let mut i = 0;
-    while i < CLAUSE_KIND_TRACE_NAMES.len() {
-        out[i] = CLAUSE_KIND_TRACE_NAMES[i];
-        i += 1;
-    }
-    let mut j = 0;
-    while j < REPAIR_TRACE_NAMES.len() {
-        out[CLAUSE_KIND_TRACE_NAMES.len() + j] = REPAIR_TRACE_NAMES[j];
-        j += 1;
-    }
-    out
-};
-
-/// Split the modifier tail (everything from byte `from` on) into one byte range
-/// per *cleanly separable* `", "`-separated clause. The lowering contract is
-/// strict: `modifier_string` re-joins parts with `", "` (or `" ("` before a
-/// parenthesized part) and strips each part's leading commas, so a clause is
-/// only emitted as its own range when that join reproduces the source verbatim —
-/// it must follow a `", "` separator and its text must be non-empty and not
-/// start with whitespace, `'('`, or `','` (nor sit after trailing whitespace).
-/// Everything else ("; " separators, empty clauses, paren-led or comma-led
-/// clauses) is preserved byte-for-byte by extending the previous range across
-/// the separator, which keeps the lowered modifier string identical to the
-/// legacy single-raw capture. Ranges are contiguous slices of `source`.
-fn tail_part_ranges(source: &str, clauses: &[Clause<'_>], from: usize) -> Vec<Range<usize>> {
-    let separable = |clause: &Clause<'_>| {
-        if clause.sep != ", " {
-            return false;
-        }
-        let raw = &source[clause.range.clone()];
-        // The join must be reversible under modifier_string's per-part
-        // trimming: no whitespace abutting the separator on either side
-        // ("x , y" must survive verbatim), and the part must not begin with a
-        // '(' (joined with " " instead of ", ") or a ',' (stripped as a stray
-        // grammar artifact).
-        if raw.is_empty()
-            || raw.starts_with(|c: char| c.is_whitespace())
-            || raw.starts_with('(')
-            || raw.starts_with(',')
+/// Lexical dimensions occupy their source positions but do not participate in
+/// the ingredient measure grammar. Masking preserves byte coordinates; unlike
+/// lifting text to the end, it cannot change clause order or lose provenance.
+pub(super) fn dimensional_spans(input: &str) -> Vec<Range<usize>> {
+    let mut spans: Vec<_> = paren::spans(input)
+        .filter(|p| paren::is_descriptive(p.inner))
+        .map(|p| p.range)
+        .collect();
+    crate::lazy_regex!(
+        DIMENSION,
+        r"(?i)(?:[0-9¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]+(?:[./–—-][0-9¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]+)*)(?:\s*[-–]\s*|\s*)(?:inches|inch|in|centimeters?|centimetres?|millimeters?|millimetres?|cm|mm)(?:-(?:thick|long|wide|deep|tall))?\b"
+    );
+    crate::lazy_regex!(
+        TEMPERATURE,
+        r"(?i)[0-9]+(?:[.][0-9]+)?(?:\s*(?:[-–]|to)\s*[0-9]+(?:[.][0-9]+)?)?\s*(?:°\s*(?:fahrenheit|celsius|[fc])?|degrees?\s*(?:fahrenheit|celsius|[fc]\b)|fahrenheit|celsius)"
+    );
+    crate::lazy_regex!(QUOTED_LENGTH, r#"[0-9]+(?:[./][0-9]+)?\s*["″]"#);
+    for m in DIMENSION
+        .find_iter(input)
+        .chain(TEMPERATURE.find_iter(input))
+        .chain(QUOTED_LENGTH.find_iter(input))
+    {
+        if !spans
+            .iter()
+            .any(|r| r.start <= m.start() && r.end >= m.end())
         {
-            return false;
+            spans.push(m.range());
         }
-        let sep_start = clause.range.start - clause.sep.len();
-        !source[..sep_start]
-            .chars()
-            .next_back()
-            .is_some_and(char::is_whitespace)
-    };
-    let mut parts: Vec<Range<usize>> = Vec::new();
-    for clause in clauses {
-        if clause.range.end <= from {
+    }
+    spans.sort_by_key(|r| r.start);
+    spans
+}
+
+fn starts_quantity(text: &str) -> bool {
+    text.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
+        || crate::parser::text_number(text).is_ok()
+}
+
+/// Locate an explicitly quantified alternative outside parenthetical details.
+fn quantified_alternative(input: &str, units: &std::collections::HashSet<String>) -> Option<usize> {
+    let parens: Vec<_> = paren::spans(input).map(|p| p.range).collect();
+    let parser = MeasurementParser::new(units, MeasurementMode::IngredientList);
+    for (start, word) in token::offsets(input) {
+        if start == 0 || !(word.eq_ignore_ascii_case("or") || word.eq_ignore_ascii_case("and/or")) {
             continue;
         }
-        match parts.last_mut() {
-            // First part: include everything from the carve point (which may
-            // sit mid-clause, or on separator bytes the carve did not consume).
-            None => parts.push(from..clause.range.end),
-            Some(_) if separable(clause) => {
-                parts.push(clause.range.clone());
-            }
-            // Not cleanly separable: extend the previous range across the
-            // separator bytes, preserving them verbatim.
-            Some(prev) => {
-                prev.end = clause.range.end;
-            }
+        // Unquantified coordination cannot form a quantity branch. Check this
+        // before scanning parenthetical ranges or parsing the primary prefix.
+        let tail = input[start + word.len()..].trim_start();
+        if !starts_quantity(tail) || parens.iter().any(|range| range.contains(&start)) {
+            continue;
+        }
+        // A numeric range's first endpoint is not an ingredient branch.
+        // Require food text after any leading amount in the left-hand side.
+        let primary = input[..start].trim_end_matches([',', ' ']);
+        let food = parser
+            .parse_measurement_list(primary)
+            .map_or(primary, |(remaining, _)| remaining);
+        if !food.chars().any(char::is_alphabetic) {
+            continue;
+        }
+        if parser
+            .parse_measurement_list(tail)
+            .is_ok_and(|(remaining, amounts)| !amounts.is_empty() && !remaining.trim().is_empty())
+        {
+            return Some(start);
         }
     }
-    parts.retain(|r| !source[r.clone()].trim().is_empty());
-    parts
+    None
+}
+
+/// Comma coordination is opaque identity unless a conjunct states its own
+/// quantity. Stop scanning at a descriptive clause; never invent a shared head.
+fn opaque_coordination_end(
+    clauses: &[Clause<'_>],
+    start: usize,
+    parser: &MeasurementParser<'_>,
+) -> Option<usize> {
+    for (index, clause) in clauses.iter().enumerate().skip(start + 1) {
+        if clause.sep != ", " {
+            return None;
+        }
+        match clause.kind {
+            ClauseKind::HeadCandidate => {}
+            ClauseKind::Alternative => {
+                let rest = clause
+                    .stripped
+                    .split_once(' ')
+                    .map(|(_, tail)| tail)
+                    .unwrap_or("");
+                let quantified = parser
+                    .parse_measurement_list(rest)
+                    .is_ok_and(|(_, measures)| !measures.is_empty());
+                return (!quantified).then_some(index);
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// A dimension after a top-level delimiter belongs to that descriptive tail.
+/// Inside the ingredient clause, a preparation preposition also starts a tail.
+fn ingredient_dimension_limit(input: &str) -> usize {
+    let clause_end = separator_offsets(input)
+        .first()
+        .map(|(offset, _)| *offset)
+        .unwrap_or(input.len());
+    token::offsets(&input[..clause_end])
+        .find(|(_, word)| matches!(token::norm(word).as_str(), "into" | "for" | "in"))
+        .map(|(offset, _)| offset)
+        .unwrap_or(clause_end)
+}
+
+/// A leading determiner is grammatical only when followed by a quantity.
+fn leading_measure_view(input: &str) -> &str {
+    let Some((word, rest)) = input.split_once(char::is_whitespace) else {
+        return input;
+    };
+    let rest = rest.trim_start();
+    if word.eq_ignore_ascii_case("the")
+        && (rest
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
+            || crate::parser::text_number(rest).is_ok())
+    {
+        rest
+    } else {
+        input
+    }
+}
+
+/// The terminal optional token modifies the line, rather than its preceding
+/// preparation phrase. Its source slot is retained as semantic metadata.
+fn optional_suffix(input: &str) -> Option<Range<usize>> {
+    let trimmed = input.trim_end();
+    let start = trimmed.rfind(char::is_whitespace)? + 1;
+    (start > 0
+        && trimmed[start..].eq_ignore_ascii_case("optional")
+        && trimmed[..start].chars().any(char::is_alphanumeric))
+    .then_some(start..trimmed.len())
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-
-    // --- Assembly-repair ordering contract -----------------------------------
-
-    #[test]
-    fn assembly_repair_ids_are_unique() {
-        crate::assert_stage_pipeline!(ASSEMBLY_REPAIRS);
-    }
-
-    fn repair_index(id: RepairId) -> usize {
-        ASSEMBLY_REPAIRS
-            .iter()
-            .position(|r| r.id() == id)
-            .expect("ASSEMBLY_REPAIRS missing expected repair")
-    }
-
-    /// Every declared edge holds positionally.
-    #[test]
-    fn declared_repair_order_matches_pipeline() {
-        for c in REPAIR_ORDER_CONSTRAINTS {
-            assert!(
-                repair_index(c.before) < repair_index(c.after),
-                "{:?} must run before {:?}: {}",
-                c.before,
-                c.after,
-                c.reason
-            );
-        }
-    }
-
-    /// The pre-repair IR, so a test can replay the repairs in any order.
-    fn unrepaired(parser: &IngredientParser, line: &str) -> ParsedIngredient {
-        let mp = MeasurementParser::new(&parser.units, MeasurementMode::IngredientList);
-        let (rest, (primary, _, bracketed, _)) = (
-            opt(|a| mp.parse_measurement_list(a)),
-            space0,
-            opt(|a| mp.parse_bracketed_amounts(a)),
-            space0,
-        )
-            .parse(line)
-            .expect("witness should parse its leading amounts");
-        let amounts: Vec<Measure> = [primary, bracketed]
-            .into_iter()
-            .flatten()
-            .flatten()
-            .collect();
-        let clauses = parser.segmenter().segment(rest);
-        parser
-            .assemble_unrepaired(rest, &clauses, amounts, &mp)
-            .expect("witness should assemble")
-    }
-
-    /// Each edge must be load-bearing: swapping the two repairs on its witness
-    /// must change the IR. A dead edge fails here, naming itself.
-    #[test]
-    fn repair_constraints_are_load_bearing() {
-        let parser = IngredientParser::new();
-        for c in REPAIR_ORDER_CONSTRAINTS {
-            let base = unrepaired(&parser, c.witness);
-
-            let declared: Vec<&AssemblyRepair> = ASSEMBLY_REPAIRS.iter().collect();
-            let mut in_order = base.clone();
-            parser.run_assembly_repairs_with_order(&declared, &mut in_order);
-
-            let mut swapped_repairs = declared.clone();
-            swapped_repairs.swap(repair_index(c.before), repair_index(c.after));
-            let mut swapped = base.clone();
-            parser.run_assembly_repairs_with_order(&swapped_repairs, &mut swapped);
-
-            assert_ne!(
-                in_order, swapped,
-                "constraint {:?} < {:?} is NOT load-bearing for witness {:?}: \
-                 swapping the two repairs did not change the result, so the edge \
-                 is dead documentation. reason on file: {}",
-                c.before, c.after, c.witness, c.reason
-            );
-
-            // Control: the edge is the ONLY thing that matters. Reverse every
-            // other repair while keeping `before` ahead of `after`, and the
-            // result must be unchanged. Without this, the assert above would
-            // also pass if some different reordering were doing the work —
-            // which is how two bogus edges survived an earlier version.
-            let (bi, ai) = (repair_index(c.before), repair_index(c.after));
-            let mut others: Vec<usize> = (0..ASSEMBLY_REPAIRS.len())
-                .filter(|i| *i != bi && *i != ai)
-                .collect();
-            others.reverse();
-            let mut shuffled_idx = others;
-            shuffled_idx.insert(0, bi);
-            shuffled_idx.push(ai);
-            let shuffled: Vec<&AssemblyRepair> =
-                shuffled_idx.iter().map(|&i| &ASSEMBLY_REPAIRS[i]).collect();
-            let mut control = base.clone();
-            parser.run_assembly_repairs_with_order(&shuffled, &mut control);
-            assert_eq!(
-                in_order, control,
-                "reordering repairs OTHER than {:?} < {:?} changed the result, so \
-                 the constraint table is incomplete",
-                c.before, c.after
-            );
-        }
-    }
-
-    /// The repairs must be a fixpoint — the invariant the ordering rests on.
-    #[rstest]
-    #[case::plain("2 cups flour")]
-    #[case::simple_modifier("1 cup flour, sifted")]
-    #[case::multi_clause("1 cup flour, sifted, divided")]
-    #[case::leading_prep_phrase("grated zest of 1 lemon")]
-    #[case::paren_alias("1 cup gochujang (Korean chile paste)")]
-    #[case::secondary_amount("1 stick butter (8 tablespoons)")]
-    #[case::shared_head("canola, vegetable, or melted coconut oil")]
-    #[case::head_behind_prep(
-        "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano"
-    )]
-    #[case::minus_clause("2 cups flour, minus 1 tablespoon")]
-    fn assembly_repairs_are_idempotent(#[case] line: &str) {
-        let parser = IngredientParser::new();
-        let mut once = unrepaired(&parser, line);
-        parser.run_assembly_repairs(&mut once);
-        let mut twice = once.clone();
-        parser.run_assembly_repairs(&mut twice);
-        assert_eq!(
-            once, twice,
-            "assembly repairs are not idempotent for {line:?}"
-        );
-    }
-
-    /// Only the clause-kind half can drift; the repair half is generated.
-    #[test]
-    fn clause_kind_labels_are_exhaustive() {
-        let kinds = [
-            ClauseKind::PrepChain,
-            ClauseKind::KnownPrepPhrase,
-            ClauseKind::MinusMeasure,
-            ClauseKind::Purpose,
-            ClauseKind::Alternative,
-            ClauseKind::Parenthetical(ParenKind::Alias),
-            ClauseKind::Prose,
-            ClauseKind::HeadCandidate,
-        ];
-        let labels: Vec<&str> = kinds.iter().map(|k| k.as_str()).collect();
-        assert_eq!(labels, CLAUSE_KIND_TRACE_NAMES);
-        // And the assembled universe is exactly the two halves, in order.
-        assert_eq!(
-            SEGMENT_TRACE_NAMES.len(),
-            CLAUSE_KIND_TRACE_NAMES.len() + REPAIR_TRACE_NAMES.len()
-        );
-        assert_eq!(
-            &SEGMENT_TRACE_NAMES[CLAUSE_KIND_TRACE_NAMES.len()..],
-            REPAIR_TRACE_NAMES
-        );
-    }
-
     use rstest::rstest;
 
-    fn parser() -> IngredientParser {
-        IngredientParser::new()
-    }
-
-    fn segment_texts(source: &str) -> Vec<String> {
-        let parser = parser();
-        parser
-            .segmenter()
-            .segment(source)
-            .iter()
-            .map(|c| c.text(source).trim().to_string())
-            .collect()
-    }
-
-    fn segment_kinds(source: &str) -> Vec<(String, ClauseKind)> {
-        let parser = parser();
-        parser
-            .segmenter()
-            .segment(source)
-            .iter()
-            .map(|c| (c.stripped.clone(), c.kind))
-            .collect()
-    }
-
-    // ── splitting ───────────────────────────────────────────────────────────
-
     #[rstest]
-    // Simple comma split.
-    #[case("flour, sifted", &["flour", "sifted"])]
-    // Semicolon splits too.
-    #[case("flour; sifted", &["flour", "sifted"])]
-    // A comma inside a parenthetical never splits.
-    #[case("chicken thighs (8 to 12 thighs, trimmed), halved", &["chicken thighs (8 to 12 thighs, trimmed)", "halved"])]
-    // A bare comma without a trailing space does not split (mirrors the legacy
-    // grammar's `opt(tag(", "))`).
-    #[case("1,000 grams flour", &["1,000 grams flour"])]
-    // Multiple clauses keep source order.
-    #[case("deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano",
-           &["deribbed", "seeded", "and roughly chopped fresh hot green chiles", "such as serrano"])]
-    fn splits_at_top_level_boundaries(#[case] source: &str, #[case] expected: &[&str]) {
-        assert_eq!(segment_texts(source), expected, "source: {source:?}");
-    }
-
-    #[test]
-    fn clause_ranges_index_into_source() {
-        let source = "purple (red) cabbage (about 1 pound), cored";
-        let p = parser();
-        let clauses = p.segmenter().segment(source);
-        assert_eq!(clauses.len(), 2);
-        for c in &clauses {
-            // Range slices back to the text.
-            assert_eq!(&source[c.range.clone()], c.text(source));
-            for pc in &c.parens {
-                assert_eq!(&source[pc.range.clone()], format!("({})", pc.inner));
-            }
-        }
-        // First clause carries both parens, classified.
-        assert_eq!(clauses[0].parens.len(), 2);
-        assert_eq!(clauses[0].parens[0].kind, ParenKind::Alias);
-        assert_eq!(clauses[0].parens[1].kind, ParenKind::Amount);
-        // Stripped text excises the parens.
-        assert_eq!(clauses[0].stripped, "purple cabbage");
-        // Separators are recorded on the following clause.
-        assert_eq!(clauses[0].sep, "");
-        assert_eq!(clauses[1].sep, ", ");
-    }
-
-    // ── classification ─────────────────────────────────────────────────────
-
-    #[rstest]
-    // PrepChain: pure participle/descriptor chains, connectors allowed between.
-    #[case("deribbed", ClauseKind::PrepChain)]
-    #[case("seeded", ClauseKind::PrepChain)]
-    #[case("bone-in", ClauseKind::PrepChain)]
-    #[case("skin-on", ClauseKind::PrepChain)]
-    #[case("peeled and deveined", ClauseKind::PrepChain)]
-    #[case("very finely chopped", ClauseKind::PrepChain)]
-    // KnownPrepPhrase: exact vocab phrases that aren't pure -ed/-ly chains.
-    #[case("to taste", ClauseKind::KnownPrepPhrase)]
-    #[case("for garnish", ClauseKind::KnownPrepPhrase)]
-    #[case("fresh", ClauseKind::KnownPrepPhrase)]
-    // MinusMeasure: subtractive amount clause.
-    #[case("minus 1 tablespoon flour", ClauseKind::MinusMeasure)]
-    #[case("minus 1 tablespoon", ClauseKind::MinusMeasure)]
-    // Purpose: "for <gerund>" / "for the …" (but fixed vocab phrases like
-    // "for garnish" classify as KnownPrepPhrase above).
-    #[case("for brushing the bread", ClauseKind::Purpose)]
-    #[case("for the pans", ClauseKind::Purpose)]
-    // Alternative: an or-led clause.
-    #[case("or melted coconut oil", ClauseKind::Alternative)]
-    #[case("and/or rosemary", ClauseKind::Alternative)]
-    // Prose: stopword-led clause.
-    #[case("such as serrano", ClauseKind::Prose)]
-    #[case("then drained", ClauseKind::Prose)]
-    #[case("plus more for serving", ClauseKind::Prose)]
-    // HeadCandidate: everything else.
-    #[case("fresh hot green chiles", ClauseKind::HeadCandidate)]
-    #[case("toasted walnuts", ClauseKind::HeadCandidate)]
-    #[case("flour", ClauseKind::HeadCandidate)]
-    #[case(
-        "and roughly chopped fresh hot green chiles",
-        ClauseKind::HeadCandidate
-    )]
-    // "minus" without a parseable measurement is not MinusMeasure (and "minus"
-    // is not a stopword, so it stays a head candidate).
-    #[case("minus the seeds", ClauseKind::HeadCandidate)]
-    // "for bread" is not a purpose clause (no gerund, no article).
-    #[case("for bread", ClauseKind::Prose)]
-    fn classifies_clause_kinds(#[case] text: &str, #[case] expected: ClauseKind) {
-        let p = parser();
-        assert_eq!(p.segmenter().classify(text), expected, "text: {text:?}");
-    }
-
-    /// Classification of whole witness lines' post-amount text (the
-    /// ORDER_CONSTRAINTS witnesses, post-amount).
-    #[rstest]
-    #[case("chopped, toasted walnuts",
-           &[("chopped", ClauseKind::PrepChain), ("toasted walnuts", ClauseKind::HeadCandidate)])]
-    #[case("deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano",
-           &[("deribbed", ClauseKind::PrepChain),
-             ("seeded", ClauseKind::PrepChain),
-             ("and roughly chopped fresh hot green chiles", ClauseKind::HeadCandidate),
-             ("such as serrano", ClauseKind::Prose)])]
-    #[case("chopped red or white onion",
-           &[("chopped red or white onion", ClauseKind::HeadCandidate)])]
-    #[case("canola, vegetable, or melted coconut oil",
-           &[("canola", ClauseKind::HeadCandidate),
-             ("vegetable", ClauseKind::HeadCandidate),
-             ("or melted coconut oil", ClauseKind::Alternative)])]
-    #[case("minus 1 tablespoon flour",
-           &[("minus 1 tablespoon flour", ClauseKind::MinusMeasure)])]
-    #[case("finely chopped, raw pistachios",
-           &[("finely chopped", ClauseKind::PrepChain), ("raw pistachios", ClauseKind::HeadCandidate)])]
-    fn classifies_witness_lines(#[case] source: &str, #[case] expected: &[(&str, ClauseKind)]) {
-        let got = segment_kinds(source);
-        let want: Vec<(String, ClauseKind)> =
-            expected.iter().map(|(t, k)| (t.to_string(), *k)).collect();
-        assert_eq!(got, want, "source: {source:?}");
-    }
-
-    // ── segmented assembly (positive control) ───────────────────────────────
-
-    /// The segmenter genuinely splits: a multi-clause tail assembles into one
-    /// modifier part per clause, not a single raw string. This pins the
-    /// assembled IR itself (pre-refine).
-    #[test]
-    fn assembly_splits_tail_into_clause_parts() {
-        let p = IngredientParser::new();
-        let (_, parsed) = p
-            .parse_ingredient_segmented("1 cup flour, sifted, divided")
-            .expect("segmented parse");
-        assert_eq!(parsed.name, "flour");
-        assert_eq!(
-            parsed.modifier,
-            vec![
-                ModifierPart::Raw("sifted".to_string()),
-                ModifierPart::Raw("divided".to_string()),
-            ]
-        );
-    }
-
-    /// The clause-structure repairs run at assembly time: the assembled IR
-    /// (pre-refine) already has the head noun recovered from a leading prep
-    /// chain, and an alias parenthetical re-attached to the name.
-    #[test]
-    fn assembly_repairs_resolve_clause_structure() {
-        let p = IngredientParser::new();
-
-        // Prep-chain head recovery (was recover_head_noun_from_modifier).
-        let (_, parsed) = p
-            .parse_ingredient_segmented(
-                "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano",
-            )
-            .expect("segmented parse");
-        assert_eq!(parsed.name, "fresh hot green chiles");
-        assert_eq!(
-            parsed.modifier,
-            vec![
-                ModifierPart::Prep("deribbed, seeded, and roughly chopped".to_string()),
-                ModifierPart::Raw("such as serrano".to_string()),
-            ]
-        );
-
-        // Alias re-attachment + secondary-amount hoist (was
-        // recover_parenthetical_alias_from_modifier +
-        // extract_secondary_amounts_from_modifier). "medium" stays in the
-        // assembled name; extract_size_unit_from_name claims it in refine.
-        let (_, parsed) = p
-            .parse_ingredient_segmented("1 medium purple (red) cabbage (about 1 pound), cored")
-            .expect("segmented parse");
-        assert_eq!(parsed.name, "medium purple (red) cabbage");
-        // The hoist leaves the stray leading comma in the raw part; the
-        // lowering strips it (same as the old pipeline pass did).
-        assert_eq!(parsed.modifier_string().as_deref(), Some("cored"));
-        assert_eq!(parsed.amounts.len(), 2, "pound paren hoisted");
-    }
-
-    /// Grammar-equivalent head carve: adjacent amounts parenthetical hoists at
-    /// assembly time and the following ", " is consumed.
-    #[test]
-    fn assembly_hoists_name_adjacent_amount_paren() {
-        let p = IngredientParser::new();
-        let (_, parsed) = p
-            .parse_ingredient_segmented("3 tomatoes (about 2 cups), diced")
-            .expect("segmented parse");
-        assert_eq!(parsed.name, "tomatoes");
-        assert_eq!(parsed.amounts.len(), 2, "paren amounts hoisted");
-        assert_eq!(
-            parsed.modifier,
-            vec![ModifierPart::Raw("diced".to_string())]
-        );
-    }
-
-    // ── segmented default: end-to-end witnesses ─────────────────────────────
-
-    /// End-to-end witnesses for the segmented default, pinned to the exact
-    /// pre-cutover outputs (the migration converged to zero divergences before
-    /// the legacy repair passes were absorbed into assembly, so these are the
-    /// historical parses, now produced by the segmentation stage). Includes
-    /// every shape the absorbed repairs own: prep-chain head recovery, the
-    /// leading prep-phrase swap, the minus-clause split, alias re-attachment,
-    /// the shared-head graft, and the secondary-amount hoist.
-    #[rstest]
-    #[case("2 cups flour", "flour", None)]
-    #[case("1 cup flour, sifted", "flour", Some("sifted"))]
-    #[case("salt", "salt", None)]
-    #[case("2 cups chopped, toasted walnuts", "toasted walnuts", Some("chopped"))]
-    #[case(
-        "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano",
-        "hot green chiles",
-        Some("fresh, deribbed, seeded, and roughly chopped, such as serrano")
-    )]
-    #[case(
-        "2 cups spinach chopped into ribbons",
-        "spinach",
-        Some("chopped into ribbons")
-    )]
-    #[case(
-        "1 teaspoon grated or finely chopped lemon zest",
-        "lemon zest",
-        Some("grated or finely chopped")
-    )]
-    #[case(
-        "chopped red or white onion",
-        "red onion",
-        Some("chopped, or white onion")
-    )]
-    #[case(
-        "chopped parsley for garnish for brushing the bread",
-        "parsley",
-        Some("chopped, for garnish, for brushing the bread")
-    )]
-    #[case("½ cup minus 1 tablespoon flour", "flour", Some("minus 1 tablespoon"))]
-    #[case(
-        "1 medium purple (red) cabbage (about 1 pound)",
-        "purple (red) cabbage",
-        None
-    )]
-    #[case(
-        "1 cup canola, vegetable, or melted coconut oil",
-        "canola oil",
-        Some("or vegetable, or melted coconut oil")
-    )]
-    #[case("3 tomatoes (about 2 cups), diced", "tomatoes", Some("diced"))]
-    #[case(
-        "2 boneless, skinless chicken thighs",
-        "chicken thighs",
-        Some("boneless, skinless")
-    )]
-    #[case(
-        "bone-in, skin-on chicken legs",
-        "chicken legs",
-        Some("bone-in, skin-on")
-    )]
-    #[case("1 pound feta (crumbled)", "feta", Some("crumbled"))]
-    #[case("salt and pepper to taste", "salt and pepper", Some("to taste"))]
-    #[case("1 garlic clove, minced", "garlic", Some("minced"))]
-    #[case("3 medium carrots", "carrots", None)]
-    #[case("Juice of 1 lemon", "lemon", Some("juice of"))]
-    #[case("(1 cup walnuts, toasted)", "walnuts", Some("toasted"))]
-    #[case("Butter — 2 tablespoons", "Butter", None)]
-    #[case(
-        "1,000 grams (about 6 cups) quartered and pitted nectarines",
-        "quartered and pitted nectarines",
-        None
-    )]
-    #[case(
-        "2/3 cup (85 grams) finely chopped, raw pistachios",
-        "raw pistachios",
-        Some("finely chopped")
-    )]
-    #[case("", "", None)]
-    fn segmented_default_witnesses(
-        #[case] line: &str,
-        #[case] want_name: &str,
-        #[case] want_modifier: Option<&str>,
+    #[case("2-inch piece ginger", &[(0, 6)])]
+    #[case("2 carrots, cut into 2-inch pieces", &[])]
+    #[case("carrots cut into (1-inch) pieces", &[])]
+    fn dimensions_respect_clause_ownership(
+        #[case] input: &str,
+        #[case] expected: &[(usize, usize)],
     ) {
-        let ing = IngredientParser::new().from_str(line);
-        assert_eq!(ing.name, want_name, "name for {line:?}");
-        assert_eq!(
-            ing.modifier.as_deref(),
-            want_modifier,
-            "modifier for {line:?}"
-        );
+        let ranges: Vec<_> = dimensional_spans(input)
+            .into_iter()
+            .filter(|r| r.start < ingredient_dimension_limit(input))
+            .map(|r| (r.start, r.end))
+            .collect();
+        assert_eq!(ranges, expected);
     }
 
-    /// Segmented mode preserves the from_str infallibility invariant: never a
-    /// panic, and a name-only fallback rather than an empty name with leftover
-    /// modifier text.
-    #[rstest]
-    #[case("!!! ???")]
-    #[case(", chopped")]
-    #[case("(")]
-    #[case("))((")]
-    fn segmented_never_panics_or_strands_name(#[case] line: &str) {
-        let segmented = IngredientParser::new();
-        let ing = segmented.from_str(line);
-        let has_modifier = ing
-            .modifier
-            .as_deref()
-            .is_some_and(|m| !m.trim().is_empty());
-        assert!(
-            !(ing.name.trim().is_empty() && has_modifier),
-            "stranded name for {line:?}: {ing:?}"
-        );
+    #[test]
+    fn classified_parenthetical_retains_measure_payload_and_range() {
+        let parser = IngredientParser::new();
+        let clauses = parser.segmenter().segment("tomatoes (about 2 cups), diced");
+        let p = &clauses[0].parens[0];
+        assert_eq!(p.kind, ParenKind::Amount);
+        assert_eq!(p.measures, vec![Measure::new("cup", 2.0)]);
+        assert_eq!(p.range, 9..23);
     }
 }

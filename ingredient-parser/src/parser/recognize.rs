@@ -1,24 +1,118 @@
-//! Whole-line special-form recognizers.
-//!
-//! Before the general grammar runs, a few ingredient lines have a shape the
-//! grammar can't capture directly: a fully parenthesized "(optional)" ingredient,
-//! a trailing "Name — AMOUNT" form, or an "X of/from N item" construction. Each
-//! recognizer returns `Some(Ingredient)` when it matches and `None` to fall
-//! through to the next recognizer / the core parse.
+//! Compositional whole-line shapes, peeled iteratively before one core parse.
+//! Each layer retains its authored range and contributes a structural effect;
+//! nested shapes do not recurse through the ingredient parser.
 
+use super::ir::{ModifierPart, ParsedIngredient};
+use crate::IngredientParser;
 use crate::parser::{MeasurementMode, MeasurementParser};
-use crate::unit;
-use crate::{Ingredient, IngredientParser};
+use crate::unit::{self, Measure};
+use std::ops::Range;
+
+struct Shape<'a> {
+    inner: &'a str,
+    effect: Effect,
+}
+enum Effect {
+    Optional,
+    Description {
+        span: Range<usize>,
+    },
+    Trailing {
+        amounts: Vec<Measure>,
+        spans: Vec<Range<usize>>,
+        descriptions: Vec<Range<usize>>,
+    },
+    Component {
+        phrase: String,
+        span: Range<usize>,
+    },
+}
 
 impl IngredientParser {
-    /// Try each whole-line special-form recognizer in order, returning the first
-    /// that matches (or `None` to fall through to the core parse).
-    pub(super) fn run_recognizers(&self, input: &str) -> Option<Ingredient> {
-        RECOGNIZERS.iter().find_map(|recognizer| {
-            let result = (recognizer.run)(self, input);
-            crate::trace::trace_attempt(recognizer.id().as_str(), input, result, |ingredient| {
-                ingredient.name.clone()
-            })
+    pub(super) fn parse_shape(&self, input: &str) -> Option<ParsedIngredient> {
+        let mut current = input;
+        let mut layers = Vec::new();
+        loop {
+            let shape = RECOGNIZERS.iter().find_map(|recognizer| {
+                let result = (recognizer.run)(self, current);
+                crate::trace::trace_attempt(recognizer.id().as_str(), current, result, |shape| {
+                    shape.inner.to_string()
+                })
+            });
+            let Some(shape) = shape else {
+                break;
+            };
+            layers.push((current, shape.effect));
+            current = shape.inner;
+        }
+        let parse_core = |source: &str| {
+            self.parse_ingredient_ir(source)
+                .ok()
+                .map(|(_, mut parsed)| {
+                    parsed.rebase(input, source.as_ptr() as usize - input.as_ptr() as usize);
+                    parsed
+                })
+        };
+        let mut parsed = parse_core(current);
+        // Keep amount groups separate while unwinding: prepending each group to
+        // a growing vector would make deeply nested trailing forms quadratic.
+        let mut trailing = Vec::<Vec<Measure>>::new();
+        for (source, effect) in layers.into_iter().rev() {
+            let valid = parsed.as_ref().is_some_and(|inner| match &effect {
+                Effect::Optional => {
+                    !inner.name.is_empty() || !inner.amounts.is_empty() || !trailing.is_empty()
+                }
+                Effect::Component { .. } => {
+                    !inner.name.trim().is_empty()
+                        && (!inner.amounts.is_empty() || !trailing.is_empty())
+                }
+                Effect::Trailing { .. } | Effect::Description { .. } => true,
+            });
+            if !valid {
+                parsed = parse_core(source);
+                trailing.clear();
+                continue;
+            }
+            let Some(inner) = parsed.as_mut() else {
+                continue;
+            };
+            let offset = source.as_ptr() as usize - input.as_ptr() as usize;
+            match effect {
+                Effect::Optional => inner.optional = true,
+                Effect::Trailing {
+                    amounts,
+                    spans,
+                    descriptions,
+                } => {
+                    if !amounts.is_empty() {
+                        trailing.push(amounts);
+                    }
+                    inner.measure_spans.extend(
+                        spans
+                            .into_iter()
+                            .map(|span| offset + span.start..offset + span.end),
+                    );
+                    for span in descriptions {
+                        inner.modifier.push(
+                            ModifierPart::raw(source[span.clone()].trim().to_string())
+                                .at_range(offset + span.start..offset + span.end),
+                        );
+                    }
+                }
+                Effect::Description { span } => inner.modifier.push(
+                    ModifierPart::raw(source[span.clone()].trim().to_string())
+                        .at_range(offset + span.start..offset + span.end),
+                ),
+                Effect::Component { phrase, span } => inner.modifier.push(
+                    ModifierPart::raw(phrase).at_range(offset + span.start..offset + span.end),
+                ),
+            }
+        }
+        parsed.map(|mut parsed| {
+            let mut amounts: Vec<Measure> = trailing.into_iter().rev().flatten().collect();
+            amounts.append(&mut parsed.amounts);
+            parsed.amounts = amounts;
+            parsed
         })
     }
 
@@ -26,28 +120,46 @@ impl IngredientParser {
     ///
     /// When an entire ingredient line is wrapped in parentheses, it indicates
     /// the ingredient is optional. This is common in cookbooks like Joy of Cooking.
-    pub(super) fn try_parse_optional_ingredient(&self, input: &str) -> Option<Ingredient> {
-        let trimmed = input.trim();
-
-        if !trimmed.starts_with('(') || !trimmed.ends_with(')') {
+    fn try_parse_optional_ingredient<'a>(&self, input: &'a str) -> Option<Shape<'a>> {
+        let mut inner = input.trim();
+        if !inner.starts_with('(') {
             return None;
         }
-
-        let inner = &trimmed[1..trimmed.len() - 1];
-        let mut ingredient = self.parse_core_ingredient(inner)?;
-        if ingredient.name.is_empty() && ingredient.amounts.is_empty() {
+        // Pair once, then peel wrappers by offset without rescanning each layer.
+        let mut closes = vec![None; input.len()];
+        let mut stack = Vec::new();
+        for (offset, byte) in input.bytes().enumerate() {
+            if byte == b'(' {
+                stack.push(offset);
+            } else if byte == b')'
+                && let Some(open) = stack.pop()
+            {
+                closes[open] = Some(offset);
+            }
+        }
+        let mut wrapped = false;
+        while inner.starts_with('(') && inner.len() >= 2 {
+            let start = inner.as_ptr() as usize - input.as_ptr() as usize;
+            if closes[start] != Some(start + inner.len() - 1) {
+                break;
+            }
+            inner = inner[1..inner.len() - 1].trim();
+            wrapped = true;
+        }
+        if !wrapped {
             return None;
         }
-
-        ingredient.optional = true;
-        Some(ingredient)
+        Some(Shape {
+            inner,
+            effect: Effect::Optional,
+        })
     }
 
     /// Try to parse ingredient with trailing amount format: "Name — AMOUNT"
     ///
     /// This handles professional/European cookbook formats where the amount
     /// comes at the end after an em-dash, en-dash, or double hyphen.
-    pub(super) fn try_parse_trailing_amount_format(&self, input: &str) -> Option<Ingredient> {
+    fn try_parse_trailing_amount_format<'a>(&self, input: &'a str) -> Option<Shape<'a>> {
         let separators = [" — ", " – ", " -- "];
         let mp = MeasurementParser::new(&self.units, MeasurementMode::IngredientList);
 
@@ -63,19 +175,48 @@ impl IngredientParser {
                 continue;
             };
 
-            if amounts.is_empty()
-                || !remaining.trim().is_empty()
-                || !amounts.iter().any(|m| !is_temperature_unit(m.unit()))
-            {
+            if amounts.is_empty() || !remaining.trim().is_empty() {
                 continue;
             }
 
-            return Some(Ingredient::from_parser_parts(
-                name_part.trim(),
-                amounts,
-                None,
-                false,
-            ));
+            let span = pos + sep.len()..input.len();
+            let effect = if amounts.iter().all(|m| is_descriptive_unit(m.unit())) {
+                Effect::Description { span }
+            } else {
+                let descriptions: Vec<_> = if amounts.iter().any(|m| is_descriptive_unit(m.unit()))
+                {
+                    super::segment::dimensional_spans(amount_part)
+                        .into_iter()
+                        .map(|range| span.start + range.start..span.start + range.end)
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let mut spans = Vec::new();
+                let mut cursor = span.start;
+                for description in &descriptions {
+                    if cursor < description.start {
+                        spans.push(cursor..description.start);
+                    }
+                    cursor = cursor.max(description.end);
+                }
+                if cursor < span.end {
+                    spans.push(cursor..span.end);
+                }
+                let amounts = amounts
+                    .into_iter()
+                    .filter(|m| !is_descriptive_unit(m.unit()))
+                    .collect();
+                Effect::Trailing {
+                    amounts,
+                    spans,
+                    descriptions,
+                }
+            };
+            return Some(Shape {
+                inner: name_part.trim(),
+                effect,
+            });
         }
 
         None
@@ -87,13 +228,18 @@ impl IngredientParser {
     /// thyme". These describe a component derived from a countable item; the item
     /// becomes the name (with its count), and the leading phrase ("juice of",
     /// "seeds scraped from", ...) moves into the modifier.
-    pub(super) fn try_parse_x_of_construction(&self, input: &str) -> Option<Ingredient> {
+    fn try_parse_x_of_construction<'a>(&self, input: &'a str) -> Option<Shape<'a>> {
         let trimmed = input.trim();
 
         // Find the leading "… of " / "… from " clause whose pivot is immediately
         // followed by a number (e.g. "Seeds scraped from 1 …"). Uses the EARLIEST
         // qualifying pivot across both separators.
-        let lower = crate::parser::byte_aligned_lowercase(trimmed)?;
+        // A qualifying phrase has at most five words; searching beyond its
+        // sixth token cannot find a valid pivot and needlessly rescans long tails.
+        let prefix_end = crate::parser::token::offsets(trimmed)
+            .nth(5)
+            .map_or(trimmed.len(), |(offset, _)| offset);
+        let lower = crate::parser::byte_aligned_lowercase(&trimmed[..prefix_end])?;
         let pivot_end = [" of ", " from "]
             .iter()
             .filter_map(|sep| {
@@ -121,29 +267,18 @@ impl IngredientParser {
         }
 
         let rest = trimmed[pivot_end..].trim_start();
-        let mut parsed = self.parse_core_ingredient(rest)?;
-
-        // Only treat this as the construction when the remainder actually carried a
-        // quantity and an item (e.g. "1 lemon"); otherwise fall through to normal
-        // parsing so "zest of lemon" (no count) stays name-only.
-        if parsed.amounts.is_empty() || parsed.name.trim().is_empty() {
-            return None;
-        }
-
-        let phrase_lower = phrase.to_lowercase();
-        parsed.modifier = match parsed.modifier.take() {
-            Some(existing) if !existing.trim().is_empty() => {
-                Some(format!("{phrase_lower}, {existing}"))
-            }
-            _ => Some(phrase_lower),
-        };
-        Some(parsed)
+        let start = trimmed.as_ptr() as usize - input.as_ptr() as usize;
+        Some(Shape {
+            inner: rest,
+            effect: Effect::Component {
+                phrase: phrase.to_string(),
+                span: start..start + phrase.len(),
+            },
+        })
     }
 }
 
-/// A whole-line special-form recognizer: maps a raw line to a finished
-/// `Ingredient` when the line has its particular shape, else `None`.
-type Recognizer = fn(&IngredientParser, &str) -> Option<Ingredient>;
+type Recognizer = for<'a> fn(&IngredientParser, &'a str) -> Option<Shape<'a>>;
 
 crate::define_stage_pipeline! {
     pub(crate) enum RecognizerId,
@@ -164,104 +299,53 @@ crate::define_stage_pipeline! {
     ),
 }
 
-fn is_temperature_unit(unit: &unit::Unit) -> bool {
-    matches!(unit, unit::Unit::Fahrenheit | unit::Unit::Celsius)
+fn is_descriptive_unit(unit: &unit::Unit) -> bool {
+    matches!(
+        unit,
+        unit::Unit::Inch | unit::Unit::Fahrenheit | unit::Unit::Celsius
+    ) || matches!(unit, unit::Unit::Other(name) if crate::parser::is_distance_unit(name))
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    #![allow(clippy::expect_used)]
     use super::*;
     use rstest::rstest;
 
-    #[test]
-    fn recognizer_ids_are_unique() {
-        crate::assert_stage_pipeline!(RECOGNIZERS);
-    }
-
-    // ── try_parse_optional_ingredient ───────────────────────────────────────
+    /// Generated nesting checks algorithmic depth and ownership, rather than
+    /// duplicating the corpus's fixed ingredient accuracy examples.
     #[rstest]
-    // A fully parenthesized line is the optional form.
-    #[case::wrapped("(1 cup walnuts)", true)]
-    // No surrounding parens → fall through.
-    #[case::not_wrapped("1 cup walnuts", false)]
-    // Empty / whitespace-only parens carry no ingredient (the empty-name &
-    // empty-amounts guard).
-    #[case::empty_parens("()", false)]
-    #[case::blank_parens("(   )", false)]
-    fn optional_recognizer_matches(#[case] input: &str, #[case] matches: bool) {
-        let got = IngredientParser::new().try_parse_optional_ingredient(input);
-        assert_eq!(got.is_some(), matches, "input: {input}");
-        if let Some(ing) = got {
-            assert!(
-                ing.optional,
-                "matched optional form must set optional: {input}"
-            );
-        }
-    }
-
-    // ── try_parse_trailing_amount_format ────────────────────────────────────
-    #[test]
-    fn trailing_amount_basic() {
-        let ing = IngredientParser::new()
-            .try_parse_trailing_amount_format("Butter — 2 tablespoons")
-            .expect("trailing em-dash amount should match");
-        assert_eq!(ing.name, "Butter");
-        assert_eq!(ing.amounts.len(), 1);
-    }
-
-    #[rstest]
-    // No trailing-amount separator at all.
-    #[case::no_separator("2 tablespoons butter")]
-    // A trailing *temperature* describes a property, not a quantity, so the
-    // recognizer must decline (the all-temperature guard) and let the line fall
-    // through to the core parse.
-    #[case::temp_only_f("Water — 100°F")]
-    #[case::temp_only_c("Milk — 37°C")]
-    fn trailing_amount_declines(#[case] input: &str) {
-        assert!(
-            IngredientParser::new()
-                .try_parse_trailing_amount_format(input)
-                .is_none(),
-            "should not match: {input}"
-        );
-    }
-
-    // ── try_parse_x_of_construction ─────────────────────────────────────────
-    #[test]
-    fn x_of_construction_basic() {
-        let ing = IngredientParser::new()
-            .try_parse_x_of_construction("Juice of 1 lemon")
-            .expect("'X of N item' should match");
-        assert_eq!(ing.name, "lemon");
-        assert_eq!(ing.amounts.len(), 1);
-        assert_eq!(ing.modifier.as_deref(), Some("juice of"));
+    #[case(false)]
+    #[case(true)]
+    fn deeply_nested_shapes_do_not_recurse(#[case] optional: bool) {
+        let parser = IngredientParser::new();
+        let depth = 2048;
+        let source = if optional {
+            format!("{}flour{}", "(".repeat(depth), ")".repeat(depth))
+        } else {
+            format!("flour{}", " — 1 cup".repeat(depth))
+        };
+        let parsed = parser
+            .parse_shape(&source)
+            .expect("generated shape should resolve");
+        assert_eq!(parsed.optional, optional);
+        assert_eq!(parsed.amounts.len(), if optional { 0 } else { depth });
+        assert!(parsed.ownership().iter().all(|(range, _)| {
+            range.end <= source.len()
+                && source.is_char_boundary(range.start)
+                && source.is_char_boundary(range.end)
+        }));
     }
 
     #[test]
-    fn x_of_construction_prepends_to_existing_modifier() {
-        // The remainder carries its own modifier ("halved"); the leading phrase is
-        // prepended, pinning the "<phrase>, <existing>" join format.
-        let ing = IngredientParser::new()
-            .try_parse_x_of_construction("Juice of 1 lemon, halved")
-            .expect("should match");
-        assert_eq!(ing.name, "lemon");
-        assert_eq!(ing.modifier.as_deref(), Some("juice of, halved"));
-    }
-
-    #[rstest]
-    // "of" not followed by a number is a normal name, not the construction.
-    #[case::cream_of_tartar("cream of tartar")]
-    // Bare leading pivot with no descriptor before "of".
-    #[case::bare_pivot("of 1 lemon")]
-    // No count/item after the pivot → not the construction ("zest of lemon").
-    #[case::no_count("zest of lemon")]
-    fn x_of_construction_declines(#[case] input: &str) {
-        assert!(
-            IngredientParser::new()
-                .try_parse_x_of_construction(input)
-                .is_none(),
-            "should not match: {input}"
+    fn trailing_layers_keep_outer_to_inner_amount_order() {
+        let parser = IngredientParser::new();
+        let parsed = parser
+            .parse_shape("flour — 1 cup — 2 tablespoons")
+            .expect("nested trailing shape should resolve");
+        assert_eq!(
+            parsed.amounts,
+            vec![Measure::new("tablespoon", 2.0), Measure::new("cup", 1.0)]
         );
     }
 }

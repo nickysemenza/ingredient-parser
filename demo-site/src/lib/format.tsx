@@ -28,7 +28,7 @@ export const safeParseRichText = (text: string, names: string[]): RichItem[] => 
 export const scaleAmount = (amount: Measure, scale: number): Measure =>
   wasm.scale_amount(amount, scale);
 
-export const formatRichText = (text: RichItem[]) => {
+export const formatRichText = (text: RichItem[], scale = 1) => {
   return text.map((t, index) => {
     switch (t.kind) {
       case "Text":
@@ -43,8 +43,7 @@ export const formatRichText = (text: RichItem[]) => {
           </span>
         );
       case "Measure": {
-        const val = t.value[t.value.length - 1];
-        if (!val) {
+        if (!t.value.length) {
           return null;
         }
         return (
@@ -56,7 +55,7 @@ export const formatRichText = (text: RichItem[]) => {
                 bare count with no unit suffix. Blanking the unit here actually
                 made it worse — an empty unit parses as Other(""), which
                 Display renders with a trailing space. */}
-            {fmtAmount(val)}
+            {t.value.map((amount) => fmtAmount(scaleAmount(amount, scale))).join(" / ")}
           </span>
         );
       }

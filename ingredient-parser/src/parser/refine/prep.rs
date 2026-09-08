@@ -5,7 +5,9 @@ use super::*;
 /// must keep "chopped" with parsley, not read as prep for basil). `pos` is the
 /// adjective's byte offset in `name_lower`.
 fn adjective_belongs_to_alternative(name_lower: &str, pos: usize) -> bool {
-    name_lower.find(" or ").is_some_and(|or_pos| pos > or_pos)
+    [" or ", " and/or "]
+        .iter()
+        .any(|pivot| name_lower.find(pivot).is_some_and(|or_pos| pos > or_pos))
 }
 
 /// An adjective after a word-boundary " and " usually belongs to the second
@@ -22,12 +24,13 @@ fn adjective_belongs_to_second_conjunct(name_lower: &str, pos: usize, end: usize
         .is_some_and(|and_pos| pos > and_pos && end < name_lower.len())
 }
 
-/// "fresh" immediately before " or " is a genuine contrast ("fresh or frozen …"),
-/// not the implied default — leave it in the name for the alternative pass to
-/// reconstruct ("fresh blueberries"). `end` is the byte offset just past the
-/// adjective in `name_lower`.
-fn fresh_is_contrastive(adjective: &str, name_lower: &str, end: usize) -> bool {
-    adjective == "fresh" && name_lower[end..].starts_with(" or ")
+/// An adjective directly before an unresolved coordination is contrastive.
+/// Recognized preparation alternatives have already been resolved as a whole;
+/// preserve remaining contrasts without guessing which food each word modifies.
+fn adjective_is_contrastive(name_lower: &str, end: usize) -> bool {
+    [" or ", " and/or "]
+        .iter()
+        .any(|pivot| name_lower[end..].starts_with(pivot))
 }
 
 /// Require a whitespace/string-edge boundary on both sides of the adjective, so
@@ -121,46 +124,32 @@ impl IngredientParser {
         // ("minced sliced") would extract in nondeterministic order and the
         // modifier string would differ run to run.
         found_adjectives.sort_by_key(|adj| (Reverse(adj.len()), name_lower.find(adj.as_str())));
-        let mut name = parsed.name.clone();
-
-        // Count of leading prep adjectives already moved to the front, so several
-        // ("chopped minced onion") keep their source order instead of reversing.
-        let mut leading_count = 0usize;
         for adjective in found_adjectives {
-            let Some(pos) = name_lower.find(adjective.as_str()) else {
-                continue;
-            };
-            let end = pos + adjective.len();
-
-            if adjective_belongs_to_alternative(&name_lower, pos)
-                || adjective_belongs_to_second_conjunct(&name_lower, pos, end)
-                || fresh_is_contrastive(adjective, &name_lower, end)
-                || !on_word_boundaries(&name, pos, end)
-            {
-                continue;
+            // Repeated occurrences are independently owned; the selected span,
+            // not a search through the final output, determines attribution.
+            loop {
+                let selected = name_lower
+                    .match_indices(adjective.as_str())
+                    .find_map(|(pos, _)| {
+                        let end = pos + adjective.len();
+                        if adjective_belongs_to_alternative(&name_lower, pos)
+                            || adjective_belongs_to_second_conjunct(&name_lower, pos, end)
+                            || adjective_is_contrastive(&name_lower, end)
+                            || !on_word_boundaries(&parsed.name, pos, end)
+                        {
+                            return None;
+                        }
+                        let (_, cut) =
+                            extend_cut_over_adverb(adjective, &parsed.name, &name_lower, pos);
+                        Some(cut..end)
+                    });
+                let Some(range) = selected else {
+                    break;
+                };
+                parsed.extract_name(range.clone(), ModifierKind::Prep);
+                name_lower = join_around_span(&name_lower, range.start, range.end);
             }
-
-            let (prep, cut) = extend_cut_over_adverb(adjective, &name, &name_lower, pos);
-
-            // A prep adjective at the *start* of the name leads the modifier
-            // ("minced lamb (not too lean)" -> "minced (not too lean)"), matching
-            // what the grammar's old leading-adjective branch produced before prep
-            // extraction was unified here. A mid/trailing one is appended. Several
-            // leading ones keep source order via the running insert index.
-            if name[..cut].trim().is_empty() {
-                parsed
-                    .modifier
-                    .insert(leading_count, ModifierPart::Prep(prep));
-                leading_count += 1;
-            } else {
-                parsed.push_modifier(ModifierPart::Prep(prep));
-            }
-
-            name = join_around_span(&name, cut, end);
-            name_lower = join_around_span(&name_lower, cut, end);
         }
-
-        parsed.name = name;
     }
 
     /// Move a trailing participial preparation clause out of the name into the
@@ -207,13 +196,9 @@ impl IngredientParser {
         let Some(start) = cut else {
             return;
         };
-        let clause = parsed.name[start..].trim().to_string();
-        let new_name = parsed.name[..start].trim().to_string();
-        if new_name.is_empty() || clause.is_empty() {
-            return;
+        if start > 0 {
+            parsed.extract_name(start..parsed.name.len(), ModifierKind::Prep);
         }
-        parsed.name = new_name;
-        parsed.push_modifier(ModifierPart::Prep(clause));
     }
 
     /// Move a trailing "for …" purpose clause out of the name into the modifier.
@@ -225,11 +210,9 @@ impl IngredientParser {
     ///   "for the pan" is a fixed vocab phrase handled by
     ///   `extract_adjectives_from_name`, but plurals/other nouns leak past it.
     ///
-    /// Runs AFTER `extract_adjectives_from_name`, so fixed purpose phrases already
-    /// in the vocab ("for dusting", "for garnish") are gone and aren't
-    /// double-handled. The guards (next word is an "ing" gerund ≥5 chars, or the
-    /// article "the") keep a plain "<name> for <noun>" like "flour for bread"
-    /// intact.
+    /// Resolve the whole purpose span before extracting individual adjectives,
+    /// so `for greasing the pan` cannot strand `the pan` in the food name. The
+    /// gerund/article guard leaves `flour for bread` as authored food text.
     pub(super) fn extract_purpose_gerund(&self, parsed: &mut ParsedIngredient) {
         // Match the first word-boundary " for " on the original string so the
         // byte offsets stay valid for slicing.
@@ -245,16 +228,13 @@ impl IngredientParser {
             .next()
             .unwrap_or("");
         let is_gerund = next_word.len() >= 5
-            && next_word.ends_with("ing")
+            && next_word.to_lowercase().ends_with("ing")
             && next_word.chars().all(char::is_alphabetic);
         let is_for_the = next_word.eq_ignore_ascii_case("the");
         if !is_gerund && !is_for_the {
             return;
         }
-        let clause = parsed.name[m.start()..].trim().to_string();
-        let new_name = parsed.name[..m.start()].trim().to_string();
-        parsed.name = new_name;
-        parsed.push_modifier(ModifierPart::Prep(clause));
+        parsed.extract_name(m.start()..parsed.name.len(), ModifierKind::Prep);
     }
 }
 
@@ -302,18 +282,18 @@ mod adjective_guard_tests {
         );
     }
 
-    /// "fresh" is kept only when immediately followed by " or " (a contrast).
+    /// Unresolved adjective contrasts remain authored name text.
     #[rstest]
     #[case::contrast("fresh or frozen berries", "fresh", true)]
     #[case::not_contrast("fresh berries", "fresh", false)]
-    #[case::other_adj("chopped or minced garlic", "chopped", false)]
-    fn test_fresh_is_contrastive(
+    #[case::other_adj("raw or toasted almonds", "raw", true)]
+    fn test_adjective_is_contrastive(
         #[case] name_lower: &str,
         #[case] adj: &str,
         #[case] expected: bool,
     ) {
         let end = name_lower.find(adj).unwrap() + adj.len();
-        assert_eq!(fresh_is_contrastive(adj, name_lower, end), expected);
+        assert_eq!(adjective_is_contrastive(name_lower, end), expected);
     }
 
     /// Both sides of the span must fall on whitespace or a string edge.

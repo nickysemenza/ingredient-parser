@@ -1,0 +1,50 @@
+{"id": "home-kitchen-01", "input": "1 egg, beaten", "name": "egg", "amounts": [{"unit": "whole", "value": 1}], "modifier": "beaten"}
+{"id": "home-kitchen-02", "input": "4 tablespoons dry white wine", "name": "dry white wine", "amounts": [{"unit": "tbsp", "value": 4}]}
+{"id": "home-kitchen-03", "input": "Freshly ground black pepper (optional)", "name": "black pepper", "amounts": [], "modifier": "Freshly ground", "optional": true}
+{"id": "home-kitchen-04", "input": "¼ cup plus 1 tablespoon white wine vinegar", "name": "white wine vinegar", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "tbsp", "value": 1}]}
+{"id": "home-kitchen-05", "input": "½ (750-ml) bottle sweet dessert wine, such as a Sauternes or sweet Riesling", "name": "sweet dessert wine", "amounts": [{"unit": "bottle", "value": "1/2"}, {"unit": "ml", "value": 750}], "modifier": "such as a Sauternes or sweet Riesling"}
+{"id": "home-kitchen-06", "input": "½ teaspoon smoked pimento powder or other smoked chile powder", "name": "smoked pimento powder or other smoked chile powder", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "home-kitchen-07", "input": "¾ ounce Aperol", "name": "Aperol", "amounts": [{"unit": "oz", "value": "3/4"}]}
+{"id": "home-kitchen-08", "input": "8 ounces strawberries, washed, hulled (see below), and halved lengthwise", "name": "strawberries", "amounts": [{"unit": "oz", "value": 8}], "modifier": "washed, hulled (see below), and halved lengthwise"}
+{"id": "home-kitchen-09", "input": "½ teaspoon cayenne", "name": "cayenne", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "home-kitchen-10", "input": "¼ cup butter, softened", "name": "butter", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "softened"}
+{"id": "home-kitchen-11", "input": "1 baguette, cut into 1-inch slices and lightly toasted", "name": "baguette", "amounts": [{"unit": "whole", "value": 1}], "modifier": "cut into 1-inch slices and lightly toasted"}
+{"id": "home-kitchen-12", "input": "1 loaf day-old sourdough, cut into 1-inch slices", "name": "day-old sourdough", "amounts": [{"unit": "loaf", "value": 1}], "modifier": "cut into 1-inch slices"}
+{"id": "home-kitchen-13", "input": "3 cloves garlic, thinly sliced", "name": "garlic", "amounts": [{"unit": "clove", "value": 3}], "modifier": "thinly sliced"}
+{"id": "home-kitchen-14", "input": "½-inch piece fresh ginger, peeled", "name": "ginger", "amounts": [{"unit": "piece", "value": 1}], "modifier": "½-inch, fresh, peeled"}
+{"id": "home-kitchen-15", "input": "4 to 8 ounces Manchego cheese", "name": "Manchego cheese", "amounts": [{"unit": "oz", "value": 4, "upper_value": 8}]}
+{"id": "home-kitchen-16", "input": "1 pound fully ripe small tomatoes (such as Early Girl, heirloom, or cherry)", "name": "fully ripe small tomatoes", "amounts": [{"unit": "lb", "value": 1}], "modifier": "such as Early Girl, heirloom, or cherry"}
+{"id": "home-kitchen-17", "input": "1 pound small tomatoes (Early Girl or Roma preferred), quartered", "name": "small tomatoes", "amounts": [{"unit": "lb", "value": 1}], "modifier": "Early Girl or Roma preferred, quartered"}
+{"id": "home-kitchen-18", "input": "5 lemon verbena leaves", "name": "lemon verbena leaves", "amounts": [{"unit": "whole", "value": 5}]}
+{"id": "home-kitchen-19", "input": "Dried marjoram (optional)", "name": "Dried marjoram", "amounts": [], "optional": true}
+{"id": "home-kitchen-20", "input": "3 tablespoons butter", "name": "butter", "amounts": [{"unit": "tbsp", "value": 3}]}
+{"id": "home-kitchen-21", "input": "1 teaspoon fresh thyme leaves (from about 4 sprigs)", "name": "thyme leaves", "amounts": [{"unit": "tsp", "value": 1}], "modifier": "fresh, from about 4 sprigs"}
+{"id": "home-kitchen-22", "input": "¼ cup sugar", "name": "sugar", "amounts": [{"unit": "cup", "value": "1/4"}]}
+{"id": "home-kitchen-23", "input": "1 cup blackberries", "name": "blackberries", "amounts": [{"unit": "cup", "value": 1}]}
+{"id": "home-kitchen-24", "input": "White or black sesame seeds for sprinkling", "name": "White or black sesame seeds", "amounts": [], "modifier": "for sprinkling"}
+{"id": "home-kitchen-25", "input": "Freshly squeezed juice from ½ lemon", "name": "lemon", "amounts": [{"unit": "whole", "value": "1/2"}], "modifier": "Freshly squeezed juice from"}
+{"id": "home-kitchen-26", "input": "1 blood orange", "name": "blood orange", "amounts": [{"unit": "whole", "value": 1}]}
+{"id": "home-kitchen-27", "input": "1 pound raw fava beans", "name": "raw fava beans", "amounts": [{"unit": "lb", "value": 1}]}
+{"id": "home-kitchen-28", "input": "4 eggs, at room temperature", "name": "eggs", "amounts": [{"unit": "whole", "value": 4}], "modifier": "at room temperature"}
+{"id": "home-kitchen-29", "input": "1 egg yolk, at room temperature", "name": "egg yolk", "amounts": [{"unit": "whole", "value": 1}], "modifier": "at room temperature"}
+{"id": "home-kitchen-30", "input": "1 tablespoon untoasted dried bread crumbs", "name": "untoasted dried bread crumbs", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"id": "home-kitchen-31", "input": "Vanilla ice cream for serving (optional)", "name": "Vanilla ice cream", "amounts": [], "modifier": "for serving", "optional": true}
+{"id": "home-kitchen-32", "input": "1 teaspoon ground cinnamon", "name": "ground cinnamon", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "home-kitchen-33", "input": "½ cup short-grain white rice", "name": "short-grain white rice", "amounts": [{"unit": "cup", "value": "1/2"}]}
+{"id": "home-kitchen-34", "input": "1 pound white onions, quartered", "name": "white onions", "amounts": [{"unit": "lb", "value": 1}], "modifier": "quartered"}
+{"id": "home-kitchen-35", "input": "1 cup raw fava beans", "name": "raw fava beans", "amounts": [{"unit": "cup", "value": 1}]}
+{"id": "home-kitchen-36", "input": "12 ounces snapper fillet, skinned and bones removed", "name": "snapper fillet", "amounts": [{"unit": "oz", "value": 12}], "modifier": "skinned and bones removed"}
+{"id": "home-kitchen-37", "input": "1 teaspoon sugar", "name": "sugar", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "home-kitchen-38", "input": "¼ cup extra-virgin olive oil, plus more for drizzling", "name": "extra-virgin olive oil", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "plus more for drizzling"}
+{"id": "home-kitchen-39", "input": "2 eggs, at room temperature", "name": "eggs", "amounts": [{"unit": "whole", "value": 2}], "modifier": "at room temperature"}
+{"id": "home-kitchen-40", "input": "1 ounce Cointreau", "name": "Cointreau", "amounts": [{"unit": "oz", "value": 1}]}
+{"id": "home-kitchen-41", "input": "Water", "name": "Water", "amounts": []}
+{"id": "home-kitchen-42", "input": "¼ teaspoon cayenne", "name": "cayenne", "amounts": [{"unit": "tsp", "value": "1/4"}]}
+{"id": "home-kitchen-43", "input": "8 ounces sushi-grade fluke, amberjack, or sea bass, skin removed and cut into ½-inch strips", "name": "sushi-grade fluke, amberjack, or sea bass", "amounts": [{"unit": "oz", "value": 8}], "modifier": "skin removed and cut into ½-inch strips"}
+{"id": "home-kitchen-44", "input": "4 teaspoons freshly ground black pepper", "name": "black pepper", "amounts": [{"unit": "tsp", "value": 4}], "modifier": "freshly ground"}
+{"id": "home-kitchen-45", "input": "4 medium white onions, finely diced", "name": "white onions", "amounts": [{"unit": "medium", "value": 4}], "modifier": "finely diced"}
+{"id": "home-kitchen-46", "input": "¼ cup clarified butter (preferred), olive oil, or sunflower oil", "name": "clarified butter (preferred), olive oil, or sunflower oil", "amounts": [{"unit": "cup", "value": "1/4"}]}
+{"id": "home-kitchen-47", "input": "1 cucumber, peeled, seeded, and thinly sliced", "name": "cucumber", "amounts": [{"unit": "whole", "value": 1}], "modifier": "peeled, seeded, and thinly sliced"}
+{"id": "home-kitchen-48", "input": "2 teaspoons Tabasco sauce", "name": "Tabasco sauce", "amounts": [{"unit": "tsp", "value": 2}]}
+{"id": "home-kitchen-49", "input": "1 lemon wedge", "name": "lemon wedge", "amounts": [{"unit": "whole", "value": 1}]}
+{"id": "home-kitchen-50", "input": "1 pound orecchiette", "name": "orecchiette", "amounts": [{"unit": "lb", "value": 1}]}

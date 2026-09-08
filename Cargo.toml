@@ -6,6 +6,7 @@ members = [
     "ingredient-parser",
     "ingredient-corpus",
     "recipe-types",
+    "recipe-parsing",
     "recipe-scraper",
     "recipe-scraper-fetcher",
     "recipe-epub",
@@ -40,6 +41,7 @@ ingredient = { path = "ingredient-parser" }
 # Adding a version here would publish a dependency on an unpublished crate.
 ingredient-corpus = { path = "ingredient-corpus" }
 recipe-types = { path = "recipe-types" }
+recipe-parsing = { path = "recipe-parsing" }
 recipe-scraper = { path = "recipe-scraper" }
 recipe-scraper-fetcher = { path = "recipe-scraper-fetcher" }
 recipe-epub = { path = "recipe-epub" }

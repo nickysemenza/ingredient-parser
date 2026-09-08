@@ -125,8 +125,8 @@ fn predicates_match_arms() {
     assert!(is_alias("red"));
     assert!(!is_alias("2 cups"));
     let u = units();
-    assert!(is_amount("about 2 cups", &u));
-    assert!(is_amount("120 g", &u));
+    assert!(!amounts("about 2 cups", &u).is_empty());
+    assert!(!amounts("120 g", &u).is_empty());
 }
 
 /// `spans` yields each top-level parenthetical with a byte range that slices

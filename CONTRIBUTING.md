@@ -14,6 +14,7 @@ when deciding what a line *should* parse to.
 | `ingredient-wasm` | WASM bindings |
 | `ingredient-corpus` | Accuracy-corpus schema, loader, and scoring (test infrastructure) |
 | `recipe-types` | Plain recipe data shapes shared across crates |
+| `recipe-parsing` | Configured recipe execution shared by ingestion and presentation |
 | `recipe-scraper` / `recipe-scraper-fetcher` | Extract recipes from web pages |
 | `recipe-epub` | Extract recipes from EPUB cookbooks (AI-assisted) |
 | `food-cli` | Command-line tool for parsing/scraping |
@@ -28,6 +29,8 @@ Treat their public APIs as compatibility contracts even when no workspace caller
 uses them. Prefer additive changes; coordinate breaking changes with consumers.
 
 `ingredient-corpus`, `food-cli` and `food-app` have no external consumers.
+`recipe-parsing` supplies the types reexported by `recipe-scraper`; preserve those
+existing paths and serialized shapes when changing it.
 
 ## Quick commands
 
@@ -40,7 +43,7 @@ cargo test -p ingredient --doc
 
 # Lint + format (CI denies warnings; the workspace denies unwrap/expect/panic)
 cargo clippy --all-targets
-cargo fmt
+cargo fmt --all -- --check
 
 # Parse a single line while iterating
 cargo run -p food-cli --quiet -- parse-ingredient "1 cup flour, sifted"
@@ -109,3 +112,10 @@ ranges and `xfail` rows highlighted) and opens it in your default browser. Pass
 [`tests/snapshots.rs`](ingredient-parser/tests/snapshots.rs) uses `insta`. If a
 change intentionally alters snapshot output, review and accept with
 `cargo insta review`.
+
+## Independent evaluation
+
+Consult [parser semantics](docs/parser-semantics.md) before changing expected outputs.
+The [cookbook sample protocol](ingredient-parser/tests/corpus/cookbooks/README.md)
+separates source selection, blind desired labels, development data, and holdout
+evaluation; parser-generated output is a draft, never an independent label.

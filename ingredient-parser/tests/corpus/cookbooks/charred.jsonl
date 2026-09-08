@@ -1,0 +1,50 @@
+{"id": "charred-01", "input": "3–4 cornichons (small gherkins)", "name": "cornichons (small gherkins)", "amounts": [{"unit": "whole", "value": 3, "upper_value": 4}]}
+{"id": "charred-02", "input": "a couple of handfuls of soft leaves, such as lamb’s lettuce or round lettuce", "name": "soft leaves", "amounts": [{"unit": "handful", "value": 2}], "modifier": "such as lamb’s lettuce or round lettuce"}
+{"id": "charred-03", "input": "½ tsp ground cinnamon", "name": "ground cinnamon", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "charred-04", "input": "3 cloves of garlic, crushed", "name": "garlic", "amounts": [{"unit": "clove", "value": 3}], "modifier": "crushed"}
+{"id": "charred-05", "input": "200ml (1 cups) coconut milk", "name": "coconut milk", "amounts": [{"unit": "ml", "value": 200}, {"unit": "cup", "value": 1}]}
+{"id": "charred-06", "input": "a drizzle of olive oil", "name": "olive oil", "amounts": [{"unit": "drizzle", "value": 1}]}
+{"id": "charred-07", "input": "1 medium red onion, finely chopped", "name": "red onion", "amounts": [{"unit": "medium", "value": 1}], "modifier": "finely chopped"}
+{"id": "charred-08", "input": "5 tbsp Greek yoghurt", "name": "Greek yoghurt", "amounts": [{"unit": "tbsp", "value": 5}]}
+{"id": "charred-09", "input": "2 × 200g (7oz) blocks of tempeh, each cut into 9 equal pieces", "name": "tempeh", "amounts": [{"unit": "whole", "value": 2}, {"unit": "g", "value": 200}, {"unit": "oz", "value": 7}], "modifier": "each cut into 9 equal pieces"}
+{"id": "charred-10", "input": "2 cloves of garlic, peeled and roughly chopped", "name": "garlic", "amounts": [{"unit": "clove", "value": 2}], "modifier": "peeled and roughly chopped"}
+{"id": "charred-11", "input": "2 corn on the cob, grilled until golden (yields 250g/1½ cups corn)", "name": "corn on the cob", "amounts": [{"unit": "whole", "value": 2}], "modifier": "grilled until golden (yields 250g/1½ cups corn)"}
+{"id": "charred-12", "input": "2 tsp Aleppo pepper flakes, or more to taste", "name": "Aleppo pepper flakes", "amounts": [{"unit": "tsp", "value": 2}], "modifier": "or more to taste", "usage": "seasoning"}
+{"id": "charred-13", "input": "a loose handful of mint leaves, chopped", "name": "mint leaves", "amounts": [{"unit": "handful", "value": 1}], "modifier": "loose, chopped"}
+{"id": "charred-14", "input": "75g (3oz) butter, melted", "name": "butter", "amounts": [{"unit": "g", "value": 75}, {"unit": "oz", "value": 3}], "modifier": "melted"}
+{"id": "charred-15", "input": "260g (9½oz) baby leaf spinach, washed and dried in a salad spinner", "name": "baby leaf spinach", "amounts": [{"unit": "g", "value": 260}, {"unit": "oz", "value": "19/2"}], "modifier": "washed and dried in a salad spinner"}
+{"id": "charred-16", "input": "50g (½ cup) pistachios, toasted and roughly chopped", "name": "pistachios", "amounts": [{"unit": "g", "value": 50}, {"unit": "cup", "value": "1/2"}], "modifier": "toasted and roughly chopped"}
+{"id": "charred-17", "input": "2 tbsp runny honey", "name": "runny honey", "amounts": [{"unit": "tbsp", "value": 2}]}
+{"id": "charred-18", "input": "500–600g (18–21oz) sweet potatoes, peeled and grated (about 1 large)", "name": "sweet potatoes", "amounts": [{"unit": "g", "value": 500, "upper_value": 600}, {"unit": "oz", "value": 18, "upper_value": 21}, {"unit": "large", "value": 1}], "modifier": "peeled and grated"}
+{"id": "charred-19", "input": "4 eggs", "name": "eggs", "amounts": [{"unit": "whole", "value": 4}]}
+{"id": "charred-20", "input": "500g (3½ cups) plain (all-purpose) flour, plus extra for rolling", "name": "(all-purpose) flour", "amounts": [{"unit": "g", "value": 500}, {"unit": "cup", "value": "7/2"}], "modifier": "plain, plus extra for rolling"}
+{"id": "charred-21", "input": "4 tbsp vegetable oil, for shallow frying", "name": "vegetable oil", "amounts": [{"unit": "tbsp", "value": 4}], "modifier": "for shallow frying", "usage": "frying_medium"}
+{"id": "charred-22", "input": "35g (1¼oz) butter", "name": "butter", "amounts": [{"unit": "g", "value": 35}, {"unit": "oz", "value": "5/4"}]}
+{"id": "charred-23", "input": "200g (¾ cup) plain (all-purpose) flour, plus extra rolling", "name": "(all-purpose) flour", "amounts": [{"unit": "g", "value": 200}, {"unit": "cup", "value": "3/4"}], "modifier": "plain, plus extra rolling"}
+{"id": "charred-24", "input": "1 tbsp hot horseradish sauce", "name": "hot horseradish sauce", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"id": "charred-25", "input": "1 tsp ground allspice", "name": "ground allspice", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "charred-26", "input": "2 big bunches of basil, tough stalks trimmed", "name": "basil", "amounts": [{"unit": "bunch", "value": 2}], "modifier": "big, tough stalks trimmed"}
+{"id": "charred-27", "input": "2 generous slices of sourdough bread", "name": "sourdough bread", "amounts": [{"unit": "slice", "value": 2}], "modifier": "generous"}
+{"id": "charred-28", "input": "75g (2½oz) extra mature Cheddar", "name": "extra mature Cheddar", "amounts": [{"unit": "g", "value": 75}, {"unit": "oz", "value": "5/2"}]}
+{"id": "charred-29", "input": "1 tbsp cumin seeds, toasted", "name": "cumin seeds", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "toasted"}
+{"id": "charred-30", "input": "1 heaped tsp smoked paprika", "name": "smoked paprika", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "charred-31", "input": "1 tsp smoked paprika", "name": "smoked paprika", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "charred-32", "input": "a little vegetable oil, for oiling the grill or griddle", "name": "vegetable oil", "amounts": [], "modifier": "a little, for oiling the grill or griddle", "usage": "pan_grease"}
+{"id": "charred-33", "input": "sea salt flakes", "name": "sea salt flakes", "amounts": []}
+{"id": "charred-34", "input": "25g (1oz) mint, leaves stripped and finely chopped", "name": "mint", "amounts": [{"unit": "g", "value": 25}, {"unit": "oz", "value": 1}], "modifier": "leaves stripped and finely chopped"}
+{"id": "charred-35", "input": "3 tbsp soy sauce, or to taste", "name": "soy sauce", "amounts": [{"unit": "tbsp", "value": 3}], "modifier": "or to taste", "usage": "seasoning"}
+{"id": "charred-36", "input": "warm pitta bread", "name": "pitta bread", "amounts": [], "modifier": "warm"}
+{"id": "charred-37", "input": "2 tsp sesame seeds", "name": "sesame seeds", "amounts": [{"unit": "tsp", "value": 2}]}
+{"id": "charred-38", "input": "25g (¼ cup) walnuts, toasted and chopped", "name": "walnuts", "amounts": [{"unit": "g", "value": 25}, {"unit": "cup", "value": "1/4"}], "modifier": "toasted and chopped"}
+{"id": "charred-39", "input": "4 cherry tomatoes, chopped", "name": "cherry tomatoes", "amounts": [{"unit": "whole", "value": 4}], "modifier": "chopped"}
+{"id": "charred-40", "input": "15 dry corn husks, soaked for an hour in boiling water, then drained", "name": "dry corn husks", "amounts": [{"unit": "whole", "value": 15}], "modifier": "soaked for an hour in boiling water, then drained"}
+{"id": "charred-41", "input": "3 tsp caraway seeds, toasted and ground", "name": "caraway seeds", "amounts": [{"unit": "tsp", "value": 3}], "modifier": "toasted and ground"}
+{"id": "charred-42", "input": "6 mini slider rolls, sliced", "name": "mini slider rolls", "amounts": [{"unit": "whole", "value": 6}], "modifier": "sliced"}
+{"id": "charred-43", "input": "big bunch of coriander (cilantro), chopped", "name": "coriander (cilantro)", "amounts": [{"unit": "bunch", "value": 1}], "modifier": "big, chopped"}
+{"id": "charred-44", "input": "a small bunch of coriander (cilantro), leaves finely chopped (save the stalks for another dish, they are full of flavour)", "name": "coriander (cilantro)", "amounts": [{"unit": "bunch", "value": 1}], "modifier": "small, leaves finely chopped (save the stalks for another dish, they are full of flavour)"}
+{"id": "charred-45", "input": "3 tbsp sour cream", "name": "sour cream", "amounts": [{"unit": "tbsp", "value": 3}]}
+{"id": "charred-46", "input": "4 tbsp natural yoghurt", "name": "natural yoghurt", "amounts": [{"unit": "tbsp", "value": 4}]}
+{"id": "charred-47", "input": "75g ( cup) pine nuts", "name": "pine nuts", "amounts": [{"unit": "g", "value": 75}], "modifier": "cup"}
+{"id": "charred-48", "input": "50g ( cup) pumpkin seeds", "name": "pumpkin seeds", "amounts": [{"unit": "g", "value": 50}], "modifier": "cup"}
+{"id": "charred-49", "input": "100g (3½oz) roasted salted peanuts, chopped", "name": "roasted salted peanuts", "amounts": [{"unit": "g", "value": 100}, {"unit": "oz", "value": "7/2"}], "modifier": "chopped"}
+{"id": "charred-50", "input": "2 tsp ground turmeric", "name": "ground turmeric", "amounts": [{"unit": "tsp", "value": 2}]}

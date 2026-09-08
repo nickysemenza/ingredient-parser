@@ -4,13 +4,13 @@ impl IngredientParser {
     /// Postfix produce count-units: "1 medium garlic clove" -> name "garlic",
     /// amount `{clove:1}`, with leading descriptors ("medium") moved to the
     /// modifier. Only fires for the curated [`vocab::POSTFIX_PRODUCE_UNITS`]
-    /// pairs and only when the count is a plain whole number (or absent), so
+    /// pairs and only when the count is a count (or absent), so
     /// weights/volumes and idioms like "cinnamon stick" / "wood ear mushroom"
     /// are untouched.
     ///
     /// [`vocab::POSTFIX_PRODUCE_UNITS`]: crate::parser::vocab::POSTFIX_PRODUCE_UNITS
     pub(super) fn extract_postfix_produce_unit(&self, parsed: &mut ParsedIngredient) {
-        // The count must be a plain whole number (the default count unit) or
+        // The count must be a plain count (the default count unit) or
         // there must be no amount at all; a real volume/weight lead means the
         // trailing word isn't acting as the count unit.
         let whole_idx = parsed
@@ -31,16 +31,18 @@ impl IngredientParser {
                 // `suffix` is ASCII produce, so lowercasing preserved byte
                 // lengths and this offset is a valid char boundary in `name`.
                 let food_start = parsed.name.len() - suffix.len();
-                let count = whole_idx.map(|i| parsed.amounts[i].value()).unwrap_or(1.0);
-                let measure = Measure::new(unit_word, count);
+                let measure = whole_idx
+                    .map(|i| parsed.amounts[i].relabel_unit(unit_word))
+                    .unwrap_or_else(|| Measure::new(unit_word, 1.0));
                 match whole_idx {
                     Some(i) => parsed.amounts[i] = measure,
                     None => parsed.amounts.push(measure),
                 }
-                let prefix = parsed.name[..food_start].trim().to_string();
-                parsed.name = (*food).to_string();
-                if !prefix.is_empty() {
-                    parsed.modifier.insert(0, ModifierPart::Prep(prefix));
+                let food_end = food_start + food.len();
+                let unit_origins = parsed.remove_name(food_end..parsed.name.len());
+                parsed.measure_spans.extend(unit_origins);
+                if food_start > 0 {
+                    parsed.extract_name(0..food_start, ModifierKind::Prep);
                 }
                 return;
             }
@@ -57,7 +59,7 @@ impl IngredientParser {
     /// no-count "medium onion", and "2 cups large onion" are all untouched), the
     /// name begins with a [`vocab::SIZE_UNIT_WORDS`] token, and a head noun follows
     /// that isn't a connector or another size word (so the "medium or large …"
-    /// range — kept whole by [`split_word_alternative`] — is left alone). Runs after
+    /// range stays as authored text). Runs after
     /// [`Self::extract_postfix_produce_unit`] so a produce count unit ("1 medium
     /// garlic clove" -> `{clove:1}`) wins and this pass then skips it.
     ///
@@ -113,7 +115,8 @@ impl IngredientParser {
             other => other,
         };
         let m = &parsed.amounts[idx];
-        parsed.amounts[idx] = Measure::from_parts(unit_str, m.value(), m.upper_value());
-        parsed.name = rest.to_string();
+        parsed.amounts[idx] = m.relabel_unit(unit_str);
+        let origins = parsed.remove_name(0..size.len());
+        parsed.measure_spans.extend(origins);
     }
 }

@@ -1,44 +1,17 @@
-//! Parenthetical classification — the single "what is this paren?" primitive.
+//! Classify parenthetical content for structural resolution.
 //!
-//! Parenthetical handling is spread across the pipeline: `normalize` strips
-//! cross-references, note references, and minus-equivalence asides; it lifts
-//! descriptive asides and splits crossref+optional; the refine phase hoists
-//! measurement parentheticals as secondary amounts and recovers an alias paren
-//! back into the name. Each site historically carried its *own* predicate for
-//! recognizing the paren shape it cared about.
-//!
-//! This module centralizes the *classification* question — given the inner text
-//! of a top-level parenthetical, what kind is it? — while the *actions* (strip,
-//! lift, hoist, recover) stay at their existing sites. Where a normalize rewrite
-//! both classifies and strips in one `replace_all`, the regex **definition** now
-//! lives here as a shared `pub(crate)` static and normalize calls `replace_all`
-//! on it; the definition has one home even though the action stays put.
-//!
-//! ## Semantic caveats (why some sites keep local guards)
-//!
-//! The five sites do not all mean exactly the same thing by a given kind, so
-//! [`classify`] is a *shared reference ordering*, not a drop-in replacement for
-//! every site's control flow:
-//!
-//! - **`strip_minus_equivalence`** classifies as `MinusEquivalence` but then
-//!   applies an *extra* guard (only strip when a quantity remains elsewhere on
-//!   the line) — a whole-line-context test [`classify`] can't see from `inner`
-//!   alone. That guard stays at the site.
-//! - **`Amount`** here means "the inner text parses as a measurement list with a
-//!   simple remainder" — the same core test `segment::repairs` runs, minus its
-//!   distance-aside rejection and approximation-prefix stripping, which stay at
-//!   the site.
-//! - **`Descriptive`** mirrors `lift_inline_descriptive_paren`'s *inner* test
-//!   (temperature `°` or a number-adjacent distance token); the site keeps its
-//!   surrounding "name (aside) name" position guard.
-//! - **`Alias`** mirrors `recover_parenthetical_alias_from_modifier`'s inner
-//!   guard (no digits, no vulgar fractions); the site keeps its position and
-//!   head-noun logic.
+//! The segment resolver decides ownership using this classification and the
+//! surrounding ingredient: references are discarded, optional markers set a
+//! flag, measurements become amounts, and descriptive asides retain their source.
+//! Minus-equivalence asides are discarded only when a primary amount exists.
+//! Classification with no unit vocabulary skips measurement parsing, allowing
+//! the resolver to retain the parsed payload alongside the classification.
 
 use std::collections::HashSet;
 
 use crate::parser::token::matching_close_paren;
 use crate::parser::{MeasurementMode, MeasurementParser};
+use crate::unit::Measure;
 
 /// The kind of a single top-level parenthetical, judged from its inner text.
 ///
@@ -60,24 +33,19 @@ pub(crate) enum ParenKind {
     /// "(optional)" — an optionality marker.
     Optional,
     /// "(70° to 80°F)", "(¼ inch / 6 mm)" — a temperature/distance descriptor.
-    /// Mirrors `normalize::lift_inline_descriptive_paren`'s inner detection.
     Descriptive,
     /// "(about 2 cups)", "(120g)" — a measurement that can hoist as a secondary
     /// amount. Requires `units` to be `Some`; parses the inner as a measurement
     /// list. `None` units disables this check (yields a later kind).
     Amount,
     /// "(red)" in "purple (red) cabbage" — a bare alias with no digits or vulgar
-    /// fractions. Mirrors `segment::repairs`'s inner-content guard.
+    /// fractions. Position determines whether it qualifies the name or modifier.
     Alias,
     /// None of the above.
     Other,
 }
 
-// --- Shared regex definitions -------------------------------------------------
-//
-// These are the classify-AND-strip regexes that `normalize` still calls
-// `replace_all` on. Their DEFINITIONS live here (one home) even though the
-// stripping action stays in normalize.
+// Parenthetical syntax shared by the classifiers below.
 
 /// Matches a cross-reference parenthetical whose content is entirely page
 /// references and their connectors. See [`ParenKind::CrossReference`].
@@ -114,7 +82,7 @@ pub(crate) static MINUS_PAREN: std::sync::LazyLock<regex::Regex> = std::sync::La
     regex::Regex::new(r"\s*\([^)]*\bminus\b[^)]*\)").expect("invalid minus-paren regex")
 });
 
-// --- Inner-content predicates (shared with normalize/refine site guards) ------
+// --- Inner-content predicates ------------------------------------------------
 
 /// The inner is *entirely* a cross-reference (page refs + connectors). Anchored
 /// so the whole inner must match, mirroring `strip_cross_reference`'s scope: a
@@ -145,10 +113,11 @@ pub(crate) fn is_minus_equivalence(inner: &str) -> bool {
 /// The inner is exactly "optional" (case-insensitive).
 pub(crate) fn is_optional(inner: &str) -> bool {
     inner.trim().eq_ignore_ascii_case("optional")
+        || CROSS_REF_OPTIONAL.is_match(&format!("({inner})"))
 }
 
 /// The inner is a *descriptive* aside — a temperature (`°`) or a distance-unit
-/// token. Mirrors the inner detection in `normalize::lift_inline_descriptive_paren`
+/// token.
 /// (the ambiguous "in"/"m" bases count only when number-adjacent).
 pub(crate) fn is_descriptive(inner: &str) -> bool {
     if inner.contains('°') {
@@ -186,51 +155,42 @@ pub(crate) fn is_descriptive(inner: &str) -> bool {
     false
 }
 
-/// The inner parses as a measurement list with a simple remainder — the core
-/// test `segment::repairs` runs before hoisting a secondary amount. Strips a
-/// leading approximation word ("about"/"approximately"/…) as that site does.
-/// A distance-only aside ("(about 3-inch)") still classifies as `Amount` here;
-/// the refine site separately rejects those, since the whole-parse context is
-/// what makes them shape rather than quantity.
-pub(crate) fn is_amount(inner: &str, units: &HashSet<String>) -> bool {
-    let text = strip_approximation_prefix(inner.trim());
-    let mp = MeasurementParser::new(units, MeasurementMode::IngredientList);
-    let Ok((remaining, measures)) = mp.parse_measurement_list(text) else {
-        return false;
+/// Parse a parenthetical's amount payload once. Explicit quantities and
+/// approximation qualifiers are supported; source/yield descriptions are not.
+pub(crate) fn amounts(inner: &str, units: &std::collections::HashSet<String>) -> Vec<Measure> {
+    let mut text = inner.trim();
+    for prefix in ["about ", "approximately ", "roughly ", "around "] {
+        if text
+            .get(..prefix.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+        {
+            text = text[prefix.len()..].trim_start();
+        }
+    }
+    if !(text
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c))
+        || crate::parser::text_number(text).is_ok())
+    {
+        return Vec::new();
+    }
+    let parser = MeasurementParser::new(units, MeasurementMode::IngredientList);
+    let Ok((remaining, measures)) = parser.parse_measurement_list(text) else {
+        return Vec::new();
     };
-    if measures.is_empty() {
-        return false;
+    let remaining = remaining.trim();
+    if remaining.is_empty()
+        || remaining.eq_ignore_ascii_case("in total")
+        || (remaining.split_whitespace().count() == 1 && remaining.chars().all(char::is_alphabetic))
+    {
+        measures
+    } else {
+        Vec::new()
     }
-    let remaining_trimmed = remaining.trim();
-    remaining_trimmed.is_empty()
-        || (remaining_trimmed.split_whitespace().count() == 1
-            && remaining_trimmed.chars().all(char::is_alphabetic))
-}
-
-/// Strip a leading approximation word so "(about 2 cups)" measures as "2 cups".
-fn strip_approximation_prefix(text: &str) -> &str {
-    for prefix in ["about ", "approximately ", "roughly ", "around ", "from "] {
-        if let Some(rest) = text
-            .strip_prefix(prefix)
-            .or_else(|| text.strip_prefix(&prefix.to_uppercase()))
-        {
-            return rest.trim_start();
-        }
-        // Case-insensitive check without allocating for the common lowercase case.
-        // The boundary guard matters: `prefix.len()` may fall inside a multibyte
-        // char ("丌下r…"), and slicing there panics.
-        if text.len() >= prefix.len()
-            && text.is_char_boundary(prefix.len())
-            && text[..prefix.len()].eq_ignore_ascii_case(prefix)
-        {
-            return text[prefix.len()..].trim_start();
-        }
-    }
-    text
 }
 
 /// The inner is a bare alias — non-empty, no digits, no vulgar fractions.
-/// Mirrors `segment::repairs::recover_parenthetical_alias_from_modifier`'s guard.
 pub(crate) fn is_alias(inner: &str) -> bool {
     let inner = inner.trim();
     !inner.is_empty()
@@ -263,7 +223,7 @@ pub(crate) fn classify(inner: &str, units: Option<&HashSet<String>>) -> ParenKin
         return ParenKind::Descriptive;
     }
     if let Some(units) = units
-        && is_amount(inner, units)
+        && !amounts(inner, units).is_empty()
     {
         return ParenKind::Amount;
     }

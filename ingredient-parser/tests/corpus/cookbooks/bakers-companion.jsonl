@@ -1,0 +1,50 @@
+{"id": "bakers-companion-01", "input": "½ teaspoon salt", "name": "salt", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "bakers-companion-02", "input": "1 1/3 cups (301g) buttermilk", "name": "buttermilk", "amounts": [{"unit": "cup", "value": "4/3"}, {"unit": "g", "value": 301}]}
+{"id": "bakers-companion-03", "input": "3 large (½ cup, 113g) egg whites, at room temperature", "name": "egg whites", "amounts": [{"unit": "large", "value": 3}, {"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 113}], "modifier": "at room temperature"}
+{"id": "bakers-companion-04", "input": "2½ cups (300g) unbleached all-purpose flour or unbleached pastry flour", "name": "unbleached all-purpose flour or unbleached pastry flour", "amounts": [{"unit": "cup", "value": "5/2"}, {"unit": "g", "value": 300}]}
+{"id": "bakers-companion-05", "input": "6 tablespoons (84g) sour cream or yogurt", "name": "sour cream or yogurt", "amounts": [{"unit": "tbsp", "value": 6}, {"unit": "g", "value": 84}]}
+{"id": "bakers-companion-06", "input": "¼ cup (46g) potato flour or ½ cup (46g) dried potato flakes", "name": "potato flour", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "g", "value": 46}], "modifier": "or ½ cup (46g) dried potato flakes"}
+{"id": "bakers-companion-07", "input": "1 teaspoon paprika", "name": "paprika", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "bakers-companion-08", "input": "2/3 cup (131g) granulated sugar", "name": "granulated sugar", "amounts": [{"unit": "cup", "value": "2/3"}, {"unit": "g", "value": 131}]}
+{"id": "bakers-companion-09", "input": "1 tablespoon (12g) granulated sugar", "name": "granulated sugar", "amounts": [{"unit": "tbsp", "value": 1}, {"unit": "g", "value": 12}]}
+{"id": "bakers-companion-10", "input": "½ cup (113g) yogurt or sour cream", "name": "yogurt or sour cream", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 113}]}
+{"id": "bakers-companion-11", "input": "1 teaspoon dried basil", "name": "dried basil", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "bakers-companion-12", "input": "zest of 3 lemons", "name": "lemons", "amounts": [{"unit": "whole", "value": 3}], "modifier": "zest of"}
+{"id": "bakers-companion-13", "input": "¼ cup plus 1 tablespoon (35g) coconut milk powder", "name": "coconut milk powder", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "tbsp", "value": 1}, {"unit": "g", "value": 35}]}
+{"id": "bakers-companion-14", "input": "8 tablespoons (1 stick, 113g) unsalted butter, at room temperature (at least 65°F)", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 8}, {"unit": "stick", "value": 1}, {"unit": "g", "value": 113}], "modifier": "at room temperature (at least 65°F)"}
+{"id": "bakers-companion-15", "input": "4 large eggs, separated", "name": "eggs", "amounts": [{"unit": "large", "value": 4}], "modifier": "separated"}
+{"id": "bakers-companion-16", "input": "¾ cup (63g) Dutch-process cocoa or black cocoa", "name": "Dutch-process cocoa or black cocoa", "amounts": [{"unit": "cup", "value": "3/4"}, {"unit": "g", "value": 63}]}
+{"id": "bakers-companion-17", "input": "½ teaspoon chipotle powder", "name": "chipotle powder", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "bakers-companion-18", "input": "1 cup (227g) boiling water", "name": "boiling water", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 227}]}
+{"id": "bakers-companion-19", "input": "½ cup (57g) chopped walnuts or pecans (optional)", "name": "walnuts or pecans", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 57}], "modifier": "chopped", "optional": true}
+{"id": "bakers-companion-20", "input": "½ cup (57g) chopped walnuts or almonds", "name": "walnuts or almonds", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 57}], "modifier": "chopped"}
+{"id": "bakers-companion-21", "input": "6 to 10 tablespoons (85g to 142g) ice water", "name": "ice water", "amounts": [{"unit": "tbsp", "value": 6, "upper_value": 10}, {"unit": "g", "value": 85, "upper_value": 142}]}
+{"id": "bakers-companion-22", "input": "3 large eggs, at room temperature", "name": "eggs", "amounts": [{"unit": "large", "value": 3}], "modifier": "at room temperature"}
+{"id": "bakers-companion-23", "input": "2 tablespoons (28g) butter, softened", "name": "butter", "amounts": [{"unit": "tbsp", "value": 2}, {"unit": "g", "value": 28}], "modifier": "softened"}
+{"id": "bakers-companion-24", "input": "1½ cups (150g) grated Parmesan cheese", "name": "Parmesan cheese", "amounts": [{"unit": "cup", "value": "3/2"}, {"unit": "g", "value": 150}], "modifier": "grated"}
+{"id": "bakers-companion-25", "input": "¾ cup (170g) fresh lemon juice (from about 3 lemons)", "name": "lemon juice", "amounts": [{"unit": "cup", "value": "3/4"}, {"unit": "g", "value": 170}], "modifier": "fresh, from about 3 lemons"}
+{"id": "bakers-companion-26", "input": "1 large egg beaten with a pinch of salt until well combined", "name": "egg", "amounts": [{"unit": "large", "value": 1}], "modifier": "beaten with a pinch of salt until well combined"}
+{"id": "bakers-companion-27", "input": "6 large eggs", "name": "eggs", "amounts": [{"unit": "large", "value": 6}]}
+{"id": "bakers-companion-28", "input": "½ cup (56g) rye flour", "name": "rye flour", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 56}]}
+{"id": "bakers-companion-29", "input": "1 tablespoon (14g) butter", "name": "butter", "amounts": [{"unit": "tbsp", "value": 1}, {"unit": "g", "value": 14}]}
+{"id": "bakers-companion-30", "input": "½ cup (112g) sour cream", "name": "sour cream", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 112}]}
+{"id": "bakers-companion-31", "input": "4 tablespoons (½ stick, 57g) butter or ¼ cup vegetable oil (50g)", "name": "butter", "amounts": [{"unit": "tbsp", "value": 4}, {"unit": "stick", "value": "1/2"}, {"unit": "g", "value": 57}], "modifier": "or ¼ cup vegetable oil (50g)"}
+{"id": "bakers-companion-32", "input": "¾ cup (71g) almond flour", "name": "almond flour", "amounts": [{"unit": "cup", "value": "3/4"}, {"unit": "g", "value": 71}]}
+{"id": "bakers-companion-33", "input": "½ recipe Classic Puff Pastry (page 422)", "name": "Classic Puff Pastry", "amounts": [{"unit": "recipe", "value": "1/2"}]}
+{"id": "bakers-companion-34", "input": "5 cups (12 to 13 peaches, 4 to 4½ pounds, 1.81 to 2.04kg) peeled, sliced peaches", "name": "peaches", "amounts": [{"unit": "cup", "value": 5}, {"unit": "whole", "value": 12, "upper_value": 13}, {"unit": "lb", "value": 4, "upper_value": "9/2"}, {"unit": "kg", "value": "181/100", "upper_value": "51/25"}], "modifier": "peeled, sliced"}
+{"id": "bakers-companion-35", "input": "6 tablespoons (112g) golden syrup, maple syrup, or dark corn syrup", "name": "golden syrup, maple syrup, or dark corn syrup", "amounts": [{"unit": "tbsp", "value": 6}, {"unit": "g", "value": 112}]}
+{"id": "bakers-companion-36", "input": "¼ cup (25g) grated Parmesan cheese", "name": "Parmesan cheese", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "g", "value": 25}], "modifier": "grated"}
+{"id": "bakers-companion-37", "input": "1 tablespoon (16g) salt", "name": "salt", "amounts": [{"unit": "tbsp", "value": 1}, {"unit": "g", "value": 16}]}
+{"id": "bakers-companion-38", "input": "2/3 cup (152g) pumpkin purée", "name": "pumpkin purée", "amounts": [{"unit": "cup", "value": "2/3"}, {"unit": "g", "value": 152}]}
+{"id": "bakers-companion-39", "input": "1 cup (227g) water, cold", "name": "water", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 227}], "modifier": "cold"}
+{"id": "bakers-companion-40", "input": "paprika (optional)", "name": "paprika", "amounts": [], "optional": true}
+{"id": "bakers-companion-41", "input": "3 to 4 cups fresh fruit (large fruits sliced; berries left whole)", "name": "fruit", "amounts": [{"unit": "cup", "value": 3, "upper_value": 4}], "modifier": "fresh, large fruits sliced; berries left whole"}
+{"id": "bakers-companion-42", "input": "1 tablespoon (11g) olive oil", "name": "olive oil", "amounts": [{"unit": "tbsp", "value": 1}, {"unit": "g", "value": 11}]}
+{"id": "bakers-companion-43", "input": "4 tablespoons (½ stick, 56g) unsalted butter, melted", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 4}, {"unit": "stick", "value": "1/2"}, {"unit": "g", "value": 56}], "modifier": "melted"}
+{"id": "bakers-companion-44", "input": "½ cup (85g) chocolate chips or mini chips", "name": "chocolate chips or mini chips", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 85}]}
+{"id": "bakers-companion-45", "input": "2 tablespoons (14g) butter, softened", "name": "butter", "amounts": [{"unit": "tbsp", "value": 2}, {"unit": "g", "value": 14}], "modifier": "softened"}
+{"id": "bakers-companion-46", "input": "1 cup (182g) vegetable shortening", "name": "vegetable shortening", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 182}]}
+{"id": "bakers-companion-47", "input": "2 tablespoons (11g) unsweetened cocoa", "name": "unsweetened cocoa", "amounts": [{"unit": "tbsp", "value": 2}, {"unit": "g", "value": 11}]}
+{"id": "bakers-companion-48", "input": "½ cup (91g) vegetable shortening", "name": "vegetable shortening", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 91}]}
+{"id": "bakers-companion-49", "input": "1 to 1¼ cups (227g to 284g) water", "name": "water", "amounts": [{"unit": "cup", "value": 1, "upper_value": "5/4"}, {"unit": "g", "value": 227, "upper_value": 284}]}
+{"id": "bakers-companion-50", "input": "½ teaspoon instant yeast", "name": "instant yeast", "amounts": [{"unit": "tsp", "value": "1/2"}]}

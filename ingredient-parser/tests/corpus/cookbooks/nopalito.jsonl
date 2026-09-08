@@ -1,0 +1,50 @@
+{"id": "nopalito-01", "input": "¾ pound (12 ounces) cold pork fat, cut into small (½-inch) cubes", "name": "cold pork fat", "amounts": [{"unit": "lb", "value": "3/4"}, {"unit": "oz", "value": 12}], "modifier": "cut into small (½-inch) cubes"}
+{"id": "nopalito-02", "input": "¼ white onion, thinly sliced", "name": "white onion", "amounts": [{"unit": "whole", "value": "1/4"}], "modifier": "thinly sliced"}
+{"id": "nopalito-03", "input": "2 cups small cherry tomatoes, halved, or chopped heirloom tomatoes", "name": "small cherry tomatoes", "amounts": [{"unit": "cup", "value": 2}], "modifier": "halved, or chopped heirloom tomatoes"}
+{"id": "nopalito-04", "input": "Salt, as needed", "name": "Salt", "amounts": [], "modifier": "as needed"}
+{"id": "nopalito-05", "input": "1 cup diced bacon", "name": "bacon", "amounts": [{"unit": "cup", "value": 1}], "modifier": "diced"}
+{"id": "nopalito-06", "input": "2 cups (16 ounces) canned diced tomatoes and their juices", "name": "canned tomatoes and their juices", "amounts": [{"unit": "cup", "value": 2}, {"unit": "oz", "value": 16}], "modifier": "diced"}
+{"id": "nopalito-07", "input": "Fresh cilantro leaves", "name": "cilantro leaves", "amounts": [], "modifier": "Fresh"}
+{"id": "nopalito-08", "input": "12 medium dried árbol chiles, stemmed and seeded", "name": "dried árbol chiles", "amounts": [{"unit": "medium", "value": 12}], "modifier": "stemmed and seeded"}
+{"id": "nopalito-09", "input": "¼ cup dried pequin chiles, stemmed", "name": "dried pequin chiles", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "stemmed"}
+{"id": "nopalito-10", "input": "6 cloves garlic, peeled", "name": "garlic", "amounts": [{"unit": "clove", "value": 6}], "modifier": "peeled"}
+{"id": "nopalito-11", "input": "1 to 2 medium jalapeños, stemmed and finely chopped", "name": "jalapeños", "amounts": [{"unit": "medium", "value": 1, "upper_value": 2}], "modifier": "stemmed and finely chopped"}
+{"id": "nopalito-12", "input": "1 cup Escabeche Rojo", "name": "Escabeche Rojo", "amounts": [{"unit": "cup", "value": 1}]}
+{"id": "nopalito-13", "input": "¾ cup whole milk", "name": "whole milk", "amounts": [{"unit": "cup", "value": "3/4"}]}
+{"id": "nopalito-14", "input": "1½ cups (1 pound) crumbled Chorizo Oaxaqueño or store-bought Mexican chorizo, casings removed", "name": "crumbled Chorizo Oaxaqueño or store-bought Mexican chorizo", "amounts": [{"unit": "cup", "value": "3/2"}, {"unit": "lb", "value": 1}], "modifier": "casings removed"}
+{"id": "nopalito-15", "input": "12 cups (¾ gallon) organic whole milk", "name": "organic whole milk", "amounts": [{"unit": "cup", "value": 12}, {"unit": "gallon", "value": "3/4"}]}
+{"id": "nopalito-16", "input": "2 medium (8-ounce) cones piloncillo or 1 cup brown sugar", "name": "piloncillo", "amounts": [{"unit": "cone", "value": 2}, {"unit": "oz", "value": 8}], "modifier": "medium, or 1 cup brown sugar"}
+{"id": "nopalito-17", "input": "1½ teaspoons freshly ground black pepper", "name": "black pepper", "amounts": [{"unit": "tsp", "value": "3/2"}], "modifier": "freshly ground"}
+{"id": "nopalito-18", "input": "¼ teaspoon kosher salt, plus more for seasoning", "name": "kosher salt", "amounts": [{"unit": "tsp", "value": "1/4"}], "modifier": "plus more for seasoning"}
+{"id": "nopalito-19", "input": "¼ cup distilled white vinegar", "name": "distilled white vinegar", "amounts": [{"unit": "cup", "value": "1/4"}]}
+{"id": "nopalito-20", "input": "½ small white onion, finely diced", "name": "white onion", "amounts": [{"unit": "small", "value": "1/2"}], "modifier": "finely diced"}
+{"id": "nopalito-21", "input": "5 bay leaves", "name": "bay leaves", "amounts": [{"unit": "whole", "value": 5}]}
+{"id": "nopalito-22", "input": "1 jalapeño, thinly sliced", "name": "jalapeño", "amounts": [{"unit": "whole", "value": 1}], "modifier": "thinly sliced"}
+{"id": "nopalito-23", "input": "Chicharrónes (recipe follows; optional)", "name": "Chicharrónes", "amounts": [], "modifier": "recipe follows", "optional": true}
+{"id": "nopalito-24", "input": "5 very ripe avocados, pitted and peeled", "name": "very ripe avocados", "amounts": [{"unit": "whole", "value": 5}], "modifier": "pitted and peeled"}
+{"id": "nopalito-25", "input": "16 to 20 warm homemade soft corn tortillas (see this page) or store-bought soft corn tortillas (optional)", "name": "homemade soft corn tortillas or store-bought soft corn tortillas", "amounts": [{"unit": "whole", "value": 16, "upper_value": 20}], "modifier": "warm", "optional": true}
+{"id": "nopalito-26", "input": "2 ounces mezcal, such as Del Maguey Vida brand", "name": "mezcal", "amounts": [{"unit": "oz", "value": 2}], "modifier": "such as Del Maguey Vida brand"}
+{"id": "nopalito-27", "input": "2 teaspoons freshly squeezed lime juice", "name": "lime juice", "amounts": [{"unit": "tsp", "value": 2}], "modifier": "freshly squeezed"}
+{"id": "nopalito-28", "input": "3 Chipotles Adobados or 3 canned chipotle chiles in adobo", "name": "Chipotles Adobados", "amounts": [{"unit": "whole", "value": 3}], "modifier": "or 3 canned chipotle chiles in adobo"}
+{"id": "nopalito-29", "input": "1½ cups (12 ounces) shredded Oaxacan cheese or Jack cheese", "name": "Oaxacan cheese or Jack cheese", "amounts": [{"unit": "cup", "value": "3/2"}, {"unit": "oz", "value": 12}], "modifier": "shredded"}
+{"id": "nopalito-30", "input": "3 cups (6 sticks) unsalted butter, softened", "name": "unsalted butter", "amounts": [{"unit": "cup", "value": 3}, {"unit": "stick", "value": 6}], "modifier": "softened"}
+{"id": "nopalito-31", "input": "½ cup Campari", "name": "Campari", "amounts": [{"unit": "cup", "value": "1/2"}]}
+{"id": "nopalito-32", "input": "1 cup (8 ounces) Frijoles Pinquitos Refritos or good-quality store-bought refried pinto beans", "name": "Frijoles Pinquitos Refritos or good-quality store-bought refried pinto beans", "amounts": [{"unit": "cup", "value": 1}, {"unit": "oz", "value": 8}]}
+{"id": "nopalito-33", "input": "1½ firm-ripe avocados", "name": "firm-ripe avocados", "amounts": [{"unit": "whole", "value": "3/2"}]}
+{"id": "nopalito-34", "input": "4 cups all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 4}]}
+{"id": "nopalito-35", "input": "Warm tostadas, tortillas, or tortilla chips (optional)", "name": "tostadas, tortillas, or tortilla chips", "amounts": [], "modifier": "Warm", "optional": true}
+{"id": "nopalito-36", "input": "1½ cups (12 ounces) Frijoles Pinquitos Refritos or store-bought refried pinto beans, warmed", "name": "Frijoles Pinquitos Refritos or store-bought refried pinto beans", "amounts": [{"unit": "cup", "value": "3/2"}, {"unit": "oz", "value": 12}], "modifier": "warmed"}
+{"id": "nopalito-37", "input": "Crumbled queso fresco", "name": "Crumbled queso fresco", "amounts": []}
+{"id": "nopalito-38", "input": "2 ounces blanco tequila, such as Pueblo Viejo brand", "name": "blanco tequila", "amounts": [{"unit": "oz", "value": 2}], "modifier": "such as Pueblo Viejo brand"}
+{"id": "nopalito-39", "input": "1 tablespoon kosher salt, plus more as needed", "name": "kosher salt", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "plus more as needed"}
+{"id": "nopalito-40", "input": "1 medium zucchini, finely diced", "name": "zucchini", "amounts": [{"unit": "medium", "value": 1}], "modifier": "finely diced"}
+{"id": "nopalito-41", "input": "4 dried cascabel chiles, seeded", "name": "dried cascabel chiles", "amounts": [{"unit": "whole", "value": 4}], "modifier": "seeded"}
+{"id": "nopalito-42", "input": "¾ teaspoon ground cumin", "name": "ground cumin", "amounts": [{"unit": "tsp", "value": "3/4"}]}
+{"id": "nopalito-43", "input": "Ground cinnamon (preferably freshly ground), to garnish", "name": "Ground cinnamon", "amounts": [], "modifier": "preferably freshly ground, to garnish", "usage": "garnish"}
+{"id": "nopalito-44", "input": "2 tablespoons Nopalito Spices (optional) or store-bought chili powder", "name": "Nopalito Spices or store-bought chili powder", "amounts": [{"unit": "tbsp", "value": 2}], "optional": true}
+{"id": "nopalito-45", "input": "1 cinnamon stick, preferably Mexican", "name": "cinnamon stick", "amounts": [{"unit": "whole", "value": 1}], "modifier": "preferably Mexican"}
+{"id": "nopalito-46", "input": "2 tablespoons Adobo Paste (recipe follows)", "name": "Adobo Paste", "amounts": [{"unit": "tbsp", "value": 2}], "modifier": "recipe follows"}
+{"id": "nopalito-47", "input": "1½ chiles de arból, seeded", "name": "chiles de arból", "amounts": [{"unit": "whole", "value": "3/2"}], "modifier": "seeded"}
+{"id": "nopalito-48", "input": "¼ cup apple cider vinegar", "name": "apple cider vinegar", "amounts": [{"unit": "cup", "value": "1/4"}]}
+{"id": "nopalito-49", "input": "½ cup diced white onion (from about ½ medium onion)", "name": "white onion", "amounts": [{"unit": "cup", "value": "1/2"}], "modifier": "diced, from about ½ medium onion"}
+{"id": "nopalito-50", "input": "¼ red onion, thinly sliced", "name": "red onion", "amounts": [{"unit": "whole", "value": "1/4"}], "modifier": "thinly sliced"}

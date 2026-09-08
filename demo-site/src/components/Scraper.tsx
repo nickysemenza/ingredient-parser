@@ -7,7 +7,6 @@ import { CORS_PROXY, DEFAULT_SCRAPE_URL, SCALE_OPTIONS } from "../config";
 import {
   fmtAmount,
   formatRichText,
-  safeParseRichText,
   scaleAmount,
 } from "../lib/format";
 import { FOCUS_RING } from "./ui";
@@ -53,18 +52,9 @@ export const Scraper: React.FC = () => {
       }`
     : null;
 
-  const parsedIngredients = useMemo(
-    () =>
-      scrapedRecipe
-        ? scrapedRecipe.sections
-            .flatMap((s) => s.ingredients)
-            .map((i) => wasm.parse_ingredient(i))
-        : [],
+  const parsedRecipe = useMemo(
+    () => scrapedRecipe ? wasm.parse_recipe(scrapedRecipe) : undefined,
     [scrapedRecipe]
-  );
-  const ingredientNames = useMemo(
-    () => parsedIngredients.map((p) => p.name),
-    [parsedIngredients]
   );
 
   return (
@@ -185,28 +175,33 @@ export const Scraper: React.FC = () => {
                 Ingredients
               </h4>
               <div className="space-y-2.5">
-                {parsedIngredients.map((p, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between gap-4 rounded-xl bg-zinc-50 px-4 py-3 transition hover:bg-zinc-100"
-                  >
-                    <div className="flex-1">
-                      <div className="font-semibold text-zinc-800 underline decoration-accent-400 decoration-2 underline-offset-2">
-                        {p.name}
-                      </div>
-                      {p.modifier && (
-                        <div className="mt-1 text-sm italic text-zinc-500">
-                          {p.modifier}
+                {parsedRecipe?.sections.map((section, sectionIndex) => (
+                  <div key={sectionIndex}>
+                    {section.name && <h5 className="mb-2 font-semibold">{section.name}</h5>}
+                    {section.ingredients.map((p, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between gap-4 rounded-xl bg-zinc-50 px-4 py-3 transition hover:bg-zinc-100"
+                      >
+                        <div className="flex-1">
+                          <div className="font-semibold text-zinc-800 underline decoration-accent-400 decoration-2 underline-offset-2">
+                            {p.name}
+                          </div>
+                          {p.modifier && (
+                            <div className="mt-1 text-sm italic text-zinc-500">
+                              {p.modifier}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <div className="text-right font-medium text-accent-700">
-                      {p.amounts
-                        .filter((a) => a.unit !== "$" && a.unit !== "kcal")
-                        .map((a) => scaleAmount(a, scaleFactor))
-                        .map((a) => fmtAmount(a))
-                        .join(" / ")}
-                    </div>
+                        <div className="text-right font-medium text-accent-700">
+                          {p.amounts
+                            .filter((a) => a.unit !== "$" && a.unit !== "kcal")
+                            .map((a) => scaleAmount(a, scaleFactor))
+                            .map((a) => fmtAmount(a))
+                            .join(" / ")}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -217,24 +212,32 @@ export const Scraper: React.FC = () => {
                 Instructions
               </h4>
               <ol className="space-y-3">
-                {scrapedRecipe.sections
-                  .flatMap((s) => s.instructions)
-                  .map((instruction, index) => (
-                    <li
-                      key={index}
-                      className="flex items-start gap-4 rounded-xl bg-zinc-50 p-4 transition hover:bg-zinc-100"
-                    >
-                      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent-600 text-sm font-bold text-white">
-                        {index + 1}
-                      </div>
-                      <div className="flex-1 leading-relaxed text-zinc-700">
-                        {formatRichText(
-                          safeParseRichText(instruction, ingredientNames)
-                        )}
-                      </div>
-                    </li>
-                  ))}
+                {parsedRecipe?.sections.map((section, sectionIndex) => (
+                  <li key={sectionIndex}>
+                    {section.name && <h5 className="mb-2 font-semibold">{section.name}</h5>}
+                    <ol className="space-y-3">
+                      {section.instructions.map((instruction, index) => (
+                        <li
+                          key={index}
+                          className="flex items-start gap-4 rounded-xl bg-zinc-50 p-4 transition hover:bg-zinc-100"
+                        >
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent-600 text-sm font-bold text-white">
+                            {index + 1}
+                          </div>
+                          <div className="flex-1 leading-relaxed text-zinc-700">
+                            {formatRichText(instruction, scaleFactor)}
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </li>
+                ))}
               </ol>
+              {parsedRecipe?.instruction_diagnostics.map((diagnostic, index) => (
+                <p key={index} role="status" className="mt-2 text-sm text-amber-800">
+                  Instruction {diagnostic.instruction + 1} retained as original text: {diagnostic.message}
+                </p>
+              ))}
             </div>
           </div>
         </>

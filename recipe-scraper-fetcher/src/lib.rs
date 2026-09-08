@@ -16,22 +16,43 @@ mod http_utils;
 
 #[derive(Debug)]
 pub struct Fetcher {
-    client: reqwest_middleware::ClientWithMiddleware,
+    client: Result<reqwest_middleware::ClientWithMiddleware, String>,
     cache: Option<HashMap<String, String>>,
 }
 impl Fetcher {
+    /// Construct while retaining transport initialization failures for a
+    /// cache miss by `scrape_url`. Use `try_new` to detect them immediately.
     pub fn new() -> Self {
         Fetcher {
-            client: http_utils::http_client(),
+            client: http_utils::http_client().map_err(|error| error.to_string()),
             cache: None,
         }
     }
+    /// Cached reads remain available even if network initialization fails.
     pub fn new_with_cache(m: HashMap<String, String>) -> Self {
         Fetcher {
-            client: http_utils::http_client(),
+            client: http_utils::http_client().map_err(|error| error.to_string()),
             cache: Some(m),
         }
     }
+    /// Construct eagerly, returning TLS/resolver initialization errors.
+    pub fn try_new() -> Result<Self, ScrapeError> {
+        Self::try_new_with_cache(HashMap::new()).map(|mut fetcher| {
+            fetcher.cache = None;
+            fetcher
+        })
+    }
+
+    /// Construct a cache-backed fetcher and validate its network transport.
+    pub fn try_new_with_cache(cache: HashMap<String, String>) -> Result<Self, ScrapeError> {
+        Ok(Self {
+            client: Ok(
+                http_utils::http_client().map_err(|error| ScrapeError::Http(error.to_string()))?
+            ),
+            cache: Some(cache),
+        })
+    }
+
     #[tracing::instrument(name = "scrape_url", skip(self))]
     pub async fn scrape_url(
         &self,
@@ -49,8 +70,11 @@ impl Fetcher {
             return Ok(cached.to_string());
         }
 
-        let r = match self
+        let client = self
             .client
+            .as_ref()
+            .map_err(|error| ScrapeError::Http(error.clone()))?;
+        let r = match client
             .get(url)
             // A bare "recipe" UA gets blocked by many sites; use a descriptive,
             // browser-prefixed bot UA that real recipe sites generally accept.
@@ -123,6 +147,19 @@ mod tests {
             .unwrap(),
             "foo"
         );
+    }
+
+    #[tokio::test]
+    async fn construction_failure_is_returned_and_cached_reads_still_work() {
+        let fetcher = Fetcher {
+            client: Err("TLS initialization failed".to_string()),
+            cache: Some(HashMap::from([("cached".to_string(), "body".to_string())])),
+        };
+        assert_eq!(fetcher.fetch_html("cached").await.unwrap(), "body");
+        assert!(
+            matches!(fetcher.fetch_html("uncached").await, Err(ScrapeError::Http(message)) if message == "TLS initialization failed")
+        );
+        assert!(Fetcher::try_new().is_ok());
     }
 
     #[test]

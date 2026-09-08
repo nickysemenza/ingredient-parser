@@ -44,7 +44,8 @@ _Avoid_: multipliable, adjustable
 
 **Parse notes**:
 Diagnostics describing how much to trust a parse — whether it fell back to a name-only
-result, and whether a digit in the source produced no measure.
+result, and whether a quantity remains unresolved without a Measure (digits in Name
+or an unsupported quantity expression).
 _Avoid_: warnings, errors, flags
 
 ### The pipeline
@@ -60,7 +61,7 @@ _Avoid_: fragment, part, chunk (reserved for EPUB text)
 
 **Pass**:
 A single named transformation inside a stage, applied in a defined order relative to its
-siblings. A pass that runs during assembly is a **repair**.
+siblings.
 _Avoid_: rule, transform, handler
 
 **Decomposition**:

@@ -106,6 +106,34 @@ pub async fn extract_cookbook_detailed_with_progress(
     opts: &Options,
     progress: impl Fn(ExtractProgress) + Send + Sync,
 ) -> Result<(Vec<CookbookRecipe>, ExtractionAccounting), EpubError> {
+    let result = extract_cookbook_report_with_progress(bytes, source, opts, progress).await?;
+    Ok((result.report.recipes, result.accounting))
+}
+
+/// Native extraction retains the complete ordered chunk report, including
+/// failures, recovered failures, truncations, usage, and model accounting.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CookbookExtractionReport {
+    pub report: crate::ExtractionReport,
+    pub accounting: ExtractionAccounting,
+}
+
+/// Extract a cookbook without discarding detailed failure evidence.
+pub async fn extract_cookbook_report(
+    bytes: &[u8],
+    source: &str,
+    opts: &Options,
+) -> Result<CookbookExtractionReport, EpubError> {
+    extract_cookbook_report_with_progress(bytes, source, opts, |_| {}).await
+}
+
+/// Full native extraction report with the existing progress callback contract.
+pub async fn extract_cookbook_report_with_progress(
+    bytes: &[u8],
+    source: &str,
+    opts: &Options,
+    progress: impl Fn(ExtractProgress) + Send + Sync,
+) -> Result<CookbookExtractionReport, EpubError> {
     let extractor = Backend::from_env(opts, source)?;
     // Build the escalation backend once (a different, usually stronger model),
     // skipped when unset or identical to the primary. Deliberately uncached: it
@@ -128,7 +156,7 @@ pub async fn extract_cookbook_detailed_with_progress(
             dir: opts.cache_dir.clone().unwrap_or_else(cache::default_dir),
             model: extractor.model().to_string(),
         };
-        extract_cookbook_with_stats(
+        extract_cookbook_with_report(
             bytes,
             source,
             opts,
@@ -138,7 +166,7 @@ pub async fn extract_cookbook_detailed_with_progress(
         )
         .await
     } else {
-        extract_cookbook_with_stats(
+        extract_cookbook_with_report(
             bytes,
             source,
             opts,
@@ -269,6 +297,19 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor, F: RecipeExtractor>(
     escalation: Option<&F>,
     progress: &(impl Fn(ExtractProgress) + Send + Sync),
 ) -> Result<(Vec<CookbookRecipe>, ExtractionAccounting), EpubError> {
+    let result =
+        extract_cookbook_with_report(bytes, source, opts, extractor, escalation, progress).await?;
+    Ok((result.report.recipes, result.accounting))
+}
+
+async fn extract_cookbook_with_report<E: RecipeExtractor, F: RecipeExtractor>(
+    bytes: &[u8],
+    source: &str,
+    opts: &Options,
+    extractor: &E,
+    escalation: Option<&F>,
+    progress: &(impl Fn(ExtractProgress) + Send + Sync),
+) -> Result<CookbookExtractionReport, EpubError> {
     let chunks = chunk_epub(bytes)?;
     let total = chunks.len();
     tracing::info!("epub {source}: {total} chunk(s)");
@@ -329,13 +370,15 @@ async fn extract_cookbook_with_stats<E: RecipeExtractor, F: RecipeExtractor>(
     }
 
     let stats = report.accounting(extractor.model(), escalation.map(RecipeExtractor::model));
-    let recipes = report.recipes;
     tracing::info!(
         "epub {source}: {} recipe(s); {}",
-        recipes.len(),
+        report.recipes.len(),
         stats.summary()
     );
-    Ok((recipes, stats))
+    Ok(CookbookExtractionReport {
+        report,
+        accounting: stats,
+    })
 }
 
 /// Wraps any extractor with the on-disk cache (see [`crate::cache`]).
@@ -1417,7 +1460,15 @@ mod tests {
                     ..Usage::default()
                 },
                 truncated: false,
-                attempts: Vec::new(),
+                attempts: vec![crate::FailedAttempt {
+                    attempt: 0,
+                    message: "failed".to_string(),
+                    usage: Usage {
+                        input_tokens: self.input_tokens,
+                        ..Usage::default()
+                    },
+                    truncated: false,
+                }],
             })
         }
     }
@@ -1525,7 +1576,7 @@ mod tests {
         #[case] truncated: bool,
     ) {
         let bytes = minimal_epub();
-        let (recipes, stats) = extract_cookbook_with_stats(
+        let result = extract_cookbook_with_report(
             &bytes,
             "book.epub",
             &Options::default(),
@@ -1539,7 +1590,18 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(recipes.is_empty());
+        assert!(result.report.recipes.is_empty());
+        assert_eq!(result.report.truncations.len(), usize::from(truncated));
+        assert_eq!(
+            result.report.chunks[0]
+                .primary_failure
+                .as_ref()
+                .unwrap()
+                .usage
+                .input_tokens,
+            11
+        );
+        let stats = result.accounting;
         assert_eq!(stats.chunks_total, 1);
         assert_eq!(stats.chunks_failed, 0);
         assert_eq!(stats.chunks_truncated, usize::from(truncated));
@@ -1555,7 +1617,7 @@ mod tests {
     #[tokio::test]
     async fn native_driver_salvages_book_when_both_tiers_fail() {
         let bytes = minimal_epub();
-        let (recipes, stats) = extract_cookbook_with_stats(
+        let result = extract_cookbook_with_report(
             &bytes,
             "book.epub",
             &Options::default(),
@@ -1566,7 +1628,14 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(recipes.is_empty());
+        assert!(result.report.recipes.is_empty());
+        assert_eq!(result.report.failures.len(), 1);
+        let failure = &result.report.failures[0];
+        assert_eq!(failure.index, 0);
+        assert_eq!(failure.primary.usage.input_tokens, 11);
+        assert_eq!(failure.fallback.as_ref().unwrap().usage.input_tokens, 17);
+        assert!(!failure.primary.attempts.is_empty());
+        let stats = result.accounting;
         assert_eq!(stats.chunks_total, 1);
         assert_eq!(stats.chunks_failed, 1);
         assert_eq!(stats.usage.input_tokens, 28);

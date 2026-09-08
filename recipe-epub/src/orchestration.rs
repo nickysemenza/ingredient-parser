@@ -8,10 +8,7 @@
 use futures::stream::{self, StreamExt};
 use serde::Serialize;
 
-use crate::{
-    Chunk, ChunkExtractionFailure, ChunkOutcome, CookbookRecipe, ExtractedRecipe, Usage,
-    assemble_recipes,
-};
+use crate::{Chunk, ChunkExtractionFailure, ChunkOutcome, CookbookRecipe, ExtractedRecipe, Usage};
 
 /// Which caller-provided extraction transport to use for a chunk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -280,15 +277,15 @@ fn assemble_completed(
     links: &[crate::Link],
     source: &str,
 ) -> Vec<CookbookRecipe> {
-    let per_chunk = completed
-        .iter()
-        .flatten()
-        .filter_map(|item| match &item.report {
+    let slots = completed.iter().map(|item| {
+        item.as_ref().and_then(|item| match &item.report {
             Ok(report) => Some((item.chunk.clone(), report.recipes.clone())),
             Err(_) => None,
         })
-        .collect();
-    assemble_recipes(per_chunk, links.to_vec(), source)
+    });
+    let mut recipes = crate::assemble_slots(slots, source);
+    crate::resolve_references(&mut recipes, links);
+    recipes
 }
 
 fn build_report(
@@ -382,7 +379,7 @@ mod tests {
     use std::task::Poll;
 
     use futures::future::poll_fn;
-    use recipe_scraper::RecipeSection;
+    use recipe_types::RecipeSection;
 
     use super::*;
     use crate::{
@@ -503,6 +500,66 @@ mod tests {
         assert_eq!(snapshots[1].done, 1);
         assert_eq!(snapshots[1].preview.as_ref().unwrap()[0].meta.title, "Beta");
         assert_eq!(snapshots[2].preview.as_ref().unwrap(), &report.recipes);
+    }
+
+    #[rstest::rstest]
+    #[case(false)]
+    #[case(true)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn incomplete_slots_are_continuation_barriers_in_previews_and_final_report(
+        #[case] fails: bool,
+    ) {
+        let mut tail = chunk("tail.xhtml", "Cake");
+        tail.title_hint = Some("Cake".to_string());
+        let snapshots = Rc::new(RefCell::new(Vec::new()));
+        let sink = Rc::clone(&snapshots);
+        let delayed_once = Rc::new(Cell::new(false));
+        let report = extract_chunks_with(
+            vec![chunk("head.xhtml", "Cake"), chunk("gap.xhtml", "Gap"), tail],
+            "book",
+            &OrchestrationOptions {
+                concurrency: 3,
+                previews: true,
+                ..Default::default()
+            },
+            move |index, _, _| {
+                let delayed_once = Rc::clone(&delayed_once);
+                async move {
+                    if index == 1 {
+                        poll_fn(move |cx| {
+                            if delayed_once.replace(true) {
+                                Poll::Ready(())
+                            } else {
+                                cx.waker().wake_by_ref();
+                                Poll::Pending
+                            }
+                        })
+                        .await;
+                        if fails {
+                            return Err(failure("lost chunk", 1, false));
+                        }
+                        return Ok(outcome(vec![], 1));
+                    }
+                    Ok(outcome(vec![recipe("Cake", Some("flour"))], 1))
+                }
+            },
+            move |snapshot| sink.borrow_mut().push(snapshot),
+        )
+        .await;
+        assert_eq!(report.recipes.len(), 2);
+        assert_eq!(report.failures.len(), usize::from(fails));
+        let snapshots = snapshots.borrow();
+        assert!(snapshots.iter().any(|snapshot| snapshot.done == 2 && snapshot.preview.as_ref().unwrap().len() == 2));
+        for snapshot in snapshots.iter() {
+            assert!(
+                snapshot
+                    .preview
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .all(|recipe| recipe.sections.len() == 1)
+            );
+        }
     }
 
     #[tokio::test(flavor = "current_thread")]

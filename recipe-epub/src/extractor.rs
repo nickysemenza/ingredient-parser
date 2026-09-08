@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use recipe_scraper::RecipeSection;
+use recipe_types::RecipeSection;
 
 use crate::{Chunk, EpubError};
 
@@ -50,7 +50,7 @@ where
 }
 
 /// A recipe as segmented + labeled by the extractor (model output). Sections use
-/// the shared [`recipe_scraper::RecipeSection`] type; ingredient/instruction
+/// the shared [`recipe_types::RecipeSection`] type; ingredient/instruction
 /// strings are **verbatim** — quantities are parsed downstream by the core
 /// `ingredient` parser, never by the model.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

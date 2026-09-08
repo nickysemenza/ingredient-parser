@@ -30,8 +30,8 @@ pub(crate) fn is_participle(word_lower: &str, adjectives: &HashSet<String>) -> b
     word_lower.ends_with("ed") || adjectives.contains(word_lower)
 }
 
-/// Whether `word` is a "prep" token as used by
-/// `segment::repairs::recover_head_noun_from_modifier`: a preparation participle
+/// Whether `word` is a "prep" token as used by the segmenter's structural
+/// resolution: a preparation participle
 /// ("-ed"), an "-ly" adverb ("roughly"/"finely"), a hyphenless descriptor
 /// ("boneless"/"seedless"), a hyphenated meat/prep descriptor
 /// ("bone-in"/"skin-on"/"sugar-free"), or a known intensifier adverb.

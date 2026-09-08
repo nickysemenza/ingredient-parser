@@ -313,8 +313,9 @@ pub struct ParseNotes {
     pub confidence: Confidence,
     /// The parse fell back to a name-only ingredient (no recognizer/core parse).
     pub fell_back: bool,
-    /// The input contained a digit but no measure was parsed — the corpus-harvest
-    /// "likely miss" heuristic, computed natively by the parser.
+    /// A quantity remained unresolved with no parsed measure: digits in the name
+    /// or a recognized but unsupported quantity expression. Descriptive
+    /// dimensions and discarded references do not trigger this review heuristic.
     pub unparsed_digit: bool,
 }
 
@@ -382,11 +383,18 @@ impl ParseNotes {
         out
     }
 
-    /// Derive notes from the raw input line, the parsed result, and whether the
-    /// parse fell back to name-only. Pure bookkeeping — no reparsing.
-    pub(crate) fn derive(input: &str, ingredient: &Ingredient, fell_back: bool) -> Self {
-        let had_digit = input.chars().any(|c| c.is_ascii_digit());
-        let unparsed_digit = had_digit && ingredient.amounts.is_empty();
+    /// Derive notes from the resolved fields and structural uncertainty.
+    /// Pure bookkeeping; source references and descriptions are already resolved.
+    pub(crate) fn derive(
+        ingredient: &Ingredient,
+        fell_back: bool,
+        unresolved_quantity: bool,
+    ) -> Self {
+        let had_digit = ingredient
+            .name
+            .chars()
+            .any(|c| c.is_ascii_digit() || crate::fraction::is_vulgar(c));
+        let unparsed_digit = (had_digit || unresolved_quantity) && ingredient.amounts.is_empty();
         let confidence = if !ingredient.amounts.is_empty() {
             // A structured parse with at least one amount.
             Confidence::High

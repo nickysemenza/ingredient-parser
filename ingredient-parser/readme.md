@@ -17,36 +17,34 @@
 
 ## Parsing pipeline
 
-Each ingredient line flows through five stages. Ordered tables in the codebase (`REWRITES`, `RECOGNIZERS`, `REFINE_PIPELINE`, plus the `segment` module's `CLASSIFIER`/`ASSEMBLY_REPAIRS`) are the single source of truth for each stage — add a row to extend.
+The parser keeps authored source positions through structural interpretation.
+Special forms compose with the same resolver; observations and the public result
+come from that single execution. Names remain opaque, without a food ontology.
 
 ```mermaid
 flowchart TD
-    input["Raw ingredient line"]
-    normalize["normalize · REWRITES"]
-    optNote["strip optional note"]
-    tryRec["recognize · RECOGNIZERS"]
-    tryCore["grammar · nom parse"]
-    segment["segment · CLASSIFIER + ASSEMBLY_REPAIRS"]
-    refine["refine · REFINE_PIPELINE"]
-    fallback["name-only fallback"]
-    classify["classify usage"]
-    output["Ingredient"]
-
-    input --> normalize --> optNote --> tryRec
-    tryRec -->|match| classify
-    tryRec -->|no match| tryCore
-    tryCore --> segment --> refine --> classify
-    tryCore -->|fail| fallback --> classify
-    classify --> output
+    input["Authored ingredient line"] --> normalize["Text artifacts + source mapping"]
+    normalize --> shapes["Peel optional, trailing-measure, component shapes"]
+    shapes --> resolve["Resolve clauses and measurement occurrences"]
+    resolve --> refine["Interpret name-local preparation and count units"]
+    refine --> result["Resolved fields + source ownership"]
+    resolve -->|unrecognized| fallback["Name-only fallback"]
+    fallback --> result
+    result --> output["Ingredient, usage, notes"]
+    result --> observe["Decomposition and diagnostics"]
 ```
 
-| Stage | What it does | Example fix |
-|-------|--------------|-------------|
-| **normalize** | Pre-parse string rewrites | Strip footnote markers, lift dimensional asides |
-| **recognize** | Whole-line special forms (first match wins) | `"Juice of 1 lemon"`, `"Flour — 2 cups"` |
-| **grammar** | Nom combinators capture amounts, name, modifier | New unit token in measurement grammar |
-| **segment** | Clause segmentation + assembly of name/modifier | Re-attach an alias parenthetical, hoist a secondary amount |
-| **refine** | Post-parse passes recover misplaced text inside the name | Move `"chopped"` from name into modifier |
+| Module | Responsibility |
+|--------|----------------|
+| **normalize** | Whitespace, list bullets and footnote artifacts; explicit source mappings |
+| **recognize** | Composable whole-line shapes, interpreted without recursive parsing |
+| **measurement** | Shared quantity, range and unit grammar for ingredients and rich text |
+| **segment** | Clause relationships, alternatives, optional notes, references, aliases and secondary measures |
+| **refine** | Source-backed extraction of preparation phrases and count-unit interpretation |
+
+Ambiguous unquantified coordination remains in the name. Ingredient dimensions
+and temperatures stay descriptive; standalone amount and instruction parsing
+still recognize those measures. Modifier parts follow source order.
 
 To see which stage shaped a line: `cargo run -p food-cli --quiet -- parse-ingredient --explain "<line>"`
 
