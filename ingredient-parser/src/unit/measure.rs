@@ -745,13 +745,7 @@ impl Measure {
     /// For example, `Measure::new("cup", 2.0).unit_as_string()` returns `"cups"`.
     pub fn unit_as_string(&self) -> String {
         let unit_str = self.unit().to_str();
-        // "celsius" is already singular but ends in `s`; the generic cooking
-        // unit singularizer would otherwise trim it to "celsiu" for display.
-        let base = if matches!(self.unit(), Unit::Celsius) {
-            unit_str
-        } else {
-            singular(&unit_str)
-        };
+        let base = singular(&unit_str);
         if matches!(
             self.unit(),
             Unit::Cup | Unit::Second | Unit::Minute | Unit::Hour | Unit::Day

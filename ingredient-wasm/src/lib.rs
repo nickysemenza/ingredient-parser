@@ -823,6 +823,12 @@ mod tests {
     #[test]
     fn scale_amount_leaves_dimensions_alone() {
         assert_eq!(scale_amount(amount("\"", 9.0), 2.0).value, 9.0);
+        for unit in ["cm", "mm", "celsius", "fahrenheit"] {
+            let scaled = scale_amount(amount(unit, 180.0), 2.0);
+            assert_eq!(scaled.value, 180.0, "{unit}");
+            assert_eq!(scaled.unit, unit);
+        }
+        assert_eq!(format_amount(amount("celsius", 180.0)), "180 celsius");
     }
 
     /// The hand-authored `AmountKind` TS union must stay in lockstep with
