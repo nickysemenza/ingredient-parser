@@ -1,7 +1,6 @@
 # Ingredient parsing contract
 
-The approved architecture plan defines these acceptance rules. `Name` is opaque
-food-bearing text, `Modifier` is free-form authored preparation or descriptive
+`Name` is opaque food-bearing text, `Modifier` is free-form authored preparation or descriptive
 text, and measures retain exact rational values and range bounds. The parser does
 not infer a food ontology or expose its private structural representation.
 
@@ -38,10 +37,8 @@ not infer a food ontology or expose its private structural representation.
 
 [corpus-semantic-corrections.json](corpus-semantic-corrections.json) records each
 changed regression row with its old and new expectation and the applicable rule.
-These changes specify desired semantics; they are not a blanket adoption of the
-replacement parser's output. Remaining regression rows retain their expectations.
-The independent cookbook labels are separate evidence and are never rewritten to
-match parser output.
+The independent cookbook labels are separate evidence; see their
+[sampling and labeling protocol](../ingredient-parser/tests/corpus/cookbooks/README.md).
 
 Some presentation differences are intentional: extracted text no longer gains
 lowercase characters solely because matching was case-insensitive, and leading

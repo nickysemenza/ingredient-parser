@@ -113,11 +113,9 @@ ranges and `xfail` rows highlighted) and opens it in your default browser. Pass
 change intentionally alters snapshot output, review and accept with
 `cargo insta review`.
 
-## Architecture and independent evaluation
+## Independent evaluation
 
-See [the architecture overview](docs/architecture-cleanup.md) for ownership across
-parser, recipe execution, ingestion, and presentation. Consult
-[parser semantics](docs/parser-semantics.md) before changing expected outputs.
+Consult [parser semantics](docs/parser-semantics.md) before changing expected outputs.
 The [cookbook sample protocol](ingredient-parser/tests/corpus/cookbooks/README.md)
 separates source selection, blind desired labels, development data, and holdout
 evaluation; parser-generated output is a draft, never an independent label.
