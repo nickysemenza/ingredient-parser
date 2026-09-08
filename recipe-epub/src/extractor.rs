@@ -538,7 +538,101 @@ pub fn validate_chunk_recipes(chunk: &Chunk, recipes: &[ExtractedRecipe]) -> Res
             }
         }
     }
+    validate_component_heading_placement(chunk, recipes)?;
     Ok(())
+}
+
+/// Preserve authored component and serving labels structurally. A short,
+/// standalone `For …` or `To serve` line is an unambiguous section heading; it
+/// must therefore become a section name, never an ingredient string. We only
+/// inspect spans whose emitted title maps to one unique source line. Repeated
+/// titles and other uncertain boundaries are deliberately left alone.
+fn validate_component_heading_placement(
+    chunk: &Chunk,
+    recipes: &[ExtractedRecipe],
+) -> Result<(), EpubError> {
+    let lines: Vec<String> = chunk
+        .text
+        .lines()
+        .map(normalize_source_whitespace)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let mut mapped = Vec::new();
+    for (recipe_index, recipe) in recipes.iter().enumerate() {
+        let title = normalize_source_whitespace(&recipe.meta.title);
+        let positions: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(line_index, line)| (line == &title).then_some(line_index))
+            .collect();
+        let output_title_count = recipes
+            .iter()
+            .filter(|other| normalize_source_whitespace(&other.meta.title) == title)
+            .count();
+        if positions.len() != 1 || output_title_count != 1 {
+            // A later repeated or absent title makes every preceding span's end
+            // uncertain. Do not let an ambiguous occurrence's heading be
+            // attributed to a neighboring recipe.
+            return Ok(());
+        }
+        mapped.push((positions[0], recipe_index));
+    }
+    mapped.sort_unstable_by_key(|(line_index, _)| *line_index);
+    for (span_index, &(start, recipe_index)) in mapped.iter().enumerate() {
+        let end = mapped
+            .get(span_index + 1)
+            .map_or(lines.len(), |(next, _)| *next);
+        let recipe = &recipes[recipe_index];
+        for heading in lines[start + 1..end]
+            .iter()
+            .filter(|line| is_component_heading(line))
+        {
+            let heading = heading.trim_end_matches(':').trim();
+            let has_section = recipe.sections.iter().any(|section| {
+                section.name.as_deref().is_some_and(|name| {
+                    normalize_source_whitespace(name)
+                        .trim_end_matches(':')
+                        .trim()
+                        == heading
+                })
+            });
+            let heading_as_ingredient = recipe
+                .sections
+                .iter()
+                .flat_map(|section| {
+                    section.ingredients.iter().map(|ingredient| {
+                        normalize_source_whitespace(ingredient)
+                            .trim_end_matches(':')
+                            .trim()
+                            == heading
+                    })
+                })
+                .any(|is_heading| is_heading);
+            if !has_section || heading_as_ingredient {
+                return Err(EpubError::Proxy(format!(
+                    "source coverage violation in recipe {}: component heading must be a section label",
+                    recipe_index + 1
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_component_heading(line: &str) -> bool {
+    let trimmed = line.trim();
+    let bare = trimmed.trim_end_matches(':').trim();
+    if bare.is_empty()
+        || bare.len() > 80
+        || bare
+            .chars()
+            .last()
+            .is_some_and(|c| matches!(c, '.' | '!' | '?' | ','))
+    {
+        return false;
+    }
+    let lower = bare.to_lowercase();
+    lower.starts_with("for ") || lower == "to serve"
 }
 
 fn validate_source_field(
@@ -640,8 +734,9 @@ present, return an object with:\n\
 - description: the headnote / intro blurb, if any (omit otherwise).\n\
 - sections: the recipe's components as an array. Most recipes have ONE section \
 (omit its name). Component recipes have several. Each section has:\n\
-    - name: the component label copied VERBATIM (e.g. \"For the curry paste\"), \
-or omit for the main/only section.\n\
+    - name: the component label copied VERBATIM (e.g. \"For the curry paste\"). \
+A standalone `For …` or `To serve` label is a section name, NEVER an ingredient; \
+omit the name only for the main/only section.\n\
     - ingredients: each ingredient line copied VERBATIM, one per entry. Do NOT \
 parse, normalize, convert, or reword quantities or units — preserve the original \
 text exactly (e.g. \"1\\u2153 cups all-purpose flour (6.1 oz / 173g)\").\n\
@@ -991,6 +1086,80 @@ mod tests {
             driven.recipes[0].sections[0].ingredients,
             vec!["100ml ( cup) neutral oil"]
         );
+    }
+
+    #[test]
+    fn wok_component_headings_must_be_section_names() {
+        let chunk = source_chunk(
+            "BEER-BATTERED FISH WITH EASY GARLIC AIOLI\nFOR THE GARLIC AIOLI:\n1 cup mayonnaise\nFOR THE BATTER:\n2 cups flour\nTO SERVE:\nlemon wedges",
+        );
+        let misplaced = parse_recipes_payload(json!({ "recipes": [{
+            "title": "BEER-BATTERED FISH WITH EASY GARLIC AIOLI",
+            "sections": [
+                { "name": "FOR THE GARLIC AIOLI", "ingredients": ["1 cup mayonnaise", "FOR THE BATTER:"] },
+                { "ingredients": ["2 cups flour", "TO SERVE:", "lemon wedges"] }
+            ]
+        }] }))
+        .unwrap();
+        assert!(
+            validate_chunk_recipes(&chunk, &misplaced)
+                .unwrap_err()
+                .to_string()
+                .contains("component heading must be a section label")
+        );
+
+        let preserved = parse_recipes_payload(json!({ "recipes": [{
+            "title": "BEER-BATTERED FISH WITH EASY GARLIC AIOLI",
+            "sections": [
+                { "name": "FOR THE GARLIC AIOLI", "ingredients": ["1 cup mayonnaise"] },
+                { "name": "FOR THE BATTER", "ingredients": ["2 cups flour"] },
+                { "name": "TO SERVE", "ingredients": ["lemon wedges"] }
+            ]
+        }] }))
+        .unwrap();
+        validate_chunk_recipes(&chunk, &preserved).unwrap();
+
+        let mut duplicated_in_ingredients = preserved.clone();
+        duplicated_in_ingredients[0].sections[2]
+            .ingredients
+            .push("TO SERVE:".to_string());
+        assert!(
+            validate_chunk_recipes(&chunk, &duplicated_in_ingredients)
+                .unwrap_err()
+                .to_string()
+                .contains("component heading must be a section label")
+        );
+    }
+
+    #[test]
+    fn heading_guard_skips_ordinary_sentences_and_repeated_titles() {
+        let ordinary = source_chunk("Salad\n1 cup greens\nTo serve, scatter herbs over the salad.");
+        let recipe = parse_recipes_payload(json!({ "recipes": [{
+            "title": "Salad",
+            "sections": [{ "ingredients": ["1 cup greens"], "instructions": ["To serve, scatter herbs over the salad."] }]
+        }] }))
+        .unwrap();
+        validate_chunk_recipes(&ordinary, &recipe).unwrap();
+
+        let repeated = source_chunk("Sauce\nFOR THE DRESSING:\nSauce\nFOR THE DRESSING:");
+        let recipes = parse_recipes_payload(json!({ "recipes": [
+            { "title": "Sauce", "sections": [] },
+            { "title": "Sauce", "sections": [] }
+        ] }))
+        .unwrap();
+        validate_chunk_recipes(&repeated, &recipes).unwrap();
+
+        // Even though Salad has a unique title, its end is uncertain once the
+        // chunk contains the repeated Sauce occurrence, so the whole guard
+        // conservatively declines to assign Sauce's heading to Salad.
+        let mixed = source_chunk("Salad\n1 cup greens\nSauce\nFOR THE DRESSING:\nSauce");
+        let recipes = parse_recipes_payload(json!({ "recipes": [
+            { "title": "Salad", "sections": [{ "ingredients": ["1 cup greens"] }] },
+            { "title": "Sauce", "sections": [] },
+            { "title": "Sauce", "sections": [] }
+        ] }))
+        .unwrap();
+        validate_chunk_recipes(&mixed, &recipes).unwrap();
     }
 
     #[rstest]
