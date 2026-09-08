@@ -44,10 +44,10 @@ labels. Ambiguous cases and source defects should be corrected from source
 evidence and the written contract, never to make an implementation's output
 pass. The former holdout cohort is treated as development because its
 contamination history is unknown; replacement holdout labels come from
-new books and remained isolated until implementation freeze. `holdout-provenance.json`
-records the freeze commit, sealed hashes, blind annotation/review protocol, and
-the one invalid usage-enum serialization corrected before either evaluator could
-produce results. Holdout annotations are retained after evaluation, including
+new books and remained isolated until implementation freeze. Both labeling and
+independent review were performed without parser output. Session-specific freeze
+commits, sealed artifact hashes, and evaluation history belong in the introducing
+PR description. Holdout annotations are retained after evaluation, including
 unadjudicated contract disagreements; their raw score is not a human-gold accuracy
 claim. The development and holdout sampling seeds are separate and recorded in
 `manifest.json`.
