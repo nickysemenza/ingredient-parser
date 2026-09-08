@@ -270,11 +270,6 @@ impl fmt::Display for Unit {
 /// "-es" after a sibilant ("bunches", "boxes", "dishes") strips to the base;
 /// otherwise a bare trailing "s" is stripped ("cups", "slices", "recipes").
 fn strip_plural(s: &str) -> &str {
-    // Accepted temperature names are already singular despite their final s.
-    // Keep them stable across parsing, serialization, and boundary re-entry.
-    if matches!(s, "celsius" | "celcius") {
-        return s;
-    }
     if let Some(base) = s.strip_suffix("es")
         && (base.ends_with("ch")
             || base.ends_with("sh")
@@ -284,7 +279,13 @@ fn strip_plural(s: &str) -> &str {
     {
         return base;
     }
-    s.strip_suffix('s').unwrap_or(s)
+    match s.strip_suffix('s') {
+        // These accepted temperature names are already singular. Check this
+        // exception only when a plural suffix would otherwise be removed.
+        Some(_) if matches!(s, "celsius" | "celcius") => s,
+        Some(base) => base,
+        None => s,
+    }
 }
 
 /// Lowercase + strip a plural suffix from a unit word ("Scoops" -> "scoop",
