@@ -763,4 +763,110 @@ mod tests {
         });
         assert!(has_375, "Should parse 375 as a measurement: {result:?}");
     }
+
+    #[rstest]
+    #[case::degrees_f("Bake at 365 degrees F.")]
+    #[case::degree_sign_f("Bake at 350°F.")]
+    #[case::spaced_degree_sign_c("Bake at 180° C.")]
+    #[case::temperature_range("Bake at 350–375°F.")]
+    #[case::centimeters("Cut into 3cm (1¼ inch) cubes.")]
+    #[case::dimension_range("Cut into 2–3cm pieces.")]
+    #[case::millimeters("Roll to 5 millimeters thick.")]
+    fn test_instruction_temperatures_and_dimensions_do_not_scale(
+        parser: RichParser,
+        #[case] input: &str,
+    ) {
+        let parsed = parser.parse(input).unwrap();
+        let measures: Vec<_> = parsed
+            .iter()
+            .filter_map(|chunk| match chunk {
+                Chunk::Measure(measures) => Some(measures),
+                Chunk::Text(_) | Chunk::Ing(_) => None,
+            })
+            .flatten()
+            .collect();
+        assert!(!measures.is_empty(), "no measures parsed: {parsed:?}");
+        assert!(
+            measures
+                .iter()
+                .all(|measure| measure.scale(2.0) == **measure),
+            "scaled a temperature or dimension: {parsed:?}"
+        );
+    }
+
+    /// The presentation path scales ingredient quantities in an instruction but
+    /// leaves descriptive dimensions, oven temperatures, and elapsed time fixed.
+    /// This composes the actual shared rich parser with `Measure::scale`, which
+    /// is what the native and WASM recipe views use.
+    #[test]
+    fn test_instruction_scaling_keeps_physical_constraints_fixed() {
+        use crate::unit::{MeasureKind, Unit};
+
+        let parsed = RichParser::default()
+            .parse(
+                "Add 1 cup (240 g) water; cut into 3cm cubes, then bake at 365 degrees F for 20 minutes.",
+            )
+            .unwrap();
+        let measures: Vec<_> = parsed
+            .iter()
+            .filter_map(|chunk| match chunk {
+                Chunk::Measure(measures) => Some(measures),
+                Chunk::Text(_) | Chunk::Ing(_) => None,
+            })
+            .flatten()
+            .collect();
+
+        assert!(measures.iter().any(|measure| {
+            measure.unit() == &Unit::Cup
+                && measure.value() == 1.0
+                && measure.scale(2.0).value() == 2.0
+        }));
+        assert!(measures.iter().any(|measure| {
+            measure.unit() == &Unit::Gram
+                && measure.value() == 240.0
+                && measure.scale(2.0).value() == 480.0
+        }));
+        for kind in [
+            MeasureKind::Length,
+            MeasureKind::Temperature,
+            MeasureKind::Time,
+        ] {
+            let measure = measures
+                .iter()
+                .find(|measure| measure.kind() == kind)
+                .unwrap();
+            assert_eq!(measure.scale(2.0), **measure, "scaled {kind}");
+        }
+    }
+
+    #[test]
+    fn test_fixed_instruction_ranges_preserve_bounds_and_surrounding_text() {
+        let parsed = RichParser::default()
+            .parse("Bake at 350–375°F; cut 2–3cm.")
+            .unwrap();
+        assert_eq!(
+            parsed,
+            vec![
+                Chunk::Text("Bake at ".to_string()),
+                Chunk::Measure(vec![Measure::with_range("°f", 350.0, 375.0)]),
+                Chunk::Text("; cut ".to_string()),
+                Chunk::Measure(vec![Measure::with_range("cm", 2.0, 3.0)]),
+                Chunk::Text(".".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_rich_dimension_preserves_the_existing_other_unit_wire_format() {
+        let parsed = RichParser::default().parse("Cut 3cm pieces.").unwrap();
+        let measure = parsed
+            .iter()
+            .find_map(|chunk| match chunk {
+                Chunk::Measure(measures) => measures.first(),
+                Chunk::Text(_) | Chunk::Ing(_) => None,
+            })
+            .unwrap();
+        assert_eq!(measure.kind(), crate::unit::MeasureKind::Length);
+        assert_eq!(serde_json::to_value(measure).unwrap()["unit"], "cm");
+    }
 }

@@ -13,7 +13,12 @@ not infer a food ontology or expose its private structural representation.
 - Ingredient dimensions and temperatures describe the ingredient. For example,
   `1 (9-inch) pie crust` has one whole crust and modifier `9-inch`. Standalone
   amounts and instruction rich text still recognize dimensions and temperatures.
-  Dimensions within a preparation phrase stay inside that phrase.
+  Dimensions within a preparation phrase stay inside that phrase. In instruction
+  rich text, explicit temperature spellings such as `365 degrees F` and metric
+  dimensions such as `3cm` retain non-scalable measurement kinds. Recipe scaling
+  changes ingredient quantities and their alternatives, not temperatures,
+  dimensions, or cooking times; source strings and parsed source quantities stay
+  unchanged. Length aliases retain their existing unit wire representation.
 - Leading and trailing measures receive the same preparation and name handling.
   Optional wrappers compose with trailing measures and derived components such
   as `Juice of 1 lemon`. Counts retain fractions and both range bounds when their
