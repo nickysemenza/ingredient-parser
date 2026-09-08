@@ -1,0 +1,708 @@
+{
+  "wok-01": [],
+  "wok-02": [],
+  "wok-03": [],
+  "wok-04": [],
+  "wok-05": [],
+  "wok-06": [],
+  "wok-07": [],
+  "wok-08": [],
+  "wok-09": [],
+  "wok-10": [],
+  "wok-11": [],
+  "wok-12": [],
+  "wok-13": [],
+  "wok-14": [],
+  "wok-15": [],
+  "wok-16": [],
+  "wok-17": [],
+  "wok-18": [],
+  "wok-19": [],
+  "wok-20": [],
+  "wok-21": [
+    "modifier"
+  ],
+  "wok-22": [],
+  "wok-23": [],
+  "wok-24": [],
+  "wok-25": [],
+  "wok-26": [],
+  "wok-27": [],
+  "wok-28": [],
+  "wok-29": [],
+  "wok-30": [],
+  "wok-31": [],
+  "wok-32": [],
+  "wok-33": [],
+  "wok-34": [],
+  "wok-35": [],
+  "wok-36": [],
+  "wok-37": [],
+  "wok-38": [],
+  "wok-39": [],
+  "wok-40": [],
+  "wok-41": [],
+  "wok-42": [],
+  "wok-43": [
+    "modifier",
+    "name"
+  ],
+  "wok-44": [],
+  "wok-45": [],
+  "wok-46": [],
+  "wok-47": [],
+  "wok-48": [],
+  "wok-49": [],
+  "wok-50": [],
+  "arabiyya-01": [],
+  "arabiyya-02": [],
+  "arabiyya-03": [],
+  "arabiyya-04": [],
+  "arabiyya-05": [
+    "modifier",
+    "name"
+  ],
+  "arabiyya-06": [],
+  "arabiyya-07": [],
+  "arabiyya-08": [],
+  "arabiyya-09": [
+    "amounts"
+  ],
+  "arabiyya-10": [],
+  "arabiyya-11": [],
+  "arabiyya-12": [],
+  "arabiyya-13": [],
+  "arabiyya-14": [],
+  "arabiyya-15": [],
+  "arabiyya-16": [],
+  "arabiyya-17": [],
+  "arabiyya-18": [],
+  "arabiyya-19": [],
+  "arabiyya-20": [],
+  "arabiyya-21": [],
+  "arabiyya-22": [],
+  "arabiyya-23": [],
+  "arabiyya-24": [],
+  "arabiyya-25": [],
+  "arabiyya-26": [
+    "modifier",
+    "name"
+  ],
+  "arabiyya-27": [],
+  "arabiyya-28": [],
+  "arabiyya-29": [
+    "modifier",
+    "name"
+  ],
+  "arabiyya-30": [],
+  "arabiyya-31": [],
+  "arabiyya-32": [],
+  "arabiyya-33": [],
+  "arabiyya-34": [],
+  "arabiyya-35": [],
+  "arabiyya-36": [],
+  "arabiyya-37": [],
+  "arabiyya-38": [],
+  "arabiyya-39": [
+    "amounts",
+    "modifier",
+    "name"
+  ],
+  "arabiyya-40": [],
+  "arabiyya-41": [],
+  "arabiyya-42": [],
+  "arabiyya-43": [],
+  "arabiyya-44": [],
+  "arabiyya-45": [],
+  "arabiyya-46": [],
+  "arabiyya-47": [],
+  "arabiyya-48": [],
+  "arabiyya-49": [],
+  "arabiyya-50": [],
+  "charred-01": [
+    "modifier",
+    "name"
+  ],
+  "charred-02": [
+    "amounts",
+    "name"
+  ],
+  "charred-03": [],
+  "charred-04": [],
+  "charred-05": [],
+  "charred-06": [
+    "amounts",
+    "name"
+  ],
+  "charred-07": [],
+  "charred-08": [],
+  "charred-09": [
+    "amounts"
+  ],
+  "charred-10": [],
+  "charred-11": [],
+  "charred-12": [],
+  "charred-13": [
+    "amounts",
+    "modifier",
+    "name"
+  ],
+  "charred-14": [],
+  "charred-15": [],
+  "charred-16": [],
+  "charred-17": [],
+  "charred-18": [
+    "amounts"
+  ],
+  "charred-19": [],
+  "charred-20": [],
+  "charred-21": [],
+  "charred-22": [],
+  "charred-23": [],
+  "charred-24": [],
+  "charred-25": [],
+  "charred-26": [
+    "amounts",
+    "modifier",
+    "name"
+  ],
+  "charred-27": [
+    "modifier"
+  ],
+  "charred-28": [],
+  "charred-29": [],
+  "charred-30": [],
+  "charred-31": [],
+  "charred-32": [
+    "amounts",
+    "modifier",
+    "name"
+  ],
+  "charred-33": [],
+  "charred-34": [],
+  "charred-35": [],
+  "charred-36": [],
+  "charred-37": [],
+  "charred-38": [],
+  "charred-39": [],
+  "charred-40": [],
+  "charred-41": [],
+  "charred-42": [],
+  "charred-43": [
+    "amounts",
+    "modifier",
+    "name"
+  ],
+  "charred-44": [
+    "modifier",
+    "name"
+  ],
+  "charred-45": [],
+  "charred-46": [],
+  "charred-47": [
+    "modifier",
+    "name"
+  ],
+  "charred-48": [
+    "modifier",
+    "name"
+  ],
+  "charred-49": [],
+  "charred-50": [],
+  "home-kitchen-01": [],
+  "home-kitchen-02": [],
+  "home-kitchen-03": [],
+  "home-kitchen-04": [
+    "amounts"
+  ],
+  "home-kitchen-05": [],
+  "home-kitchen-06": [],
+  "home-kitchen-07": [],
+  "home-kitchen-08": [],
+  "home-kitchen-09": [],
+  "home-kitchen-10": [],
+  "home-kitchen-11": [],
+  "home-kitchen-12": [],
+  "home-kitchen-13": [],
+  "home-kitchen-14": [],
+  "home-kitchen-15": [],
+  "home-kitchen-16": [],
+  "home-kitchen-17": [],
+  "home-kitchen-18": [],
+  "home-kitchen-19": [],
+  "home-kitchen-20": [],
+  "home-kitchen-21": [],
+  "home-kitchen-22": [],
+  "home-kitchen-23": [],
+  "home-kitchen-24": [],
+  "home-kitchen-25": [],
+  "home-kitchen-26": [],
+  "home-kitchen-27": [],
+  "home-kitchen-28": [],
+  "home-kitchen-29": [],
+  "home-kitchen-30": [],
+  "home-kitchen-31": [],
+  "home-kitchen-32": [],
+  "home-kitchen-33": [],
+  "home-kitchen-34": [],
+  "home-kitchen-35": [],
+  "home-kitchen-36": [],
+  "home-kitchen-37": [],
+  "home-kitchen-38": [],
+  "home-kitchen-39": [],
+  "home-kitchen-40": [],
+  "home-kitchen-41": [],
+  "home-kitchen-42": [],
+  "home-kitchen-43": [],
+  "home-kitchen-44": [],
+  "home-kitchen-45": [],
+  "home-kitchen-46": [
+    "modifier",
+    "name"
+  ],
+  "home-kitchen-47": [],
+  "home-kitchen-48": [],
+  "home-kitchen-49": [],
+  "home-kitchen-50": [],
+  "bakers-companion-01": [],
+  "bakers-companion-02": [],
+  "bakers-companion-03": [],
+  "bakers-companion-04": [],
+  "bakers-companion-05": [],
+  "bakers-companion-06": [],
+  "bakers-companion-07": [],
+  "bakers-companion-08": [],
+  "bakers-companion-09": [],
+  "bakers-companion-10": [],
+  "bakers-companion-11": [],
+  "bakers-companion-12": [],
+  "bakers-companion-13": [
+    "amounts"
+  ],
+  "bakers-companion-14": [],
+  "bakers-companion-15": [],
+  "bakers-companion-16": [],
+  "bakers-companion-17": [],
+  "bakers-companion-18": [],
+  "bakers-companion-19": [],
+  "bakers-companion-20": [],
+  "bakers-companion-21": [],
+  "bakers-companion-22": [],
+  "bakers-companion-23": [],
+  "bakers-companion-24": [],
+  "bakers-companion-25": [],
+  "bakers-companion-26": [
+    "modifier",
+    "name"
+  ],
+  "bakers-companion-27": [],
+  "bakers-companion-28": [],
+  "bakers-companion-29": [],
+  "bakers-companion-30": [],
+  "bakers-companion-31": [],
+  "bakers-companion-32": [],
+  "bakers-companion-33": [],
+  "bakers-companion-34": [
+    "amounts",
+    "modifier"
+  ],
+  "bakers-companion-35": [],
+  "bakers-companion-36": [],
+  "bakers-companion-37": [],
+  "bakers-companion-38": [],
+  "bakers-companion-39": [],
+  "bakers-companion-40": [],
+  "bakers-companion-41": [],
+  "bakers-companion-42": [],
+  "bakers-companion-43": [],
+  "bakers-companion-44": [],
+  "bakers-companion-45": [],
+  "bakers-companion-46": [],
+  "bakers-companion-47": [],
+  "bakers-companion-48": [],
+  "bakers-companion-49": [],
+  "bakers-companion-50": [],
+  "nopalito-01": [],
+  "nopalito-02": [],
+  "nopalito-03": [],
+  "nopalito-04": [],
+  "nopalito-05": [],
+  "nopalito-06": [],
+  "nopalito-07": [],
+  "nopalito-08": [],
+  "nopalito-09": [],
+  "nopalito-10": [],
+  "nopalito-11": [],
+  "nopalito-12": [],
+  "nopalito-13": [],
+  "nopalito-14": [],
+  "nopalito-15": [],
+  "nopalito-16": [
+    "amounts",
+    "modifier",
+    "name"
+  ],
+  "nopalito-17": [],
+  "nopalito-18": [],
+  "nopalito-19": [],
+  "nopalito-20": [],
+  "nopalito-21": [],
+  "nopalito-22": [],
+  "nopalito-23": [
+    "modifier",
+    "optional"
+  ],
+  "nopalito-24": [],
+  "nopalito-25": [],
+  "nopalito-26": [],
+  "nopalito-27": [],
+  "nopalito-28": [],
+  "nopalito-29": [],
+  "nopalito-30": [],
+  "nopalito-31": [],
+  "nopalito-32": [],
+  "nopalito-33": [],
+  "nopalito-34": [],
+  "nopalito-35": [],
+  "nopalito-36": [],
+  "nopalito-37": [],
+  "nopalito-38": [],
+  "nopalito-39": [],
+  "nopalito-40": [],
+  "nopalito-41": [],
+  "nopalito-42": [],
+  "nopalito-43": [
+    "usage"
+  ],
+  "nopalito-44": [],
+  "nopalito-45": [],
+  "nopalito-46": [],
+  "nopalito-47": [],
+  "nopalito-48": [],
+  "nopalito-49": [],
+  "nopalito-50": [],
+  "rintaro-01": [],
+  "rintaro-02": [],
+  "rintaro-03": [],
+  "rintaro-04": [],
+  "rintaro-05": [],
+  "rintaro-06": [],
+  "rintaro-07": [],
+  "rintaro-08": [
+    "amounts",
+    "modifier",
+    "name"
+  ],
+  "rintaro-09": [],
+  "rintaro-10": [
+    "modifier",
+    "name"
+  ],
+  "rintaro-11": [],
+  "rintaro-12": [],
+  "rintaro-13": [],
+  "rintaro-14": [],
+  "rintaro-15": [],
+  "rintaro-16": [],
+  "rintaro-17": [
+    "modifier",
+    "name"
+  ],
+  "rintaro-18": [],
+  "rintaro-19": [],
+  "rintaro-20": [],
+  "rintaro-21": [],
+  "rintaro-22": [
+    "modifier",
+    "name"
+  ],
+  "rintaro-23": [],
+  "rintaro-24": [],
+  "rintaro-25": [
+    "modifier"
+  ],
+  "rintaro-26": [
+    "modifier",
+    "name"
+  ],
+  "rintaro-27": [],
+  "rintaro-28": [],
+  "rintaro-29": [],
+  "rintaro-30": [],
+  "rintaro-31": [],
+  "rintaro-32": [],
+  "rintaro-33": [],
+  "rintaro-34": [],
+  "rintaro-35": [],
+  "rintaro-36": [
+    "amounts"
+  ],
+  "rintaro-37": [],
+  "rintaro-38": [],
+  "rintaro-39": [
+    "modifier",
+    "name"
+  ],
+  "rintaro-40": [],
+  "rintaro-41": [],
+  "rintaro-42": [],
+  "rintaro-43": [
+    "amounts"
+  ],
+  "rintaro-44": [],
+  "rintaro-45": [],
+  "rintaro-46": [],
+  "rintaro-47": [],
+  "rintaro-48": [],
+  "rintaro-49": [],
+  "rintaro-50": [],
+  "honey-co-01": [
+    "usage"
+  ],
+  "honey-co-02": [
+    "amounts"
+  ],
+  "honey-co-03": [],
+  "honey-co-04": [
+    "amounts",
+    "name"
+  ],
+  "honey-co-05": [],
+  "honey-co-06": [
+    "amounts",
+    "name"
+  ],
+  "honey-co-07": [
+    "modifier"
+  ],
+  "honey-co-08": [],
+  "honey-co-09": [],
+  "honey-co-10": [],
+  "honey-co-11": [],
+  "honey-co-12": [],
+  "honey-co-13": [],
+  "honey-co-14": [],
+  "honey-co-15": [
+    "amounts",
+    "name"
+  ],
+  "honey-co-16": [],
+  "honey-co-17": [],
+  "honey-co-18": [],
+  "honey-co-19": [],
+  "honey-co-20": [],
+  "honey-co-21": [
+    "modifier"
+  ],
+  "honey-co-22": [
+    "modifier",
+    "name"
+  ],
+  "honey-co-23": [],
+  "honey-co-24": [],
+  "honey-co-25": [],
+  "honey-co-26": [
+    "amounts",
+    "modifier",
+    "name"
+  ],
+  "honey-co-27": [
+    "modifier"
+  ],
+  "honey-co-28": [
+    "modifier",
+    "name"
+  ],
+  "honey-co-29": [],
+  "honey-co-30": [
+    "amounts",
+    "name"
+  ],
+  "honey-co-31": [],
+  "honey-co-32": [],
+  "honey-co-33": [
+    "modifier"
+  ],
+  "honey-co-34": [
+    "modifier"
+  ],
+  "honey-co-35": [],
+  "honey-co-36": [],
+  "honey-co-37": [
+    "name"
+  ],
+  "honey-co-38": [
+    "modifier",
+    "name"
+  ],
+  "honey-co-39": [],
+  "honey-co-40": [],
+  "honey-co-41": [],
+  "honey-co-42": [],
+  "honey-co-43": [],
+  "honey-co-44": [
+    "modifier"
+  ],
+  "honey-co-45": [],
+  "honey-co-46": [
+    "modifier"
+  ],
+  "honey-co-47": [],
+  "honey-co-48": [],
+  "honey-co-49": [],
+  "honey-co-50": [],
+  "dining-in-01": [],
+  "dining-in-02": [],
+  "dining-in-03": [],
+  "dining-in-04": [
+    "modifier",
+    "name"
+  ],
+  "dining-in-05": [],
+  "dining-in-06": [],
+  "dining-in-07": [],
+  "dining-in-08": [],
+  "dining-in-09": [],
+  "dining-in-10": [],
+  "dining-in-11": [],
+  "dining-in-12": [],
+  "dining-in-13": [
+    "modifier",
+    "name"
+  ],
+  "dining-in-14": [],
+  "dining-in-15": [],
+  "dining-in-16": [],
+  "dining-in-17": [],
+  "dining-in-18": [],
+  "dining-in-19": [],
+  "dining-in-20": [],
+  "dining-in-21": [],
+  "dining-in-22": [],
+  "dining-in-23": [],
+  "dining-in-24": [],
+  "dining-in-25": [],
+  "dining-in-26": [],
+  "dining-in-27": [
+    "modifier",
+    "name"
+  ],
+  "dining-in-28": [],
+  "dining-in-29": [],
+  "dining-in-30": [],
+  "dining-in-31": [],
+  "dining-in-32": [],
+  "dining-in-33": [],
+  "dining-in-34": [],
+  "dining-in-35": [
+    "modifier"
+  ],
+  "dining-in-36": [],
+  "dining-in-37": [],
+  "dining-in-38": [],
+  "dining-in-39": [],
+  "dining-in-40": [],
+  "dining-in-41": [],
+  "dining-in-42": [],
+  "dining-in-43": [],
+  "dining-in-44": [],
+  "dining-in-45": [],
+  "dining-in-46": [],
+  "dining-in-47": [
+    "modifier",
+    "name"
+  ],
+  "dining-in-48": [],
+  "dining-in-49": [],
+  "dining-in-50": [],
+  "six-seasons-01": [],
+  "six-seasons-02": [],
+  "six-seasons-03": [],
+  "six-seasons-04": [],
+  "six-seasons-05": [],
+  "six-seasons-06": [
+    "modifier",
+    "name"
+  ],
+  "six-seasons-07": [],
+  "six-seasons-08": [],
+  "six-seasons-09": [],
+  "six-seasons-10": [
+    "modifier",
+    "name"
+  ],
+  "six-seasons-11": [],
+  "six-seasons-12": [
+    "modifier",
+    "name"
+  ],
+  "six-seasons-13": [
+    "amounts",
+    "modifier",
+    "name"
+  ],
+  "six-seasons-14": [],
+  "six-seasons-15": [],
+  "six-seasons-16": [],
+  "six-seasons-17": [],
+  "six-seasons-18": [
+    "modifier"
+  ],
+  "six-seasons-19": [
+    "modifier",
+    "name"
+  ],
+  "six-seasons-20": [],
+  "six-seasons-21": [
+    "modifier",
+    "name"
+  ],
+  "six-seasons-22": [
+    "modifier"
+  ],
+  "six-seasons-23": [],
+  "six-seasons-24": [],
+  "six-seasons-25": [],
+  "six-seasons-26": [],
+  "six-seasons-27": [
+    "amounts",
+    "modifier"
+  ],
+  "six-seasons-28": [],
+  "six-seasons-29": [
+    "modifier",
+    "name"
+  ],
+  "six-seasons-30": [],
+  "six-seasons-31": [],
+  "six-seasons-32": [],
+  "six-seasons-33": [],
+  "six-seasons-34": [],
+  "six-seasons-35": [
+    "modifier",
+    "name"
+  ],
+  "six-seasons-36": [],
+  "six-seasons-37": [],
+  "six-seasons-38": [
+    "modifier"
+  ],
+  "six-seasons-39": [
+    "modifier",
+    "name"
+  ],
+  "six-seasons-40": [],
+  "six-seasons-41": [],
+  "six-seasons-42": [],
+  "six-seasons-43": [],
+  "six-seasons-44": [],
+  "six-seasons-45": [],
+  "six-seasons-46": [],
+  "six-seasons-47": [
+    "modifier",
+    "name"
+  ],
+  "six-seasons-48": [],
+  "six-seasons-49": [],
+  "six-seasons-50": []
+}

@@ -1,0 +1,128 @@
+{
+  "seed": "2026-09-07-architecture-v1",
+  "method": "sha256-ranked distinct publisher ingredient elements",
+  "excluded": "excluded-inputs.json",
+  "books": [
+    {
+      "book_id": "wok",
+      "split": "development",
+      "epub": "Lorna Yee/The Everyday Wok Cookbook (42)/The Everyday Wok Cookbook - Lorna Yee.epub",
+      "sha256": "0e960c3fa67a367c898ec68b8520a16b739d4a7c88538711286bb80b5ff55580",
+      "ingredient_classes": [
+        "bl_hanging"
+      ],
+      "candidate_count": 564,
+      "sample_size": 50
+    },
+    {
+      "book_id": "arabiyya",
+      "split": "development",
+      "epub": "Reem Assil/Arabiyya_ Recipes from the Life of an Arab in Diaspora [A Cookbook] (376)/Arabiyya_ Recipes from the Life of an Arab - Reem Assil.epub",
+      "sha256": "ee86c08d081d49f13ca9810d27df364f340d749fccda3a69c5dfcc98fc3cd424",
+      "ingredient_classes": [
+        "ril",
+        "rilf",
+        "r1il",
+        "r1ilf",
+        "rils"
+      ],
+      "candidate_count": 904,
+      "sample_size": 50
+    },
+    {
+      "book_id": "charred",
+      "split": "development",
+      "epub": "Genevieve Taylor/Charred (342)/Charred - Genevieve Taylor.epub",
+      "sha256": "2f6c8744b6b9a8fd9c28ea77e93a2c93e15b68c6d9102d42b333397c871b1e82",
+      "ingredient_classes": [
+        "hang"
+      ],
+      "candidate_count": 627,
+      "sample_size": 50
+    },
+    {
+      "book_id": "home-kitchen",
+      "split": "development",
+      "epub": "David Kinch/At Home in the Kitchen (295)/At Home in the Kitchen - David Kinch.epub",
+      "sha256": "79421cecceccc4e5fcfd2fcb9715430b568909fa090abbc130c8937d47ebf9ac",
+      "ingredient_classes": [
+        "ril",
+        "rilf"
+      ],
+      "candidate_count": 843,
+      "sample_size": 50
+    },
+    {
+      "book_id": "bakers-companion",
+      "split": "development",
+      "epub": "King Arthur Flour/The King Arthur Flour All-Purpose Baker's Companion (Revised and Updated) (371)/The King Arthur Flour All-Purpose Baker's - King Arthur Flour.epub",
+      "sha256": "470bcb2f961d6711cd7d780e7e329eba15e56ee8f09de6d0ff55c2f91f05ae57",
+      "ingredient_classes": [
+        "ing",
+        "ing1"
+      ],
+      "candidate_count": 1470,
+      "sample_size": 50
+    },
+    {
+      "book_id": "nopalito",
+      "split": "development",
+      "epub": "Gonzalo Guzman/Nopalito (11)/Nopalito - Gonzalo Guzman.epub",
+      "sha256": "a243e664e7821187a9ae8551abad1c83518e9023e3bfc7d876069fac570bbc43",
+      "ingredient_classes": [
+        "ril"
+      ],
+      "candidate_count": 831,
+      "sample_size": 50
+    },
+    {
+      "book_id": "rintaro",
+      "split": "holdout",
+      "epub": "Sylvan Mishima Brackett/Rintaro (384)/Rintaro - Sylvan Mishima Brackett.epub",
+      "sha256": "6f5056e842c3650ad5a001b49e93eacfd690ea11d6e1410f6e2b0a03f1bc701d",
+      "ingredient_classes": [
+        "hang",
+        "hang-1"
+      ],
+      "candidate_count": 543,
+      "sample_size": 50
+    },
+    {
+      "book_id": "honey-co",
+      "split": "holdout",
+      "epub": "Itamar Srulovich/Honey & Co._ The Cookbook (4)/Honey & Co._ The Cookbook - Itamar Srulovich.epub",
+      "sha256": "05beac91798d08e0d3af05c78ec4ed2de70b89b78a022ee5deb4568be6a3d8f3",
+      "ingredient_classes": [
+        "ingredient",
+        "ingredient1"
+      ],
+      "candidate_count": 1017,
+      "sample_size": 50
+    },
+    {
+      "book_id": "dining-in",
+      "split": "holdout",
+      "epub": "Alison Roman/Dining In (174)/Dining In - Alison Roman.epub",
+      "sha256": "1bc9faca7725d477912172de3079a1795948e456fbc414502178fd870853cc5c",
+      "ingredient_classes": [
+        "ril",
+        "rilf",
+        "rils"
+      ],
+      "candidate_count": 857,
+      "sample_size": 50
+    },
+    {
+      "book_id": "six-seasons",
+      "split": "holdout",
+      "epub": "Joshua McFadden/Six Seasons (262)/Six Seasons - Joshua McFadden.epub",
+      "sha256": "34b2da66f084695c5a9f00ce32104dcb3defac4c64cab3969ddb217f41214861",
+      "ingredient_classes": [
+        "RI",
+        "RIB"
+      ],
+      "candidate_count": 1025,
+      "sample_size": 50
+    }
+  ]
+}

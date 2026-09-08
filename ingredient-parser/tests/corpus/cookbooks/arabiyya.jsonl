@@ -1,0 +1,50 @@
+{"id": "arabiyya-01", "input": "2¼ cups/315g all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": "9/4"}, {"unit": "g", "value": 315}]}
+{"id": "arabiyya-02", "input": "1 cup/258g tahini", "name": "tahini", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 258}]}
+{"id": "arabiyya-03", "input": "2¾ cups/385g all-purpose flour, plus more for dusting", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": "11/4"}, {"unit": "g", "value": 385}], "modifier": "plus more for dusting"}
+{"id": "arabiyya-04", "input": "½ cup/60g toasted pine nuts or coarsely chopped toasted walnuts (optional)", "name": "toasted pine nuts or coarsely chopped toasted walnuts", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "g", "value": 60}], "optional": true}
+{"id": "arabiyya-05", "input": "¼ cup crushed pistachios, toasted", "name": "pistachios", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "crushed, toasted"}
+{"id": "arabiyya-06", "input": "2 cups/480ml (57%) water", "name": "water", "amounts": [{"unit": "cup", "value": 2}, {"unit": "ml", "value": 480}], "modifier": "57%"}
+{"id": "arabiyya-07", "input": "1 cup/200g sugar", "name": "sugar", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 200}]}
+{"id": "arabiyya-08", "input": "½ cup Blossom Syrup (this page)", "name": "Blossom Syrup", "amounts": [{"unit": "cup", "value": "1/2"}]}
+{"id": "arabiyya-09", "input": "2¾ cups plus 2 tablespoons/400g all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": "11/4"}, {"unit": "tbsp", "value": 2}, {"unit": "g", "value": 400}]}
+{"id": "arabiyya-10", "input": "½ teaspoon sumac", "name": "sumac", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "arabiyya-11", "input": "¼ cup pomegranate molasses", "name": "pomegranate molasses", "amounts": [{"unit": "cup", "value": "1/4"}]}
+{"id": "arabiyya-12", "input": "2 cups white champagne vinegar", "name": "white champagne vinegar", "amounts": [{"unit": "cup", "value": 2}]}
+{"id": "arabiyya-13", "input": "1 cup/140g all-purpose flour", "name": "all-purpose flour", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 140}]}
+{"id": "arabiyya-14", "input": "1 tablespoon Tangy Green Hot Sauce (this page), sambal, or your favorite hot sauce, plus more as needed and for serving", "name": "Tangy Green Hot Sauce, sambal, or your favorite hot sauce", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "plus more as needed and for serving"}
+{"id": "arabiyya-15", "input": "½ teaspoon Seven-Spice Mix (this page) or ground allspice", "name": "Seven-Spice Mix or ground allspice", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "arabiyya-16", "input": "½ cup/120ml neutral oil, such as sunflower or canola oil, plus more for greasing the bowl", "name": "neutral oil", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "ml", "value": 120}], "modifier": "such as sunflower or canola oil, plus more for greasing the bowl"}
+{"id": "arabiyya-17", "input": "1 teaspoon Seven-Spice Mix (this page)", "name": "Seven-Spice Mix", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "arabiyya-18", "input": "3 cups mixed nuts and seeds (walnuts, pistachios, almonds, hazelnuts, pumpkin seeds, or cashews)", "name": "mixed nuts and seeds", "amounts": [{"unit": "cup", "value": 3}], "modifier": "walnuts, pistachios, almonds, hazelnuts, pumpkin seeds, or cashews"}
+{"id": "arabiyya-19", "input": "1½ cups basmati rice", "name": "basmati rice", "amounts": [{"unit": "cup", "value": "3/2"}]}
+{"id": "arabiyya-20", "input": "¼ cup water", "name": "water", "amounts": [{"unit": "cup", "value": "1/4"}]}
+{"id": "arabiyya-21", "input": "Kosher salt as needed", "name": "Kosher salt", "amounts": [], "modifier": "as needed"}
+{"id": "arabiyya-22", "input": "½ cup champagne vinegar", "name": "champagne vinegar", "amounts": [{"unit": "cup", "value": "1/2"}]}
+{"id": "arabiyya-23", "input": "½ cup melted Clarified Butter (this page) or ghee, plus more for greasing the parchment", "name": "Clarified Butter or ghee", "amounts": [{"unit": "cup", "value": "1/2"}], "modifier": "melted, plus more for greasing the parchment"}
+{"id": "arabiyya-24", "input": "¾ cup white wine", "name": "white wine", "amounts": [{"unit": "cup", "value": "3/4"}]}
+{"id": "arabiyya-25", "input": "6 tablespoons/83g unsalted butter, softened", "name": "unsalted butter", "amounts": [{"unit": "tbsp", "value": 6}, {"unit": "g", "value": 83}], "modifier": "softened"}
+{"id": "arabiyya-26", "input": "2 cups medium-diced onions (about 1 onion)", "name": "onions", "amounts": [{"unit": "cup", "value": 2}, {"unit": "whole", "value": 1}], "modifier": "medium-diced"}
+{"id": "arabiyya-27", "input": "¼ teaspoon/0.5g ground nutmeg", "name": "ground nutmeg", "amounts": [{"unit": "tsp", "value": "1/4"}, {"unit": "g", "value": "1/2"}]}
+{"id": "arabiyya-28", "input": "1 tablespoon sumac, plus more as needed", "name": "sumac", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "plus more as needed"}
+{"id": "arabiyya-29", "input": "¼ cup crumbled feta (optional)", "name": "feta", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "crumbled", "optional": true}
+{"id": "arabiyya-30", "input": "1½ cups melting cheese, such as Akkawi, mozzarella, or Oaxaca cheese", "name": "melting cheese", "amounts": [{"unit": "cup", "value": "3/2"}], "modifier": "such as Akkawi, mozzarella, or Oaxaca cheese"}
+{"id": "arabiyya-31", "input": "½ cup/120ml whole milk", "name": "whole milk", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "ml", "value": 120}]}
+{"id": "arabiyya-32", "input": "Neutral oil, such as canola or sunflower, for greasing the bowl", "name": "Neutral oil", "amounts": [], "modifier": "such as canola or sunflower, for greasing the bowl", "usage": "pan_grease"}
+{"id": "arabiyya-33", "input": "1 teaspoon sumac, plus a pinch for garnish", "name": "sumac", "amounts": [{"unit": "tsp", "value": 1}], "modifier": "plus a pinch for garnish"}
+{"id": "arabiyya-34", "input": "½ cup walnuts", "name": "walnuts", "amounts": [{"unit": "cup", "value": "1/2"}]}
+{"id": "arabiyya-35", "input": "1 teaspoon freshly ground black pepper, plus more as needed", "name": "black pepper", "amounts": [{"unit": "tsp", "value": 1}], "modifier": "freshly ground, plus more as needed"}
+{"id": "arabiyya-36", "input": "Maldon salt (optional) for garnish", "name": "Maldon salt", "amounts": [], "modifier": "for garnish", "optional": true, "usage": "garnish"}
+{"id": "arabiyya-37", "input": "6 cups/840g (100%) bread flour", "name": "bread flour", "amounts": [{"unit": "cup", "value": 6}, {"unit": "g", "value": 840}], "modifier": "100%"}
+{"id": "arabiyya-38", "input": "1½ teaspoons/6g active dry yeast", "name": "active dry yeast", "amounts": [{"unit": "tsp", "value": "3/2"}, {"unit": "g", "value": 6}]}
+{"id": "arabiyya-39", "input": "1 tablespoon gently cracked cardamom pods (about 18 pods)", "name": "cardamom pods", "amounts": [{"unit": "tbsp", "value": 1}, {"unit": "pod", "value": 18}], "modifier": "gently cracked"}
+{"id": "arabiyya-40", "input": "½ teaspoon/1g ground anise", "name": "ground anise", "amounts": [{"unit": "tsp", "value": "1/2"}, {"unit": "g", "value": 1}]}
+{"id": "arabiyya-41", "input": "2 egg yolks", "name": "egg yolks", "amounts": [{"unit": "whole", "value": 2}]}
+{"id": "arabiyya-42", "input": "¼ teaspoon/0.5g ground allspice", "name": "ground allspice", "amounts": [{"unit": "tsp", "value": "1/4"}, {"unit": "g", "value": "1/2"}]}
+{"id": "arabiyya-43", "input": "1 teaspoon sumac for garnish", "name": "sumac", "amounts": [{"unit": "tsp", "value": 1}], "modifier": "for garnish", "usage": "garnish"}
+{"id": "arabiyya-44", "input": "½ teaspoon cinnamon", "name": "cinnamon", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "arabiyya-45", "input": "¼ cup apple cider vinegar", "name": "apple cider vinegar", "amounts": [{"unit": "cup", "value": "1/4"}]}
+{"id": "arabiyya-46", "input": "5 cardamom pods", "name": "cardamom pods", "amounts": [{"unit": "whole", "value": 5}]}
+{"id": "arabiyya-47", "input": "1½ tablespoons kosher salt, plus more as needed", "name": "kosher salt", "amounts": [{"unit": "tbsp", "value": "3/2"}], "modifier": "plus more as needed"}
+{"id": "arabiyya-48", "input": "1 teaspoon/5ml vanilla extract", "name": "vanilla extract", "amounts": [{"unit": "tsp", "value": 1}, {"unit": "ml", "value": 5}]}
+{"id": "arabiyya-49", "input": "1 red beet (about 5 ounces)", "name": "red beet", "amounts": [{"unit": "whole", "value": 1}, {"unit": "oz", "value": 5}]}
+{"id": "arabiyya-50", "input": "1 russet potato with skin, sliced into ¼-inch rounds", "name": "russet potato with skin", "amounts": [{"unit": "whole", "value": 1}], "modifier": "sliced into ¼-inch rounds"}

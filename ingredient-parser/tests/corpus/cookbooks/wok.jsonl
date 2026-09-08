@@ -1,0 +1,50 @@
+{"id": "wok-01", "input": "1 CUP MASCARPONE CHEESE", "name": "MASCARPONE CHEESE", "amounts": [{"unit": "cup", "value": 1}]}
+{"id": "wok-02", "input": "2 TABLESPOONS CORNSTARCH", "name": "CORNSTARCH", "amounts": [{"unit": "tbsp", "value": 2}]}
+{"id": "wok-03", "input": "2 TO 3 TABLESPOONS WATER", "name": "WATER", "amounts": [{"unit": "tbsp", "value": 2, "upper_value": 3}]}
+{"id": "wok-04", "input": "8 EGG YOLKS", "name": "EGG YOLKS", "amounts": [{"unit": "whole", "value": 8}]}
+{"id": "wok-05", "input": "3 TABLESPOONS GINGER, FINELY MINCED", "name": "GINGER", "amounts": [{"unit": "tbsp", "value": 3}], "modifier": "FINELY MINCED"}
+{"id": "wok-06", "input": "1 CUP DRY WHITE WINE", "name": "DRY WHITE WINE", "amounts": [{"unit": "cup", "value": 1}]}
+{"id": "wok-07", "input": "TWO 1-POUND WILD SALMON FILLETS, CUT INTO 4 EQUAL PORTIONS", "name": "WILD SALMON FILLETS", "amounts": [{"unit": "whole", "value": 2}, {"unit": "lb", "value": 1}], "modifier": "CUT INTO 4 EQUAL PORTIONS"}
+{"id": "wok-08", "input": "1½ TEASPOONS KOSHER SALT", "name": "KOSHER SALT", "amounts": [{"unit": "tsp", "value": "3/2"}]}
+{"id": "wok-09", "input": "¾ CUP PANKO", "name": "PANKO", "amounts": [{"unit": "cup", "value": "3/4"}]}
+{"id": "wok-10", "input": "⅓ CUP UNSALTED BUTTER", "name": "UNSALTED BUTTER", "amounts": [{"unit": "cup", "value": "1/3"}]}
+{"id": "wok-11", "input": "BUTTER FOR GREASING THE PAN", "name": "BUTTER", "amounts": [], "modifier": "FOR GREASING THE PAN", "usage": "pan_grease"}
+{"id": "wok-12", "input": "6 PIQUILLO PEPPERS, MINCED", "name": "PIQUILLO PEPPERS", "amounts": [{"unit": "whole", "value": 6}], "modifier": "MINCED"}
+{"id": "wok-13", "input": "⅓ CUP WATER", "name": "WATER", "amounts": [{"unit": "cup", "value": "1/3"}]}
+{"id": "wok-14", "input": "1½ TABLESPOONS HOISIN OR OYSTER SAUCE", "name": "HOISIN OR OYSTER SAUCE", "amounts": [{"unit": "tbsp", "value": "3/2"}]}
+{"id": "wok-15", "input": "¼ CUP MARSALA WINE", "name": "MARSALA WINE", "amounts": [{"unit": "cup", "value": "1/4"}]}
+{"id": "wok-16", "input": "2 CUPS AR BOR IO RICE", "name": "AR BOR IO RICE", "amounts": [{"unit": "cup", "value": 2}]}
+{"id": "wok-17", "input": "CRUSTY BREAD OR WIDE NOODLES", "name": "CRUSTY BREAD OR WIDE NOODLES", "amounts": []}
+{"id": "wok-18", "input": "3 TABLESPOONS FRESHLY SQUEEZED LEMON JUICE (FROM 1 LARGE LEMON)", "name": "LEMON JUICE", "amounts": [{"unit": "tbsp", "value": 3}], "modifier": "FRESHLY SQUEEZED, FROM 1 LARGE LEMON"}
+{"id": "wok-19", "input": "3 TABLESPOONS FRESH DILL, FINELY CHOPPED", "name": "DILL", "amounts": [{"unit": "tbsp", "value": 3}], "modifier": "FRESH, FINELY CHOPPED"}
+{"id": "wok-20", "input": "1 TABLESPOON LEMON ZEST", "name": "LEMON ZEST", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"id": "wok-21", "input": "½ TEASPOON CHOPPED FRESH THYME", "name": "THYME", "amounts": [{"unit": "tsp", "value": "1/2"}], "modifier": "CHOPPED FRESH"}
+{"id": "wok-22", "input": "⅓ CUP DARK BROWN SUGAR, PACKED", "name": "DARK BROWN SUGAR", "amounts": [{"unit": "cup", "value": "1/3"}], "modifier": "PACKED"}
+{"id": "wok-23", "input": "½ CUP MILK (AND UP TO 2 TABLESPOONS MORE, IF NEEDED)", "name": "MILK", "amounts": [{"unit": "cup", "value": "1/2"}], "modifier": "AND UP TO 2 TABLESPOONS MORE, IF NEEDED"}
+{"id": "wok-24", "input": "1 TABLESPOON CAYENNE", "name": "CAYENNE", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"id": "wok-25", "input": "½ TEASPOON CAYENNE", "name": "CAYENNE", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "wok-26", "input": "8 OUNCES (2½ CUPS) CREMINI MUSHROOMS, QUARTERED", "name": "CREMINI MUSHROOMS", "amounts": [{"unit": "oz", "value": 8}, {"unit": "cup", "value": "5/2"}], "modifier": "QUARTERED"}
+{"id": "wok-27", "input": "1 ½-INCH-PIECE GINGER, PEELED AND MINCED", "name": "GINGER", "amounts": [{"unit": "piece", "value": 1}], "modifier": "½-INCH, PEELED AND MINCED"}
+{"id": "wok-28", "input": "1 TEASPOON ON ION POWDER", "name": "ON ION POWDER", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "wok-29", "input": "⅓ CUP SHELLED PISTACHIOS", "name": "SHELLED PISTACHIOS", "amounts": [{"unit": "cup", "value": "1/3"}]}
+{"id": "wok-30", "input": "2 CLOVES GARLIC, FINELY MINCED", "name": "GARLIC", "amounts": [{"unit": "clove", "value": 2}], "modifier": "FINELY MINCED"}
+{"id": "wok-31", "input": "1 TABLESPOON FRESH CHIVES, finely chopped", "name": "CHIVES", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "FRESH, finely chopped"}
+{"id": "wok-32", "input": "½ CUP (1 STICK) BUTTER", "name": "BUTTER", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "stick", "value": 1}]}
+{"id": "wok-33", "input": "1 POUND PORK TENDERLOIN, CUT INTO BITE-SIZE PIECES", "name": "PORK TENDERLOIN", "amounts": [{"unit": "lb", "value": 1}], "modifier": "CUT INTO BITE-SIZE PIECES"}
+{"id": "wok-34", "input": "⅓ CUP PINEAPPLE JUICE", "name": "PINEAPPLE JUICE", "amounts": [{"unit": "cup", "value": "1/3"}]}
+{"id": "wok-35", "input": "1 CUP (2 STICKS) UNSALTED BUTTER, AT ROOM TEMPERATURE, CUT INTO TABLESPOONS", "name": "UNSALTED BUTTER", "amounts": [{"unit": "cup", "value": 1}, {"unit": "stick", "value": 2}], "modifier": "AT ROOM TEMPERATURE, CUT INTO TABLESPOONS"}
+{"id": "wok-36", "input": "1 LARGE RED BELL PEPPER, SEEDED AND CHOPPED", "name": "RED BELL PEPPER", "amounts": [{"unit": "large", "value": 1}], "modifier": "SEEDED AND CHOPPED"}
+{"id": "wok-37", "input": "3 CLOVES GARLIC, SMASH ED", "name": "GARLIC", "amounts": [{"unit": "clove", "value": 3}], "modifier": "SMASH ED"}
+{"id": "wok-38", "input": "1 TEASPOON SRIRACHA OR OTHER ASIAN CHILI SAUCE", "name": "SRIRACHA OR OTHER ASIAN CHILI SAUCE", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "wok-39", "input": "½ RED BELL PEPPER, SLICED INTO ¾-INCH PIECES", "name": "RED BELL PEPPER", "amounts": [{"unit": "whole", "value": "1/2"}], "modifier": "SLICED INTO ¾-INCH PIECES"}
+{"id": "wok-40", "input": "2 MEDIUM FENNEL BULBS, TRIMMED AND SHAVED INTO PAPER-THIN SLICES", "name": "FENNEL BULBS", "amounts": [{"unit": "medium", "value": 2}], "modifier": "TRIMMED AND SHAVED INTO PAPER-THIN SLICES"}
+{"id": "wok-41", "input": "1 MEDIUM YELLOW ONION, QUARTERED", "name": "YELLOW ONION", "amounts": [{"unit": "medium", "value": 1}], "modifier": "QUARTERED"}
+{"id": "wok-42", "input": "1 TABLESPOON BROWN SUGAR", "name": "BROWN SUGAR", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"id": "wok-43", "input": "½ TEASPOON CRUSHED RED PEPPER FLAKES (OR MORE)", "name": "RED PEPPER FLAKES", "amounts": [{"unit": "tsp", "value": "1/2"}], "modifier": "CRUSHED, OR MORE"}
+{"id": "wok-44", "input": "½ CUP FROZEN PEAS", "name": "FROZEN PEAS", "amounts": [{"unit": "cup", "value": "1/2"}]}
+{"id": "wok-45", "input": "¼ CUP SCALLIONS, FINELY CHOPPED", "name": "SCALLIONS", "amounts": [{"unit": "cup", "value": "1/4"}], "modifier": "FINELY CHOPPED"}
+{"id": "wok-46", "input": "2 TABLESPOONS SWEET PAPRIKA", "name": "SWEET PAPRIKA", "amounts": [{"unit": "tbsp", "value": 2}]}
+{"id": "wok-47", "input": "½ TEASPOON GROUND NUTMEG", "name": "GROUND NUTMEG", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "wok-48", "input": "1 TABLESPOON RICE VINEGAR", "name": "RICE VINEGAR", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"id": "wok-49", "input": "1½ TABLESPOONS CORNSTARCH", "name": "CORNSTARCH", "amounts": [{"unit": "tbsp", "value": "3/2"}]}
+{"id": "wok-50", "input": "2 TO 3 TABLESPOONS OYSTER SAUCE", "name": "OYSTER SAUCE", "amounts": [{"unit": "tbsp", "value": 2, "upper_value": 3}]}

@@ -1,0 +1,50 @@
+{"id": "rintaro-01", "input": "1 cup / 175 g pastry or cake flour", "name": "pastry or cake flour", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 175}]}
+{"id": "rintaro-02", "input": "3 tablespoons vegetable or other neutral oil", "name": "vegetable or other neutral oil", "amounts": [{"unit": "tbsp", "value": 3}]}
+{"id": "rintaro-03", "input": "1 small yellow onion, finely diced", "name": "yellow onion", "amounts": [{"unit": "small", "value": 1}], "modifier": "finely diced"}
+{"id": "rintaro-04", "input": "½ cup / 118ml shoyu", "name": "shoyu", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "ml", "value": 118}]}
+{"id": "rintaro-05", "input": "1 lb / 450 g sashimi-grade bigeye, yellowfin, or bluefin tuna", "name": "sashimi-grade bigeye, yellowfin, or bluefin tuna", "amounts": [{"unit": "lb", "value": 1}, {"unit": "g", "value": 450}]}
+{"id": "rintaro-06", "input": "7 tablespoons / 85 g sugar", "name": "sugar", "amounts": [{"unit": "tbsp", "value": 7}, {"unit": "g", "value": 85}]}
+{"id": "rintaro-07", "input": "¼ cup / 60ml cooking sake", "name": "cooking sake", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "ml", "value": 60}]}
+{"id": "rintaro-08", "input": "2 boneless, skinless chicken breasts (about 9 oz / 255 g each)", "name": "boneless, skinless chicken breasts", "amounts": [{"unit": "whole", "value": 2}], "modifier": "about 9 oz / 255 g each"}
+{"id": "rintaro-09", "input": "2 cups / 472 ml Katsuobushi Dashi", "name": "Katsuobushi Dashi", "amounts": [{"unit": "cup", "value": 2}, {"unit": "ml", "value": 472}]}
+{"id": "rintaro-10", "input": "1 cup / 16 g finely shaved katsuobushi", "name": "katsuobushi", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 16}], "modifier": "finely shaved"}
+{"id": "rintaro-11", "input": "1 teaspoon lemon juice", "name": "lemon juice", "amounts": [{"unit": "tsp", "value": 1}]}
+{"id": "rintaro-12", "input": "2 teaspoons whole milk", "name": "whole milk", "amounts": [{"unit": "tsp", "value": 2}]}
+{"id": "rintaro-13", "input": "10 shiso leaves", "name": "shiso leaves", "amounts": [{"unit": "whole", "value": 10}]}
+{"id": "rintaro-14", "input": "1 scallion, finely sliced (optional)", "name": "scallion", "amounts": [{"unit": "whole", "value": 1}], "modifier": "finely sliced", "optional": true}
+{"id": "rintaro-15", "input": "Japanese mustard", "name": "Japanese mustard", "amounts": []}
+{"id": "rintaro-16", "input": "1 (10 to 12-oz / 283 to 340 g) boneless duck breast, grilled", "name": "boneless duck breast", "amounts": [{"unit": "whole", "value": 1}, {"unit": "oz", "value": 10, "upper_value": 12}, {"unit": "g", "value": 283, "upper_value": 340}], "modifier": "grilled"}
+{"id": "rintaro-17", "input": "6 inner thigh pieces from 6 whole chicken thighs", "name": "inner thigh pieces from 6 whole chicken thighs", "amounts": [{"unit": "whole", "value": 6}]}
+{"id": "rintaro-18", "input": "Wasabi, for serving", "name": "Wasabi", "amounts": [], "modifier": "for serving"}
+{"id": "rintaro-19", "input": "1 lb / 450 g uncured steelhead roe", "name": "uncured steelhead roe", "amounts": [{"unit": "lb", "value": 1}, {"unit": "g", "value": 450}]}
+{"id": "rintaro-20", "input": "1 Japanese cucumber", "name": "Japanese cucumber", "amounts": [{"unit": "whole", "value": 1}]}
+{"id": "rintaro-21", "input": "2 cups / 212 g pastry flour", "name": "pastry flour", "amounts": [{"unit": "cup", "value": 2}, {"unit": "g", "value": 212}]}
+{"id": "rintaro-22", "input": "4 cups / 950ml cold water", "name": "water", "amounts": [{"unit": "cup", "value": 4}, {"unit": "ml", "value": 950}], "modifier": "cold"}
+{"id": "rintaro-23", "input": "Thinly sliced shiso, for serving", "name": "shiso", "amounts": [], "modifier": "Thinly sliced, for serving"}
+{"id": "rintaro-24", "input": "5 oz / 140 g maitake mushroom", "name": "maitake mushroom", "amounts": [{"unit": "oz", "value": 5}, {"unit": "g", "value": 140}]}
+{"id": "rintaro-25", "input": "Generous ¼ teaspoon black pepper", "name": "black pepper", "amounts": [{"unit": "tsp", "value": "1/4"}], "modifier": "Generous"}
+{"id": "rintaro-26", "input": "1 cup / 16 g shaved katsuobushi, for serving", "name": "katsuobushi", "amounts": [{"unit": "cup", "value": 1}, {"unit": "g", "value": 16}], "modifier": "shaved, for serving"}
+{"id": "rintaro-27", "input": "8 large eggs", "name": "eggs", "amounts": [{"unit": "large", "value": 8}]}
+{"id": "rintaro-28", "input": "Yogurt Raita", "name": "Yogurt Raita", "amounts": []}
+{"id": "rintaro-29", "input": "5 tablespoons / 74 g granulated sugar", "name": "granulated sugar", "amounts": [{"unit": "tbsp", "value": 5}, {"unit": "g", "value": 74}]}
+{"id": "rintaro-30", "input": "¼ cup / 50 g sugar", "name": "sugar", "amounts": [{"unit": "cup", "value": "1/4"}, {"unit": "g", "value": 50}]}
+{"id": "rintaro-31", "input": "½ teaspoon fine sea salt", "name": "fine sea salt", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "rintaro-32", "input": "½ cup / 120ml vegetable or other neutral oil", "name": "vegetable or other neutral oil", "amounts": [{"unit": "cup", "value": "1/2"}, {"unit": "ml", "value": 120}]}
+{"id": "rintaro-33", "input": "6 tablespoons / 90ml Udon Kaeshi", "name": "Udon Kaeshi", "amounts": [{"unit": "tbsp", "value": 6}, {"unit": "ml", "value": 90}]}
+{"id": "rintaro-34", "input": "1 tablespoon grated garlic", "name": "garlic", "amounts": [{"unit": "tbsp", "value": 1}], "modifier": "grated"}
+{"id": "rintaro-35", "input": "2 garlic cloves, finely chopped", "name": "garlic", "amounts": [{"unit": "clove", "value": 2}], "modifier": "finely chopped"}
+{"id": "rintaro-36", "input": "1½ tablespoons plus ½ teaspoon mirin", "name": "mirin", "amounts": [{"unit": "tbsp", "value": "3/2"}, {"unit": "tsp", "value": "1/2"}]}
+{"id": "rintaro-37", "input": "5 (4 by 11-inch / 10 by 28 cm) pieces konbu (see Note)", "name": "konbu", "amounts": [{"unit": "piece", "value": 5}], "modifier": "4 by 11-inch / 10 by 28 cm"}
+{"id": "rintaro-38", "input": "3 scallions, thinly sliced, for serving", "name": "scallions", "amounts": [{"unit": "whole", "value": 3}], "modifier": "thinly sliced, for serving"}
+{"id": "rintaro-39", "input": "Hot Japanese mustard, for serving", "name": "Japanese mustard", "amounts": [], "modifier": "Hot, for serving"}
+{"id": "rintaro-40", "input": "8 oz / 225 grams unpeeled ginger, cut into ½-inch / 12 mm-thick slices", "name": "unpeeled ginger", "amounts": [{"unit": "oz", "value": 8}, {"unit": "g", "value": 225}], "modifier": "cut into ½-inch / 12 mm-thick slices"}
+{"id": "rintaro-41", "input": "Seasonal fresh fruits, for serving", "name": "Seasonal fruits", "amounts": [], "modifier": "fresh, for serving"}
+{"id": "rintaro-42", "input": "½ medium yellow onion, finely chopped", "name": "yellow onion", "amounts": [{"unit": "medium", "value": "1/2"}], "modifier": "finely chopped"}
+{"id": "rintaro-43", "input": "3 gal plus 3 cups / 12L vodka", "name": "vodka", "amounts": [{"unit": "gal", "value": 3}, {"unit": "cup", "value": 3}, {"unit": "l", "value": 12}]}
+{"id": "rintaro-44", "input": "1½ teaspoons Japanese mustard powder", "name": "Japanese mustard powder", "amounts": [{"unit": "tsp", "value": "3/2"}]}
+{"id": "rintaro-45", "input": "1 tablespoon toasted sesame oil", "name": "toasted sesame oil", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"id": "rintaro-46", "input": "3 cups / 120 g Nama Panko", "name": "Nama Panko", "amounts": [{"unit": "cup", "value": 3}, {"unit": "g", "value": 120}]}
+{"id": "rintaro-47", "input": "½ teaspoon sugar", "name": "sugar", "amounts": [{"unit": "tsp", "value": "1/2"}]}
+{"id": "rintaro-48", "input": "Snowy cabbage", "name": "Snowy cabbage", "amounts": []}
+{"id": "rintaro-49", "input": "1 tablespoon cooking sake", "name": "cooking sake", "amounts": [{"unit": "tbsp", "value": 1}]}
+{"id": "rintaro-50", "input": "5 tablespoons / 75ml water", "name": "water", "amounts": [{"unit": "tbsp", "value": 5}, {"unit": "ml", "value": 75}]}

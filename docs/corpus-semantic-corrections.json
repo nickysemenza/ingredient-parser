@@ -1,0 +1,1473 @@
+[
+  {
+    "input": "Finely chopped toasted almonds",
+    "reason": "authored case",
+    "before": {
+      "name": "toasted almonds",
+      "modifier": "finely chopped"
+    },
+    "after": {
+      "name": "toasted almonds",
+      "modifier": "Finely chopped"
+    }
+  },
+  {
+    "input": "500 grams (3 ¾ cups) bread or all-purpose flour",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "bread flour",
+      "amounts": [
+        {
+          "unit": "g",
+          "value": 500.0
+        },
+        {
+          "unit": "cup",
+          "value": 3.75
+        }
+      ],
+      "modifier": "or all-purpose flour"
+    },
+    "after": {
+      "name": "bread or all-purpose flour",
+      "amounts": [
+        {
+          "unit": "g",
+          "value": 500.0
+        },
+        {
+          "unit": "cup",
+          "value": 3.75
+        }
+      ]
+    }
+  },
+  {
+    "input": "0.25 ounces (1 packet, about 2 teaspoons) instant or rapid rise yeast",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "instant rise yeast",
+      "amounts": [
+        {
+          "unit": "oz",
+          "value": 0.25
+        },
+        {
+          "unit": "packet",
+          "value": 1.0
+        },
+        {
+          "unit": "tsp",
+          "value": 2.0
+        }
+      ],
+      "modifier": "or rapid rise yeast"
+    },
+    "after": {
+      "name": "instant or rapid rise yeast",
+      "amounts": [
+        {
+          "unit": "oz",
+          "value": 0.25
+        },
+        {
+          "unit": "packet",
+          "value": 1.0
+        },
+        {
+          "unit": "tsp",
+          "value": 2.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "4 (13-millimeter/½-inch) slices PORK BELLY CHASHU, warmed",
+    "reason": "ingredient dimensions describe food",
+    "before": {
+      "name": "PORK BELLY CHASHU",
+      "amounts": [
+        {
+          "unit": "slice",
+          "value": 4.0
+        }
+      ],
+      "modifier": "warmed"
+    },
+    "after": {
+      "name": "PORK BELLY CHASHU",
+      "amounts": [
+        {
+          "unit": "slice",
+          "value": 4.0
+        }
+      ],
+      "modifier": "13-millimeter/½-inch, warmed"
+    }
+  },
+  {
+    "input": "Fresh parsley for garnish",
+    "reason": "authored case",
+    "before": {
+      "name": "parsley",
+      "modifier": "fresh, for garnish",
+      "usage": "garnish"
+    },
+    "after": {
+      "name": "parsley",
+      "modifier": "Fresh, for garnish",
+      "usage": "garnish"
+    }
+  },
+  {
+    "input": "Warm water (100°F/38°C) — 472 g",
+    "reason": "trailing-measure preparation parity and temperature description",
+    "before": {
+      "name": "Warm water (100°F/38°C)",
+      "amounts": [
+        {
+          "unit": "g",
+          "value": 472.0
+        }
+      ]
+    },
+    "after": {
+      "name": "water",
+      "amounts": [
+        {
+          "unit": "g",
+          "value": 472.0
+        }
+      ],
+      "modifier": "Warm, 100°F/38°C"
+    }
+  },
+  {
+    "input": "Juice of 1 lemon",
+    "reason": "authored case",
+    "before": {
+      "name": "lemon",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1
+        }
+      ],
+      "modifier": "juice of"
+    },
+    "after": {
+      "name": "lemon",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1
+        }
+      ],
+      "modifier": "Juice of"
+    }
+  },
+  {
+    "input": "Zest of 1 lemon",
+    "reason": "authored case",
+    "before": {
+      "name": "lemon",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1
+        }
+      ],
+      "modifier": "zest of"
+    },
+    "after": {
+      "name": "lemon",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1
+        }
+      ],
+      "modifier": "Zest of"
+    }
+  },
+  {
+    "input": "Zest of 2 limes",
+    "reason": "authored case",
+    "before": {
+      "name": "limes",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 2
+        }
+      ],
+      "modifier": "zest of"
+    },
+    "after": {
+      "name": "limes",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 2
+        }
+      ],
+      "modifier": "Zest of"
+    }
+  },
+  {
+    "input": "Grated zest of 1 orange",
+    "reason": "authored case",
+    "before": {
+      "name": "orange",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1
+        }
+      ],
+      "modifier": "grated zest of"
+    },
+    "after": {
+      "name": "orange",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1
+        }
+      ],
+      "modifier": "Grated zest of"
+    }
+  },
+  {
+    "input": "One 2-inch stick of canela (Mexican cinnamon)",
+    "reason": "ingredient dimensions describe food",
+    "before": {
+      "name": "canela",
+      "amounts": [
+        {
+          "unit": "stick",
+          "value": 1.0
+        },
+        {
+          "unit": "\"",
+          "value": 2.0
+        }
+      ],
+      "modifier": "Mexican cinnamon"
+    },
+    "after": {
+      "name": "canela",
+      "amounts": [
+        {
+          "unit": "stick",
+          "value": 1.0
+        }
+      ],
+      "modifier": "2-inch, Mexican cinnamon"
+    }
+  },
+  {
+    "input": "1 (9-inch) pie crust",
+    "reason": "ingredient dimensions describe food",
+    "before": {
+      "name": "pie crust",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1
+        },
+        {
+          "unit": "\"",
+          "value": 9
+        }
+      ]
+    },
+    "after": {
+      "name": "pie crust",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1
+        }
+      ],
+      "modifier": "9-inch"
+    }
+  },
+  {
+    "input": "1 (11-ounce) box Nilla wafers or graham crackers",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "Nilla wafers",
+      "amounts": [
+        {
+          "unit": "box",
+          "value": 1.0
+        },
+        {
+          "unit": "oz",
+          "value": 11.0
+        }
+      ],
+      "modifier": "or graham crackers"
+    },
+    "after": {
+      "name": "Nilla wafers or graham crackers",
+      "amounts": [
+        {
+          "unit": "box",
+          "value": 1.0
+        },
+        {
+          "unit": "oz",
+          "value": 11.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "2-inch piece ginger",
+    "reason": "ingredient dimensions describe food",
+    "before": {
+      "name": "ginger",
+      "amounts": [
+        {
+          "unit": "\"",
+          "value": 2.0
+        },
+        {
+          "unit": "piece",
+          "value": 1.0
+        }
+      ]
+    },
+    "after": {
+      "name": "ginger",
+      "amounts": [
+        {
+          "unit": "piece",
+          "value": 1.0
+        }
+      ],
+      "modifier": "2-inch"
+    }
+  },
+  {
+    "input": "3-inch cinnamon stick",
+    "reason": "ingredient dimensions describe food",
+    "before": {
+      "name": "cinnamon stick",
+      "amounts": [
+        {
+          "unit": "\"",
+          "value": 3.0
+        }
+      ]
+    },
+    "after": {
+      "name": "cinnamon stick",
+      "amounts": [],
+      "modifier": "3-inch"
+    }
+  },
+  {
+    "input": "Finely grated zest from 1 lemon",
+    "reason": "authored case",
+    "before": {
+      "name": "lemon",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "finely grated zest from"
+    },
+    "after": {
+      "name": "lemon",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "Finely grated zest from"
+    }
+  },
+  {
+    "input": "Juice from 2 limes",
+    "reason": "authored case",
+    "before": {
+      "name": "limes",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 2.0
+        }
+      ],
+      "modifier": "juice from"
+    },
+    "after": {
+      "name": "limes",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 2.0
+        }
+      ],
+      "modifier": "Juice from"
+    }
+  },
+  {
+    "input": "Peel of 1 grapefruit",
+    "reason": "authored case",
+    "before": {
+      "name": "grapefruit",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "peel of"
+    },
+    "after": {
+      "name": "grapefruit",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "Peel of"
+    }
+  },
+  {
+    "input": "Seeds scraped from 1 vanilla bean",
+    "reason": "authored case",
+    "before": {
+      "name": "vanilla bean",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "seeds scraped from"
+    },
+    "after": {
+      "name": "vanilla bean",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "Seeds scraped from"
+    }
+  },
+  {
+    "input": "Leaves from 3 sprigs fresh thyme",
+    "reason": "authored case",
+    "before": {
+      "name": "thyme",
+      "amounts": [
+        {
+          "unit": "sprig",
+          "value": 3.0
+        }
+      ],
+      "modifier": "leaves from, fresh"
+    },
+    "after": {
+      "name": "thyme",
+      "amounts": [
+        {
+          "unit": "sprig",
+          "value": 3.0
+        }
+      ],
+      "modifier": "Leaves from, fresh"
+    }
+  },
+  {
+    "input": "½ cup crème fraîche or sour cream (4.2 oz / 120g)",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "crème fraîche",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.5
+        },
+        {
+          "unit": "oz",
+          "value": 4.2
+        },
+        {
+          "unit": "g",
+          "value": 120.0
+        }
+      ],
+      "modifier": "or sour cream"
+    },
+    "after": {
+      "name": "crème fraîche or sour cream",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.5
+        },
+        {
+          "unit": "oz",
+          "value": 4.2
+        },
+        {
+          "unit": "g",
+          "value": 120.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "12 ounces (340g) fresh or frozen pitted sweet cherries (about 2½ cups)",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "fresh pitted sweet cherries",
+      "amounts": [
+        {
+          "unit": "oz",
+          "value": 12.0
+        },
+        {
+          "unit": "g",
+          "value": 340.0
+        },
+        {
+          "unit": "cup",
+          "value": 2.5
+        }
+      ],
+      "modifier": "or frozen pitted sweet cherries"
+    },
+    "after": {
+      "name": "fresh or frozen pitted sweet cherries",
+      "amounts": [
+        {
+          "unit": "oz",
+          "value": 12.0
+        },
+        {
+          "unit": "g",
+          "value": 340.0
+        },
+        {
+          "unit": "cup",
+          "value": 2.5
+        }
+      ]
+    }
+  },
+  {
+    "input": "1½ teaspoons to 1½ tablespoons packed light or dark brown sugar",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "light brown sugar",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 1.5,
+          "upper_value": null
+        },
+        {
+          "unit": "tbsp",
+          "value": 1.5,
+          "upper_value": null
+        }
+      ],
+      "modifier": "packed, or dark brown sugar"
+    },
+    "after": {
+      "name": "light or dark brown sugar",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 1.5,
+          "upper_value": null
+        },
+        {
+          "unit": "tbsp",
+          "value": 1.5,
+          "upper_value": null
+        }
+      ],
+      "modifier": "packed"
+    }
+  },
+  {
+    "input": "Grated zest of 1 lemon or ½ orange (optional)",
+    "reason": "authored case",
+    "before": {
+      "name": "lemon",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "grated zest of, or ½ orange",
+      "optional": true
+    },
+    "after": {
+      "name": "lemon",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "Grated zest of, or ½ orange",
+      "optional": true
+    }
+  },
+  {
+    "input": "2 teaspoons finely grated lemon or orange zest",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "lemon zest",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 2.0
+        }
+      ],
+      "modifier": "finely grated, or orange zest"
+    },
+    "after": {
+      "name": "lemon or orange zest",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 2.0
+        }
+      ],
+      "modifier": "finely grated"
+    }
+  },
+  {
+    "input": "1 red or white onion",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "red onion",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "or white onion"
+    },
+    "after": {
+      "name": "red or white onion",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "2 cups flour or cornmeal",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "flour",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 2.0
+        }
+      ],
+      "modifier": "or cornmeal"
+    },
+    "after": {
+      "name": "flour or cornmeal",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 2.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "1 teaspoon sweet or hot paprika",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "sweet paprika",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 1.0
+        }
+      ],
+      "modifier": "or hot paprika"
+    },
+    "after": {
+      "name": "sweet or hot paprika",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "1 cup butter or margarine",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "butter",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1.0
+        }
+      ],
+      "modifier": "or margarine"
+    },
+    "after": {
+      "name": "butter or margarine",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "1-inch piece (20g) ginger, unpeeled",
+    "reason": "modifier source order",
+    "before": {
+      "name": "ginger",
+      "amounts": [
+        {
+          "unit": "piece",
+          "value": 1.0
+        },
+        {
+          "unit": "g",
+          "value": 20.0
+        }
+      ],
+      "modifier": "unpeeled, 1-inch"
+    },
+    "after": {
+      "name": "ginger",
+      "amounts": [
+        {
+          "unit": "piece",
+          "value": 1.0
+        },
+        {
+          "unit": "g",
+          "value": 20.0
+        }
+      ],
+      "modifier": "1-inch, unpeeled"
+    }
+  },
+  {
+    "input": "1–1½-inch piece (20–30g) ginger, unpeeled",
+    "reason": "modifier source order",
+    "before": {
+      "name": "ginger",
+      "amounts": [
+        {
+          "unit": "piece",
+          "value": 1.0
+        },
+        {
+          "unit": "g",
+          "value": 20.0,
+          "upper_value": 30.0
+        }
+      ],
+      "modifier": "unpeeled, 1–1½-inch"
+    },
+    "after": {
+      "name": "ginger",
+      "amounts": [
+        {
+          "unit": "piece",
+          "value": 1.0
+        },
+        {
+          "unit": "g",
+          "value": 20.0,
+          "upper_value": 30.0
+        }
+      ],
+      "modifier": "1–1½-inch, unpeeled"
+    }
+  },
+  {
+    "input": "2 tablespoons amaretto or dark rum",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "amaretto",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 2
+        }
+      ],
+      "modifier": "or dark rum"
+    },
+    "after": {
+      "name": "amaretto or dark rum",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 2
+        }
+      ]
+    }
+  },
+  {
+    "input": "1 cup walnuts or macadamia nuts",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "walnuts",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1
+        }
+      ],
+      "modifier": "or macadamia nuts"
+    },
+    "after": {
+      "name": "walnuts or macadamia nuts",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1
+        }
+      ]
+    }
+  },
+  {
+    "input": "1 cup fresh or frozen blueberries",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "fresh blueberries",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1
+        }
+      ],
+      "modifier": "or frozen blueberries"
+    },
+    "after": {
+      "name": "fresh or frozen blueberries",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1
+        }
+      ]
+    }
+  },
+  {
+    "input": "1 cup basil or chopped parsley",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "basil",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1
+        }
+      ],
+      "modifier": "or chopped parsley"
+    },
+    "after": {
+      "name": "basil or chopped parsley",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1
+        }
+      ]
+    }
+  },
+  {
+    "input": "1/2 cup deribbed, seeded, and roughly chopped fresh hot green chiles, such as serrano (2 to 4)",
+    "reason": "modifier source order",
+    "before": {
+      "name": "hot green chiles",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.5
+        },
+        {
+          "unit": "whole",
+          "value": 2.0,
+          "upper_value": 4.0
+        }
+      ],
+      "modifier": "fresh, deribbed, seeded, and roughly chopped, such as serrano"
+    },
+    "after": {
+      "name": "hot green chiles",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.5
+        },
+        {
+          "unit": "whole",
+          "value": 2.0,
+          "upper_value": 4.0
+        }
+      ],
+      "modifier": "deribbed, seeded, and roughly chopped, fresh, such as serrano"
+    }
+  },
+  {
+    "input": "2 tablespoons amaretto or dark rum",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "amaretto",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 2.0
+        }
+      ],
+      "modifier": "or dark rum"
+    },
+    "after": {
+      "name": "amaretto or dark rum",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 2.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "1/3 cup (80ml) canola, vegetable, or melted coconut oil",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "canola oil",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": "1/3"
+        },
+        {
+          "unit": "ml",
+          "value": 80.0
+        }
+      ],
+      "modifier": "or vegetable, or melted coconut oil"
+    },
+    "after": {
+      "name": "canola, vegetable, or melted coconut oil",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": "1/3"
+        },
+        {
+          "unit": "ml",
+          "value": 80.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "1 teaspoon salt, pepper, or paprika",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "salt",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 1.0
+        }
+      ],
+      "modifier": "pepper, or paprika"
+    },
+    "after": {
+      "name": "salt, pepper, or paprika",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "input": "4 cups chicken or vegetable stock",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "chicken stock",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 4
+        }
+      ],
+      "modifier": "or vegetable stock"
+    },
+    "after": {
+      "name": "chicken or vegetable stock",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 4
+        }
+      ]
+    }
+  },
+  {
+    "input": "1 tablespoon grainy or Dijon mustard",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "grainy mustard",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 1
+        }
+      ],
+      "modifier": "or Dijon mustard"
+    },
+    "after": {
+      "name": "grainy or Dijon mustard",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 1
+        }
+      ]
+    }
+  },
+  {
+    "input": "¼ teaspoon freshly ground pink or black pepper",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "pink pepper",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 0.25
+        }
+      ],
+      "modifier": "freshly ground, or black pepper"
+    },
+    "after": {
+      "name": "pink or black pepper",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 0.25
+        }
+      ],
+      "modifier": "freshly ground"
+    }
+  },
+  {
+    "input": "3 heads Little Gem or Bibb lettuce, leaves separated",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "Little Gem lettuce",
+      "amounts": [
+        {
+          "unit": "head",
+          "value": 3
+        }
+      ],
+      "modifier": "leaves separated, or Bibb lettuce"
+    },
+    "after": {
+      "name": "Little Gem or Bibb lettuce",
+      "amounts": [
+        {
+          "unit": "head",
+          "value": 3
+        }
+      ],
+      "modifier": "leaves separated"
+    }
+  },
+  {
+    "input": "2 tablespoons butter or olive oil",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "butter",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 2
+        }
+      ],
+      "modifier": "or olive oil"
+    },
+    "after": {
+      "name": "butter or olive oil",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 2
+        }
+      ]
+    }
+  },
+  {
+    "input": "1 teaspoon salt or pepper",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "salt",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 1
+        }
+      ],
+      "modifier": "or pepper"
+    },
+    "after": {
+      "name": "salt or pepper",
+      "amounts": [
+        {
+          "unit": "tsp",
+          "value": 1
+        }
+      ]
+    }
+  },
+  {
+    "input": "3 or 4 sprigs thyme and/or rosemary",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "thyme",
+      "amounts": [
+        {
+          "unit": "sprig",
+          "value": 3,
+          "upper_value": 4
+        }
+      ],
+      "modifier": "and/or rosemary"
+    },
+    "after": {
+      "name": "thyme and/or rosemary",
+      "amounts": [
+        {
+          "unit": "sprig",
+          "value": 3,
+          "upper_value": 4
+        }
+      ]
+    }
+  },
+  {
+    "input": "Handful cilantro and/or mint, for serving",
+    "reason": "opaque coordination",
+    "before": {
+      "name": "cilantro",
+      "amounts": [
+        {
+          "unit": "handful",
+          "value": 1
+        }
+      ],
+      "modifier": "and/or mint, for serving"
+    },
+    "after": {
+      "name": "cilantro and/or mint",
+      "amounts": [
+        {
+          "unit": "handful",
+          "value": 1
+        }
+      ],
+      "modifier": "for serving"
+    }
+  },
+  {
+    "input": "1¼ cups grated Monterey Jack (or other mild melting cheese)",
+    "reason": "consistent comma joining of separately resolved modifier parts",
+    "before": {
+      "name": "Monterey Jack",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1.25
+        }
+      ],
+      "modifier": "grated (or other mild melting cheese)"
+    },
+    "after": {
+      "name": "Monterey Jack",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 1.25
+        }
+      ],
+      "modifier": "grated, or other mild melting cheese"
+    }
+  },
+  {
+    "input": "500g (1lb 2oz) minced lamb (not too lean)",
+    "reason": "consistent comma joining of separately resolved modifier parts",
+    "before": {
+      "name": "lamb",
+      "amounts": [
+        {
+          "unit": "g",
+          "value": 500.0
+        },
+        {
+          "unit": "lb",
+          "value": 1.0
+        },
+        {
+          "unit": "oz",
+          "value": 2.0
+        }
+      ],
+      "modifier": "minced (not too lean)"
+    },
+    "after": {
+      "name": "lamb",
+      "amounts": [
+        {
+          "unit": "g",
+          "value": 500.0
+        },
+        {
+          "unit": "lb",
+          "value": 1.0
+        },
+        {
+          "unit": "oz",
+          "value": 2.0
+        }
+      ],
+      "modifier": "minced, not too lean"
+    }
+  },
+  {
+    "input": "1 tbsp melted lard (or cooking oil)",
+    "reason": "consistent comma joining of separately resolved modifier parts",
+    "before": {
+      "name": "lard",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 1.0
+        }
+      ],
+      "modifier": "melted (or cooking oil)"
+    },
+    "after": {
+      "name": "lard",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 1.0
+        }
+      ],
+      "modifier": "melted, or cooking oil"
+    }
+  },
+  {
+    "input": "½ cup plain whole-milk yogurt (not Greek)",
+    "reason": "consistent comma joining of separately resolved modifier parts",
+    "before": {
+      "name": "whole-milk yogurt",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.5
+        }
+      ],
+      "modifier": "plain (not Greek)"
+    },
+    "after": {
+      "name": "whole-milk yogurt",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.5
+        }
+      ],
+      "modifier": "plain, not Greek"
+    }
+  },
+  {
+    "input": "2 pounds boneless, skinless chicken thighs (8 to 12 thighs, depending on their size)",
+    "reason": "consistent comma joining of separately resolved modifier parts",
+    "before": {
+      "name": "chicken thighs",
+      "amounts": [
+        {
+          "unit": "lb",
+          "value": 2
+        }
+      ],
+      "modifier": "boneless, skinless (8 to 12 thighs, depending on their size)"
+    },
+    "after": {
+      "name": "chicken thighs",
+      "amounts": [
+        {
+          "unit": "lb",
+          "value": 2
+        }
+      ],
+      "modifier": "boneless, skinless, 8 to 12 thighs, depending on their size"
+    }
+  },
+  {
+    "input": "¾ cup diagonally sliced scallions (white and green parts, about 4 scallions)",
+    "reason": "consistent comma joining of separately resolved modifier parts",
+    "before": {
+      "name": "scallions",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.75
+        }
+      ],
+      "modifier": "diagonally sliced (white and green parts, about 4 scallions)"
+    },
+    "after": {
+      "name": "scallions",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.75
+        }
+      ],
+      "modifier": "diagonally sliced, white and green parts, about 4 scallions"
+    }
+  },
+  {
+    "input": "2 cups cubed seedless watermelon (from about ¼ small melon), chilled",
+    "reason": "consistent comma joining of separately resolved modifier parts",
+    "before": {
+      "name": "seedless watermelon",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 2
+        }
+      ],
+      "modifier": "cubed (from about ¼ small melon), chilled"
+    },
+    "after": {
+      "name": "seedless watermelon",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 2
+        }
+      ],
+      "modifier": "cubed, from about ¼ small melon, chilled"
+    }
+  },
+  {
+    "input": "½ cup roughly chopped fresh cilantro leaves (from about ½ bunch)",
+    "reason": "source or yield quantity is descriptive, not an equivalent measure of the named ingredient",
+    "before": {
+      "name": "cilantro leaves",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.5
+        },
+        {
+          "unit": "bunch",
+          "value": 0.5
+        }
+      ],
+      "modifier": "roughly chopped, fresh"
+    },
+    "after": {
+      "name": "cilantro leaves",
+      "amounts": [
+        {
+          "unit": "cup",
+          "value": 0.5
+        }
+      ],
+      "modifier": "roughly chopped, fresh, from about ½ bunch"
+    }
+  },
+  {
+    "input": "3 tbsp fresh lemon juice (from approximately 1 lemon)",
+    "reason": "source or yield quantity is descriptive, not an equivalent measure of the named ingredient",
+    "before": {
+      "name": "lemon juice",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 3.0
+        },
+        {
+          "unit": "whole",
+          "value": 1.0
+        }
+      ],
+      "modifier": "fresh"
+    },
+    "after": {
+      "name": "lemon juice",
+      "amounts": [
+        {
+          "unit": "tbsp",
+          "value": 3.0
+        }
+      ],
+      "modifier": "fresh, from approximately 1 lemon"
+    }
+  },
+  {
+    "input": "60 cilantro leaves (from about 15 sprigs)",
+    "reason": "source or yield quantity is descriptive, not an equivalent measure of the named ingredient",
+    "before": {
+      "name": "cilantro leaves",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 60.0
+        },
+        {
+          "unit": "sprig",
+          "value": 15.0
+        }
+      ]
+    },
+    "after": {
+      "name": "cilantro leaves",
+      "amounts": [
+        {
+          "unit": "whole",
+          "value": 60.0
+        }
+      ],
+      "modifier": "from about 15 sprigs"
+    }
+  }
+]
