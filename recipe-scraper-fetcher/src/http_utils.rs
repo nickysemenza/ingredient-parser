@@ -29,26 +29,16 @@ impl ReqwestOtelSpanBackend for TimeTrace {
     }
 }
 
-pub fn http_client() -> ClientWithMiddleware {
+pub fn http_client() -> std::result::Result<ClientWithMiddleware, reqwest::Error> {
     // Bounded timeouts: without them a hung/slow-loris server stalls
     // scrape_url forever (reqwest's default has NO total or connect timeout).
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .connect_timeout(std::time::Duration::from_secs(10))
-        .build()
-        .unwrap_or_else(|e| {
-            // Builder only fails on TLS/resolver misconfiguration. The fallback
-            // default client has NO timeouts, defeating the slow-loris protection
-            // this function exists to provide — so make the degradation loud
-            // rather than swallowing it.
-            tracing::error!(
-                "http_client builder failed; falling back to un-timed default client: {e}"
-            );
-            reqwest::Client::new()
-        });
-    ClientBuilder::new(client)
+        .build()?;
+    Ok(ClientBuilder::new(client)
         .with(reqwest_tracing::TracingMiddleware::<TimeTrace>::new())
-        .build()
+        .build())
 }
 
 #[cfg(test)]
@@ -67,7 +57,7 @@ mod tests {
     /// never hang unbounded, which is the whole reason the timeouts exist.
     #[tokio::test]
     async fn http_client_request_is_bounded_by_timeouts() {
-        let client = http_client();
+        let client = http_client().unwrap();
         let fut = client.get("http://192.0.2.1/").send();
         let result = tokio::time::timeout(Duration::from_secs(25), fut).await;
         // Did not exceed the outer bound (i.e. the built-in timeouts kicked in).

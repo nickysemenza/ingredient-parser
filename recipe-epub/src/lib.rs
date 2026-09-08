@@ -56,8 +56,9 @@ pub use library::{
 // Keep their existing crate-root paths stable.
 #[cfg(feature = "native")]
 pub use backend::{
-    ChunkDebug, Options, debug_extract_cookbook, extract_cookbook, extract_cookbook_detailed,
-    extract_cookbook_detailed_with_progress, extract_cookbook_with, extract_cookbook_with_progress,
+    ChunkDebug, CookbookExtractionReport, Options, debug_extract_cookbook, extract_cookbook,
+    extract_cookbook_detailed, extract_cookbook_detailed_with_progress, extract_cookbook_report,
+    extract_cookbook_report_with_progress, extract_cookbook_with, extract_cookbook_with_progress,
 };
 // Section + time types are shared with the web scraper — one shape workspace-wide.
 pub use recipe_parsing::ParsedSection;
@@ -273,7 +274,9 @@ impl ExtractionStats {
 /// cross-recipe references — the pure post-LLM stage, no I/O.
 ///
 /// `per_chunk` is `(Chunk, recipes)` in spine reading order (one entry per
-/// chunk); `links` is the book-wide set of internal anchor links (the Layer-2
+/// chunk, including an empty recipe vector for each failed or empty extraction).
+/// Omitting a gap loses adjacency information and can incorrectly attach a
+/// continuation; callers must preserve every original slot. `links` is the book-wide set of internal anchor links (the Layer-2
 /// reference-confirmation signal, gathered from every chunk). This is the wasm
 /// boundary's counterpart to [`chunk_epub`]: the browser runs the LLM per chunk,
 /// then hands the parsed outputs here to build the `CookbookRecipe[]`.
@@ -287,64 +290,75 @@ pub fn assemble_recipes(
     recipes
 }
 
-/// Attach each recipe's `source`/`url` and drop entries with no ingredients.
-///
-/// A recipe long enough to span a chunk boundary is emitted twice — once by its
-/// title-bearing chunk and once by the title-hinted continuation chunk (see
-/// [`epub_text`]) — so a second recipe with an already-seen title is *merged*
-/// into the first (sections, instructions, and notes are unioned) rather than
-/// dropped. This recovers the recipe's tail (extra steps, "Do Ahead" notes)
-/// instead of discarding it. For the common single-chunk recipe it's a no-op.
-/// Used by [`assemble_recipes`] after the driver restores input order.
+/// Assemble recipe occurrences in complete chunk order. Only the first recipe
+/// of a hinted chunk can continue the last occurrence of the immediately prior
+/// chunk. Empty chunks are barriers; repeated titles alone are not identity.
 pub(crate) fn assemble(
     per_chunk: Vec<(Chunk, Vec<ExtractedRecipe>)>,
     source: &str,
 ) -> Vec<CookbookRecipe> {
-    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    assemble_slots(per_chunk.into_iter().map(Some), source)
+}
+
+fn continuation_title(title: &str) -> String {
+    title
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// Missing extraction slots are retained as barriers, including in previews.
+pub(crate) fn assemble_slots(
+    slots: impl IntoIterator<Item = Option<(Chunk, Vec<ExtractedRecipe>)>>,
+    source: &str,
+) -> Vec<CookbookRecipe> {
     let mut out: Vec<CookbookRecipe> = Vec::new();
-    for (chunk, recipes) in per_chunk {
-        for r in recipes {
+    // Original occurrence coordinates and the assembled output it belongs to.
+    let mut previous: Option<((usize, usize), usize)> = None;
+    for (chunk_index, slot) in slots.into_iter().enumerate() {
+        let prior = previous.take();
+        let Some((chunk, recipes)) = slot else {
+            continue;
+        };
+        for (recipe_index, r) in recipes.into_iter().enumerate() {
+            // Even an invalid last occurrence prevents attaching past it.
+            previous = None;
             let title = r.meta.title.trim().to_string();
             if title.is_empty() {
                 continue;
             }
-            let title_lower = title.to_lowercase();
-            let known = index.get(&title_lower).copied();
-            // An ingredient-less recipe is model noise — UNLESS this chunk is
-            // the continuation the title_hint mechanism created. A hard split
-            // leaves the ingredients in the head chunk, so the tail legitimately
-            // re-emits with instructions and notes only, and dropping it threw
-            // away the "Do Ahead"/footnote text the hint exists to rescue.
-            //
-            // The hint is the evidence. Keying on "we have seen this title"
-            // alone would let ANY later chunk append its notes to a real recipe.
-            let is_continuation = chunk
-                .title_hint
-                .as_deref()
-                .is_some_and(|hint| hint.trim().to_lowercase() == title_lower);
-            let has_ingredients = r.sections.iter().any(|s| !s.ingredients.is_empty());
-            if !(has_ingredients || (known.is_some() && is_continuation)) {
-                continue;
-            }
-            // The hero photo is whichever image in this chunk sits nearest the
-            // recipe's title line (see `hero_for`); `None` for most recipes.
+            let normalized = continuation_title(&title);
+            let continuation = prior.filter(|((prior_chunk, _), output)| {
+                recipe_index == 0
+                    && *prior_chunk + 1 == chunk_index
+                    && chunk
+                        .title_hint
+                        .as_deref()
+                        .is_some_and(|hint| continuation_title(hint) == normalized)
+                    && continuation_title(&out[*output].meta.title) == normalized
+            });
             let hero = hero_for(&chunk, &title);
-            match known {
-                Some(i) => merge_recipe(&mut out[i], r, hero),
-                None => {
-                    index.insert(title_lower, out.len());
-                    let mut meta = r.meta;
-                    meta.title = title;
-                    out.push(CookbookRecipe {
-                        meta,
-                        sections: r.sections,
-                        source: source.to_string(),
-                        url: format!("{source}#{}", chunk.doc_path),
-                        references: Vec::new(),
-                        image: hero,
-                    });
+            let output = if let Some((_, output)) = continuation {
+                merge_recipe(&mut out[output], r, hero);
+                output
+            } else {
+                if !r.sections.iter().any(|s| !s.ingredients.is_empty()) {
+                    continue;
                 }
-            }
+                let mut meta = r.meta;
+                meta.title = title;
+                out.push(CookbookRecipe {
+                    meta,
+                    sections: r.sections,
+                    source: source.to_string(),
+                    url: format!("{source}#{}", chunk.doc_path),
+                    references: Vec::new(),
+                    image: hero,
+                });
+                out.len() - 1
+            };
+            previous = Some(((chunk_index, recipe_index), output));
         }
     }
     out
@@ -354,17 +368,35 @@ pub(crate) fn assemble(
 /// title line. Heroes sit just before their title (a `<figure>` then the heading),
 /// so the nearest image *at or above* the title wins; only when none precede it do
 /// we take the nearest below. `None` when the chunk has no images or the title
-/// isn't found in the chunk text. Reuses the reference-matching helpers so a
+/// is absent or ambiguous in the chunk text. Reuses the reference-matching helpers so a
 /// lightly-reformatted title still locates its line.
 fn hero_for(chunk: &Chunk, title: &str) -> Option<ImageRef> {
     let norm_title = normalize_title(title);
     if chunk.images.is_empty() || norm_title.is_empty() {
         return None;
     }
-    let title_idx = chunk.text.split('\n').position(|line| {
-        let n = normalize_title(line);
-        !n.is_empty() && contains_whole_tokens(&n, &norm_title)
-    })?;
+    let mut exact_lines = Vec::new();
+    let mut containing_lines = Vec::new();
+    for (index, line) in chunk.text.split('\n').enumerate() {
+        let normalized = normalize_title(line);
+        if normalized == norm_title {
+            exact_lines.push(index);
+        } else if contains_whole_tokens(&normalized, &norm_title) {
+            containing_lines.push(index);
+        }
+    }
+    // A complete title line is stronger evidence than an ingredient/reference
+    // mentioning that title. Only fall back to a partial title when no complete
+    // title line exists. Multiple candidates at either level remain ambiguous.
+    let candidates = if exact_lines.is_empty() {
+        &containing_lines
+    } else {
+        &exact_lines
+    };
+    let [title_idx] = candidates.as_slice() else {
+        return None;
+    };
+    let title_idx = *title_idx;
     let nearest_above = chunk
         .images
         .iter()
@@ -382,9 +414,9 @@ fn hero_for(chunk: &Chunk, title: &str) -> Option<ImageRef> {
 }
 
 /// Fold a continuation half of a recipe into the already-assembled one: append
-/// its sections and union its notes (and any newly-present metadata), de-duping
-/// identical strings so a recipe that merely repeats across the seam doesn't
-/// double up.
+/// its sections without deduplicating authored ingredients or instructions.
+/// Preserve the existing exact union for notes/equipment and fill metadata
+/// absent from the head with values supplied by the continuation.
 fn merge_recipe(into: &mut CookbookRecipe, from: ExtractedRecipe, hero: Option<ImageRef>) {
     into.sections.extend(from.sections);
     for note in from.meta.notes {
@@ -404,9 +436,9 @@ fn merge_recipe(into: &mut CookbookRecipe, from: ExtractedRecipe, hero: Option<I
     m.times = m.times.take().or(from.meta.times);
     m.category = m.category.take().or(from.meta.category);
     m.page = m.page.take().or(from.meta.page);
-    for eq in from.meta.equipment {
-        if !m.equipment.contains(&eq) {
-            m.equipment.push(eq);
+    for equipment in from.meta.equipment {
+        if !m.equipment.contains(&equipment) {
+            m.equipment.push(equipment);
         }
     }
 }
@@ -500,6 +532,10 @@ pub(crate) fn resolve_references(recipes: &mut [CookbookRecipe], links: &[Link])
         .map(|(i, r)| (normalize_title(&r.meta.title), r.meta.title.clone(), i))
         .filter(|(norm, _, _)| !norm.is_empty())
         .collect();
+    let mut title_counts = std::collections::HashMap::new();
+    for (normalized, _, _) in &titles {
+        *title_counts.entry(normalized.clone()).or_insert(0usize) += 1;
+    }
     titles.sort_by_key(|t| std::cmp::Reverse(t.0.len()));
 
     // Normalized link texts (e.g. "the only piecrust" from <a>The Only Piecrust</a>)
@@ -531,6 +567,9 @@ pub(crate) fn resolve_references(recipes: &mut [CookbookRecipe], links: &[Link])
                         continue;
                     }
                     if contains_whole_tokens(&norm_line, norm_title) {
+                        if title_counts[norm_title] > 1 {
+                            break; // Ambiguity must not fall through to a shorter title.
+                        }
                         // Dedup by target title; keep the first (longest-title)
                         // hit per line so "Piecrust" doesn't also fire after the
                         // full "The Only Piecrust" already matched this line.
@@ -864,13 +903,13 @@ mod tests {
     }
 
     #[test]
-    fn assemble_merges_by_title_and_drops_empty() {
+    fn assemble_preserves_same_title_occurrences_and_drops_empty() {
         let per_chunk = vec![
             (chunk("c1.xhtml"), vec![er("Pancakes", &["1 cup flour"])]),
             (
                 chunk("c2.xhtml"),
                 vec![
-                    er("PANCAKES", &["dupe"]), // merged (case-insensitive)
+                    er("PANCAKES", &["dupe"]), // distinct occurrence
                     er("  ", &["no name"]),    // dropped: empty name
                     er("Soup", &[]),           // dropped: no ingredients
                     er("Omelette", &["3 eggs"]),
@@ -879,10 +918,10 @@ mod tests {
         ];
         let out = assemble(per_chunk, "book.epub");
         let names: Vec<_> = out.iter().map(|r| r.meta.title.as_str()).collect();
-        assert_eq!(names, vec!["Pancakes", "Omelette"]);
-        // The first-seen title keeps its identity + url; the dup folds into it.
+        assert_eq!(names, vec!["Pancakes", "PANCAKES", "Omelette"]);
+        // Each occurrence keeps its original source.
         assert_eq!(out[0].url, "book.epub#c1.xhtml");
-        assert_eq!(out[0].sections.len(), 2); // both halves' sections retained
+        assert_eq!(out[0].sections.len(), 1);
         assert_eq!(out[1].url, "book.epub#c2.xhtml");
     }
 
@@ -920,16 +959,106 @@ mod tests {
         let out = assemble(
             vec![
                 (chunk("c1.xhtml"), vec![title_half]),
-                (chunk("c2.xhtml"), vec![cont_half]),
+                (
+                    continuation_chunk("c2.xhtml", "Chocolate Chip Cookies"),
+                    vec![cont_half],
+                ),
             ],
             "book.epub",
         );
         assert_eq!(out.len(), 1);
-        // Union of notes, no duplicate of the seam-repeated "Note A".
+        // Preserve the exact union of notes while appending all sections.
         assert_eq!(out[0].meta.notes, vec!["Note A", "Note B"]);
         assert_eq!(out[0].sections.len(), 2);
         // Metadata only the continuation chunk captured is filled in.
         assert_eq!(out[0].meta.recipe_yield.as_deref(), Some("Makes 18"));
+    }
+
+    #[rstest::rstest]
+    #[case(false)]
+    #[case(true)]
+    fn empty_and_missing_chunks_break_continuations(#[case] missing: bool) {
+        let barrier = if missing {
+            None
+        } else {
+            Some((chunk("gap"), vec![]))
+        };
+        let out = assemble_slots(
+            vec![
+                Some((chunk("head"), vec![er("Cake", &["flour"])])),
+                barrier,
+                Some((
+                    continuation_chunk("tail", "Cake"),
+                    vec![er("Cake", &["sugar"])],
+                )),
+            ],
+            "book",
+        );
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn continuation_attaches_only_first_to_previous_last_and_can_chain() {
+        let out = assemble(
+            vec![
+                (
+                    chunk("one"),
+                    vec![er("Cake", &["flour"]), er("Soup", &["stock"])],
+                ),
+                (
+                    continuation_chunk("two", " SOUP "),
+                    vec![er("soup", &["stock"])],
+                ),
+                (
+                    continuation_chunk("three", "Soup"),
+                    vec![er("Soup", &[]), er("Soup", &["water"])],
+                ),
+            ],
+            "book",
+        );
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[1].sections.len(), 3);
+        assert_eq!(
+            out[1].sections[0].ingredients,
+            out[1].sections[1].ingredients
+        );
+        assert_eq!(
+            out[1].sections[0].instructions,
+            out[1].sections[1].instructions
+        );
+        assert_eq!(out[2].sections.len(), 1);
+        let out = assemble(
+            vec![
+                (
+                    chunk("one"),
+                    vec![er("Cake", &["flour"]), er("Soup", &["stock"])],
+                ),
+                (
+                    continuation_chunk("two", "Cake"),
+                    vec![er("Cake", &["sugar"])],
+                ),
+            ],
+            "book",
+        );
+        assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn repeated_recipe_titles_are_ambiguous_reference_targets() {
+        let out = assemble_recipes(
+            vec![(
+                chunk("one"),
+                vec![
+                    er("Chocolate Cake", &["flour"]),
+                    er("Chocolate Cake", &["sugar"]),
+                    er("Dessert", &["1 recipe Chocolate Cake"]),
+                ],
+            )],
+            vec![],
+            "book",
+        );
+        assert_eq!(out.len(), 3);
+        assert!(out[2].references.is_empty());
     }
 
     #[test]
@@ -959,6 +1088,33 @@ mod tests {
     }
 
     #[test]
+    fn full_title_line_disambiguates_recipe_references_for_hero() {
+        let c = Chunk {
+            text: "1 recipe Sauce (this page)\nSauce\n1 item".to_string(),
+            images: vec![(0, img("dish.jpg")), (1, img("sauce.jpg"))],
+            ..chunk("recipes.xhtml")
+        };
+        assert_eq!(hero_for(&c, "Sauce").unwrap().path, "sauce.jpg");
+    }
+
+    #[test]
+    fn same_title_occurrences_do_not_share_an_arbitrary_hero() {
+        let recipes = assemble(
+            vec![(
+                Chunk {
+                    text: "Cake\nflour\nCake\nsugar".to_string(),
+                    images: vec![(0, img("first.jpg")), (2, img("second.jpg"))],
+                    ..chunk("recipes.xhtml")
+                },
+                vec![er("Cake", &["flour"]), er("Cake", &["sugar"])],
+            )],
+            "book.epub",
+        );
+        assert_eq!(recipes.len(), 2);
+        assert!(recipes.iter().all(|recipe| recipe.image.is_none()));
+    }
+
+    #[test]
     fn hero_for_prefers_image_above_the_title() {
         // An image just before the title (a figure → heading) beats one just after.
         let c = Chunk {
@@ -982,7 +1138,7 @@ mod tests {
         let c2 = Chunk {
             text: "Cake".to_string(),
             images: vec![(0, img("second.jpg"))],
-            ..chunk("c2.xhtml")
+            ..continuation_chunk("c2.xhtml", "Cake")
         };
         let out = assemble(
             vec![
@@ -1002,7 +1158,7 @@ mod tests {
         let p2 = Chunk {
             text: "Pie".to_string(),
             images: vec![(0, img("late.jpg"))],
-            ..chunk("c2.xhtml")
+            ..continuation_chunk("c2.xhtml", "Pie")
         };
         let out2 = assemble(
             vec![(p1, vec![er("Pie", &["a"])]), (p2, vec![er("Pie", &["b"])])],
