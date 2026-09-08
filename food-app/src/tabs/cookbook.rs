@@ -135,6 +135,9 @@ pub struct CookbookTab {
     /// When the in-flight load started — drives the elapsed label shown before
     /// the chunk count is known.
     load_started: Option<std::time::Instant>,
+    /// Immutable source identity for the current load. The editable picker path
+    /// must not rename an already-running import in its progress label.
+    active_path: Option<String>,
     selected: usize,
     /// Presentation-only multiplier for the selected cookbook recipe. Parsing
     /// and source strings remain unchanged; `Measure::scale` owns which values
@@ -186,6 +189,7 @@ impl Default for CookbookTab {
             promise: None,
             extract_progress: None,
             load_started: None,
+            active_path: None,
             selected: 0,
             recipe_scale: 1.0,
             parsed_cache: None,
@@ -210,36 +214,39 @@ impl Default for CookbookTab {
 impl CookbookTab {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        let load_pending = self.load_pending();
 
         // Source controls: pick a single EPUB, pick a whole library, or type a path.
-        ui.horizontal(|ui| {
-            if ui.button("📂 Pick EPUB…").clicked()
-                && let Some(p) = self.file_dialog().add_filter("EPUB", &["epub"]).pick_file()
-            {
-                self.path = p.to_string_lossy().into_owned();
-                self.start_load(ctx.clone());
-            }
-            if ui
-                .button("🗂 Pick library…")
-                .on_hover_text("Pick a Calibre root (or any folder); finds every .epub inside")
-                .clicked()
-                && let Some(dir) = self.file_dialog().pick_folder()
-            {
-                self.start_scan(dir, ctx.clone());
-            }
-            ui.add(
-                egui::TextEdit::singleline(&mut self.path)
-                    .hint_text("/path/to/cookbook.epub")
-                    .desired_width(340.0),
-            );
-            ui.checkbox(&mut self.no_cache, "No cache");
-            let can_load = !self.path.trim().is_empty();
-            if ui
-                .add_enabled(can_load, egui::Button::new("Load"))
-                .clicked()
-            {
-                self.start_load(ctx.clone());
-            }
+        ui.add_enabled_ui(!load_pending, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("📂 Pick EPUB…").clicked()
+                    && let Some(p) = self.file_dialog().add_filter("EPUB", &["epub"]).pick_file()
+                {
+                    self.path = p.to_string_lossy().into_owned();
+                    self.start_load(ctx.clone());
+                }
+                if ui
+                    .button("🗂 Pick library…")
+                    .on_hover_text("Pick a Calibre root (or any folder); finds every .epub inside")
+                    .clicked()
+                    && let Some(dir) = self.file_dialog().pick_folder()
+                {
+                    self.start_scan(dir, ctx.clone());
+                }
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.path)
+                        .hint_text("/path/to/cookbook.epub")
+                        .desired_width(340.0),
+                );
+                ui.checkbox(&mut self.no_cache, "No cache");
+                let can_load = !self.path.trim().is_empty();
+                if ui
+                    .add_enabled(can_load, egui::Button::new("Load"))
+                    .clicked()
+                {
+                    self.start_load(ctx.clone());
+                }
+            });
         });
         ui.label(
             RichText::new(
@@ -290,8 +297,15 @@ impl CookbookTab {
                                 ui.colored_label(ui.visuals().error_fg_color, err);
                             }
                             Some(Ok(books)) => {
-                                action =
-                                    show_library(ui, books, cookbooks_only, use_ai, filter, grid);
+                                action = show_library(
+                                    ui,
+                                    books,
+                                    cookbooks_only,
+                                    use_ai,
+                                    filter,
+                                    grid,
+                                    !load_pending,
+                                );
                             }
                         }
                     }
@@ -304,8 +318,10 @@ impl CookbookTab {
                     }
                 }
                 LibraryAction::Load(path) => {
-                    self.path = path;
-                    self.start_load(ctx.clone());
+                    if !load_pending {
+                        self.path = path;
+                        self.start_load(ctx.clone());
+                    }
                 }
             }
         }
@@ -334,10 +350,7 @@ impl CookbookTab {
                 } else {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        let file = Path::new(&self.path)
-                            .file_name()
-                            .map(|f| f.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "recipes".to_string());
+                        let file = self.loading_file_name();
                         let elapsed = self.load_started.map_or(0, |t| t.elapsed().as_secs());
                         ui.label(format!("Extracting {file}… ({elapsed}s)"));
                     });
@@ -554,6 +567,9 @@ impl CookbookTab {
     }
 
     fn start_load(&mut self, ctx: egui::Context) {
+        if self.load_pending() {
+            return;
+        }
         let path = self.path.trim().to_string();
         let no_cache = self.no_cache;
         self.selected = 0;
@@ -562,6 +578,7 @@ impl CookbookTab {
         self.parsed_cache = None;
         self.reference_index = None;
         self.load_started = Some(std::time::Instant::now());
+        self.active_path = Some(path.clone());
         self.graph = None; // rebuilt for the newly loaded book
         self.graph_prewarmed = false;
         self.images_registered = false; // re-register for the newly loaded book
@@ -614,6 +631,19 @@ impl CookbookTab {
             ctx.request_repaint();
             result
         }));
+    }
+
+    fn load_pending(&self) -> bool {
+        self.promise
+            .as_ref()
+            .is_some_and(|promise| promise.ready().is_none())
+    }
+
+    fn loading_file_name(&self) -> String {
+        Path::new(self.active_path.as_deref().unwrap_or(&self.path))
+            .file_name()
+            .map(|file| file.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "recipes".to_string())
     }
 
     /// Scan a directory for epubs and classify each as cookbook-or-not. Runs off
@@ -711,6 +741,7 @@ fn show_library(
     use_ai: &mut bool,
     filter: &mut String,
     grid: &mut bool,
+    can_load: bool,
 ) -> LibraryAction {
     let mut action = LibraryAction::None;
     let cookbook_count = books.iter().filter(|b| b.is_cookbook).count();
@@ -769,40 +800,43 @@ fn show_library(
     };
 
     // Fill the remaining sidebar height; the panel bounds the scroll region.
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            if *grid {
-                // A wrapped grid of cover cards (cover thumbnail above the title).
-                ui.horizontal_wrapped(|ui| {
+    ui.add_enabled_ui(can_load, |ui| {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if *grid {
+                    // A wrapped grid of cover cards (cover thumbnail above the title).
+                    ui.horizontal_wrapped(|ui| {
+                        for b in visible() {
+                            if book_card(ui, b).clicked() {
+                                action =
+                                    LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
+                            }
+                        }
+                    });
+                } else {
+                    // A compact one-line-per-book list (the space-saving view).
                     for b in visible() {
-                        if book_card(ui, b).clicked() {
+                        let label = if b.meta.authors.is_empty() {
+                            b.meta.title.clone()
+                        } else {
+                            format!("{} — {}", b.meta.title, b.meta.authors.join(", "))
+                        };
+                        let resp = ui.selectable_label(false, label).on_hover_text(
+                            if b.meta.subjects.is_empty() {
+                                "no tags".to_string()
+                            } else {
+                                b.meta.subjects.join(", ")
+                            },
+                        );
+                        if resp.clicked() {
                             action =
                                 LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
                         }
                     }
-                });
-            } else {
-                // A compact one-line-per-book list (the space-saving view).
-                for b in visible() {
-                    let label = if b.meta.authors.is_empty() {
-                        b.meta.title.clone()
-                    } else {
-                        format!("{} — {}", b.meta.title, b.meta.authors.join(", "))
-                    };
-                    let resp = ui.selectable_label(false, label).on_hover_text(
-                        if b.meta.subjects.is_empty() {
-                            "no tags".to_string()
-                        } else {
-                            b.meta.subjects.join(", ")
-                        },
-                    );
-                    if resp.clicked() {
-                        action = LibraryAction::Load(b.meta.path.to_string_lossy().into_owned());
-                    }
                 }
-            }
-        });
+            });
+    });
     action
 }
 
@@ -1448,6 +1482,26 @@ mod tests {
                 .collect(),
             image: None,
         }
+    }
+
+    #[test]
+    fn pending_import_cannot_be_replaced_or_renamed() {
+        let mut tab = CookbookTab {
+            path: "/books/active.epub".to_string(),
+            active_path: Some("/books/active.epub".to_string()),
+            selected: 3,
+            ..Default::default()
+        };
+        let (_sender, promise) = Promise::new();
+        tab.promise = Some(promise);
+        tab.path = "/books/replacement.epub".to_string();
+
+        tab.start_load(egui::Context::default());
+
+        assert!(tab.load_pending());
+        assert_eq!(tab.selected, 3);
+        assert_eq!(tab.active_path.as_deref(), Some("/books/active.epub"));
+        assert_eq!(tab.loading_file_name(), "active.epub");
     }
 
     /// One title→index answer for the three places that used to each scan the
