@@ -6,11 +6,13 @@ claim that every natural-language ambiguity has one correct interpretation.
 
 ## Source selection
 
-`sources.jsonl` contains 500 distinct-within-book ingredient lines: 50 from each
-of ten development books. `manifest.json` records book identity, format hash,
+`sources.jsonl` contains 700 distinct-within-book ingredient lines: 50 from each
+of ten development books and four replacement holdout books. `manifest.json`
+records book identity, format hash,
 publisher ingredient classes, candidate count, and split. The first six books
-are the fixed 300-line benchmark cohort; the remaining four are development
-extensions pending replacement holdout sampling.
+are the fixed 300-line benchmark cohort; the next four are development
+extensions. Baking at Republique, Bangkok, Bouchon, and Burma Superstar form
+the replacement holdout.
 Each line records the EPUB member and DOM element index/ID. Full books remain in
 the user's Calibre library and are not copied into this repository.
 
@@ -18,7 +20,7 @@ Selection uses only publisher ingredient markup, nonempty text, exclusion of
 colon-terminated section headings and publisher-styled underlined headings, and
 deduplication. Whitespace is collapsed; other source wording/case is retained. A
 frozen list of pre-redesign corpus inputs is excluded case-insensitively.
-Candidates are ranked by SHA-256 of the fixed seed, book ID, and source text; the
+Candidates are ranked by SHA-256 of the cohort seed, book ID, and source text; the
 first 50 form the sample. No numeric-line filter or parser confidence signal is
 used. Generic ingredient lines may occur in multiple books; the split is by book,
 not by unique phrase across all books.
@@ -41,10 +43,16 @@ These are reviewable annotations, not independently human-adjudicated gold
 labels. Ambiguous cases and source defects should be corrected from source
 evidence and the written contract, never to make an implementation's output
 pass. The former holdout cohort is treated as development because its
-contamination history is unknown; replacement holdout labels must come from
-new books and remain isolated from implementation work.
+contamination history is unknown; replacement holdout labels come from
+new books and remained isolated until implementation freeze. `holdout-provenance.json`
+records the freeze commit, sealed hashes, blind annotation/review protocol, and
+the one invalid usage-enum serialization corrected before either evaluator could
+produce results. Holdout annotations are retained after evaluation, including
+unadjudicated contract disagreements; their raw score is not a human-gold accuracy
+claim. The development and holdout sampling seeds are separate and recorded in
+`manifest.json`.
 
-Labels follow the conservative parsing contract: no inferred food ontology or
+The labeling contract is conservative: no inferred food ontology or
 shared head noun; preserve ambiguous no-quantity alternatives; retain explicit
 quantity alternatives in Modifier. Units/fractions are canonicalized, food text
 keeps source case, extracted modifiers follow source order, dimensional cuts and
