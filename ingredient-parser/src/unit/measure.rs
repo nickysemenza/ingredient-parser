@@ -440,6 +440,13 @@ impl Measure {
             upper_value: upper_value.map(to_rational),
         }
     }
+    /// Change only the unit label, retaining the exact rational bounds.
+    pub(crate) fn relabel_unit(&self, unit: &str) -> Self {
+        let mut measure = self.clone();
+        measure.unit = Self::new(unit, 1.0).unit;
+        measure
+    }
+
     pub fn unit(&self) -> &Unit {
         &self.unit
     }

@@ -66,8 +66,8 @@ pub struct PipelineStageNames {
     pub normalize: &'static [&'static str],
     /// Every whole-line recognizer label, in attempt order.
     pub recognizers: &'static [&'static str],
-    /// Every segment-stage label (clause kinds in classifier order, then the
-    /// assembly repairs), in emit order.
+    /// Every segment-stage label (clause kinds in classifier order), in emit
+    /// order.
     pub segment: &'static [&'static str],
     /// Every refine pass label, in pipeline order.
     pub refine: &'static [&'static str],

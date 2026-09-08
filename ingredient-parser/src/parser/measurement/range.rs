@@ -3,7 +3,7 @@
 use nom::{
     Parser,
     branch::alt,
-    bytes::complete::tag,
+    bytes::complete::{tag, tag_no_case},
     character::complete::{space0, space1},
     error::context,
 };
@@ -41,7 +41,12 @@ impl<'a> MeasurementParser<'a> {
             space0,
             |a| self.unit(a), // lower unit (required)
             space1,
-            alt((tag("to"), tag("through"), tag("–"), tag("-"))), // range keyword
+            alt((
+                tag_no_case("to"),
+                tag_no_case("through"),
+                tag("–"),
+                tag("-"),
+            )), // range keyword
             space1,
             |a| self.parse_number(a), // upper value
             space1,
@@ -102,20 +107,20 @@ impl<'a> MeasurementParser<'a> {
         //    keyword + number ("3½- to 4" → upper 4, leaving "-pound …"). Tried
         //    before the word form because the leading dash would fail `space1`.
         let attached_dash_range = (
-            alt((tag("-"), tag("–"))),        // Dash glued to the lower bound
-            space1,                           // Required space
-            alt((tag("to"), tag("through"))), // Range keyword
-            space1,                           // Required space
-            |a| self.parse_number(a),         // Upper bound number
+            alt((tag("-"), tag("–"))), // Dash glued to the lower bound
+            space1,                    // Required space
+            alt((tag_no_case("to"), tag_no_case("through"))), // Range keyword
+            space1,                    // Required space
+            |a| self.parse_number(a),  // Upper bound number
         )
             .map(|(_, _, _, _, upper)| upper);
 
         // 3. Word syntax: space + keyword + space + number ("to 5", "through 10").
         let word_range = (
-            space1,                                      // Required space
-            alt((tag("to"), tag("through"), tag("or"))), // Range keywords
-            space1,                                      // Required space
-            |a| self.parse_number(a),                    // Upper bound number
+            space1,                                                              // Required space
+            alt((tag_no_case("to"), tag_no_case("through"), tag_no_case("or"))), // Range keywords
+            space1,                                                              // Required space
+            |a| self.parse_number(a), // Upper bound number
         )
             .map(|(_, _, _, upper)| upper);
 
@@ -222,7 +227,11 @@ mod tests {
         assert_eq!(measures[0].unit_as_string(), "tsp");
         assert_eq!(measures[1].unit_as_string(), "tbsp");
         // Same canonical unit on both sides → one ranged measure.
-        for input in ["2 cups to 3 cups", "2 tsp to 3 teaspoons"] {
+        for input in [
+            "2 cups to 3 cups",
+            "2 cups TO 3 cups",
+            "2 tsp to 3 teaspoons",
+        ] {
             let (_, measures) = parser.parse_cross_unit_range(input).unwrap();
             assert_eq!(measures.len(), 1, "input: {input}");
             assert_eq!(
@@ -271,8 +280,11 @@ mod tests {
     // not steal it; the unit stays on the input.
     #[case::hyphen("-3 cups", 3.0, " cups")]
     #[case::word_to(" to 5 cups", 5.0, " cups")]
+    #[case::word_to_upper(" TO 5 cups", 5.0, " cups")]
     #[case::word_through(" through 10", 10.0, "")]
+    #[case::word_through_mixed(" ThRoUgH 10", 10.0, "")]
     #[case::attached_dash("- to 4-pound chicken", 4.0, "-pound chicken")]
+    #[case::attached_dash_upper("- TO 4-pound chicken", 4.0, "-pound chicken")]
     fn test_range_end(
         units_fx: HashSet<String>,
         #[case] input: &str,
@@ -283,5 +295,14 @@ mod tests {
         let (remaining, upper) = parser.parse_range_end(input).unwrap();
         assert_eq!(upper, expected_upper, "upper bound for {input:?}");
         assert_eq!(remaining, expected_remaining, "remaining for {input:?}");
+    }
+
+    #[rstest]
+    #[case(" tomato")]
+    #[case(" TOgether")]
+    #[case(" ORchard")]
+    fn test_range_connector_requires_word_boundary(units_fx: HashSet<String>, #[case] input: &str) {
+        let parser = MeasurementParser::new(&units_fx, MeasurementMode::IngredientList);
+        assert!(parser.parse_range_end(input).is_err(), "input: {input:?}");
     }
 }

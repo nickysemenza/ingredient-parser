@@ -343,15 +343,15 @@ fn test_stages_plain_line(parser: IngredientParser) {
     assert_eq!(report.result_preview.as_deref(), Some("flour"));
 }
 
-/// Normalize rewrite: the leading determiner strip lands in the normalize
+/// Normalize rewrite: a leading bullet removal lands in the normalize
 /// bucket with its before → after texts.
 #[rstest]
 fn test_stages_normalize_rewrite(parser: IngredientParser) {
-    let report = parser.parse_with_trace("the 1 cup flour").trace.stages();
+    let report = parser.parse_with_trace("• 1 cup flour").trace.stages();
     assert_eq!(report.normalize.len(), 1);
     let rewrite = &report.normalize[0];
-    assert_eq!(rewrite.name, "strip_leading_determiner");
-    assert_eq!(rewrite.before, "the 1 cup flour");
+    assert_eq!(rewrite.name, "strip_leading_bullet");
+    assert_eq!(rewrite.before, "• 1 cup flour");
     assert_eq!(rewrite.after, "1 cup flour");
     assert_eq!(
         report.grammar,
@@ -359,8 +359,7 @@ fn test_stages_normalize_rewrite(parser: IngredientParser) {
     );
 }
 
-/// Special-form recognizer match: the recognizer is authoritative and the
-/// top-level grammar is recorded as skipped.
+/// Special forms compose with the same grammar and expose both stages.
 #[rstest]
 fn test_stages_recognizer_match(parser: IngredientParser) {
     let report = parser.parse_with_trace("Juice of 1 lemon").trace.stages();
@@ -371,15 +370,15 @@ fn test_stages_recognizer_match(parser: IngredientParser) {
         .find(|r| r.output.is_some())
         .unwrap();
     assert_eq!(matched.name, "x_of_construction");
-    assert_eq!(matched.output.as_deref(), Some("lemon"));
-    assert_eq!(report.grammar, Some(GrammarOutcome::Skipped));
+    assert_eq!(matched.output.as_deref(), Some("1 lemon"));
+    assert_eq!(report.grammar, Some(GrammarOutcome::Parsed("lemon".into())));
     assert_eq!(report.result_preview.as_deref(), Some("lemon"));
 }
 
 #[test]
 fn stages_mode_records_direct_events_without_a_trace_tree() {
     let execution = IngredientParser::new().parse_line(
-        "the 1 cup chopped flour",
+        "• 1 cup chopped flour",
         ParseOptions {
             decomposition: false,
             trace: TraceDetail::Stages,
@@ -393,7 +392,7 @@ fn stages_mode_records_direct_events_without_a_trace_tree() {
         report
             .normalize
             .iter()
-            .any(|rewrite| rewrite.name == "strip_leading_determiner"),
+            .any(|rewrite| rewrite.name == "strip_leading_bullet"),
         "normalize bucket: {:?}",
         report.normalize
     );
@@ -407,19 +406,16 @@ fn stages_mode_records_direct_events_without_a_trace_tree() {
     assert_eq!(report.result_preview.as_deref(), Some("flour"));
 }
 
-/// Refine pass: the merged alternatives extraction (here the no-quantity
-/// word-alternative split) shows up in the refine bucket.
+/// A preparation extraction is visible in the refine bucket.
 #[rstest]
 fn test_stages_refine_pass(parser: IngredientParser) {
-    let report = parser.parse_with_trace("red or white onion").trace.stages();
+    let report = parser.parse_with_trace("chopped onion").trace.stages();
     assert_eq!(report.refine.len(), 1);
-    assert_eq!(report.refine[0].name, "extract_alternatives_from_name");
-    assert_eq!(report.result_preview.as_deref(), Some("red onion"));
+    assert_eq!(report.refine[0].name, "extract_adjectives_from_name");
+    assert_eq!(report.result_preview.as_deref(), Some("onion"));
 }
 
-/// The segment bucket carries the clause decisions and the assembly repairs
-/// that fired, in emit order (nested inside the grammar span on the segmented
-/// default path).
+/// The segment bucket carries clause decisions in authored order.
 #[rstest]
 fn test_stages_segment_bucket(parser: IngredientParser) {
     let report = parser
@@ -431,20 +427,6 @@ fn test_stages_segment_bucket(parser: IngredientParser) {
         names,
         vec!["head_candidate", "prep_chain", "prep_chain"],
         "clause decisions in source order"
-    );
-
-    // An assembly repair (the minus-clause split) also lands in the bucket.
-    let report = parser
-        .parse_with_trace("½ cup minus 1 tablespoon flour")
-        .trace
-        .stages();
-    assert!(
-        report
-            .segment
-            .iter()
-            .any(|s| s.name == "fix_leading_minus_clause"),
-        "assembly repair missing from segment bucket: {:?}",
-        report.segment
     );
 }
 

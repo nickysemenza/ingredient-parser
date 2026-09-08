@@ -12,7 +12,7 @@ use std::cell::RefCell;
 /// A normalize rewrite or refine pass that changed the line/ingredient.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageRewrite {
-    /// Name of the rewrite/pass (e.g. `strip_optional_note`).
+    /// Name of the rewrite/pass (e.g. `strip_leading_bullet`).
     pub name: String,
     /// Input before the step (truncated for display).
     pub before: String,
@@ -36,7 +36,8 @@ pub enum GrammarOutcome {
     Parsed(String),
     /// The grammar failed and the parse fell back to a name-only ingredient.
     FellBack,
-    /// A recognizer produced the result without re-entering the grammar.
+    /// Legacy outcome for traces produced by recognizers that bypassed grammar.
+    /// Current ingredient execution resolves special forms through the grammar.
     Skipped,
 }
 
@@ -62,8 +63,7 @@ pub struct StageReport {
     /// Grammar outcome; `None` only for degenerate traces with no
     /// recognizer/grammar nodes at all (e.g. a trace captured mid-parse).
     pub grammar: Option<GrammarOutcome>,
-    /// Segmentation decisions (clause classifications and assembly repairs),
-    /// in order. Empty on the legacy path.
+    /// Segmentation decisions (clause classifications), in source order.
     pub segment: Vec<StageRewrite>,
     /// Refine passes that changed the ingredient, in order.
     pub refine: Vec<StageRewrite>,

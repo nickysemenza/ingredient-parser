@@ -208,6 +208,11 @@ impl<'a> MeasurementParser<'a> {
 mod tests {
     use super::test_support::units;
     use super::*;
+    use crate::{
+        IngredientParser,
+        rich_text::{Chunk, RichParser},
+        unit::Measure,
+    };
     use rstest::{fixture, rstest};
 
     #[fixture]
@@ -236,6 +241,33 @@ mod tests {
         assert!(result.is_ok(), "Failed to parse: {input}");
         let (_, measures) = result.unwrap();
         assert!(!measures.is_empty());
+    }
+
+    #[rstest]
+    #[case::lower("2 to 3 tablespoons")]
+    #[case::upper("2 TO 3 tablespoons")]
+    #[case::mixed("2 tO 3 tablespoons")]
+    #[case::upper_line("2 TO 3 TABLESPOONS")]
+    fn test_parse_amount_range_connectors_ignore_case(#[case] input: &str) {
+        assert_eq!(
+            IngredientParser::new().parse_amount(input).unwrap(),
+            vec![Measure::with_range("tablespoons", 2.0, 3.0)]
+        );
+    }
+
+    #[rstest]
+    #[case::lower("Add 2 to 3 tablespoons water.")]
+    #[case::upper("Add 2 TO 3 tablespoons water.")]
+    #[case::upper_line("Add 2 TO 3 TABLESPOONS WATER.")]
+    fn test_rich_range_connectors_ignore_case(#[case] input: &str) {
+        let chunks = RichParser::default().parse(input).unwrap();
+        assert!(matches!(
+            chunks.as_slice(),
+            [Chunk::Text(before), Chunk::Measure(measures), Chunk::Text(after)]
+                if before == "Add "
+                    && measures == &vec![Measure::with_range("tablespoons", 2.0, 3.0)]
+                    && (after == " water." || after == " WATER.")
+        ));
     }
 
     #[rstest]

@@ -104,22 +104,6 @@ pub(crate) fn thousands_number(input: &str) -> Res<&str, f64> {
     .parse(input)
 }
 
-/// Parse text characters for ingredient names.
-///
-/// Consumes a contiguous run of: alphanumeric, whitespace, hyphens, apostrophes,
-/// periods, slashes, backslashes, em-dashes, and right single quotes.
-///
-/// Note: This is more restrictive than `rich_text::parse_rich_char()` which also allows
-/// punctuation like commas, parentheses, semicolons, etc. for parsing recipe
-/// instructions rather than ingredient names.
-pub(crate) fn parse_ingredient_text(input: &str) -> Res<&str, &str> {
-    take_while1(|c: char| match c {
-        '-' | '\u{2014}' | '\'' | '\u{2019}' | '.' | '/' | '\\' => true,
-        c => c.is_alphanumeric() || c.is_whitespace(),
-    })
-    .parse(input)
-}
-
 /// Parse unit/amount text including degrees and quotes.
 ///
 /// Returns the consumed slice directly via `recognize`, avoiding the per-token
@@ -178,30 +162,6 @@ pub(crate) fn text_number(input: &str) -> Res<&str, f64> {
 mod tests {
     use super::*;
     use rstest::rstest;
-
-    // ============================================================================
-    // parse_ingredient_text() Parser Tests
-    // ============================================================================
-
-    #[rstest]
-    #[case::letter("a", "", "a")]
-    #[case::word("flour", "", "flour")]
-    #[case::hyphen("-", "", "-")]
-    #[case::em_dash("—", "", "—")]
-    #[case::apostrophe("'", "", "'")]
-    #[case::right_quote("\u{2019}", "", "\u{2019}")]
-    #[case::period(".", "", ".")]
-    #[case::slash("and/or", "", "and/or")]
-    #[case::backslash("\\", "", "\\")]
-    #[case::space(" ", "", " ")]
-    #[case::multiword("all-purpose flour", "", "all-purpose flour")]
-    fn test_parse_ingredient_text(
-        #[case] input: &str,
-        #[case] remaining: &str,
-        #[case] expected: &str,
-    ) {
-        assert_eq!(parse_ingredient_text(input), Ok((remaining, expected)));
-    }
 
     // ============================================================================
     // parse_unit_text() Parser Tests
