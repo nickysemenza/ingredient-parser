@@ -417,29 +417,14 @@ pub struct WDecomposition {
 
 impl From<Decomposition> for WDecomposition {
     fn from(d: Decomposition) -> Self {
-        // Walk the sorted, non-overlapping spans, emitting any gap text before
-        // each labeled span, then the span itself, then the trailing gap.
-        let mut segments = Vec::new();
-        let mut prev_end = 0usize;
-        for span in &d.spans {
-            if span.range.start > prev_end {
-                segments.push(WSegment {
-                    text: d.source[prev_end..span.range.start].to_string(),
-                    field: None,
-                });
-            }
-            segments.push(WSegment {
-                text: span.text.clone(),
-                field: Some(span.field.into()),
-            });
-            prev_end = span.range.end;
-        }
-        if prev_end < d.source.len() {
-            segments.push(WSegment {
-                text: d.source[prev_end..].to_string(),
-                field: None,
-            });
-        }
+        let segments = d
+            .segments()
+            .into_iter()
+            .map(|segment| WSegment {
+                text: segment.text,
+                field: segment.field.map(Into::into),
+            })
+            .collect();
         WDecomposition {
             source: d.source,
             segments,
@@ -906,6 +891,26 @@ mod tests {
                 ("modifier", "sifted"),
             ]
         );
+    }
+
+    /// The wire adapter delegates malformed-range handling to the upstream
+    /// Decomposition module and preserves the authored line without labels.
+    #[test]
+    fn invalid_decomposition_is_an_unlabeled_authored_line() {
+        let w: WDecomposition = Decomposition {
+            source: "é".to_string(),
+            spans: vec![ingredient::FieldSpan {
+                field: Field::Name,
+                range: 0..1,
+                text: String::new(),
+            }],
+        }
+        .into();
+
+        assert_eq!(w.source, "é");
+        assert_eq!(w.segments.len(), 1);
+        assert_eq!(w.segments[0].text, "é");
+        assert_eq!(w.segments[0].field, None);
     }
 
     /// `conv_amount_to_unit` must resolve volume targets against normalized graph

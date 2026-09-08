@@ -447,6 +447,233 @@ pub struct Decomposition {
     pub spans: Vec<FieldSpan>,
 }
 
+/// One contiguous region of an authored Ingredient line, optionally labeled
+/// with the final field that owns it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct DecompositionSegment {
+    /// Text copied from [`Decomposition::source`].
+    pub text: String,
+    /// The final field that owns this text, or `None` for punctuation and text
+    /// discarded by the parser.
+    pub field: Option<Field>,
+}
+
+impl Decomposition {
+    /// Project the authored Ingredient line into ordered segments that exactly
+    /// reconstruct [`Self::source`].
+    ///
+    /// Invalid spans are treated as untrusted parser output: rather than panic
+    /// or return a partial projection, this returns the whole authored line as
+    /// one unlabeled segment. An empty authored line with no spans has no
+    /// segments.
+    pub fn segments(&self) -> Vec<DecompositionSegment> {
+        let mut segments = Vec::new();
+        let mut previous_end = 0;
+
+        for span in &self.spans {
+            let range = &span.range;
+            let valid_range = range.start < range.end
+                && range.start >= previous_end
+                && range.end <= self.source.len()
+                && self.source.is_char_boundary(range.start)
+                && self.source.is_char_boundary(range.end);
+            if !valid_range || self.source.get(range.clone()) != Some(span.text.as_str()) {
+                return vec![DecompositionSegment {
+                    text: self.source.clone(),
+                    field: None,
+                }];
+            }
+
+            if range.start > previous_end {
+                segments.push(DecompositionSegment {
+                    text: self.source[previous_end..range.start].to_string(),
+                    field: None,
+                });
+            }
+            segments.push(DecompositionSegment {
+                text: span.text.clone(),
+                field: Some(span.field),
+            });
+            previous_end = range.end;
+        }
+
+        if previous_end < self.source.len() {
+            segments.push(DecompositionSegment {
+                text: self.source[previous_end..].to_string(),
+                field: None,
+            });
+        }
+
+        segments
+    }
+}
+
+#[cfg(test)]
+mod decomposition_segment_tests {
+    use super::{Decomposition, DecompositionSegment, Field, FieldSpan};
+    use rstest::rstest;
+
+    #[test]
+    fn segments_reconstruct_authored_text_with_fields_and_gaps() {
+        let decomposition = Decomposition {
+            source: "½ jalapeño, émincé".to_string(),
+            spans: vec![
+                FieldSpan {
+                    field: Field::Amount,
+                    range: 0..2,
+                    text: "½".to_string(),
+                },
+                FieldSpan {
+                    field: Field::Name,
+                    range: 3..12,
+                    text: "jalapeño".to_string(),
+                },
+                FieldSpan {
+                    field: Field::Modifier,
+                    range: 14..22,
+                    text: "émincé".to_string(),
+                },
+            ],
+        };
+
+        let segments = decomposition.segments();
+        assert_eq!(
+            segments,
+            vec![
+                DecompositionSegment {
+                    text: "½".to_string(),
+                    field: Some(Field::Amount),
+                },
+                DecompositionSegment {
+                    text: " ".to_string(),
+                    field: None,
+                },
+                DecompositionSegment {
+                    text: "jalapeño".to_string(),
+                    field: Some(Field::Name),
+                },
+                DecompositionSegment {
+                    text: ", ".to_string(),
+                    field: None,
+                },
+                DecompositionSegment {
+                    text: "émincé".to_string(),
+                    field: Some(Field::Modifier),
+                },
+            ]
+        );
+        assert_eq!(
+            segments
+                .iter()
+                .map(|segment| segment.text.as_str())
+                .collect::<String>(),
+            decomposition.source
+        );
+    }
+
+    #[rstest]
+    #[case::zero_width("abc", vec![FieldSpan {
+        field: Field::Name,
+        range: 1..1,
+        text: String::new(),
+    }])]
+    #[case::span_in_empty_source("", vec![FieldSpan {
+        field: Field::Name,
+        range: 0..1,
+        text: String::new(),
+    }])]
+    #[case::reversed("abc", vec![FieldSpan {
+        field: Field::Name,
+        range: std::ops::Range { start: 2, end: 1 },
+        text: String::new(),
+    }])]
+    #[case::out_of_order("abc", vec![
+        FieldSpan {
+            field: Field::Name,
+            range: 2..3,
+            text: "c".to_string(),
+        },
+        FieldSpan {
+            field: Field::Amount,
+            range: 0..1,
+            text: "a".to_string(),
+        },
+    ])]
+    #[case::overlap("abc", vec![
+        FieldSpan {
+            field: Field::Name,
+            range: 0..2,
+            text: "ab".to_string(),
+        },
+        FieldSpan {
+            field: Field::Modifier,
+            range: 1..3,
+            text: "bc".to_string(),
+        },
+    ])]
+    #[case::out_of_bounds("abc", vec![FieldSpan {
+        field: Field::Name,
+        range: 0..4,
+        text: "abc".to_string(),
+    }])]
+    #[case::non_utf8_boundary("½c", vec![FieldSpan {
+        field: Field::Name,
+        range: 0..1,
+        text: "".to_string(),
+    }])]
+    #[case::text_mismatch("abc", vec![FieldSpan {
+        field: Field::Name,
+        range: 0..2,
+        text: "wrong".to_string(),
+    }])]
+    fn invalid_spans_fall_back_to_one_unlabeled_segment(
+        #[case] source: &str,
+        #[case] spans: Vec<FieldSpan>,
+    ) {
+        let decomposition = Decomposition {
+            source: source.to_string(),
+            spans,
+        };
+
+        assert_eq!(
+            decomposition.segments(),
+            vec![DecompositionSegment {
+                text: source.to_string(),
+                field: None,
+            }]
+        );
+    }
+
+    #[rstest]
+    #[case::empty_source("", Vec::new())]
+    #[case::unlabeled_source(
+        "salt",
+        vec![DecompositionSegment {
+            text: "salt".to_string(),
+            field: None,
+        }]
+    )]
+    fn empty_and_unlabeled_sources_reconstruct(
+        #[case] source: &str,
+        #[case] expected: Vec<DecompositionSegment>,
+    ) {
+        let decomposition = Decomposition {
+            source: source.to_string(),
+            spans: Vec::new(),
+        };
+        let segments = decomposition.segments();
+
+        assert_eq!(segments, expected);
+        assert_eq!(
+            segments
+                .iter()
+                .map(|segment| segment.text.as_str())
+                .collect::<String>(),
+            source
+        );
+    }
+}
+
 /// Amount of execution diagnostics to collect for [`IngredientParser::parse_line`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TraceDetail {
