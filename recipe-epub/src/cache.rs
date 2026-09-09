@@ -3,64 +3,98 @@
 //! incremental and free after the first pass.
 #![cfg(feature = "native")]
 
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-
-use sha2::{Digest, Sha256};
 
 use crate::{EpubError, ExtractedRecipe};
 
 /// Bump when the system prompt or tool schema changes — old entries then miss
 /// and are re-extracted rather than returning stale-shaped data.
-pub(crate) const PROMPT_VERSION: &str = "2026-09-08-indexed-source-v5";
+pub(crate) const PROMPT_VERSION: &str = "2026-09-09-indexed-source-v7";
 
-/// Default cache directory: `$XDG_CACHE_HOME/recipe-epub` or `$TMPDIR/recipe-epub`.
+/// Per-user cache directory; independent of the durable run store.
 pub(crate) fn default_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("XDG_CACHE_HOME") {
         return PathBuf::from(dir).join("recipe-epub");
     }
+    if let Some(home) = std::env::var_os("HOME") {
+        let base = PathBuf::from(home).join(if cfg!(target_os = "macos") {
+            "Library/Caches"
+        } else {
+            ".cache"
+        });
+        return base.join("ingredient-parser/recipe-epub");
+    }
     std::env::temp_dir().join("recipe-epub")
 }
 
-/// Stable hex cache key for a chunk under a given model + prompt version.
-///
-/// `title_hint` is included because it varies the prompt (continuation chunks
-/// re-emit a spilled recipe), so chunks with identical text but different hints
-/// must not share a cache entry.
-pub(crate) fn key(model: &str, chunk_text: &str, title_hint: &str) -> String {
-    let mut h = Sha256::new();
-    h.update(PROMPT_VERSION.as_bytes());
-    h.update([0]);
-    h.update(model.as_bytes());
-    h.update([0]);
-    h.update(chunk_text.as_bytes());
-    h.update([0]);
-    h.update(title_hint.as_bytes());
-    // sha2 0.11's `finalize()` returns a `hybrid_array::Array`, which no longer
-    // implements `LowerHex` (unlike 0.10's `GenericArray`), so hex-encode the
-    // digest bytes by hand. Output is identical to the old `{:x}` formatting, so
-    // existing cache keys stay stable.
-    let digest = h.finalize();
-    let mut key = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        // Writing to a `String` is infallible; the `Result` can be ignored.
-        let _ = write!(key, "{byte:02x}");
-    }
-    key
+/// Fingerprint the actual prompt and schema, independently of source content.
+pub(crate) fn prompt_fingerprint() -> String {
+    let request = crate::indexed::build_indexed_chunk_request(&crate::Chunk {
+        doc_path: String::new(),
+        text: String::new(),
+        title_hint: None,
+        images: vec![],
+        links: vec![],
+    });
+    crate::review::hash(
+        format!(
+            "{}:{}:{}",
+            PROMPT_VERSION, request.system, request.tool_schema
+        )
+        .as_bytes(),
+    )
 }
-
-/// Read a cached result, or `None` on miss / unreadable / stale-shaped entry.
-pub(crate) fn read(dir: &Path, key: &str) -> Option<Vec<ExtractedRecipe>> {
-    let bytes = std::fs::read(dir.join(format!("{key}.json"))).ok()?;
-    serde_json::from_slice(&bytes).ok()
+/// Full portable identity for the source-indexed native extractor.
+pub(crate) fn identity(
+    model: &str,
+    chunk: &crate::Chunk,
+) -> Result<crate::cache_contract::CacheIdentity, EpubError> {
+    Ok(crate::cache_contract::CacheIdentity {
+        provider: crate::models::provider(model).unwrap_or("custom").into(),
+        model: model.into(),
+        configuration: format!(
+            "transport={};max_output_tokens=16000;forced-tool;retry-v1",
+            crate::models::catalog()
+                .iter()
+                .find(|m| m.id == model)
+                .map(|m| m.transport)
+                .unwrap_or("legacy-native")
+        ),
+        contract: "indexed-source-v1".into(),
+        prompt_schema: prompt_fingerprint(),
+        request: serde_json::to_string(&crate::indexed::build_indexed_chunk_request(chunk))?,
+    })
 }
-
-/// Write a result to the cache (creating the directory if needed).
-pub(crate) fn write(dir: &Path, key: &str, recipes: &[ExtractedRecipe]) -> Result<(), EpubError> {
+pub(crate) fn read_entry(
+    dir: &Path,
+    identity: &crate::cache_contract::CacheIdentity,
+) -> Option<Vec<ExtractedRecipe>> {
+    let bytes = std::fs::read(dir.join(format!("{}.entry.json", identity.key().ok()?))).ok()?;
+    let entry: crate::cache_contract::CacheEntry = serde_json::from_slice(&bytes).ok()?;
+    entry.reusable_for(identity).then_some(entry.outputs)
+}
+pub(crate) fn write_entry(
+    dir: &Path,
+    identity: &crate::cache_contract::CacheIdentity,
+    recipes: &[ExtractedRecipe],
+    usage: Option<crate::Usage>,
+) -> Result<(), EpubError> {
     std::fs::create_dir_all(dir).map_err(|e| EpubError::Cache(e.to_string()))?;
-    let json = serde_json::to_vec(recipes)?;
-    std::fs::write(dir.join(format!("{key}.json")), json)
-        .map_err(|e| EpubError::Cache(e.to_string()))
+    let target = dir.join(format!("{}.entry.json", identity.key()?));
+    let entry = crate::cache_contract::CacheEntry {
+        version: 1,
+        identity: identity.clone(),
+        outputs: recipes.to_vec(),
+        usage,
+    };
+    let temporary = dir.join(format!("{}.tmp", crate::review::store::new_id()));
+    std::fs::write(&temporary, serde_json::to_vec(&entry)?)
+        .map_err(|e| EpubError::Cache(e.to_string()))?;
+    let result = std::fs::rename(&temporary, target).map_err(|e| EpubError::Cache(e.to_string()));
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -69,34 +103,45 @@ mod tests {
     use super::*;
     use crate::{RecipeMeta, RecipeSection};
 
-    #[test]
-    fn key_is_stable_and_sensitive() {
-        assert_eq!(key("haiku", "abc", ""), key("haiku", "abc", ""));
-        assert_ne!(key("haiku", "abc", ""), key("haiku", "abd", ""));
-        assert_ne!(key("haiku", "abc", ""), key("sonnet", "abc", ""));
-        assert_ne!(key("haiku", "abc", ""), key("haiku", "abc", "Hint"));
+    fn request(
+        model: &str,
+        text: &str,
+        hint: Option<&str>,
+    ) -> crate::cache_contract::CacheIdentity {
+        identity(
+            model,
+            &crate::Chunk {
+                doc_path: "test.xhtml".into(),
+                text: text.into(),
+                title_hint: hint.map(str::to_owned),
+                images: vec![],
+                links: vec![],
+            },
+        )
+        .unwrap()
     }
-
     #[test]
-    fn key_is_lowercase_hex_sha256_of_the_known_vector() {
-        // Pins the exact hex encoding so the hand-rolled digest formatter can't
-        // silently drift (wrong case/padding) and invalidate every cache entry.
-        // Recompute if PROMPT_VERSION changes.
-        let k = key("haiku", "abc", "");
-        assert_eq!(k.len(), 64);
-        assert!(
-            k.bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        );
+    fn exact_native_requests_invalidate_by_model_source_and_hint() {
+        let a = request("gemini-2.5-flash", "abc", None);
         assert_eq!(
-            k,
-            "e6cc9e40ad6414f631e5a43a84dc3cbfbcfb15ea2eea4c5ee0dd14eb7eacf3ac"
+            a.key().unwrap(),
+            request("gemini-2.5-flash", "abc", None).key().unwrap()
         );
+        for b in [
+            request("gemini-2.5-flash", "abd", None),
+            request("claude-haiku-4-5", "abc", None),
+            request("gemini-2.5-flash", "abc", Some("Hint")),
+        ] {
+            assert_ne!(a.key().unwrap(), b.key().unwrap());
+        }
     }
 
     #[test]
     fn round_trips() {
-        let dir = std::env::temp_dir().join("recipe-epub-cache-test");
+        let dir = std::env::temp_dir().join(format!(
+            "recipe-epub-cache-test-{}",
+            crate::review::store::new_id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         let recipes = vec![ExtractedRecipe {
             meta: RecipeMeta {
@@ -109,10 +154,17 @@ mod tests {
                 instructions: vec![],
             }],
         }];
-        let k = key("m", "chunk text", "");
-        assert!(read(&dir, &k).is_none());
-        write(&dir, &k, &recipes).unwrap();
-        assert_eq!(read(&dir, &k).unwrap(), recipes);
+        let k = request("gemini-2.5-flash", "chunk text", None);
+        assert!(read_entry(&dir, &k).is_none());
+        write_entry(&dir, &k, &recipes, None).unwrap();
+        assert_eq!(read_entry(&dir, &k).unwrap(), recipes);
+        let path = dir.join(format!("{}.entry.json", k.key().unwrap()));
+        let mut entry: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        entry["version"] = serde_json::json!(999);
+        std::fs::write(&path, serde_json::to_vec(&entry).unwrap()).unwrap();
+        assert!(read_entry(&dir, &k).is_none());
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

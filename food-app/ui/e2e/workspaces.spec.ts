@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 const fixture = JSON.parse(
   readFileSync(
@@ -6,6 +6,28 @@ const fixture = JSON.parse(
     "utf8",
   ),
 );
+async function openExtraction(page: Page) {
+  await expect(
+    page.getByRole("heading", { name: "Library", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Extraction history", exact: true })
+    .click();
+  await page
+    .locator(".run-history")
+    .getByRole("button", { name: "Open", exact: true })
+    .first()
+    .click();
+}
+async function openSource(page: Page) {
+  await expect(
+    page.getByRole("heading", { name: "Library", exact: true }),
+  ).toBeVisible();
+  await page.locator(".workspace-heading summary").click();
+  await page
+    .getByRole("button", { name: "Cookbook EPUB…", exact: true })
+    .click();
+}
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((data) => {
     (
@@ -38,6 +60,43 @@ test.beforeEach(async ({ page }) => {
           : args?.kind === "epub"
             ? "fixture.epub"
             : "fixture.json";
+      if (command === "cookbook_models")
+        return [
+          {
+            id: "gemini-2.5-flash",
+            label: "Gemini 2.5 Flash",
+            enabled: true,
+            status: "Baseline",
+          },
+        ];
+      if (command === "extraction_preview")
+        return {
+          total: 3,
+          cached: 0,
+          pending: 3,
+          lowUsd: 0,
+          highUsd: 0.01,
+          reservationUsd: 0.1,
+          basis: "Fixture estimate",
+        };
+      if (command === "cookbook_runs")
+        return [
+          {
+            path: data.cookbook.path,
+            title: "Fixture cookbook",
+            model: data.cookbook.model,
+            promptVersion: "v5",
+            configurations: [],
+            createdAt: null,
+            recipes: 3,
+            completed: 3,
+            total: 3,
+            incomplete: false,
+            reservedUsd: 0,
+            newSpendUsd: null,
+            unresolvedUsd: 0,
+          },
+        ];
       if (command === "open_run") return data.cookbook;
       if (command === "inspect_book") return data.sourceOnly;
       if (command === "save_review")
@@ -65,6 +124,7 @@ test.beforeEach(async ({ page }) => {
           total: 3,
           recipes: 1,
           reservedUsd: 0,
+          active: 2, failed: 0, elapsedSeconds: 4, estimatedUsd: 0, stopping: false,
         });
         await new Promise((resolve) => setTimeout(resolve, 150));
         return data.cookbook;
@@ -125,9 +185,7 @@ for (const size of [
     });
     await page.getByRole("button", { name: "Dark appearance" }).click();
     await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-    await page
-      .getByRole("button", { name: "Open saved run", exact: true })
-      .click();
+    await openExtraction(page);
     await expect(
       page.getByRole("button", { name: "Save review", exact: true }),
     ).toBeVisible();
@@ -184,13 +242,13 @@ test("opening source is offline and extraction dialog traps focus", async ({
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Open cookbook", exact: true })
-    .click();
+  await openSource(page);
   await page.getByRole("button", { name: "Extraction…", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByLabel("Allow network requests")).not.toBeChecked();
+  await expect(
+    dialog.getByLabel("Cache only (no network requests)"),
+  ).not.toBeChecked();
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
   expect(
@@ -202,18 +260,14 @@ test("opening source is offline and extraction dialog traps focus", async ({
   ).toBe(false);
 });
 
-test("cache-only extraction is explicit and preferences restore idle", async ({
+test("extraction saves automatically and preferences restore idle", async ({
   page,
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Open cookbook", exact: true })
-    .click();
+  await openSource(page);
   await page.getByRole("button", { name: "Extraction…", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Extract to saved run…", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Extract", exact: true }).click();
   await expect(page.locator(".cookbooks .progress")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Extraction…", exact: true }),
@@ -233,15 +287,21 @@ test("cache-only extraction is explicit and preferences restore idle", async ({
       ).__calls,
   );
   const extraction = calls.find((c) => c.command === "extract_run");
-  expect(extraction?.args.request?.allowNetwork).toBe(false);
-  expect(extraction?.args.request?.out).toBe("extracted-fixture.json");
+  expect(extraction?.args.request?.allowNetwork).toBe(true);
+  expect(extraction?.args.request?.resume).toBe(false);
+  expect(extraction?.args.request?.out).toBe("");
+  expect(calls.some((c) => c.command === "dialog_save")).toBe(false);
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "Open cookbook", exact: true }),
+    page.getByRole("heading", { name: "Library", exact: true }),
   ).toBeVisible();
   expect(
-    await page.evaluate(
-      () => (window as unknown as { __calls?: unknown[] }).__calls ?? [],
+    await page.evaluate(() =>
+      (
+        (window as unknown as { __calls?: { command: string }[] }).__calls ?? []
+      ).filter(
+        (c) => c.command !== "scan_library" && c.command !== "load_cover",
+      ),
     ),
   ).toHaveLength(0);
 });
@@ -251,9 +311,7 @@ test("canceling unsaved document switch retains the current document", async ({
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Open saved run", exact: true })
-    .click();
+  await openExtraction(page);
   await page
     .getByRole("combobox", { name: "Review status", exact: true })
     .selectOption("Incorrect");
@@ -347,7 +405,7 @@ test("web recipe loads human sections and scales through the backend", async ({
     2,
   );
 });
-test("library scan opens source without extraction and preserves grid preference", async ({
+test("library scan opens existing results or source and preserves grid preference", async ({
   page,
 }) => {
   await page.goto("/");
@@ -362,7 +420,7 @@ test("library scan opens source without extraction and preserves grid preference
   await expect(page.locator(".library-books")).toContainText(book.title);
   await page.getByRole("button", { name: "Grid view" }).click();
   await expect(page.getByRole("button", { name: "List view" })).toBeVisible();
-  await page.locator(".library-books>button").first().click();
+  await page.locator(".library-entry > button").first().click();
   await expect(
     page.getByRole("button", { name: "Extraction…", exact: true }),
   ).toBeVisible();
@@ -374,9 +432,11 @@ test("library scan opens source without extraction and preserves grid preference
         }
       ).__calls,
   );
-  expect(calls.find((c) => c.command === "inspect_book")?.args.path).toBe(
-    book.path,
-  );
+  expect(
+    calls.find(
+      (c) => c.command === (book.runs?.length ? "open_run" : "inspect_book"),
+    )?.args.path,
+  ).toBe(book.runs?.[0]?.path ?? book.path);
   expect(calls.some((c) => c.command === "extract_run")).toBe(false);
   await page.reload();
   expect(
@@ -389,16 +449,14 @@ test("saved run statistics, references, replay and scaling retain real evidence"
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Open saved run", exact: true })
-    .click();
+  await openExtraction(page);
   await page
     .locator('select[aria-label="Recipe scale"]:visible')
     .selectOption("2");
   await expect(page.locator(".ingredient-lines:visible")).toContainText(
     fixture.scaledCookbook.sections[0].ingredients[0],
   );
-  await page.getByText("Run tools", { exact: true }).click();
+  await page.getByText("Extraction tools", { exact: true }).click();
   await page
     .getByRole("button", { name: "Ingredient statistics", exact: true })
     .click();
@@ -421,7 +479,7 @@ test("saved run statistics, references, replay and scaling retain real evidence"
     input,
   );
   await page.getByRole("button", { name: "Back to source review" }).click();
-  await page.getByText("Run tools", { exact: true }).click();
+  await page.getByText("Extraction tools", { exact: true }).click();
   await page
     .getByRole("button", { name: "Reference graph", exact: true })
     .click();
@@ -438,7 +496,7 @@ test("saved run statistics, references, replay and scaling retain real evidence"
   await expect(page.locator(".document-heading h2")).toContainText(
     linked.title,
   );
-  await page.getByText("Run tools", { exact: true }).click();
+  await page.getByText("Extraction tools", { exact: true }).click();
   await page.getByRole("button", { name: "Replay to new run…" }).click();
   await expect
     .poll(async () =>
@@ -480,12 +538,10 @@ test("recent runs restore idle and reopen through the native bridge", async ({
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await openExtraction(page);
+  await page.getByText("Extraction tools", { exact: true }).click();
   await page
-    .getByRole("button", { name: "Open saved run", exact: true })
-    .click();
-  await page.getByText("Run tools", { exact: true }).click();
-  await page
-    .getByRole("button", { name: "Reveal saved run in Finder", exact: true })
+    .getByRole("button", { name: "Reveal extraction in Finder", exact: true })
     .click();
   await expect
     .poll(() =>
@@ -499,11 +555,15 @@ test("recent runs restore idle and reopen through the native bridge", async ({
     .toBe(1);
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Source and result, side by side" }),
+    page.getByRole("heading", { name: "Library", exact: true }),
   ).toBeVisible();
   expect(
-    await page.evaluate(
-      () => (window as unknown as { __calls?: unknown[] }).__calls ?? [],
+    await page.evaluate(() =>
+      (
+        (window as unknown as { __calls?: { command: string }[] }).__calls ?? []
+      ).filter(
+        (c) => c.command !== "scan_library" && c.command !== "load_cover",
+      ),
     ),
   ).toEqual([]);
   await page
@@ -516,7 +576,7 @@ test("recent runs restore idle and reopen through the native bridge", async ({
     .locator(".workspace-heading summary")
     .filter({ hasText: /^Open/ })
     .click();
-  await page.getByRole("button", { name: "Clear recent runs" }).click();
+  await page.getByRole("button", { name: "Clear recent extractions" }).click();
   await expect(page.locator(".recent-run")).toHaveCount(0);
 });
 
@@ -525,9 +585,7 @@ test("review shortcuts save before advancing and preserve notes", async ({
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Open saved run", exact: true })
-    .click();
+  await openExtraction(page);
   const original = await page.locator(".document-heading h2").innerText();
   // Put a second real document back into the review queue.
   await page
@@ -601,9 +659,7 @@ test("failed save keeps the current document and unsaved review", async ({
     };
   });
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Open saved run", exact: true })
-    .click();
+  await openExtraction(page);
   const original = await page.locator(".document-heading h2").innerText();
   await page.keyboard.press("Meta+Alt+KeyA");
   await page.keyboard.press("Meta+Shift+Enter");
@@ -617,4 +673,250 @@ test("failed save keeps the current document and unsaved review", async ({
   await expect(
     page.getByRole("combobox", { name: "Review status", exact: true }),
   ).toHaveValue("Accepted");
+});
+
+test("model dropdown focus and selection update preflight without extracting", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const host = window as unknown as {
+      __FIXTURE_INVOKE__: (
+        command: string,
+        args?: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
+    const original = host.__FIXTURE_INVOKE__;
+    host.__FIXTURE_INVOKE__ = async (command, args) => {
+      if (command === "cookbook_models")
+        return [
+          {
+            id: "gemini-2.5-flash",
+            label: "Baseline",
+            enabled: true,
+            status: "Test",
+          },
+          { id: "gpt-5.6-luna", label: "Luna", enabled: true, status: "Test" },
+        ];
+      if (command === "extraction_preview") {
+        const request = args?.request as { model: string };
+        return {
+          total: 3,
+          cached: 1,
+          pending: 2,
+          lowUsd: 0.001,
+          highUsd: request.model === "gpt-5.6-luna" ? 0.002 : 0.004,
+          reservationUsd: 0.1,
+          basis: "Fixture estimate",
+        };
+      }
+      return original(command, args);
+    };
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await openSource(page);
+  await page.getByRole("button", { name: "Extraction…", exact: true }).click();
+  const picker = page.getByRole("combobox", { name: "Model", exact: true });
+  await expect(picker).toHaveValue("gemini-2.5-flash");
+  await expect(page.getByText(/estimated additional cost/)).toContainText(
+    "$0.0010–$0.0040",
+  );
+  await page.screenshot({ path: "/tmp/cookbook-extraction-preview.png" });
+  await picker.focus();
+  await expect(picker).toBeFocused();
+  await picker.selectOption("gpt-5.6-luna");
+  await expect(picker).toHaveValue("gpt-5.6-luna");
+  await expect(page.getByText(/estimated additional cost/)).toContainText(
+    "$0.0010–$0.0020",
+  );
+  await expect(page.getByLabel("Total budget (USD)")).toHaveValue("10");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+});
+
+test("saved history opens, compares, reveals and exports without extraction", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const host = window as unknown as {
+      __FIXTURE_INVOKE__: (
+        command: string,
+        args?: Record<string, unknown>,
+      ) => Promise<unknown>;
+      __historyActions: string[];
+    };
+    host.__historyActions = [];
+    const original = host.__FIXTURE_INVOKE__;
+    host.__FIXTURE_INVOKE__ = async (command, args) => {
+      if (command === "cookbook_runs")
+        return [
+          {
+            path: "fixture.json",
+            epubSha256: "same-book",
+            status: "complete",
+            title: "Fixture cookbook",
+            model: "gemini-2.5-flash",
+            promptVersion: "v5",
+            configurations: ["gemini-2.5-flash / v5", "gpt-5.6-luna / v5"],
+            createdAt: 1788950000,
+            recipes: 3,
+            completed: 3,
+            total: 3,
+            incomplete: false,
+            reservedUsd: 0.01,
+            newSpendUsd: 0.002,
+            unresolvedUsd: 0,
+          },
+        ].flatMap((row) => [row, { ...row, path: "second.json", status: "interrupted", incomplete: true }, { ...row, path: "other.json", epubSha256: "other-book" }]);
+      if (["export_run", "reveal_file", "run_diff"].includes(command)) {
+        host.__historyActions.push(command);
+        return command === "run_diff" ? { sameSource: true } : null;
+      }
+      return original(command, args);
+    };
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Extraction history", exact: true })
+    .click();
+  await expect(page.getByText(/Mixed: gemini/).first()).toBeVisible();
+  await expect(page.getByText(/0.0020 estimated new spend/).first()).toBeVisible();
+  await page.getByRole("button", { name: "Reveal", exact: true }).first().click();
+  await page.getByRole("button", { name: "Export", exact: true }).first().click();
+  await page
+    .locator(".run-history")
+    .getByRole("button", { name: "Open", exact: true })
+    .first().click();
+  await page
+    .getByRole("button", { name: "Extraction history", exact: true })
+    .click();
+  await page.getByRole("checkbox", { name: /Compare .*fixture.json/ }).check();
+  await expect(page.getByRole("checkbox", { name: /Compare .*other.json/ })).toBeDisabled();
+  await page.getByRole("checkbox", { name: /Compare .*second.json/ }).check();
+  await page.getByRole("button", { name: "Compare selected extractions", exact: true }).click();
+  const actions = await page.evaluate(
+    () =>
+      (window as unknown as { __historyActions: string[] }).__historyActions,
+  );
+  expect(actions).toEqual(["reveal_file", "export_run", "run_diff"]);
+});
+
+test("default library opens without a folder dialog", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Open saved run" }),
+  ).toHaveCount(0);
+
+  await expect(
+    page.getByRole("heading", { name: "Library", exact: true }),
+  ).toBeVisible();
+  const calls = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __calls: { command: string; args: { directory?: string } }[];
+        }
+      ).__calls,
+  );
+  expect(calls.find((c) => c.command === "scan_library")?.args.directory).toBe(
+    "",
+  );
+  expect(calls.some((c) => c.command === "dialog_open")).toBe(false);
+});
+
+test("a library cookbook opens its latest extraction without file selection", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const host = window as unknown as {
+      __FIXTURE_INVOKE__: (
+        command: string,
+        args?: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
+    const original = host.__FIXTURE_INVOKE__;
+    host.__FIXTURE_INVOKE__ = async (command, args) => {
+      const result = await original(command, args);
+      if (command !== "scan_library") return result;
+      const runs = await original("cookbook_runs", { book: null });
+      return (result as { cookbook: boolean }[]).map((book) => ({
+        ...book,
+        runs: book.cookbook ? runs : [],
+      }));
+    };
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await page.locator(".library-entry > button").first().click();
+  await expect(
+    page.getByRole("button", { name: "Save review", exact: true }),
+  ).toBeVisible();
+  const calls = await page.evaluate(
+    () => (window as unknown as { __calls: { command: string }[] }).__calls,
+  );
+  expect(calls.some((call) => call.command === "open_run")).toBe(true);
+  expect(
+    calls.some(
+      (call) =>
+        call.command === "dialog_open" || call.command === "inspect_book",
+    ),
+  ).toBe(false);
+});
+
+test("extraction shows accounting and stops without losing its result", async ({ page }) => {
+  await page.addInitScript(() => {
+    const host = window as unknown as { __FIXTURE_INVOKE__: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
+    const original = host.__FIXTURE_INVOKE__;
+    let finish: ((result: unknown) => void) | undefined;
+    host.__FIXTURE_INVOKE__ = async (command, args) => {
+      if (command === "extract_run") {
+        const channel = args?.onProgress as { onmessage: (data: unknown) => void };
+        channel.onmessage({ path: "stopped.json", completed: 1, total: 8, recipes: 2, active: 4, failed: 0, elapsedSeconds: 12, estimatedUsd: 0.02, reservedUsd: 0.50, stopping: false });
+        return new Promise((resolve) => { finish = resolve; });
+      }
+      if (command === "cancel_extraction") {
+        const result = await original("open_run", { path: "stopped.json" });
+        finish?.({ ...(result as object), path: "stopped.json", incomplete: true, status: "cancelled" });
+        return null;
+      }
+      return original(command, args);
+    };
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await openSource(page);
+  await page.getByRole("button", { name: "Extraction…", exact: true }).click();
+  await page.getByRole("button", { name: "Extract", exact: true }).click();
+  await expect(page.locator(".progress")).toContainText("4 active");
+  await expect(page.locator(".progress")).toContainText("12s");
+  await expect(page.locator(".progress")).toContainText("$0.0200 estimated");
+  await page.getByRole("button", { name: "Stop extraction", exact: true }).click();
+  await expect(page.locator(".run-heading")).toContainText("cancelled extraction");
+  await expect(page.getByRole("button", { name: "Stop extraction", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Extraction…", exact: true }).click();
+  await page.getByLabel("Resume this extraction").check();
+  await expect(page.getByRole("button", { name: "Resume extraction", exact: true })).toBeEnabled();
+});
+
+test("source checks expose suspect method text and navigate to its source", async ({ page }) => {
+  await page.addInitScript(() => {
+    const host = window as unknown as { __FIXTURE_INVOKE__: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
+    const original = host.__FIXTURE_INVOKE__;
+    host.__FIXTURE_INVOKE__ = async (command, args) => {
+      const value = await original(command, args);
+      if (command !== "open_run") return value;
+      const book = value as { documents: { path: string }[] };
+      return { ...book, qualityIssues: [{ kind: "possible_method_in_notes", source: book.documents[1].path, chunk: null, recipe: 0, message: "Possible method step stored in notes. Check whether this action is required or optional.", detail: "Pour into molds and freeze until firm." }] };
+    };
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await openExtraction(page);
+  await page.locator(".source-checks summary").click();
+  await expect(page.locator(".source-checks")).toContainText("1 review flags");
+  await expect(page.locator(".source-checks")).toContainText("Possible method step stored in notes");
+  const source = await page.locator(".source-checks button").textContent();
+  await page.locator(".source-checks button").click();
+  await expect(page.locator(".document-heading")).toContainText(source ?? "");
 });

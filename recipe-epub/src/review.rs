@@ -10,11 +10,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub mod preflight;
+pub mod quality;
 pub mod stats;
+pub mod store;
 mod workflow;
 pub use workflow::{
-    ExtractionRequest, ReplayRequest, RunOutcome, RunProgress, WorkflowError, extract_to_run,
-    replay_to_run,
+    ExtractionRequest, ReplayRequest, RunOutcome, RunProgress, WorkflowError, export_run,
+    extract_to_run, extract_to_run_controlled, prepare, replay_to_run,
 };
 
 pub const RUN_VERSION: u32 = 1;
@@ -34,10 +37,18 @@ pub struct RunChunk {
     pub model: Option<String>,
     #[serde(default)]
     pub prompt_version: Option<String>,
+    #[serde(default)]
+    pub request_identity: Option<crate::cache_contract::CacheIdentity>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewRun {
+    #[serde(default)]
+    pub execution_status: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<store::RunMetadata>,
+    #[serde(default)]
+    pub charges: Vec<store::Charge>,
     pub version: u32,
     pub epub_sha256: String,
     pub source: String,
@@ -55,7 +66,7 @@ pub struct ReviewRun {
     pub image_text: Option<SourceImageText>,
 }
 
-fn hash(bytes: &[u8]) -> String {
+pub(crate) fn hash(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -65,7 +76,33 @@ fn error(message: impl Into<String>) -> EpubError {
     EpubError::Cache(message.into())
 }
 
+/// Cooperative cancellation stops admission and drains requests already in flight.
+#[derive(Clone, Default)]
+pub struct ExtractionControl(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl ExtractionControl {
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 impl ReviewRun {
+    pub fn status(&self) -> &str {
+        if !self.incomplete() {
+            return "complete";
+        }
+        match self.execution_status.as_deref() {
+            Some("running" | "stopping") => "interrupted",
+            Some("cancelled") => "cancelled",
+            Some("failed") => "failed",
+            _ if self.charges.iter().any(|c| c.status == "pending") => "interrupted",
+            _ if self.charges.iter().any(|c| c.status == "failed") => "failed",
+            _ => "incomplete",
+        }
+    }
+
     pub fn inspect(bytes: &[u8], source: &str, model: &str) -> Result<Self, EpubError> {
         let chunks = crate::chunk_epub(bytes)?
             .into_iter()
@@ -79,9 +116,13 @@ impl ReviewRun {
                 usage: Usage::default(),
                 model: None,
                 prompt_version: None,
+                request_identity: None,
             })
             .collect();
         Ok(Self {
+            execution_status: None,
+            metadata: None,
+            charges: vec![],
             version: RUN_VERSION,
             epub_sha256: hash(bytes),
             source: source.into(),
@@ -234,12 +275,8 @@ pub async fn extract_run_with_extractor<E: RecipeExtractor>(
         return Err(error("extractor model differs from the run model"));
     }
     for chunk in &run.chunks {
-        let key = crate::cache::key(
-            &run.model,
-            &chunk.source.text,
-            chunk.source.title_hint.as_deref().unwrap_or(""),
-        );
-        if chunk.output.is_some() || crate::cache::read(cache_dir, &key).is_some() {
+        let key = crate::cache::identity(&run.model, &chunk.source)?;
+        if chunk.output.is_some() || crate::cache::read_entry(cache_dir, &key).is_some() {
             continue;
         }
         let output = extractor.extract(&chunk.source).await?;
@@ -249,7 +286,7 @@ pub async fn extract_run_with_extractor<E: RecipeExtractor>(
                 chunk.id
             )));
         }
-        crate::cache::write(cache_dir, &key, &output.recipes)?;
+        crate::cache::write_entry(cache_dir, &key, &output.recipes, Some(output.usage))?;
     }
     extract_run_with_progress(
         run,
@@ -269,24 +306,57 @@ pub async fn extract_run_with_progress(
     run: &mut ReviewRun,
     options: &RunOptions,
     checkpoint: &Path,
-    mut progress: impl FnMut(&ReviewRun),
+    progress: impl FnMut(&ReviewRun),
 ) -> Result<(), EpubError> {
-    if options.refresh && !options.allow_network {
-        return Err(error("refresh requires --allow-network"));
-    }
-    if !options.budget_usd.is_finite() || options.budget_usd < 0.0 {
-        return Err(error("budget must be finite and nonnegative"));
-    }
-    if run.prompt_version != crate::cache::PROMPT_VERSION {
-        return Err(error(
-            "prompt changed; create a new extraction run (offline replay remains available)",
-        ));
-    }
-    for id in &options.chunks {
-        if !run.chunks.iter().any(|c| &c.id == id) {
-            return Err(error(format!("unknown chunk {id}")));
-        }
-    }
+    extract_run_controlled(
+        run,
+        options,
+        checkpoint,
+        &ExtractionControl::default(),
+        progress,
+    )
+    .await
+}
+
+pub async fn extract_run_controlled(
+    run: &mut ReviewRun,
+    options: &RunOptions,
+    checkpoint: &Path,
+    control: &ExtractionControl,
+    progress: impl FnMut(&ReviewRun),
+) -> Result<(), EpubError> {
+    let model = run.model.clone();
+    let source = run.source.clone();
+    extract_run_with_transport(
+        run,
+        options,
+        checkpoint,
+        control,
+        progress,
+        || {
+            crate::backend::Backend::from_env(
+                &crate::Options {
+                    model: Some(model),
+                    ..Default::default()
+                },
+                &source,
+            )
+        },
+        |transport, chunk| transport.take_calls(chunk),
+    )
+    .await
+}
+
+async fn extract_run_with_transport<E: RecipeExtractor>(
+    run: &mut ReviewRun,
+    options: &RunOptions,
+    checkpoint: &Path,
+    control: &ExtractionControl,
+    mut progress: impl FnMut(&ReviewRun),
+    create_transport: impl FnOnce() -> Result<E, EpubError>,
+    take_calls: impl Fn(&E, &Chunk) -> Vec<store::CallRecord>,
+) -> Result<(), EpubError> {
+    preflight::plan(run, options)?;
     progress(run);
     let cache_dir = options
         .cache_dir
@@ -301,14 +371,11 @@ pub async fn extract_run_with_progress(
             continue;
         }
         let source = &run.chunks[i].source;
-        let key = crate::cache::key(
-            &run.model,
-            &source.text,
-            source.title_hint.as_deref().unwrap_or(""),
-        );
+        let key = crate::cache::identity(&run.model, source)?;
         if !options.refresh
-            && let Some(output) = crate::cache::read(&cache_dir, &key)
+            && let Some(output) = crate::cache::read_entry(&cache_dir, &key)
         {
+            run.chunks[i].request_identity = Some(key.clone());
             run.chunks[i].model = Some(run.model.clone());
             run.chunks[i].prompt_version = Some(run.prompt_version.clone());
             run.chunks[i].output = Some(output);
@@ -321,108 +388,181 @@ pub async fn extract_run_with_progress(
         }
     }
     run.replay()?;
+    if let Some(metadata) = &mut run.metadata {
+        metadata.updated_at = Some(store::now());
+    }
     run.save(checkpoint)?;
     progress(run);
-    if pending.is_empty() {
+    if pending.is_empty() || control.is_cancelled() {
         return Ok(());
     }
     // Validate/reserve before constructing a transport. At most four requests
     // are in flight; every reservation is durable before its request begins.
-    let reservation = |source: &Chunk| -> Result<f64, EpubError> {
-        let bytes = serde_json::to_vec(&crate::indexed::build_indexed_chunk_request(source))?.len()
-            as u64
-            + 4096;
-        crate::accounting::cost_for_usage(
-            &run.model,
-            &Usage {
-                input_tokens: bytes * 2,
-                output_tokens: 16000 * 2,
-                ..Usage::default()
-            },
-        )
-        .ok_or_else(|| error("cannot reserve budget for an unpriced model"))
-    };
+    let reservation = |source: &Chunk| preflight::reservation(&run.model, source);
     let reservations: Vec<_> = pending
         .iter()
         .map(|(i, _)| reservation(&run.chunks[*i].source))
         .collect::<Result<_, _>>()?;
-    let mut backend = None;
-    use futures::{StreamExt, stream};
-    for (group, costs) in pending.chunks(4).zip(reservations.chunks(4)) {
-        let mut jobs = Vec::new();
-        for ((i, key), reserved) in group.iter().zip(costs) {
+    let transport = create_transport()?;
+    use futures::{StreamExt, stream::FuturesUnordered};
+    let mut waiting: std::collections::VecDeque<_> =
+        pending.into_iter().zip(reservations).collect();
+    let mut results = FuturesUnordered::new();
+    loop {
+        // Revisit budget-blocked work after each completion: resolved usage may
+        // release enough of an earlier reservation to admit another request.
+        if control.is_cancelled() {
+            run.execution_status = Some("stopping".into());
+        }
+        let candidates = if control.is_cancelled() {
+            0
+        } else {
+            waiting.len()
+        };
+        for _ in 0..candidates {
+            if results.len() >= 4 || control.is_cancelled() {
+                break;
+            }
+            let Some(((i, key), reserved)) = waiting.pop_front() else {
+                break;
+            };
             if run.reserved_usd + reserved > options.budget_usd {
-                run.chunks[*i].error = Some("budget exhausted before request".into());
+                run.chunks[i].error = Some("budget exhausted before request".into());
+                waiting.push_back(((i, key), reserved));
                 continue;
             }
             run.reserved_usd += reserved;
-            if run.chunks[*i].model.as_deref() != Some(run.model.as_str()) {
-                run.chunks[*i].usage = Usage::default();
+            run.charges.push(store::Charge {
+                attempts: vec![],
+                chunk: run.chunks[i].id.clone(),
+                model: run.model.clone(),
+                started_at: store::now(),
+                reservation_usd: reserved,
+                usage: None,
+                estimated_usd: None,
+                input_rate: crate::accounting::price_per_mtok(&run.model).map(|r| r.0),
+                output_rate: crate::accounting::price_per_mtok(&run.model).map(|r| r.1),
+                cache_read_rate: crate::accounting::cost_for_usage(
+                    &run.model,
+                    &Usage {
+                        cache_read_input_tokens: 1_000_000,
+                        ..Usage::default()
+                    },
+                ),
+                cache_creation_rate: crate::accounting::cost_for_usage(
+                    &run.model,
+                    &Usage {
+                        cache_creation_input_tokens: 1_000_000,
+                        ..Usage::default()
+                    },
+                ),
+                rate_date: "2026-09-09".into(),
+                rate_source: crate::models::pricing_source(&run.model).map(str::to_owned),
+                status: "pending".into(),
+            });
+            if run.chunks[i].model.as_deref() != Some(run.model.as_str()) {
+                run.chunks[i].usage = Usage::default();
             }
-            run.chunks[*i].model = Some(run.model.clone());
-            run.chunks[*i].prompt_version = Some(run.prompt_version.clone());
-            run.chunks[*i].output = None;
+            run.chunks[i].request_identity = Some(key.clone());
+            run.chunks[i].model = Some(run.model.clone());
+            run.chunks[i].prompt_version = Some(run.prompt_version.clone());
+            run.chunks[i].output = None;
             if options.refresh {
-                run.chunks[*i].usage = Usage::default();
+                run.chunks[i].usage = Usage::default();
             }
-            run.chunks[*i].error =
+            run.chunks[i].error =
                 Some("request pending; reservation retained if interrupted".into());
-            jobs.push((*i, key.clone(), *reserved, run.chunks[*i].source.clone()));
-        }
-        run.replay()?;
-        run.save(checkpoint)?;
-        if jobs.is_empty() {
-            break;
-        }
-        if backend.is_none() {
-            backend = Some(crate::backend::Backend::from_env(
-                &crate::Options {
-                    model: Some(run.model.clone()),
-                    ..Default::default()
-                },
-                &run.source,
-            )?);
-        }
-        let Some(transport) = &backend else {
-            return Err(error("backend unavailable"));
-        };
-        let mut results = stream::iter(jobs.into_iter().map(
-            |(i, key, reserved, source)| async move {
-                (i, key, reserved, transport.extract_detailed(&source).await)
-            },
-        ))
-        .buffer_unordered(4);
-        while let Some((i, key, reserved, result)) = results.next().await {
-            match result {
-                Ok(outcome) => {
-                    if let Some(actual) =
-                        crate::accounting::cost_for_usage(&run.model, &outcome.usage)
-                        && outcome.usage != Usage::default()
-                    {
-                        run.reserved_usd += actual - reserved;
-                    }
-                    run.chunks[i].usage.add(&outcome.usage);
-                    run.chunks[i].cached = false;
-                    if outcome.truncated {
-                        run.chunks[i].error = Some("truncated response".into());
-                    } else {
-                        std::fs::create_dir_all(&cache_dir).map_err(|e| error(e.to_string()))?;
-                        crate::cache::write(&cache_dir, &key, &outcome.recipes)?;
-                        run.chunks[i].output = Some(outcome.recipes);
-                        run.chunks[i].error = None;
-                    }
-                }
-                Err(failure) => {
-                    run.chunks[i].usage.add(&failure.usage);
-                    run.chunks[i].error = Some(failure.error.to_string());
-                }
-            }
+            // Persist before the future can be polled and send a request.
             run.replay()?;
+            if let Some(metadata) = &mut run.metadata {
+                metadata.updated_at = Some(store::now());
+            }
             run.save(checkpoint)?;
             progress(run);
+            let source = run.chunks[i].source.clone();
+            let transport = &transport;
+            results
+                .push(async move { (i, key, reserved, transport.extract_detailed(&source).await) });
         }
+        let next = tokio::select! {
+            result = results.next() => result,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                progress(run);
+                continue;
+            }
+        };
+        let Some((i, key, reserved, result)) = next else {
+            break;
+        };
+        if let Some(charge) = run
+            .charges
+            .iter_mut()
+            .rev()
+            .find(|c| c.chunk == run.chunks[i].id && c.status == "pending")
+        {
+            charge.attempts = take_calls(&transport, &run.chunks[i].source);
+            let (usage, status) = match &result {
+                Ok(o) => (
+                    &o.usage,
+                    if o.truncated {
+                        "truncated"
+                    } else {
+                        "completed"
+                    },
+                ),
+                Err(e) => (&e.usage, "failed"),
+            };
+            charge.status = status.into();
+            if *usage != Usage::default() {
+                charge.usage = Some(usage.clone());
+                charge.estimated_usd = crate::accounting::cost_for_usage(&charge.model, usage);
+            }
+        }
+        match result {
+            Ok(outcome) => {
+                if let Some(actual) = crate::accounting::cost_for_usage(&run.model, &outcome.usage)
+                    && outcome.usage != Usage::default()
+                    && run
+                        .charges
+                        .iter()
+                        .rev()
+                        .find(|c| c.chunk == run.chunks[i].id)
+                        .is_none_or(|c| c.attempts.iter().all(|a| a.usage.is_some()))
+                {
+                    run.reserved_usd += actual - reserved;
+                }
+                run.chunks[i].usage.add(&outcome.usage);
+                run.chunks[i].cached = false;
+                if outcome.truncated {
+                    run.chunks[i].error = Some("truncated response".into());
+                } else {
+                    std::fs::create_dir_all(&cache_dir).map_err(|e| error(e.to_string()))?;
+                    crate::cache::write_entry(
+                        &cache_dir,
+                        &key,
+                        &outcome.recipes,
+                        Some(outcome.usage.clone()),
+                    )?;
+                    run.chunks[i].output = Some(outcome.recipes);
+                    run.chunks[i].error = None;
+                }
+            }
+            Err(failure) => {
+                run.chunks[i].usage.add(&failure.usage);
+                run.chunks[i].error = Some(failure.error.to_string());
+            }
+        }
+        run.replay()?;
+        if let Some(metadata) = &mut run.metadata {
+            metadata.updated_at = Some(store::now());
+        }
+        run.save(checkpoint)?;
+        progress(run);
     }
     run.replay()?;
+    if let Some(metadata) = &mut run.metadata {
+        metadata.updated_at = Some(store::now());
+    }
     run.save(checkpoint)?;
     progress(run);
     Ok(())
@@ -573,7 +713,7 @@ pub fn diff(before: &ReviewRun, after: &ReviewRun) -> Result<serde_json::Value, 
         .map(|key| serde_json::json!({"source":key,"before":old.get(key),"after":new.get(key)}))
         .collect();
     Ok(
-        serde_json::json!({"before_incomplete":before.incomplete(),"after_incomplete":after.incomplete(),
+        serde_json::json!({"before_status":before.status(),"after_status":after.status(),"before_model":before.model,"after_model":after.model,"before_cost":store::summary(before,Path::new("")).new_spend_usd,"after_cost":store::summary(after,Path::new("")).new_spend_usd,"before_incomplete":before.incomplete(),"after_incomplete":after.incomplete(),
         "extraction_changed":before.recipes != after.recipes, "parsing_changed":before.parsed != after.parsed,
         "before_recipes":before.recipes.len(),"after_recipes":after.recipes.len(),
         "before_prompt":before.prompt_version,"after_prompt":after.prompt_version,"changed_sources":changed}),
@@ -959,7 +1099,7 @@ pub fn source_audit(run: &ReviewRun) -> serde_json::Value {
         }).collect();
         serde_json::json!({"source":doc.path,"blocks":blocks,"images":doc.images})
     }).collect();
-    serde_json::json!({"epub_sha256":run.epub_sha256,"documents":documents})
+    serde_json::json!({"epub_sha256":run.epub_sha256,"quality_issues":quality::issues(run),"documents":documents})
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1019,4 +1159,148 @@ fn apply_image_text(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct Probe {
+        checkpoint: PathBuf,
+        started: AtomicUsize,
+        active: AtomicUsize,
+        peak: AtomicUsize,
+        fifth: tokio::sync::Notify,
+        hold_first: bool,
+        cancel: Option<ExtractionControl>,
+    }
+    impl RecipeExtractor for Arc<Probe> {
+        async fn extract(&self, chunk: &Chunk) -> Result<crate::ChunkOutcome, EpubError> {
+            let saved = ReviewRun::read(&self.checkpoint)?;
+            assert!(
+                saved
+                    .charges
+                    .iter()
+                    .any(|c| c.chunk == chunk.doc_path && c.status == "pending")
+            );
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(active, Ordering::SeqCst);
+            let started = self.started.fetch_add(1, Ordering::SeqCst) + 1;
+            if started == 1
+                && let Some(control) = &self.cancel
+            {
+                control.cancel();
+            }
+            if started == 5 {
+                self.fifth.notify_one();
+            }
+            if started == 1 && self.hold_first {
+                self.fifth.notified().await;
+            } else {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(crate::ChunkOutcome {
+                recipes: vec![],
+                usage: Usage {
+                    input_tokens: 1,
+                    output_tokens: 1,
+                    ..Default::default()
+                },
+                cached: false,
+                truncated: false,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn replenishes_before_slow_request_finishes_and_reconsiders_budget()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for mode in 0..3 {
+            let hold_first = mode == 0;
+            let control = ExtractionControl::default();
+            let root = std::env::temp_dir().join(store::new_id());
+            std::fs::create_dir_all(&root)?;
+            let checkpoint = root.join("run.json");
+            let mut run = ReviewRun::inspect(
+                &recipe_epub_fixtures::cookbook_epub()?,
+                "test",
+                "gemini-2.5-flash",
+            )?;
+            let template = run.chunks[0].clone();
+            run.chunks = (0..6)
+                .map(|i| {
+                    let mut c = template.clone();
+                    c.id = format!("chunk-{i}");
+                    c.source.doc_path = c.id.clone();
+                    c.source.text.push_str(&format!("\nSample {i}"));
+                    c
+                })
+                .collect();
+            let reservation = preflight::reservation(&run.model, &run.chunks[0].source)?;
+            let options = RunOptions {
+                allow_network: true,
+                budget_usd: if mode != 1 { 10.0 } else { reservation * 1.1 },
+                cache_dir: Some(root.join("cache")),
+                ..Default::default()
+            };
+            let probe = Arc::new(Probe {
+                checkpoint: checkpoint.clone(),
+                started: AtomicUsize::new(0),
+                active: AtomicUsize::new(0),
+                peak: AtomicUsize::new(0),
+                fifth: tokio::sync::Notify::new(),
+                hold_first,
+                cancel: (mode == 2).then(|| control.clone()),
+            });
+            tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                extract_run_with_transport(
+                    &mut run,
+                    &options,
+                    &checkpoint,
+                    &control,
+                    |_| {},
+                    || Ok(probe.clone()),
+                    |_, _| vec![],
+                ),
+            )
+            .await??;
+            assert_eq!(
+                probe.started.load(Ordering::SeqCst),
+                if mode == 2 { 4 } else { 6 }
+            );
+            assert_eq!(
+                probe.peak.load(Ordering::SeqCst),
+                if mode != 1 { 4 } else { 1 }
+            );
+            assert_eq!(
+                run.chunks.iter().filter(|c| c.output.is_some()).count(),
+                if mode == 2 { 4 } else { 6 }
+            );
+            if mode == 2 {
+                assert!(run.charges.iter().all(|c| c.status != "pending"));
+                extract_run_with_transport(
+                    &mut run,
+                    &options,
+                    &checkpoint,
+                    &ExtractionControl::default(),
+                    |_| {},
+                    || Ok(probe.clone()),
+                    |_, _| vec![],
+                )
+                .await?;
+                assert_eq!(probe.started.load(Ordering::SeqCst), 6);
+                assert!(run.chunks.iter().all(|c| c.output.is_some()));
+            }
+            assert!(run.reserved_usd <= options.budget_usd);
+            assert_eq!(ReviewRun::read(&checkpoint)?.charges.len(), 6);
+            std::fs::remove_dir_all(root)?;
+        }
+        Ok(())
+    }
 }

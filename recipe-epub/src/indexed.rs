@@ -28,6 +28,34 @@ struct Recipe {
     #[serde(default)]
     times: Times,
 }
+impl Recipe {
+    fn first_line(&self) -> usize {
+        [
+            &self.title,
+            &self.description,
+            &self.recipe_yield,
+            &self.notes,
+            &self.equipment,
+            &self.category,
+            &self.page,
+            &self.times.prep,
+            &self.times.cook,
+            &self.times.active,
+            &self.times.total,
+        ]
+        .into_iter()
+        .flatten()
+        .chain(self.sections.iter().flat_map(|s| {
+            [&s.name, &s.ingredients, &s.instructions]
+                .into_iter()
+                .flatten()
+        }))
+        .copied()
+        .min()
+        .unwrap_or(usize::MAX)
+    }
+}
+
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct Times {
@@ -67,7 +95,7 @@ pub fn build_indexed_chunk_request(chunk: &Chunk) -> ChunkRequest {
         .collect::<Vec<_>>()
         .join("\n");
     ChunkRequest {
-        system: "Extract EVERY recipe by selecting zero-based source line numbers. Return indices, never rewritten text. All fields contain arrays of indices: use [] for absent metadata and unnamed section names, never a placeholder 0. Account for EVERY input line exactly once across recipe fields or ignored.\nFor each recipe: title includes its complete name and subtitle/translation, but excludes dietary flags. description contains its introductory headnote. Preserve the authored ingredient groups: an unnamed main section and named components such as Masala, Filling, Batter, Paste, or To serve. Each ingredient line belongs to its source group, including unquantified frying oil and flour used for sealing/dusting. Instructions contain ALL method paragraphs in original order. When the book has one shared method, put ALL method lines in the unnamed main section, even if ingredients have several named groups. Never omit the method. notes includes dietary flags, tips, variations, storage and serving suggestions. recipe_yield selects ALL lines of the complete serves/makes metadata, including parenthetical container yield. Parenthetical ingredient-group preparation or advance-start notes belong in notes, never ingredients. times select explicitly printed timing metadata only. equipment selects explicit equipment lists only.\nA line may not be used twice. Do not split a line or fix apparent source errors. Put non-recipe prose, contents/index entries, page headers, blank lines and photo captions in ignored; never ignore recipe ingredients, steps, headnotes or notes. A document without recipes returns recipes=[] and all lines in ignored. Recipe continuations may use title=[] when a continuation title is supplied; do not invent a title.".into(),
+        system: "Extract EVERY recipe by selecting zero-based source line numbers. Return indices, never rewritten text. All fields contain arrays of indices: use [] for absent metadata and unnamed section names, never a placeholder 0. Account for EVERY input line exactly once across recipe fields or ignored.\nFor each recipe: title includes its complete name and subtitle/translation, but excludes dietary flags. description contains its introductory headnote. Preserve the authored ingredient groups: an unnamed main section and named components such as Masala, Filling, Batter, Paste, or To serve. Each ingredient line belongs to its source group, including unquantified frying oil and flour used for sealing/dusting. Instructions contain ALL method paragraphs in original order. When the book has one shared method, put ALL method lines in the unnamed main section, even if ingredients have several named groups. Never omit the method. Required actions remain instructions even when they involve chilling, freezing, unmolding, finishing, or serving. A method paragraph ending with an optional storage or serving aside stays wholly in instructions; do not move the whole paragraph to notes. notes includes dietary flags, tips, variations, storage and serving suggestions. recipe_yield selects ALL lines of the complete serves/makes metadata, including parenthetical container yield. Parenthetical ingredient-group preparation or advance-start notes belong in notes, never ingredients. times select explicitly printed timing metadata only. equipment selects explicit equipment lists and their headings. Non-food wrappers or tools listed under equipment headings such as You also need belong in equipment, not ingredient sections (for example corn husks, foil, or parchment used for wrapping).\nA line may not be used twice. Do not split a line or fix apparent source errors. Put non-recipe prose, contents/index entries, page headers, blank lines and photo captions in ignored; never ignore recipe ingredients, steps, headnotes or notes. A document without recipes returns recipes=[] and all lines in ignored. Only the first recipe in source order may be a continuation and use title=[] when a continuation title is supplied. Later recipes require their own source title. Return recipes in source order; do not invent a title.".into(),
         user: match &chunk.title_hint { Some(title) => format!("Continuation title (only use when the source starts mid-recipe): {title}\n\n{user}"), None => user },
         tool_name: "emit_recipes".into(), tool_schema: schema,
     }
@@ -77,7 +105,8 @@ pub fn build_indexed_chunk_request(chunk: &Chunk) -> ChunkRequest {
 /// overlapping ownership, and invalid indices before anything enters the cache.
 pub fn lower_indexed_payload(chunk: &Chunk, payload: Value) -> Result<Value, EpubError> {
     let raw_payload = payload.clone();
-    let payload: Payload = serde_json::from_value(payload)?;
+    let mut payload: Payload = serde_json::from_value(payload)?;
+    payload.recipes.sort_by_key(Recipe::first_line);
     let lines: Vec<_> = chunk.text.lines().collect();
     let mut used = HashMap::new();
     let fail = |message: String| {
@@ -104,7 +133,7 @@ pub fn lower_indexed_payload(chunk: &Chunk, payload: Value) -> Result<Value, Epu
             .collect()
     };
     let mut recipes = Vec::new();
-    for mut recipe in payload.recipes {
+    for (recipe_index, mut recipe) in payload.recipes.into_iter().enumerate() {
         if let (Some(start), Some(end)) = (
             recipe.title.iter().min(),
             recipe.sections.iter().flat_map(|s| &s.ingredients).min(),
@@ -123,6 +152,11 @@ pub fn lower_indexed_payload(chunk: &Chunk, payload: Value) -> Result<Value, Epu
             }
         }
         let title = if recipe.title.is_empty() {
+            if recipe_index != 0 {
+                return Err(fail(
+                    "only the first source recipe can use a continuation title".into(),
+                ));
+            }
             chunk
                 .title_hint
                 .clone()
@@ -349,5 +383,38 @@ mod tests {
         let mut value = payload();
         value["recipes"][0]["notes"] = notes;
         assert!(lower_indexed_payload(&chunk(), value).is_err());
+    }
+}
+
+#[cfg(test)]
+mod continuation_tests {
+    use super::*;
+
+    #[test]
+    fn continuation_requires_a_hint_and_belongs_only_to_first_source_recipe()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut chunk = Chunk {
+            text: "Bake until set.\nFresh salad\n1 cup leaves\nToss gently.".into(),
+            title_hint: Some("Baked vegetables".into()),
+            doc_path: "chapter.xhtml".into(),
+            links: vec![],
+            images: vec![],
+        };
+        let payload = json!({"recipes":[
+            {"title":[1],"sections":[{"name":[],"ingredients":[2],"instructions":[3]}]},
+            {"title":[],"sections":[{"name":[],"ingredients":[],"instructions":[0]}]}
+        ],"ignored":[]});
+        let lowered = lower_indexed_payload(&chunk, payload.clone())?;
+        assert_eq!(lowered["recipes"][0]["title"], "Baked vegetables");
+        assert_eq!(lowered["recipes"][1]["title"], "Fresh salad");
+        chunk.title_hint = None;
+        assert!(lower_indexed_payload(&chunk, payload).is_err());
+        chunk.title_hint = Some("Baked vegetables".into());
+        let invalid = json!({"recipes":[
+            {"title":[0],"sections":[{"name":[],"ingredients":[1],"instructions":[]}]},
+            {"title":[],"sections":[{"name":[],"ingredients":[2],"instructions":[3]}]}
+        ],"ignored":[]});
+        assert!(lower_indexed_payload(&chunk, invalid).is_err());
+        Ok(())
     }
 }

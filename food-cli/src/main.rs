@@ -375,7 +375,7 @@ async fn main() {
                         println!(
                             "Use --chunk <id> to inspect source and output, or --format json for the full run."
                         );
-                    } else {
+                    } else if format != OutputFormat::Human || !epub::print_human(command, &value) {
                         print_value(&value, format);
                     }
                     if code != 0 {

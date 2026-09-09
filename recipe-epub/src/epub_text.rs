@@ -18,6 +18,8 @@ use crate::{Chunk, EpubError, ImageRef, Link};
 /// A cleaned text line plus any internal anchor links and embedded images it
 /// contained (images that sat in their own empty block attach to the nearest line).
 struct CleanLine {
+    recipe_title: bool,
+    heading: bool,
     text: String,
     links: Vec<Link>,
     images: Vec<ImageRef>,
@@ -214,6 +216,16 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
 /// last-seen title as its [`Chunk::title_hint`], so the model re-emits the same
 /// titled recipe and `assemble()` merges the two halves.
 fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
+    // Prefer authored title styles. A lone generic heading may only name the
+    // chapter, so use generic headings only when the document repeats them.
+    let mut titles: std::collections::HashMap<&str, (usize, usize)> = Default::default();
+    for (path, line) in &tagged {
+        let counts = titles.entry(path).or_default();
+        counts.0 += usize::from(line.recipe_title);
+        counts.1 += usize::from(line.heading);
+    }
+    let title_modes: std::collections::HashMap<String, (usize, usize)> =
+        titles.into_iter().map(|(p, c)| (p.to_owned(), c)).collect();
     let mut chunks = Vec::new();
     let mut lines: Vec<String> = Vec::new();
     let mut chunk_links: Vec<Link> = Vec::new();
@@ -248,7 +260,15 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
             last_title = None;
             next_hint = None;
         }
-        let at_title = len >= CHUNK_BUDGET && looks_like_title(&line.text);
+        let mode = title_modes.get(&path).copied().unwrap_or_default();
+        let is_title = if mode.0 > 0 {
+            line.recipe_title
+        } else if mode.1 > 1 {
+            line.heading
+        } else {
+            looks_like_title(&line.text)
+        };
+        let at_title = len >= CHUNK_BUDGET && is_title;
         let hard_split = len >= CHUNK_BUDGET + CHUNK_SLACK;
         let want_break = !lines.is_empty() && (at_title || hard_split);
         if want_break {
@@ -270,7 +290,7 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
         if doc.is_none() {
             doc = Some(path);
         }
-        if looks_like_title(&line.text) {
+        if is_title {
             last_title = Some(line.text.clone());
         }
         // This line's index within the chunk is its position in `lines` (the same
@@ -428,6 +448,7 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
     let xhtml = close_self_closing_rawtext(xhtml);
     let dom = Html::parse_document(&xhtml);
     let mut buf = String::new();
+    let mut title_offsets: Vec<(usize, bool)> = Vec::new();
     let mut skip_depth = 0usize;
     // Internal anchors, recorded as (byte offset in `buf` where the link text
     // began, href, link text) so each can later be mapped to its split line.
@@ -487,6 +508,17 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                             _ if table_depth == 0 => {
                                 if is_block(name) {
                                     buf.push(SEP);
+                                }
+                                let recipe_title = e.attr("class").is_some_and(|classes| {
+                                    classes.split_whitespace().any(|c| {
+                                        matches!(
+                                            c.to_ascii_lowercase().as_str(),
+                                            "ttl" | "recipe-title" | "recipe_title" | "recipetitle"
+                                        )
+                                    })
+                                });
+                                if recipe_title || matches!(name, "h1" | "h2") {
+                                    title_offsets.push((buf.len(), recipe_title));
                                 }
                                 if name == "a"
                                     && let Some(href) = e.attr("href")
@@ -600,6 +632,12 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                 .collect();
             ranges.push((line_start, line_end));
             out.push(CleanLine {
+                recipe_title: title_offsets
+                    .iter()
+                    .any(|(off, recipe)| *recipe && *off >= line_start && *off < line_end),
+                heading: title_offsets
+                    .iter()
+                    .any(|(off, _)| *off >= line_start && *off < line_end),
                 text,
                 links: line_links,
                 images: Vec::new(),
@@ -710,6 +748,8 @@ mod tests {
         (
             doc.to_string(),
             CleanLine {
+                recipe_title: false,
+                heading: false,
                 text: text.to_string(),
                 links: Vec::new(),
                 images: Vec::new(),
@@ -881,6 +921,8 @@ mod tests {
             (
                 "c.html".to_string(),
                 CleanLine {
+                    recipe_title: false,
+                    heading: false,
                     text: "Chocolate Cake".to_string(),
                     links: Vec::new(),
                     images: vec![hero.clone()],
@@ -1012,5 +1054,119 @@ mod tests {
         // The continuation chunk inherits the title (no title line of its own).
         assert_eq!(chunks[1].title_hint.as_deref(), Some("Lone Long Recipe"));
         assert!(!chunks[1].text.starts_with("Lone Long Recipe"));
+    }
+}
+
+#[cfg(test)]
+mod boundary_regression {
+    use super::*;
+
+    #[test]
+    fn marked_long_titles_keep_yields_and_unquantified_ingredients_with_recipe() {
+        let mut html = String::new();
+        for i in 0..8 {
+            html.push_str(&format!("<p class='ttl'>Roasted vegetables number {i} with a very long source authored recipe title and sauce</p><p>Serves 4</p><p>salt and freshly ground black pepper</p><p>1 cup vegetables</p><p>{}.</p>", "Cook gently. ".repeat(350)));
+        }
+        let lines = clean_xhtml_to_lines(&html, "chapter.xhtml");
+        let expected = lines
+            .iter()
+            .map(|l| l.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let chunks = window_chunks(
+            lines
+                .into_iter()
+                .map(|l| ("chapter.xhtml".into(), l))
+                .collect(),
+        );
+        assert!(chunks.len() > 1);
+        for chunk in &chunks {
+            assert!(
+                chunk.text.starts_with("Roasted vegetables number"),
+                "lost recipe boundary: {:?}",
+                chunk.text.lines().next()
+            );
+            assert!(chunk.title_hint.is_none());
+        }
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|c| c.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            expected
+        );
+    }
+}
+
+#[cfg(test)]
+mod long_continuation_regression {
+    use super::*;
+    #[test]
+    fn hard_split_preserves_long_source_title_and_assembles_method_tail()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let title =
+            "A very long source authored title with vegetables and a carefully prepared sauce";
+        let html = format!(
+            "<p class='recipe-title'>{title}</p><p>Serves 4</p><p>1 cup vegetables</p>{}<p>salt and freshly ground black pepper</p><p>Finish cooking and serve.</p>",
+            (0..80)
+                .map(|i| format!(
+                    "<p>Step {i}: {}.</p>",
+                    "Stir gently while cooking ".repeat(12)
+                ))
+                .collect::<String>()
+        );
+        let lines = clean_xhtml_to_lines(&html, "chapter.xhtml");
+        let chunks = window_chunks(
+            lines
+                .into_iter()
+                .map(|l| ("chapter.xhtml".into(), l))
+                .collect(),
+        );
+        assert!(chunks.len() > 1);
+        assert!(
+            chunks
+                .iter()
+                .skip(1)
+                .all(|c| c.title_hint.as_deref() == Some(title))
+        );
+        let mut outputs = vec![];
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            let count = chunk.text.lines().count();
+            let start = if i == 0 { 3 } else { 0 };
+            let mut ingredients = if i == 0 { vec![2] } else { vec![] };
+            ingredients.extend(chunk.text.lines().enumerate().filter_map(|(n, line)| {
+                (line == "salt and freshly ground black pepper").then_some(n)
+            }));
+            let instructions: Vec<_> = (start..count)
+                .filter(|n| !ingredients.contains(n))
+                .collect();
+            let payload = serde_json::json!({"recipes":[{"title":if i == 0 {vec![0]} else {vec![]},"recipe_yield":if i == 0 {vec![1]} else {vec![]},"sections":[{"name":[],"ingredients":ingredients,"instructions":instructions}]}],"ignored":[]});
+            let lowered = crate::indexed::lower_indexed_payload(&chunk, payload)?;
+            let recipes = crate::parse_recipes_payload(lowered)?;
+            outputs.push((chunk, recipes));
+        }
+        let recipes = crate::assemble_recipes(outputs, vec![], "test");
+        assert_eq!(recipes.len(), 1);
+        assert_eq!(recipes[0].meta.title, title);
+        assert_eq!(
+            recipes[0]
+                .sections
+                .iter()
+                .flat_map(|s| &s.ingredients)
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["1 cup vegetables", "salt and freshly ground black pepper"]
+        );
+        assert_eq!(
+            recipes[0]
+                .sections
+                .iter()
+                .flat_map(|s| &s.instructions)
+                .last()
+                .map(String::as_str),
+            Some("Finish cooking and serve.")
+        );
+        Ok(())
     }
 }

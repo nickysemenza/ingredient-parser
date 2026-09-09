@@ -183,40 +183,37 @@ impl ExtractionAccounting {
 
 pub(crate) fn cost_for_usage(model: &str, u: &Usage) -> Option<f64> {
     let (input, output) = price_per_mtok(model)?;
+    let cached_rate = match model {
+        "@cf/moonshotai/kimi-k2.6" => 0.16,
+        "@cf/moonshotai/kimi-k2.7-code" => 0.19,
+        _ => input * 0.1,
+    };
     Some(
         (u.input_tokens as f64 * input
             + u.cache_creation_input_tokens as f64 * input * 1.25
-            + u.cache_read_input_tokens as f64 * input * 0.1
+            + u.cache_read_input_tokens as f64 * cached_rate
             + u.output_tokens as f64 * output)
             / 1_000_000.0,
     )
 }
 
-/// Per-million-token (input, output) USD rates for known models. Matched by
-/// substring so dated ids (`claude-haiku-4-5-20251001`) resolve. `None` → the
-/// cost is reported as "n/a" rather than guessed.
-fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
-    let m = model.to_lowercase();
-    let table = [
-        ("haiku", (1.0, 5.0)),
-        ("sonnet", (3.0, 15.0)),
-        // Pinned to opus-4-5: older Opus models have different (higher) rates,
-        // so they fall through to "n/a" rather than a wrong estimate.
-        ("opus-4-5", (5.0, 25.0)),
-        ("gemini-2.5-flash-lite", (0.10, 0.40)),
-        ("gemini-2.5-flash", (0.30, 2.50)),
-        ("gemini-2.0-flash-lite", (0.075, 0.30)),
-        ("gemini-2.0-flash", (0.10, 0.40)),
-    ];
-    // Longest matching key wins, so the most specific id resolves regardless of
-    // table order: "gemini-2.5-flash-lite" must not match the shorter
-    // "gemini-2.5-flash" prefix. This removes the order-dependence that a plain
-    // first-match `find` would silently rely on.
-    table
-        .iter()
-        .filter(|(key, _)| m.contains(key))
-        .max_by_key(|(key, _)| key.len())
-        .map(|(_, rate)| *rate)
+/// Exact, versioned aliases. Unknown future versions must never inherit an old rate.
+pub(crate) fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
+    match model {
+        "gemini-3.5-flash-lite" => Some((0.30, 2.50)),
+        "claude-sonnet-5" => Some((2.0, 10.0)),
+        "gpt-5.6-luna" => Some((0.20, 1.20)),
+        "@cf/moonshotai/kimi-k2.6" | "@cf/moonshotai/kimi-k2.7-code" => Some((0.95, 4.0)),
+        "gemini-3.7-flash" => Some((0.75, 3.75)),
+        "claude-haiku-4-5" | "claude-haiku-4-5-20251001" => Some((1.0, 5.0)),
+        "claude-sonnet-4-5" | "claude-sonnet-4-6" => Some((3.0, 15.0)),
+        "claude-opus-4-5" | "claude-opus-4-5-20251101" => Some((5.0, 25.0)),
+        "gemini-2.5-flash-lite" | "gemini-2.5-flash-lite-preview" => Some((0.10, 0.40)),
+        "gemini-2.5-flash" | "gemini-2.5-flash-002" => Some((0.30, 2.50)),
+        "gemini-2.0-flash-lite" => Some((0.075, 0.30)),
+        "gemini-2.0-flash" => Some((0.10, 0.40)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -227,9 +224,8 @@ mod tests {
     use rstest::rstest;
 
     #[test]
-    fn price_per_mtok_prefers_most_specific_key() {
-        // "...flash-lite" must resolve to the lite rate, not the shorter "flash"
-        // prefix it also contains — longest-match-wins, independent of table order.
+    fn price_per_mtok_accepts_only_explicit_model_aliases() {
+        // Exact aliases cannot accidentally inherit a related model's price.
         assert_eq!(
             price_per_mtok("gemini-2.5-flash-lite-preview"),
             Some((0.10, 0.40))
@@ -237,18 +233,19 @@ mod tests {
         assert_eq!(price_per_mtok("gemini-2.5-flash-002"), Some((0.30, 2.50)));
         assert_eq!(price_per_mtok("gemini-2.0-flash-lite"), Some((0.075, 0.30)));
         assert_eq!(price_per_mtok("gemini-2.0-flash"), Some((0.10, 0.40)));
-        // Dated Anthropic ids still resolve by substring.
+        // Known dated Anthropic aliases remain compatible.
         assert_eq!(
             price_per_mtok("claude-haiku-4-5-20251001"),
             Some((1.0, 5.0))
         );
         // Unmapped → None.
         assert_eq!(price_per_mtok("opus-4-1"), None);
+        assert_eq!(price_per_mtok("new-gemini-2.5-flash-experimental"), None);
     }
 
     #[rstest]
-    #[case(Some("claude-sonnet"), 7.0, true, true)]
-    #[case(Some("claude-sonnet"), 7.0, true, false)]
+    #[case(Some("claude-sonnet-4-6"), 7.0, true, true)]
+    #[case(Some("claude-sonnet-4-6"), 7.0, true, false)]
     #[case(Some("unpriced"), 1.0, false, true)]
     #[case(None, 1.0, false, true)]
     #[tokio::test]
@@ -307,7 +304,7 @@ mod tests {
         )
         .await;
         assert_eq!(report.recipes.len(), 1);
-        let accounting = report.accounting("claude-haiku", fallback);
+        let accounting = report.accounting("claude-haiku-4-5", fallback);
         assert_eq!(accounting.cost_estimate().known_usd, cost);
         assert_eq!(accounting.cost_estimate().complete, complete);
         assert_eq!(accounting.models.len(), 2);

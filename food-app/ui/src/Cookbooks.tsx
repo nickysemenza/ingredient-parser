@@ -1,3 +1,4 @@
+import type { ModelChoice, ExtractionPreview, SavedRun } from "./generated";
 import { RecipeScale } from "@ingredient-parser/recipe-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -69,6 +70,7 @@ export function Cookbooks({
   const recent = useRecentRuns();
   const [book, setBook] = useState<CookbookResult | null>(null);
   const [library, setLibrary] = useState<LibraryBook[]>([]);
+  const [libraryDirectory, setLibraryDirectory] = useState("");
   const [librarySearch, setLibrarySearch] = useState("");
   const [onlyCookbooks, setOnlyCookbooks] = useState(true);
   const [showLibrary, setShowLibrary] = useState(false);
@@ -102,8 +104,16 @@ export function Cookbooks({
     "Source document",
     "Extracted result",
   ]);
+  const [modelChoices, setModelChoices] = useState<ModelChoice[]>([]);
+  const [preview, setPreview] = useState<ExtractionPreview | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const [resumeRun, setResumeRun] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [comparePaths, setComparePaths] = useState<string[]>([]);
+  const [savedRuns, setSavedRuns] = useState<SavedRun[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [showExtraction, setShowExtraction] = useState(false);
-  const [allowNetwork, setAllowNetwork] = useState(false);
+  const [allowNetwork, setAllowNetwork] = useState(true);
   const [budget, setBudget] = useState(10);
   const [refresh, setRefresh] = useState(false);
   const [model, setModel] = useStored("v1:extraction-model", "");
@@ -192,6 +202,11 @@ export function Cookbooks({
           ?.replace(/\.epub$/i, "") || next.path,
       );
     setBook(next);
+    setShowLibrary(false);
+    setShowHistory(false);
+    setResumeRun(false);
+    setStopping(false);
+    setRefresh(false);
     setSelected(0);
     const nextDoc = next.documents[0];
     setDecision(
@@ -234,7 +249,7 @@ export function Cookbooks({
       }
     }
   };
-  const openBook = async (kind: "epub" | "json" | "directory") => {
+  const openBook = async (kind: "epub" | "directory") => {
     if (running.current || !(await protect())) return;
     const path = await pick(kind);
     if (!path) return;
@@ -243,21 +258,29 @@ export function Cookbooks({
         "Scanning library…",
         () => api.library(path),
         (books) => {
+          setLibraryDirectory(path);
           setLibrary(books);
           setShowLibrary(true);
         },
       );
-    else
-      await run(
-        kind === "epub" ? "Inspecting source…" : "Opening saved run…",
-        () => (kind === "epub" ? api.book(path) : api.run(path)),
-        accept,
-      );
+    else await run("Inspecting source…", () => api.book(path), accept);
+  };
+  const browseLibrary = async () => {
+    if (running.current || !(await protect())) return;
+    setShowHistory(false);
+    await run(
+      "Loading cookbook library…",
+      () => api.library(libraryDirectory),
+      (books) => {
+        setLibrary(books);
+        setShowLibrary(true);
+      },
+    );
   };
   const openRecent = async (path: string) => {
     if (running.current || !(await protect())) return;
     await run(
-      "Opening saved run…",
+      "Opening extraction…",
       () => api.run(path),
       (next) => {
         setShowLibrary(false);
@@ -386,11 +409,12 @@ export function Cookbooks({
     if (saveSignal) void saveReview();
   }, [saveSignal]);
   useEffect(() => {
-    if (startupPath && !didStartup.current) {
-      didStartup.current = true;
-      void run("Opening saved run…", () => api.run(startupPath), accept);
-    }
-  }, [startupPath]);
+    if (!active || didStartup.current) return;
+    didStartup.current = true;
+    if (startupPath)
+      void run("Opening extraction…", () => api.run(startupPath), accept);
+    else void browseLibrary();
+  }, [startupPath, active]);
   const inspect = async (input: string) =>
     run("Inspecting ingredient…", () => api.inspect(input), setInspection);
   const visible = useMemo(
@@ -445,20 +469,91 @@ export function Cookbooks({
       else setView("Review");
     }
     if (which === "Comparison") {
-      const before = await pick("json");
-      if (before)
-        await run(
-          "Comparing runs…",
-          () => api.diff(before, book.path!),
-          setToolData,
-        );
-      else setView("Review");
+      setComparePaths([book.path]);
+      setShowHistory(true);
+      setSavedRuns(await api.runs(null));
     }
   };
+  useEffect(() => {
+    if (!showExtraction) return;
+    let active = true;
+    void api
+      .models()
+      .then((rows) => {
+        if (active) {
+          setModelChoices(rows);
+          if (
+            !rows.some(
+              (row) => row.enabled && row.id === (model || book?.model),
+            )
+          ) {
+            const first = rows.find((row) => row.enabled);
+            if (first) setModel(first.id);
+          }
+        }
+      })
+      .catch((e) => {
+        if (active) setPreviewError(String(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [showExtraction]);
+  useEffect(() => {
+    if (!showExtraction || !book) return;
+    let active = true;
+    setPreview(null);
+    setPreviewError("");
+    void api
+      .preview({
+        book: book.source,
+        out: resumeRun ? (book.path ?? "") : "",
+        model: model || book.model,
+        resume: resumeRun,
+        from: refresh ? book.path : null,
+        allowNetwork,
+        refresh,
+        cacheDir: null,
+        chunks: chunkSelection,
+        budgetUsd: budget,
+      })
+      .then((value) => {
+        if (active) setPreview(value);
+      })
+      .catch((e) => {
+        if (active) setPreviewError(String(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    showExtraction,
+    book,
+    model,
+    resumeRun,
+    allowNetwork,
+    refresh,
+    chunkSelection,
+    budget,
+  ]);
+  useEffect(() => {
+    if (!showHistory) return;
+    let active = true;
+    void api
+      .runs(null)
+      .then((rows) => {
+        if (active) setSavedRuns(rows);
+      })
+      .catch((e) => {
+        if (active) setPreviewError(String(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [showHistory, book]);
   const extract = async () => {
     if (!book || !(await protect())) return;
-    const out = book.path ?? (await savePath("cookbook-run.json"));
-    if (!out) return;
+    const out = resumeRun ? (book.path ?? "") : "";
     setShowExtraction(false);
     setProgress(null);
     await run(
@@ -469,8 +564,8 @@ export function Cookbooks({
             book: book.source,
             out,
             model: model || book.model,
-            resume: !!book.path,
-            from: null,
+            resume: resumeRun,
+            from: refresh ? book.path : null,
             allowNetwork,
             refresh,
             cacheDir: null,
@@ -618,7 +713,7 @@ export function Cookbooks({
           <h3>No extracted recipe for this document</h3>
           <p>
             Review the source before marking it accepted. Use Extraction to read
-            cached results or explicitly allow network requests.
+            cached results or start a new extraction.
           </p>
         </div>
       )}
@@ -706,7 +801,7 @@ export function Cookbooks({
         {dirty && <span className="caption">Unsaved</span>}
         {!book?.path && (
           <span className="caption">
-            Extract to a saved run to save decisions
+            Extract this cookbook to save review decisions
           </span>
         )}
       </div>
@@ -744,9 +839,6 @@ export function Cookbooks({
           <button disabled={!!loading} onClick={() => void openBook("epub")}>
             Cookbook EPUB…
           </button>
-          <button disabled={!!loading} onClick={() => void openBook("json")}>
-            Saved run…
-          </button>
           <button
             disabled={!!loading}
             onClick={() => void openBook("directory")}
@@ -758,7 +850,7 @@ export function Cookbooks({
           {recent.runs.length > 0 && (
             <>
               <hr />
-              <p className="menu-section">Recent runs</p>
+              <p className="menu-section">Recent extractions</p>
               {recent.runs.map((item) => (
                 <button
                   key={item.path}
@@ -771,18 +863,17 @@ export function Cookbooks({
                   <span>{item.path.split(/[\\/]/).pop()}</span>
                 </button>
               ))}
-              <button onClick={recent.clear}>Clear recent runs</button>
+              <button onClick={recent.clear}>Clear recent extractions</button>
             </>
           )}
         </Menu>
-        {library.length > 0 && (
-          <button
-            aria-pressed={showLibrary}
-            onClick={() => setShowLibrary(!showLibrary)}
-          >
-            Library
-          </button>
-        )}
+        <button
+          disabled={!!loading}
+          aria-pressed={showLibrary}
+          onClick={() => void browseLibrary()}
+        >
+          Library
+        </button>
       </header>
       {showPath && (
         <form
@@ -806,13 +897,19 @@ export function Cookbooks({
       {loading && (
         <div role="status" className="progress">
           <span className="spinner" />
-          {loading}
+          {stopping || progress?.stopping ? "Stopping; saving active requests…" : loading}
           {progress && (
             <span>
               {progress.completed}/{progress.total} chunks · {progress.recipes}{" "}
-              recipes
+              recipes · {progress.active} active · {progress.failed} failed · {Math.floor(progress.elapsedSeconds)}s
+              {" · "}{progress.estimatedUsd == null ? "Cost unknown" : `$${progress.estimatedUsd.toFixed(4)} estimated`}
+              {" · "}${progress.reservedUsd.toFixed(4)} spent/reserved
             </span>
           )}
+          {progress && <button disabled={stopping || progress.stopping} onClick={() => {
+            setStopping(true);
+            void api.cancelExtraction().catch((e) => { setStopping(false); setPreviewError(String(e)); });
+          }}>Stop extraction</button>}
         </div>
       )}
       {book && (
@@ -828,7 +925,7 @@ export function Cookbooks({
             </h2>
             <p className="caption run-counts">
               {book.recipes.length} recipes · {book.documents.length} documents
-              {book.incomplete && " · Incomplete extraction"}
+              {book.path && ` · ${book.status || (book.incomplete ? "Incomplete" : "Complete")} extraction`}
             </p>
           </div>
           <div className="actions">
@@ -838,7 +935,7 @@ export function Cookbooks({
             >
               Extraction…
             </button>
-            <Menu label="Run tools">
+            <Menu label="Extraction tools">
               <button
                 onClick={() =>
                   void revealFile(book.source).catch((e) => onError(String(e)))
@@ -852,7 +949,7 @@ export function Cookbooks({
                   void revealFile(book.path!).catch((e) => onError(String(e)))
                 }
               >
-                Reveal saved run in Finder
+                Reveal extraction in Finder
               </button>
               <button
                 disabled={!book.path}
@@ -872,7 +969,7 @@ export function Cookbooks({
                   )
                 }
               >
-                Copy run JSON
+                Copy extraction JSON
               </button>
               <button
                 onClick={() => void tool("Statistics")}
@@ -939,6 +1036,95 @@ export function Cookbooks({
           </div>
         </header>
       )}
+      <div className="actions">
+        <button
+          disabled={!!loading}
+          onClick={() => {
+            setShowLibrary(false);
+            setShowHistory(!showHistory);
+          }}
+        >
+          Extraction history
+        </button>
+      </div>
+      {showHistory && (
+        <section className="library run-history">
+          <h2>Extraction history</h2>
+          <p>Select two extractions of the same cookbook to compare.</p>
+          <button disabled={comparePaths.length !== 2 || !!loading} onClick={() => {
+            void run("Comparing extractions…", async () => ({
+              book: await api.run(comparePaths[1]),
+              comparison: await api.diff(comparePaths[0], comparePaths[1]),
+            }), (result) => { accept(result.book); setView("Comparison"); setToolData(result.comparison); });
+          }}>Compare selected extractions</button>
+          {previewError && <p className="error-text">{previewError}</p>}
+          {savedRuns.length === 0 && <p>No saved extractions.</p>}
+          {savedRuns.map((r) => (
+            <div key={r.path} className="pane-header">
+              <div>
+                <label><input type="checkbox" aria-label={`Compare ${r.title} ${r.path}`}
+                  checked={comparePaths.includes(r.path)}
+                  disabled={!comparePaths.includes(r.path) && (comparePaths.length >= 2 ||
+                    (comparePaths.length > 0 && savedRuns.find((row) => row.path === comparePaths[0])?.epubSha256 !== r.epubSha256))}
+                  onChange={(e) => setComparePaths(e.target.checked ? [...comparePaths, r.path] : comparePaths.filter((p) => p !== r.path))}
+                /> <strong>{r.title}</strong></label>
+                <p>
+                  {r.configurations?.length > 1
+                    ? `Mixed: ${r.configurations.join(", ")}`
+                    : `${r.model} · ${r.promptVersion}`}{" "}
+                  · {r.recipes} recipes · {r.completed}/{r.total} chunks ·{" "}
+                  {r.status || (r.incomplete ? "Incomplete" : "Complete")}
+                  {r.qualityFlags != null && r.qualityFlags > 0 && ` · ${r.qualityFlags} source review flags`}
+                </p>
+                <p className="caption">
+                  {r.createdAt === null
+                    ? "Date unknown"
+                    : new Date(r.createdAt * 1000).toLocaleString()}{" "}
+                  ·{" "}
+                  {r.newSpendUsd === null
+                    ? "Cost unknown"
+                    : `$${r.newSpendUsd.toFixed(4)} estimated new spend`}{" "}
+                  · ${r.unresolvedUsd.toFixed(4)} unresolved
+                  {r.inheritedReservedUsd != null &&
+                    r.inheritedReservedUsd > 0 &&
+                    ` · $${r.inheritedReservedUsd.toFixed(4)} inherited spend/reservations`}
+                </p>
+              </div>
+              <div className="actions">
+                <button
+                  onClick={() => {
+                    setShowHistory(false);
+                    void openRecent(r.path);
+                  }}
+                >
+                  Open
+                </button>
+                <button onClick={() => void revealFile(r.path)}>Reveal</button>
+                {r.incomplete && <button onClick={() => {
+                  void run("Opening extraction…", () => api.run(r.path), (next) => {
+                    accept(next); setResumeRun(true); setModel(next.model); setShowExtraction(true);
+                  });
+                }}>Resume…</button>}
+                <button
+                  onClick={async () => {
+                    const out = await savePath(
+                      r.path.split("/").pop() ?? "run.json",
+                    );
+                    if (out)
+                      await run(
+                        "Exporting run…",
+                        () => api.exportRun(r.path, out),
+                        () => {},
+                      );
+                  }}
+                >
+                  Export
+                </button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       {showLibrary && (
         <section className="library">
           <div className="pane-header">
@@ -977,46 +1163,105 @@ export function Cookbooks({
           </div>
           <div className={`library-books ${libraryGrid ? "grid" : ""}`}>
             {libraryRows.map((b) => (
-              <button
-                key={b.path}
-                onClick={() => {
-                  setShowLibrary(false);
-                  void openPath(b.path);
-                }}
-              >
-                <BookCover path={b.path} />
-                <span>
-                  <strong>{b.title}</strong>
-                  <span className="caption">{b.authors.join(", ")}</span>
-                  {b.error && <span className="error-text">{b.error}</span>}
-                </span>
-              </button>
+              <div key={b.path} className="library-entry">
+                <button
+                  onClick={() => {
+                    const latest = b.runs?.[0];
+                    if (latest) void openRecent(latest.path);
+                    else void openPath(b.path);
+                  }}
+                >
+                  <BookCover path={b.path} />
+                  <span>
+                    <strong>{b.title}</strong>
+                    <span className="caption">{b.authors.join(", ")}</span>
+                    {b.error && <span className="error-text">{b.error}</span>}
+                    {b.runs?.[0] && (
+                      <span className="caption">
+                        {b.runs[0].status || (b.runs[0].incomplete ? "Incomplete" : "Complete")} ·{" "}
+                        {b.runs[0].recipes} recipes · {b.runs[0].completed}/
+                        {b.runs[0].total} chunks ·{" "}
+                        {b.runs[0].configurations?.length > 1
+                          ? "Mixed models/prompts"
+                          : b.runs[0].model}{" "}
+                        · {b.runs[0].promptVersion} ·{" "}
+                        {b.runs[0].createdAt === null
+                          ? "Date unknown"
+                          : new Date(
+                              b.runs[0].createdAt * 1000,
+                            ).toLocaleDateString()}{" "}
+                        ·{" "}
+                        {b.runs[0].newSpendUsd === null
+                          ? "Cost unknown"
+                          : `$${b.runs[0].newSpendUsd.toFixed(4)}`}
+                      </span>
+                    )}
+                  </span>
+                </button>
+                {!!b.runs?.length && (
+                  <details>
+                    <summary>{b.runs.length} saved extractions</summary>
+                    {b.runs.map((r) => (
+                      <button
+                        key={r.path}
+                        onClick={() => {
+                          setShowLibrary(false);
+                          void openRecent(r.path);
+                        }}
+                      >
+                        {r.configurations?.length > 1
+                          ? `Mixed: ${r.configurations.join(", ")}`
+                          : `${r.model} · ${r.promptVersion}`}{" "}
+                        · {r.recipes} recipes ·{" "}
+                        {r.createdAt === null
+                          ? "Date unknown"
+                          : new Date(r.createdAt * 1000).toLocaleString()}
+                      </button>
+                    ))}
+                  </details>
+                )}
+              </div>
             ))}
             {!libraryRows.length && <p>No matching books.</p>}
           </div>
         </section>
       )}
-      {!book && !showLibrary && !loading && (
+      {!book && !showLibrary && !showHistory && !loading && (
         <div className="empty">
           <BookOpen size={34} />
-          <h2>Source and result, side by side</h2>
+          <h2>Your cookbooks</h2>
           <p>
-            Open a cookbook to inspect its source, or continue reviewing a saved
-            run. Extraction starts only when you request it.
+            Browse your Calibre library to extract recipes or review previous
+            extractions.
           </p>
           <div className="actions">
-            <button className="primary" onClick={() => void openBook("epub")}>
+            <button className="primary" onClick={() => void browseLibrary()}>
               <FolderOpen size={15} />
-              Open cookbook
+              Browse library
             </button>
-            <button onClick={() => void openBook("json")}>
-              Open saved run
-            </button>
+            <button onClick={() => void openBook("epub")}>Open cookbook</button>
           </div>
         </div>
       )}
+      {book?.path && !showLibrary && !showHistory && (book.qualityIssues?.length ?? 0) > 0 && (
+        <details className="source-checks">
+          <summary>Source checks: {book.qualityIssues.filter((i) => i.kind === "unextracted_chunk").length} unextracted chunks · {book.qualityIssues.filter((i) => i.kind !== "unextracted_chunk").length} review flags</summary>
+          <p>These checks identify possible gaps and misplaced content. They do not verify that every recipe is complete.</p>
+          <ul>
+            {book.qualityIssues.map((issue, index) => <li key={`${issue.kind}-${index}`}>
+              <button onClick={() => {
+                const i = book.documents.findIndex((d) => d.path === issue.source);
+                if (i >= 0) { void selectDocument(i); setView("Review"); }
+              }}>{issue.source}{issue.chunk ? ` · ${issue.chunk}` : ""}</button>
+              <p>{issue.message}</p>
+              {issue.detail && <blockquote>{issue.detail}</blockquote>}
+            </li>)}
+          </ul>
+        </details>
+      )}
       {book &&
         !showLibrary &&
+        !showHistory &&
         (view !== "Review" ? (
           <section className="tool-view">
             <button className="back" onClick={() => setView("Review")}>
@@ -1118,24 +1363,28 @@ export function Cookbooks({
             </button>
           </header>
           <p>
-            Cached outputs are used by default. Network access must be
-            explicitly enabled for this extraction.
+            Saved automatically in your cookbook library. Cached outputs are
+            reused; clicking Extract authorizes the estimated network work
+            below.
           </p>
           <label>
             Model
-            <input
-              value={model}
+            <select
+              value={model || book?.model}
+              disabled={resumeRun}
               onChange={(e) => setModel(e.target.value)}
-              placeholder={book?.model}
-            />
-          </label>
-          <label className="check-label">
-            <input
-              type="checkbox"
-              checked={allowNetwork}
-              onChange={(e) => setAllowNetwork(e.target.checked)}
-            />
-            Allow network requests
+            >
+              {!modelChoices.some((m) => m.id === (model || book?.model)) && (
+                <option value={model || book?.model}>
+                  {model || book?.model} (saved configuration)
+                </option>
+              )}
+              {modelChoices.map((m) => (
+                <option key={m.id} value={m.id} disabled={!m.enabled}>
+                  {m.label} · {m.status}
+                </option>
+              ))}
+            </select>
           </label>
           {allowNetwork && (
             <label>
@@ -1150,28 +1399,88 @@ export function Cookbooks({
               />
             </label>
           )}
-          <label className="check-label">
-            <input
-              type="checkbox"
-              checked={refresh}
-              onChange={(e) => setRefresh(e.target.checked)}
-            />
-            Refresh cached chunks
-          </label>
+          <details>
+            <summary>Advanced options</summary>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={!allowNetwork}
+                onChange={(e) => {
+                  setAllowNetwork(!e.target.checked);
+                  setRefresh(false);
+                }}
+              />
+              Cache only (no network requests)
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={refresh}
+                disabled={!allowNetwork || resumeRun}
+                onChange={(e) => setRefresh(e.target.checked)}
+              />
+              Re-extract selected chunks into a new run
+            </label>
+          </details>
           <p className="caption">
             {chunkSelection.length
               ? `${chunkSelection.length} selected chunks`
               : "All eligible chunks"}{" "}
             · {allowNetwork ? "Network enabled" : "Cache only"}
           </p>
+          {book?.path && book.incomplete && (
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={resumeRun}
+                onChange={(e) => {
+                  setResumeRun(e.target.checked);
+                  setRefresh(false);
+                  if (e.target.checked) setModel(book.model);
+                }}
+              />
+              Resume this extraction
+            </label>
+          )}
+          <div aria-live="polite">
+            {previewError ? (
+              <p className="error-text">{previewError}</p>
+            ) : preview ? (
+              <>
+                <p>
+                  {preview.cached} reused · {preview.pending} pending ·
+                  estimated additional cost{" "}
+                  {preview.lowUsd !== null && preview.highUsd !== null
+                    ? `$${preview.lowUsd.toFixed(4)}–$${preview.highUsd.toFixed(4)}`
+                    : "unknown"}
+                </p>
+                <p className="caption">{preview.basis}</p>
+                <p className="caption">
+                  Conservative reservation:{" "}
+                  {preview.reservationUsd === null
+                    ? "unknown"
+                    : `$${preview.reservationUsd.toFixed(4)}`}
+                </p>
+              </>
+            ) : (
+              <p>Calculating estimate…</p>
+            )}
+          </div>
           <footer>
             <button onClick={() => setShowExtraction(false)}>Cancel</button>
             <button
               className="primary"
-              disabled={!!loading || !Number.isFinite(budget) || budget < 0}
+              disabled={
+                !!loading ||
+                !preview ||
+                !!previewError ||
+                (allowNetwork && preview.reservationUsd === null) ||
+                !Number.isFinite(budget) ||
+                budget < 0
+              }
               onClick={() => void extract()}
             >
-              {book?.path ? "Resume extraction" : "Extract to saved run…"}
+              {resumeRun ? "Resume extraction" : "Extract"}
             </button>
           </footer>
         </Modal>

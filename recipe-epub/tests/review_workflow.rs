@@ -71,6 +71,7 @@ async fn extraction_owns_validation_resume_parent_and_offline_progress() -> Resu
         extract_to_run(request.clone(), |_| {}).await,
         Err(WorkflowError::OutputExists(_))
     ));
+    assert_eq!(std::fs::read(&outcome.path)?, before);
     let mut resume = request.clone();
     resume.resume = true;
     assert_eq!(
@@ -110,7 +111,7 @@ async fn extraction_owns_validation_resume_parent_and_offline_progress() -> Resu
     let child = extract_to_run(child, |_| {}).await?;
     assert_eq!(child.run.parent.as_deref(), outcome.path.to_str());
     assert_eq!(child.run.epub_sha256, outcome.run.epub_sha256);
-    assert_eq!(std::fs::read(&outcome.path)?, before);
+    assert_eq!(std::fs::read(&outcome.path)?, checkpoint);
     Ok(())
 }
 
@@ -191,5 +192,150 @@ async fn aliases_share_canonical_identity_and_dangling_outputs_are_protected() -
             .file_type()
             .is_symlink()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn named_runs_and_preflight_share_source_and_resume_validation() -> Result {
+    let fixture = Fixture::new()?;
+    let request = fixture.request();
+    let fresh = recipe_epub::review::prepare(&request)?;
+    let plan = recipe_epub::review::preflight::plan(&fresh, &request.options)?;
+    assert_eq!(plan.pending, fresh.chunks.len());
+    assert_eq!(plan.estimated_high_usd, Some(0.0));
+    assert!(!request.out.exists(), "preflight must not checkpoint");
+    let outcome = extract_to_run(request.clone(), |_| {}).await?;
+    let discovered = recipe_epub::review::store::list(Some(&fixture.path("book.epub")))?;
+    assert_eq!(
+        discovered
+            .iter()
+            .filter(|r| r.path.canonicalize().ok().as_ref() == Some(&outcome.path))
+            .count(),
+        1
+    );
+    let meta = outcome.run.metadata.as_ref().ok_or("metadata missing")?;
+    assert!(!meta.title.is_empty());
+    let summary = recipe_epub::review::store::summary(&outcome.run, &outcome.path);
+    assert_eq!(summary.new_spend_usd, Some(0.0));
+    let mut resume = request;
+    resume.resume = true;
+    resume.model = "claude-haiku-4-5".into();
+    assert!(recipe_epub::review::prepare(&resume).is_err());
+    let mut legacy = serde_json::to_value(&outcome.run)?;
+    legacy.as_object_mut().ok_or("object")?.remove("metadata");
+    legacy.as_object_mut().ok_or("object")?.remove("charges");
+    let legacy: ReviewRun = serde_json::from_value(legacy)?;
+    assert_eq!(
+        recipe_epub::review::store::summary(&legacy, &outcome.path).new_spend_usd,
+        None
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn automatic_paths_are_unique_and_moved_sources_keep_identity() -> Result {
+    let fixture = Fixture::new()?;
+    let a =
+        recipe_epub::review::store::destination(&fixture.path("book.epub"), "gemini-2.5-flash")?;
+    let b =
+        recipe_epub::review::store::destination(&fixture.path("book.epub"), "gemini-2.5-flash")?;
+    assert_ne!(a, b);
+    assert!(
+        a.file_name()
+            .ok_or("name")?
+            .to_string_lossy()
+            .contains("gemini-2-5-flash")
+    );
+    assert!(!a.exists());
+    let original = recipe_epub::review::store::source_hash(&fixture.path("book.epub"))?;
+    std::fs::rename(fixture.path("book.epub"), fixture.path("moved.epub"))?;
+    assert_eq!(
+        original,
+        recipe_epub::review::store::source_hash(&fixture.path("moved.epub"))?
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_new_runs_do_not_overwrite_and_exports_keep_reviews() -> Result {
+    let fixture = Fixture::new()?;
+    let request = fixture.request();
+    let (a, b) = tokio::join!(
+        extract_to_run(request.clone(), |_| {}),
+        extract_to_run(request, |_| {})
+    );
+    assert_ne!(a.is_ok(), b.is_ok());
+    let run = a.or(b)?;
+    let decisions =
+        recipe_epub::review::ReviewDecisions::read(&fixture.path("none.review.json"), &run.run)?;
+    decisions.save(&run.path.with_extension("review.json"))?;
+    let exported = fixture.path("export.json");
+    recipe_epub::review::export_run(&run.path, &exported)?;
+    assert_eq!(
+        std::fs::read(run.path.with_extension("review.json"))?,
+        std::fs::read(exported.with_extension("review.json"))?
+    );
+    assert!(recipe_epub::review::export_run(&run.path, &exported).is_err());
+    let replay = replay_to_run(ReplayRequest {
+        run: run.path.clone(),
+        out: fixture.path("child.json"),
+        source: None,
+        image_text: None,
+    })?;
+    assert_eq!(
+        replay
+            .run
+            .metadata
+            .as_ref()
+            .and_then(|m| m.parent_id.as_ref()),
+        run.run.metadata.as_ref().map(|m| &m.id)
+    );
+    assert_ne!(
+        replay.run.metadata.as_ref().map(|m| &m.id),
+        run.run.metadata.as_ref().map(|m| &m.id)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancellation_is_durable_and_history_distinguishes_interruption_and_failure() -> Result {
+    let fixture = Fixture::new()?;
+    let mut request = fixture.request();
+    request.options.allow_network = true;
+    request.options.budget_usd = 10.0;
+    let control = recipe_epub::review::ExtractionControl::default();
+    control.cancel();
+    let outcome = recipe_epub::review::extract_to_run_controlled(request, &control, |_| {}).await?;
+    assert_eq!(outcome.run.status(), "cancelled");
+    assert_eq!(ReviewRun::read(&outcome.path)?.status(), "cancelled");
+    assert!(outcome.run.charges.is_empty());
+    let mut interrupted = outcome.run.clone();
+    interrupted.execution_status = Some("running".into());
+    assert_eq!(
+        recipe_epub::review::store::summary(&interrupted, &outcome.path).status,
+        "interrupted"
+    );
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(outcome.path.with_extension("run-lock"))?;
+    fs2::FileExt::lock_exclusive(&lock)?;
+    assert_eq!(
+        recipe_epub::review::store::summary(&interrupted, &outcome.path).status,
+        "running"
+    );
+    fs2::FileExt::unlock(&lock)?;
+    assert_eq!(
+        recipe_epub::review::store::summary(&interrupted, &outcome.path).status,
+        "interrupted"
+    );
+    interrupted.execution_status = Some("failed".into());
+    assert_eq!(interrupted.status(), "failed");
+    let comparison = recipe_epub::review::diff(&outcome.run, &interrupted)?;
+    assert_eq!(comparison["before_status"], "cancelled");
+    assert_eq!(comparison["after_status"], "failed");
+    let mut other = interrupted.clone();
+    other.epub_sha256 = "another book".into();
+    assert!(recipe_epub::review::diff(&interrupted, &other).is_err());
     Ok(())
 }

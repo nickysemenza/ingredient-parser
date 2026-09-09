@@ -18,9 +18,11 @@ publish = false
 # extraction transport through `extract_chunks_with`.
 [features]
 default = ["native"]
-native = ["dep:reqwest", "dep:tokio", "dep:walkdir"]
+native = ["dep:reqwest", "dep:tokio", "dep:walkdir", "dep:fs2", "dep:dotenvy"]
 
 [dependencies]
+dotenvy = { workspace = true, optional = true }
+fs2 = { version = "0.4", optional = true }
 epub = "2.1.5"
 scraper = "0.27.0"
 ego-tree = "0.11"  # DOM traversal of scraper's tree (same version scraper uses)

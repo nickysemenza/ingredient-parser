@@ -259,6 +259,7 @@ pub async fn debug_extract_cookbook(
                             max_tokens: 16000,
                         },
                         &CallMeta {
+                            id: "",
                             doc_path: &chunk.doc_path,
                             call: "debug",
                         },
@@ -407,12 +408,8 @@ impl<E: RecipeExtractor> RecipeExtractor for CachingExtractor<'_, E> {
         &self,
         chunk: &Chunk,
     ) -> Result<ChunkOutcome, ChunkExtractionFailure> {
-        let key = cache::key(
-            &self.model,
-            &chunk.text,
-            chunk.title_hint.as_deref().unwrap_or(""),
-        );
-        if let Some(hit) = cache::read(&self.dir, &key) {
+        let key = cache::identity(&self.model, chunk).map_err(ChunkExtractionFailure::from)?;
+        if let Some(hit) = cache::read_entry(&self.dir, &key) {
             // Cache hit: no API call, so no usage/cost is incurred.
             return Ok(ChunkOutcome {
                 recipes: hit,
@@ -427,7 +424,12 @@ impl<E: RecipeExtractor> RecipeExtractor for CachingExtractor<'_, E> {
         // (bigger limit, different model) re-attempt the chunk.
         if outcome.truncated {
             tracing::warn!("chunk {} truncated; not caching", chunk.doc_path);
-        } else if let Err(e) = cache::write(&self.dir, &key, &outcome.recipes) {
+        } else if let Err(e) = cache::write_entry(
+            &self.dir,
+            &key,
+            &outcome.recipes,
+            Some(outcome.usage.clone()),
+        ) {
             tracing::warn!("cache write failed: {e}");
         }
         Ok(outcome)
@@ -439,7 +441,7 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 // endpoint). Picked over Haiku for being ~2.5× cheaper at full recipe coverage.
 // Notes are best-effort on this model (occasionally drops a recipe's notes);
 // use `--model claude-haiku-4-5` when complete notes matter.
-const DEFAULT_MODEL: &str = "gemini-2.5-flash";
+const DEFAULT_MODEL: &str = crate::models::DEFAULT_MODEL;
 const CLAUDE_DEFAULT_MODEL: &str = "claude-haiku-4-5";
 
 // ===========================================================================
@@ -448,7 +450,35 @@ const CLAUDE_DEFAULT_MODEL: &str = "claude-haiku-4-5";
 
 /// Read an env var, returning `Some` only for a present, non-empty value.
 fn nonempty_env(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|s| !s.is_empty())
+    std::env::var(name)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| gateway_config_path().and_then(|path| config_value(&path, name)))
+}
+
+// A Finder-launched app has no repository working directory or shell environment.
+// Resolve the same per-user credentials in every native caller without mutating
+// process environment (which is unsafe once the desktop runtime has threads).
+fn gateway_config_path() -> Option<std::path::PathBuf> {
+    let root = if cfg!(target_os = "macos") {
+        std::path::PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support")
+    } else if cfg!(target_os = "windows") {
+        std::path::PathBuf::from(std::env::var_os("APPDATA")?)
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config"))
+            })?
+    };
+    Some(root.join("ingredient-parser/gateway.env"))
+}
+
+fn config_value(path: &std::path::Path, name: &str) -> Option<String> {
+    dotenvy::from_path_iter(path)
+        .ok()?
+        .filter_map(Result::ok)
+        .find_map(|(key, value)| (key == name && !value.is_empty()).then_some(value))
 }
 
 /// The Cloudflare-AI-Gateway bearer token shared by both backends'
@@ -514,6 +544,7 @@ async fn post_json(
 /// each request is filterable in the gateway logs. The whole-run bits (cookbook,
 /// model) come from the extractor itself; these are the bits that vary per call.
 struct CallMeta<'a> {
+    id: &'a str,
     /// Originating spine-doc path for an extract call; `""` for library-wide
     /// calls (e.g. classification).
     doc_path: &'a str,
@@ -555,6 +586,8 @@ struct ToolCall<'a> {
 /// and the cookbook label for request metadata. Owns the auth + metadata-header
 /// + POST mechanics so each backend only builds its body and parses its response.
 struct GatewayClient {
+    raw_usage: std::sync::Mutex<std::collections::HashMap<String, serde_json::Value>>,
+    calls: std::sync::Mutex<Vec<crate::review::store::CallRecord>>,
     client: reqwest::Client,
     endpoint: String,
     gateway_token: String,
@@ -564,13 +597,56 @@ struct GatewayClient {
     cookbook_source: String,
 }
 
+fn source_key(chunk: &Chunk) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(
+        json!([chunk.doc_path, chunk.text, chunk.title_hint])
+            .to_string()
+            .as_bytes(),
+    )
+    .iter()
+    .map(|b| format!("{b:02x}"))
+    .collect()
+}
 impl GatewayClient {
+    fn record_call(
+        &self,
+        chunk: &Chunk,
+        fingerprint: String,
+        call_id: &str,
+        result: &ToolResponse,
+    ) {
+        let (usage, error) = match result {
+            Ok((_, usage, _)) => (usage, None),
+            Err(e) => (&e.usage, Some(e.error.to_string())),
+        };
+        let known = *usage != Usage::default();
+        self.calls.lock().unwrap_or_else(|e| e.into_inner()).push(
+            crate::review::store::CallRecord {
+                raw_usage: self
+                    .raw_usage
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(call_id),
+                source_key: source_key(chunk),
+                request_fingerprint: fingerprint,
+                usage: known.then(|| usage.clone()),
+                estimated_usd: known
+                    .then(|| crate::accounting::cost_for_usage(&self.model, usage))
+                    .flatten(),
+                error,
+            },
+        );
+    }
+
     /// Build the shared pieces from the environment ([`build_client`],
     /// [`resolve_gateway_token`]). `endpoint` is the provider-specific URL the
     /// caller assembled from [`gateway_base`]; `source` labels gateway requests
     /// via `cf-aig-metadata` (`""` if unknown).
     fn from_env(endpoint: String, model: String, source: &str) -> Result<Self, EpubError> {
         Ok(Self {
+            raw_usage: std::sync::Mutex::new(std::collections::HashMap::new()),
+            calls: std::sync::Mutex::new(Vec::new()),
             client: build_client()?,
             endpoint,
             gateway_token: resolve_gateway_token()?,
@@ -588,19 +664,37 @@ impl GatewayClient {
         mut extra_headers: Vec<(&str, String)>,
         meta: &CallMeta<'_>,
     ) -> Result<String, EpubError> {
+        // Local validated outputs own reuse policy; forced refresh must reach the model.
+        extra_headers.push(("cf-aig-skip-cache", "true".into()));
+        extra_headers.push(("cf-aig-max-attempts", "1".into()));
         extra_headers.push(aig_metadata_header(
             &self.cookbook_source,
             &self.model,
             meta,
         ));
-        post_json(
+        if crate::models::provider(&self.model) == Some("workers-ai") {
+            let base = gateway_base()?;
+            let gateway = base.rsplit('/').next().unwrap_or_default();
+            extra_headers.push(("cf-aig-gateway-id", gateway.into()));
+        }
+        let text = post_json(
             &self.client,
             &self.endpoint,
             &extra_headers,
             &self.gateway_token,
             body,
         )
-        .await
+        .await?;
+        if !meta.id.is_empty()
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(&text)
+            && let Some(usage) = value.get("usage")
+        {
+            self.raw_usage
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(meta.id.into(), usage.clone());
+        }
+        Ok(text)
     }
 }
 
@@ -623,6 +717,14 @@ type ToolResponse = Result<(Option<serde_json::Value>, Usage, Option<String>), C
 /// (`extract`, `classify_cookbooks`) don't switch on the backend variant.
 #[allow(async_fn_in_trait)]
 trait CallTool {
+    fn record_call(
+        &self,
+        _chunk: &Chunk,
+        _fingerprint: String,
+        _call_id: &str,
+        _result: &ToolResponse,
+    ) {
+    }
     /// Issue one forced-tool `call`, tagged for the gateway logs with `meta`.
     /// Returns the tool's decoded `input` object (`None` if the model returned no
     /// tool block), token usage, and the stop/finish reason.
@@ -650,7 +752,13 @@ async fn extract_chunk_detailed<T: CallTool>(
     let driven = try_extract_chunk_detailed_for_chunk(chunk, || async {
         let previous = feedback.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
         let user = match previous { Some(reason) => format!("{}\n\nThe previous attempt failed validation: {reason}. Return a corrected complete assignment using only the displayed indices.", req.user), None => req.user.clone() };
-        let (input, usage, reason) = backend
+        let fingerprint = {
+            use sha2::{Digest, Sha256};
+            let bytes = serde_json::to_vec(&json!({"system": req.system, "user": user, "tool": req.tool_name, "schema": req.tool_schema})).map_err(|e| CallFailure::transport(e.into()))?;
+            Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+        };
+        let call_id = crate::review::store::new_id();
+        let response = backend
             .call_tool(
                 ToolCall {
                     system: &req.system,
@@ -663,34 +771,30 @@ async fn extract_chunk_detailed<T: CallTool>(
                     max_tokens: 16000,
                 },
                 &CallMeta {
+                    id: &call_id,
                     doc_path: &chunk.doc_path,
                     call: "extract",
                 },
             )
-            .await?;
-        if input.is_none() {
-            return Err(CallFailure::retryable_payload(
-                EpubError::Proxy("model returned no structured extraction payload".into()),
-                usage,
-                is_truncated(reason.as_deref(), truncated_reasons),
-            ));
-        }
-        let input = input
-            .map(|input| {
-                let lowered = crate::indexed::lower_indexed_payload(chunk, input)?;
-                let recipes = crate::parse_recipes_payload(lowered.clone())?;
-                crate::extractor::validate_chunk_recipes(chunk, &recipes)?;
-                Ok::<_, EpubError>(lowered)
-            })
-            .transpose()
-            .map_err(|error| {
-                *feedback.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
-                CallFailure::retryable_payload(
-                    error,
-                    usage.clone(),
-                    is_truncated(reason.as_deref(), truncated_reasons),
-                )
-            })?;
+            .await;
+        let response = response.and_then(|(input, usage, reason)| {
+            let validated = input.ok_or_else(|| EpubError::Proxy("model returned no structured extraction payload".into()))
+                .and_then(|input| {
+                    let lowered = crate::indexed::lower_indexed_payload(chunk, input)?;
+                    let recipes = crate::parse_recipes_payload(lowered.clone())?;
+                    crate::extractor::validate_chunk_recipes(chunk, &recipes)?;
+                    Ok(lowered)
+                });
+            match validated {
+                Ok(input) => Ok((Some(input), usage, reason)),
+                Err(error) => {
+                    *feedback.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
+                    Err(CallFailure::retryable_payload(error, usage, is_truncated(reason.as_deref(), truncated_reasons)))
+                }
+            }
+        });
+        backend.record_call(chunk, fingerprint, &call_id, &response);
+        let (input, usage, reason) = response?;
         let truncated = is_truncated(reason.as_deref(), truncated_reasons);
         if truncated {
             warn_truncated(&chunk.doc_path);
@@ -737,6 +841,15 @@ impl ClaudeExtractor {
 }
 
 impl CallTool for ClaudeExtractor {
+    fn record_call(
+        &self,
+        chunk: &Chunk,
+        fingerprint: String,
+        call_id: &str,
+        result: &ToolResponse,
+    ) {
+        self.conn.record_call(chunk, fingerprint, call_id, result);
+    }
     /// Issue one Anthropic Messages call with forced tool output. Returns the
     /// tool's `input` object (`None` if the model returned no tool block), the
     /// token usage, and the stop reason.
@@ -825,12 +938,10 @@ enum ContentBlock {
 
 /// Whether a model id routes to the OpenAI-compatible backend rather than Claude.
 pub(crate) fn is_openai_compatible_model(model: &str) -> bool {
-    let m = model.to_lowercase();
-    m.starts_with("gpt")
-        || m.starts_with("o1")
-        || m.starts_with("o3")
-        || m.starts_with("o4")
-        || m.starts_with("gemini")
+    matches!(
+        crate::models::provider(model),
+        Some("openai" | "google-ai-studio" | "workers-ai")
+    )
 }
 
 /// Calls an OpenAI-compatible `/chat/completions` endpoint with a forced
@@ -843,8 +954,8 @@ pub(crate) struct OpenAiExtractor {
 impl OpenAiExtractor {
     /// Build from the environment. All traffic routes through the Cloudflare AI
     /// Gateway (BYOK — the gateway injects the provider key); the provider path is
-    /// appended to [`gateway_base`]: `gemini-*` → `/google-ai-studio/v1beta/openai`,
-    /// otherwise `/openai`. Auth: [`resolve_gateway_token`] (required).
+    /// selected from the model catalog and appended to [`gateway_base`].
+    /// Auth: [`resolve_gateway_token`] (required for every provider).
     ///
     /// `source` labels gateway requests via `cf-aig-metadata` (`""` if unknown).
     pub fn from_env(opts: &Options, source: &str) -> Result<Self, EpubError> {
@@ -852,12 +963,16 @@ impl OpenAiExtractor {
             .model
             .clone()
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-        let provider_path = if model.to_lowercase().starts_with("gemini") {
-            "google-ai-studio/v1beta/openai"
-        } else {
-            "openai"
+        let base = gateway_base()?;
+        let endpoint = match crate::models::provider(&model) {
+            Some("google-ai-studio") => {
+                format!("{base}/google-ai-studio/v1beta/openai/chat/completions")
+            }
+            Some("workers-ai") => format!("{base}/compat/chat/completions"),
+            Some("openai") if model == "gpt-5.6-luna" => format!("{base}/openai/responses"),
+            Some("openai") => format!("{base}/openai/chat/completions"),
+            _ => return Err(EpubError::Cache(format!("Unsupported chat model {model}"))),
         };
-        let endpoint = format!("{}/{provider_path}/chat/completions", gateway_base()?);
         Ok(Self {
             conn: GatewayClient::from_env(endpoint, model, source)?,
         })
@@ -865,10 +980,31 @@ impl OpenAiExtractor {
 }
 
 impl CallTool for OpenAiExtractor {
+    fn record_call(
+        &self,
+        chunk: &Chunk,
+        fingerprint: String,
+        call_id: &str,
+        result: &ToolResponse,
+    ) {
+        self.conn.record_call(chunk, fingerprint, call_id, result);
+    }
     /// Issue one OpenAI-compatible chat-completions call with a forced function
     /// call. Returns the function's decoded arguments object (`None` if the model
     /// returned no tool call), token usage, and finish reason.
     async fn call_tool(&self, call: ToolCall<'_>, meta: &CallMeta<'_>) -> ToolResponse {
+        if self.conn.model == "gpt-5.6-luna" {
+            let body = json!({"model": self.conn.model, "store": false,
+                "instructions": call.system, "input": call.user, "max_output_tokens": call.max_tokens,
+                "tools": [{"type":"function", "name":call.tool_name, "description":call.tool_desc, "parameters":call.schema, "strict":false}],
+                "tool_choice":{"type":"function", "name":call.tool_name}});
+            let text = self
+                .conn
+                .post_tool(&body, Vec::new(), meta)
+                .await
+                .map_err(CallFailure::transport)?;
+            return decode_responses_response(&text);
+        }
         // OpenAI reasoning models (o1/o3/o4) and the gpt-5 family reject
         // `max_tokens` with a 400; they require `max_completion_tokens`.
         // Gemini's OpenAI-compat endpoint still takes `max_tokens`.
@@ -882,8 +1018,13 @@ impl CallTool for OpenAiExtractor {
         } else {
             "max_tokens"
         };
+        let wire_model = if crate::models::provider(&self.conn.model) == Some("workers-ai") {
+            format!("workers-ai/{}", self.conn.model)
+        } else {
+            self.conn.model.clone()
+        };
         let body = json!({
-            "model": self.conn.model,
+            "model": wire_model,
             token_param: call.max_tokens,
             "messages": [
                 { "role": "system", "content": call.system },
@@ -970,6 +1111,13 @@ struct OpenAiUsage {
     prompt_tokens: u64,
     #[serde(default)]
     completion_tokens: u64,
+    #[serde(default)]
+    prompt_tokens_details: TokenDetails,
+}
+#[derive(Deserialize, Default)]
+struct TokenDetails {
+    #[serde(default)]
+    cached_tokens: u64,
 }
 
 impl From<OpenAiUsage> for Usage {
@@ -977,11 +1125,41 @@ impl From<OpenAiUsage> for Usage {
         // OpenAI/Gemini don't split out prompt-cache tokens in the basic usage
         // object, so cache fields stay zero.
         Usage {
-            input_tokens: u.prompt_tokens,
+            input_tokens: u
+                .prompt_tokens
+                .saturating_sub(u.prompt_tokens_details.cached_tokens),
+            cache_read_input_tokens: u.prompt_tokens_details.cached_tokens,
             output_tokens: u.completion_tokens,
             ..Default::default()
         }
     }
+}
+
+fn decode_responses_response(text: &str) -> ToolResponse {
+    let value: serde_json::Value = serde_json::from_str(text)
+        .map_err(|e| CallFailure::retryable_payload(e.into(), Usage::default(), false))?;
+    let cached = value["usage"]["input_tokens_details"]["cached_tokens"]
+        .as_u64()
+        .unwrap_or(0);
+    let usage = Usage {
+        input_tokens: value["usage"]["input_tokens"]
+            .as_u64()
+            .unwrap_or(0)
+            .saturating_sub(cached),
+        output_tokens: value["usage"]["output_tokens"].as_u64().unwrap_or(0),
+        cache_read_input_tokens: cached,
+        ..Usage::default()
+    };
+    let reason = (value["status"] == "incomplete").then(|| "length".to_owned());
+    let args = value["output"]
+        .as_array()
+        .and_then(|items| items.iter().find(|item| item["type"] == "function_call"))
+        .and_then(|item| item["arguments"].as_str());
+    let input = args
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|e| CallFailure::retryable_payload(e.into(), usage.clone(), reason.is_some()))?;
+    Ok((input, usage, reason))
 }
 
 fn decode_openai_response(text: &str) -> ToolResponse {
@@ -1017,13 +1195,31 @@ pub(crate) enum Backend {
 }
 
 impl Backend {
-    /// Pick a backend from `opts.model`: `gpt-*`/`o*`/`gemini-*` →
-    /// [`OpenAiExtractor`], otherwise [`ClaudeExtractor`] (the default).
+    pub(crate) fn take_calls(&self, chunk: &Chunk) -> Vec<crate::review::store::CallRecord> {
+        let conn = match self {
+            Self::Claude(x) => &x.conn,
+            Self::OpenAi(x) => &x.conn,
+        };
+        let mut calls = conn.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let key = source_key(chunk);
+        let (selected, rest) = std::mem::take(&mut *calls)
+            .into_iter()
+            .partition(|c: &crate::review::store::CallRecord| c.source_key == key);
+        *calls = rest;
+        selected
+    }
+
+    /// Pick the explicitly cataloged provider and transport for `opts.model`.
     ///
     /// `source` labels gateway requests via `cf-aig-metadata`; pass `""` for
     /// library-wide work like classification.
     pub fn from_env(opts: &Options, source: &str) -> Result<Self, EpubError> {
         let model = opts.model.as_deref().unwrap_or(DEFAULT_MODEL);
+        if crate::models::provider(model).is_none() {
+            return Err(EpubError::Cache(format!(
+                "Unknown model {model}; use cookbook models"
+            )));
+        }
         if is_openai_compatible_model(model) {
             Ok(Backend::OpenAi(OpenAiExtractor::from_env(opts, source)?))
         } else {
@@ -1047,6 +1243,7 @@ impl Backend {
                     max_tokens: 2000,
                 },
                 &CallMeta {
+                    id: "",
                     doc_path: "",
                     call: "classify",
                 },
@@ -1180,7 +1377,7 @@ mod tests {
 
     impl RecipeExtractor for FixedExtractor {
         fn model(&self) -> &str {
-            "claude-sonnet"
+            "claude-sonnet-4-6"
         }
         async fn extract(&self, _chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
             Ok(ChunkOutcome {
@@ -1237,6 +1434,7 @@ mod tests {
             "The NoMad Cookbook",
             "gemini-2.5-flash",
             &CallMeta {
+                id: "",
                 doc_path: "c12.xhtml",
                 call: "extract",
             },
@@ -1313,6 +1511,22 @@ mod tests {
         assert_eq!(r.sections.len(), 1);
         assert_eq!(r.sections[0].ingredients, vec!["1 cup flour", "2 eggs"]);
         assert_eq!(r.meta.notes, vec!["Best fresh off the griddle."]);
+    }
+
+    #[test]
+    fn responses_usage_counts_cached_input_once_and_preserves_truncation() {
+        let raw = json!({"status":"incomplete", "usage":{"input_tokens":100, "output_tokens":30, "input_tokens_details":{"cached_tokens":80}, "output_tokens_details":{"reasoning_tokens":20}}, "output":[{"type":"function_call", "arguments":"{\"recipes\":[]}"}]}).to_string();
+        let (input, usage, reason) = decode_responses_response(&raw).unwrap();
+        assert_eq!(input, Some(json!({"recipes":[]})));
+        assert_eq!(usage.input_tokens, 20);
+        assert_eq!(usage.cache_read_input_tokens, 80);
+        assert_eq!(usage.output_tokens, 30); // Includes reasoning; never add it again.
+        assert_eq!(reason.as_deref(), Some("length"));
+        let mut value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        value["output"][0]["arguments"] = json!("{");
+        let error = decode_responses_response(&value.to_string()).unwrap_err();
+        assert_eq!(error.usage, usage);
+        assert!(error.truncated);
     }
 
     #[test]
@@ -1506,7 +1720,7 @@ mod tests {
 
     impl RecipeExtractor for DetailedFailingExtractor {
         fn model(&self) -> &str {
-            "claude-haiku"
+            "claude-haiku-4-5"
         }
         async fn extract(&self, _chunk: &Chunk) -> Result<ChunkOutcome, EpubError> {
             Err(EpubError::Proxy("failed".to_string()))
@@ -1789,4 +2003,42 @@ mod tests {
             vec![false, true, false, true]
         );
     }
+}
+
+/// Run in a clean process, like Finder: no exported Gateway variables and a
+/// working directory unrelated to the repository. No network request is made.
+#[cfg(test)]
+#[test]
+fn finder_launch_reads_shared_gateway_configuration() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("GATEWAY_CONFIG_TEST_CHILD").is_some() {
+        ClaudeExtractor::from_env(&crate::Options::default(), "test")?;
+        return Ok(());
+    }
+    let root = std::env::temp_dir().join(format!("gateway-config-test-{}", std::process::id()));
+    let config = if cfg!(target_os = "macos") {
+        root.join("Library/Application Support")
+    } else {
+        root.clone()
+    }
+    .join("ingredient-parser");
+    std::fs::create_dir_all(&config)?;
+    std::fs::write(
+        config.join("gateway.env"),
+        "CLOUDFLARE_AI_GATEWAY_BASE_URL=https://gateway.ai.cloudflare.com/v1/test/test\nAI_GATEWAY_API_KEY=test-token\n",
+    )?;
+    let result = std::process::Command::new(std::env::current_exe()?)
+        .arg("--exact")
+        .arg("backend::finder_launch_reads_shared_gateway_configuration")
+        .env("GATEWAY_CONFIG_TEST_CHILD", "1")
+        .env("HOME", &root)
+        .env("APPDATA", &root)
+        .env("XDG_CONFIG_HOME", &root)
+        .env_remove("CLOUDFLARE_AI_GATEWAY_BASE_URL")
+        .env_remove("AI_GATEWAY_API_KEY")
+        .env_remove("CF_AIG_TOKEN")
+        .current_dir(&root)
+        .status()?;
+    std::fs::remove_dir_all(root)?;
+    assert!(result.success());
+    Ok(())
 }

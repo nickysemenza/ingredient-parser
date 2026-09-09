@@ -2,6 +2,9 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { open, save, confirm } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type {
+  ModelChoice,
+  ExtractionPreview,
+  SavedRun,
   JsonValue as Json,
   IngredientResult,
   IngredientInspection,
@@ -57,6 +60,12 @@ export function call<T>(
   return invoke<T>(command, args);
 }
 export const api = {
+  models: () => call<ModelChoice[]>("cookbook_models"),
+  runs: (book: string | null) => call<SavedRun[]>("cookbook_runs", { book }),
+  preview: (request: ExtractionRequest) =>
+    call<ExtractionPreview>("extraction_preview", { request }),
+  exportRun: (path: string, out: string) =>
+    call<void>("export_run", { path, out }),
   parse: (input: string) => call<IngredientResult[]>("parse_batch", { input }),
   inspect: (input: string) =>
     call<IngredientInspection>("inspect_ingredient", { input }),
@@ -67,6 +76,7 @@ export const api = {
   book: (path: string) =>
     call<CookbookResult>("inspect_book", { path, model: null }),
   run: (path: string) => call<CookbookResult>("open_run", { path }),
+  cancelExtraction: () => call<void>("cancel_extraction", {}),
   extract: (
     request: ExtractionRequest,
     progress: (value: ExtractionProgress) => void,

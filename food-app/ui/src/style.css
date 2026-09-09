@@ -964,7 +964,7 @@ details p {
   flex-direction: column;
   gap: 2px;
 }
-.library-books > button {
+.library-entry > button {
   padding: 12px;
   justify-content: flex-start;
   border: 0;
@@ -974,10 +974,10 @@ details p {
   text-align: left;
   white-space: normal;
 }
-.library-books > button:hover {
+.library-entry > button:hover {
   background: var(--selection);
 }
-.library-books > button > span {
+.library-entry > button > span {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -987,7 +987,7 @@ details p {
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 12px;
 }
-.library-books.grid > button {
+.library-books.grid .library-entry > button {
   flex-direction: column;
   align-items: flex-start;
   min-height: 120px;
@@ -1462,3 +1462,45 @@ kbd {
     gap: 8px;
   }
 }
+
+.library-entry {
+  min-width: 0;
+}
+.library-entry > button {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+}
+.library-entry details {
+  padding: 8px;
+}
+.library-entry details button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-top: 4px;
+}
+
+.run-history {
+  overflow: auto;
+}
+.run-history .pane-header {
+  flex-wrap: wrap;
+}
+.run-history .actions {
+  flex-wrap: wrap;
+}
+
+.source-checks {
+  margin: 0.5rem 1rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 35vh;
+  overflow: auto;
+}
+.source-checks summary { cursor: pointer; font-weight: 600; }
+.source-checks p { margin: 0.4rem 0; }
+.source-checks li { margin-block: 0.7rem; }
+.source-checks blockquote { margin: 0.4rem 0; padding-left: 0.8rem; border-left: 2px solid var(--border); }

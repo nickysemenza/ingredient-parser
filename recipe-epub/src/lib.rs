@@ -18,9 +18,11 @@
 // here. The other modules form the runtime-independent contract.
 mod backend;
 mod cache;
+pub mod cache_contract;
 mod epub_text;
 mod extractor;
 mod library;
+pub mod models;
 mod orchestration;
 
 // Pure extraction API — compiles to wasm32: EPUB unzip + text chunking
@@ -347,9 +349,9 @@ pub(crate) fn assemble_slots(
                 merge_recipe(&mut out[output], r, hero);
                 output
             } else {
-                if !r.sections.iter().any(|s| !s.ingredients.is_empty()) {
-                    continue;
-                }
+                // A long introduction may be split before the first ingredient.
+                // Keep the head until adjacent hinted tails have had a chance
+                // to complete it; discard ingredient-less noise after assembly.
                 let mut meta = r.meta;
                 meta.title = title;
                 out.push(CookbookRecipe {
@@ -365,6 +367,12 @@ pub(crate) fn assemble_slots(
             previous = Some(((chunk_index, recipe_index), output));
         }
     }
+    out.retain(|recipe| {
+        recipe
+            .sections
+            .iter()
+            .any(|section| !section.ingredients.is_empty())
+    });
     out
 }
 
@@ -435,7 +443,10 @@ fn merge_recipe(into: &mut CookbookRecipe, from: ExtractedRecipe, hero: Option<I
     }
     // Fill metadata only the continuation chunk happened to capture.
     let m = &mut into.meta;
-    m.description = m.description.take().or(from.meta.description);
+    m.description = match (m.description.take(), from.meta.description) {
+        (Some(head), Some(tail)) => Some(format!("{head}\n\n{tail}")),
+        (head, tail) => head.or(tail),
+    };
     m.recipe_yield = m.recipe_yield.take().or(from.meta.recipe_yield);
     m.times = m.times.take().or(from.meta.times);
     m.category = m.category.take().or(from.meta.category);
@@ -932,6 +943,46 @@ mod tests {
     /// A recipe split across a chunk boundary: the title chunk has the body, the
     /// (title-hinted) continuation chunk re-emits the same title with only the
     /// tail / notes. They must merge into one recipe whose notes are the union.
+    #[test]
+    fn continuation_keeps_a_headnote_before_the_first_ingredient() {
+        let head = ExtractedRecipe {
+            meta: RecipeMeta {
+                title: "Long recipe".into(),
+                description: Some("Source introduction before the split".into()),
+                ..Default::default()
+            },
+            sections: vec![],
+        };
+        let tail = ExtractedRecipe {
+            meta: RecipeMeta {
+                title: "Long recipe".into(),
+                description: Some("Source introduction after the split".into()),
+                ..Default::default()
+            },
+            sections: vec![RecipeSection {
+                name: None,
+                ingredients: vec!["1 cup beans".into()],
+                instructions: vec!["Cook until tender.".into()],
+            }],
+        };
+        let result = assemble(
+            vec![
+                (chunk("chapter.xhtml"), vec![head.clone()]),
+                (
+                    continuation_chunk("chapter.xhtml", "Long recipe"),
+                    vec![tail],
+                ),
+            ],
+            "book",
+        );
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].meta.description.as_deref(),
+            Some("Source introduction before the split\n\nSource introduction after the split")
+        );
+        assert!(assemble(vec![(chunk("chapter.xhtml"), vec![head])], "book").is_empty());
+    }
+
     #[test]
     fn assemble_recovers_continuation_chunk_notes() {
         let title_half = ExtractedRecipe {

@@ -80,6 +80,8 @@ pub struct CorpusResult {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryBook {
+    #[serde(default)]
+    pub runs: Vec<SavedRun>,
     pub path: String,
     pub title: String,
     pub authors: Vec<String>,
@@ -138,7 +140,20 @@ pub struct CookbookChunk {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+pub struct QualityIssue {
+    pub kind: String,
+    pub source: String,
+    pub chunk: Option<String>,
+    pub recipe: Option<usize>,
+    pub message: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct CookbookResult {
+    pub quality_issues: Vec<QualityIssue>,
+    pub status: String,
     pub path: Option<String>,
     pub source: String,
     pub model: String,
@@ -169,6 +184,11 @@ pub struct ExtractionRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractionProgress {
+    pub active: usize,
+    pub failed: usize,
+    pub elapsed_seconds: f64,
+    pub estimated_usd: Option<f64>,
+    pub stopping: bool,
     pub path: String,
     pub completed: usize,
     pub total: usize,
@@ -371,16 +391,36 @@ pub fn load_corpus(path: Option<String>) -> AppResult<CorpusResult> {
 }
 
 pub fn scan_library(directory: String) -> AppResult<Vec<LibraryBook>> {
-    let directory = Path::new(&directory);
+    let directory = if directory.trim().is_empty() {
+        std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .ok_or("Home directory is unavailable")?
+            .join("Library/Mobile Documents/com~apple~CloudDocs/Calibre")
+    } else {
+        std::path::PathBuf::from(directory)
+    };
+    let directory = directory.as_path();
     if !directory.is_dir() {
         return Err(format!("{} is not a directory", directory.display()));
     }
+    let history = recipe_epub::review::store::list(None).map_err(|e| e.to_string())?;
     let mut paths = recipe_epub::find_epubs(directory);
     paths.sort();
     let mut books: Vec<_> = paths
         .iter()
         .map(|path| match recipe_epub::book_metadata(path) {
             Ok(meta) => LibraryBook {
+                runs: if !history.is_empty() {
+                    let digest = recipe_epub::review::store::source_hash(path).ok();
+                    history
+                        .iter()
+                        .filter(|r| digest.as_deref() == Some(r.epub_sha256.as_str()))
+                        .cloned()
+                        .map(SavedRun::from)
+                        .collect()
+                } else {
+                    vec![]
+                },
                 cookbook: recipe_epub::classify_by_tags(&meta) == recipe_epub::CookbookGuess::Yes,
                 path: path.to_string_lossy().into(),
                 title: meta.title,
@@ -389,6 +429,7 @@ pub fn scan_library(directory: String) -> AppResult<Vec<LibraryBook>> {
                 error: None,
             },
             Err(error) => LibraryBook {
+                runs: vec![],
                 path: path.to_string_lossy().into(),
                 title: path
                     .file_stem()
@@ -433,10 +474,22 @@ fn result(run: &ReviewRun, path: Option<&str>) -> AppResult<CookbookResult> {
         Default::default()
     };
     Ok(CookbookResult {
+        quality_issues: recipe_epub::review::quality::issues(run)
+            .into_iter()
+            .map(|issue| QualityIssue {
+                kind: issue.kind,
+                source: issue.source,
+                chunk: issue.chunk,
+                recipe: issue.recipe,
+                message: issue.message,
+                detail: issue.detail,
+            })
+            .collect(),
         path,
         source: run.source.clone(),
         model: run.model.clone(),
         source_hash: run.epub_sha256.clone(),
+        status: run.status().into(),
         incomplete: run.incomplete(),
         reserved_usd: run.reserved_usd,
         documents: run
@@ -506,12 +559,126 @@ fn result(run: &ReviewRun, path: Option<&str>) -> AppResult<CookbookResult> {
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelChoice {
+    pub id: String,
+    pub label: String,
+    pub enabled: bool,
+    pub status: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractionPreview {
+    pub total: usize,
+    pub cached: usize,
+    pub pending: usize,
+    pub low_usd: Option<f64>,
+    pub high_usd: Option<f64>,
+    pub reservation_usd: Option<f64>,
+    pub basis: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedRun {
+    pub quality_flags: Option<usize>,
+    pub status: String,
+    pub epub_sha256: String,
+    pub path: String,
+    pub title: String,
+    pub model: String,
+    pub prompt_version: String,
+    pub configurations: Vec<String>,
+    pub created_at: Option<f64>,
+    pub recipes: usize,
+    pub completed: usize,
+    pub total: usize,
+    pub incomplete: bool,
+    pub reserved_usd: f64,
+    pub new_spend_usd: Option<f64>,
+    pub inherited_reserved_usd: Option<f64>,
+    pub unresolved_usd: f64,
+}
+pub fn cookbook_models() -> Vec<ModelChoice> {
+    recipe_epub::models::catalog()
+        .into_iter()
+        .map(|m| ModelChoice {
+            id: m.id.into(),
+            label: m.label.into(),
+            enabled: m.enabled,
+            status: m.status.into(),
+        })
+        .collect()
+}
+impl From<recipe_epub::review::store::RunSummary> for SavedRun {
+    fn from(r: recipe_epub::review::store::RunSummary) -> Self {
+        Self {
+            quality_flags: r.quality_flags,
+            status: r.status,
+            epub_sha256: r.epub_sha256,
+            path: r.path.to_string_lossy().into_owned(),
+            title: r.title,
+            model: r.model,
+            prompt_version: r.prompt_version,
+            configurations: r.configurations,
+            created_at: r.created_at.map(|v| v as f64),
+            recipes: r.recipes,
+            completed: r.completed,
+            total: r.total,
+            incomplete: r.incomplete,
+            reserved_usd: r.reserved_usd,
+            new_spend_usd: r.new_spend_usd,
+            inherited_reserved_usd: r.inherited_reserved_usd,
+            unresolved_usd: r.unresolved_usd,
+        }
+    }
+}
+pub fn cookbook_runs(book: Option<String>) -> AppResult<Vec<SavedRun>> {
+    recipe_epub::review::store::list(book.as_deref().map(Path::new))
+        .map_err(|e| e.to_string())
+        .map(|rows| rows.into_iter().map(SavedRun::from).collect())
+}
+fn shared_request(request: ExtractionRequest) -> recipe_epub::review::ExtractionRequest {
+    recipe_epub::review::ExtractionRequest {
+        book: request.book.into(),
+        out: request.out.into(),
+        model: request.model,
+        resume: request.resume,
+        from: request.from.map(Into::into),
+        options: RunOptions {
+            allow_network: request.allow_network,
+            refresh: request.refresh,
+            cache_dir: request.cache_dir.map(Into::into),
+            chunks: request.chunks,
+            budget_usd: request.budget_usd,
+        },
+    }
+}
+pub fn extraction_preview(request: ExtractionRequest) -> AppResult<ExtractionPreview> {
+    let request = shared_request(request);
+    let run = recipe_epub::review::prepare(&request).map_err(|e| e.to_string())?;
+    let plan =
+        recipe_epub::review::preflight::plan(&run, &request.options).map_err(|e| e.to_string())?;
+    Ok(ExtractionPreview {
+        total: plan.total,
+        cached: plan.cached,
+        pending: plan.pending,
+        low_usd: plan.estimated_low_usd,
+        high_usd: plan.estimated_high_usd,
+        reservation_usd: plan.reservation_usd,
+        basis: plan.basis.into(),
+    })
+}
+pub fn export_run(path: String, out: String) -> AppResult<()> {
+    recipe_epub::review::export_run(Path::new(&path), Path::new(&out)).map_err(|e| e.to_string())
+}
+
 pub fn inspect_book(path: String, model: Option<String>) -> AppResult<CookbookResult> {
-    let bytes = std::fs::read(&path).map_err(|e| format!("Cannot read {path}: {e}"))?;
-    let run = ReviewRun::inspect(
-        &bytes,
-        &path,
-        model.as_deref().unwrap_or("gemini-2.5-flash"),
+    let run = recipe_epub::review::store::inspect(
+        Path::new(&path),
+        model
+            .as_deref()
+            .unwrap_or(recipe_epub::models::DEFAULT_MODEL),
     )
     .map_err(|e| e.to_string())?;
     result(&run, None)
@@ -519,6 +686,7 @@ pub fn inspect_book(path: String, model: Option<String>) -> AppResult<CookbookRe
 pub fn open_run(path: String) -> AppResult<CookbookResult> {
     let path = existing_run_path(&path)?;
     let run = ReviewRun::read(Path::new(&path)).map_err(|e| e.to_string())?;
+    recipe_epub::review::store::register(&run, Path::new(&path)).map_err(|e| e.to_string())?;
     result(&run, Some(&path))
 }
 
@@ -526,24 +694,40 @@ pub async fn extract_run(
     request: ExtractionRequest,
     progress: impl Fn(ExtractionProgress),
 ) -> AppResult<CookbookResult> {
+    extract_run_controlled(
+        request,
+        &recipe_epub::review::ExtractionControl::default(),
+        progress,
+    )
+    .await
+}
+
+pub async fn extract_run_controlled(
+    mut request: ExtractionRequest,
+    control: &recipe_epub::review::ExtractionControl,
+    progress: impl Fn(ExtractionProgress),
+) -> AppResult<CookbookResult> {
+    if request.out.is_empty() {
+        if request.resume {
+            return Err("Resume requires an existing extraction".into());
+        }
+        request.out =
+            recipe_epub::review::store::destination(Path::new(&request.book), &request.model)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .into_owned();
+    }
     let progress_path = request.out.clone();
-    let outcome = recipe_epub::review::extract_to_run(
-        recipe_epub::review::ExtractionRequest {
-            book: request.book.into(),
-            out: request.out.into(),
-            model: request.model,
-            resume: request.resume,
-            from: request.from.map(Into::into),
-            options: RunOptions {
-                allow_network: request.allow_network,
-                refresh: request.refresh,
-                cache_dir: request.cache_dir.map(Into::into),
-                chunks: request.chunks,
-                budget_usd: request.budget_usd,
-            },
-        },
+    let outcome = recipe_epub::review::extract_to_run_controlled(
+        shared_request(request),
+        control,
         |update| {
             progress(ExtractionProgress {
+                active: update.active,
+                failed: update.failed,
+                elapsed_seconds: update.elapsed_seconds as f64,
+                estimated_usd: update.estimated_usd,
+                stopping: update.stopping,
                 path: progress_path.clone(),
                 completed: update.completed,
                 total: update.total,
@@ -619,9 +803,8 @@ pub fn load_images(run_path: Option<String>, book_path: String) -> AppResult<Vec
     let bytes = std::fs::read(&book_path).map_err(|e| e.to_string())?;
     let run = match run_path {
         Some(path) => ReviewRun::read(Path::new(&path)).map_err(|e| e.to_string())?,
-        None => {
-            ReviewRun::inspect(&bytes, &book_path, "gemini-2.5-flash").map_err(|e| e.to_string())?
-        }
+        None => ReviewRun::inspect(&bytes, &book_path, recipe_epub::models::DEFAULT_MODEL)
+            .map_err(|e| e.to_string())?,
     };
     let images = recipe_epub::review::source_images(&run, &bytes).map_err(|e| e.to_string())?;
     Ok(images
@@ -648,6 +831,9 @@ pub fn load_images(run_path: Option<String>, book_path: String) -> AppResult<Vec
 /// Single-source declarations for the checked-in frontend contract.
 pub fn bindings_source() -> String {
     let declarations = [
+        ModelChoice::decl(&ts_rs::Config::default()),
+        ExtractionPreview::decl(&ts_rs::Config::default()),
+        SavedRun::decl(&ts_rs::Config::default()),
         Value::decl(&ts_rs::Config::default()),
         IngredientResult::decl(&ts_rs::Config::default()),
         TraceNode::decl(&ts_rs::Config::default()),
@@ -663,6 +849,7 @@ pub fn bindings_source() -> String {
         CookbookSection::decl(&ts_rs::Config::default()),
         CookbookRecipe::decl(&ts_rs::Config::default()),
         CookbookChunk::decl(&ts_rs::Config::default()),
+        QualityIssue::decl(&ts_rs::Config::default()),
         CookbookResult::decl(&ts_rs::Config::default()),
         ExtractionRequest::decl(&ts_rs::Config::default()),
         ExtractionProgress::decl(&ts_rs::Config::default()),
@@ -672,7 +859,10 @@ pub fn bindings_source() -> String {
         "// Generated from Rust application DTOs. Do not edit.\n{}\n",
         declarations
             .into_iter()
-            .map(|d| format!("export {d}"))
+            .map(|d| format!(
+                "export {}",
+                d.lines().map(str::trim_end).collect::<Vec<_>>().join("\n")
+            ))
             .collect::<Vec<_>>()
             .join("\n")
     )

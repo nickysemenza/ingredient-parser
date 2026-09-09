@@ -160,20 +160,75 @@ async fn open_run(path: String) -> Result<service::CookbookResult, String> {
     blocking(move || service::open_run(path)).await
 }
 #[tauri::command]
+fn cookbook_models() -> Vec<service::ModelChoice> {
+    service::cookbook_models()
+}
+#[tauri::command]
+async fn cookbook_runs(book: Option<String>) -> Result<Vec<service::SavedRun>, String> {
+    blocking(move || service::cookbook_runs(book)).await
+}
+#[tauri::command]
+async fn extraction_preview(
+    request: service::ExtractionRequest,
+) -> Result<service::ExtractionPreview, String> {
+    blocking(move || service::extraction_preview(request)).await
+}
+#[tauri::command]
+async fn export_run(path: String, out: String) -> Result<(), String> {
+    blocking(move || service::export_run(path, out)).await
+}
+#[derive(Default)]
+struct ExtractionState(std::sync::Mutex<Option<recipe_epub::review::ExtractionControl>>);
+
+#[tauri::command]
+fn cancel_extraction(state: State<'_, ExtractionState>) -> Result<(), String> {
+    if let Some(control) = state
+        .0
+        .lock()
+        .map_err(|_| "Extraction state unavailable")?
+        .as_ref()
+    {
+        control.cancel();
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn extract_run(
     request: service::ExtractionRequest,
     on_progress: Channel<service::ExtractionProgress>,
+    extraction_state: State<'_, ExtractionState>,
     operations: State<'_, Operations>,
 ) -> Result<service::CookbookResult, String> {
-    let mut paths = vec![request.out.as_str()];
+    let mut paths = if request.out.is_empty() {
+        vec![]
+    } else {
+        vec![request.out.as_str()]
+    };
     if let Some(parent) = &request.from {
         paths.push(parent);
     }
     let _guard = operations.acquire(&paths)?;
-    service::extract_run(request, move |progress| {
+    let control = recipe_epub::review::ExtractionControl::default();
+    {
+        let mut active = extraction_state
+            .0
+            .lock()
+            .map_err(|_| "Extraction state unavailable")?;
+        if active.is_some() {
+            return Err("An extraction is already running".into());
+        }
+        *active = Some(control.clone());
+    }
+    let result = service::extract_run_controlled(request, &control, move |progress| {
         let _ = on_progress.send(progress);
     })
-    .await
+    .await;
+    *extraction_state
+        .0
+        .lock()
+        .map_err(|_| "Extraction state unavailable")? = None;
+    result
 }
 #[tauri::command]
 async fn replay_run(
@@ -244,6 +299,7 @@ pub fn run() -> tauri::Result<()> {
     let app = tauri::Builder::default()
         .manage(Operations::default())
         .manage(CloseState::default())
+        .manage(ExtractionState::default())
         .plugin(
             tauri_plugin_opener::Builder::new()
                 .open_js_links_on_click(false)
@@ -377,7 +433,12 @@ pub fn run() -> tauri::Result<()> {
             load_cover,
             scale_recipe,
             scale_web_recipe,
-            extract_run
+            cookbook_models,
+            cookbook_runs,
+            extraction_preview,
+            export_run,
+            extract_run,
+            cancel_extraction
         ])
         .build(tauri::generate_context!())?;
     app.run(|handle, event| {

@@ -16,6 +16,71 @@ checkpointing. They return typed errors and progress; the CLI owns terminal
 formatting and exit statuses, and the desktop owns its Tauri transport and view
 models. Lower-level extraction and saved-run interfaces remain available.
 
+## Saved runs and model selection
+
+`cookbook extract BOOK` saves automatically. On macOS the durable store is
+`~/Library/Application Support/ingredient-parser/cookbook-runs/`; Linux uses
+`$XDG_DATA_HOME` (or `~/.local/share`) and Windows uses `%LOCALAPPDATA%`.
+`RECIPE_EPUB_RUNS_DIR` overrides the root for tests or portable installations.
+Runs are grouped by EPUB SHA-256 and named with title, model, timestamp and a
+unique suffix. `--out` remains available. Explicit paths and opened historical
+files are registered in place. The summary index can be rebuilt for managed
+runs; external files must be reopened if their index entries are lost.
+
+```sh
+food-cli cookbook models --format json
+food-cli cookbook runs --book book.epub --format json
+food-cli cookbook extract book.epub --allow-network --dry-run --format json
+food-cli cookbook extract book.epub --allow-network --model gemini-2.5-flash
+```
+
+The desktop model dropdown and CLI use the same catalog and preflight. The
+desktop Extract button authorizes that operation; browsing stays offline and
+CLI network calls still require `--allow-network`. The default budget is $10.
+Preflight reports reusable chunks, pending requests, an approximate cost range,
+and a separate conservative reservation. Execution revalidates source, prompt,
+cache and budget. Small-sample output estimates are uncertain, particularly for
+reasoning models and long continuation groups.
+
+In the library, expand a book's saved extractions or open Extraction history.
+History includes completion, model/prompt, date and new estimated spend, with
+Open, Compare, Export and Reveal actions. A new extraction creates another run;
+Resume requires the same source/model/prompt. Refresh creates a child and retains
+untouched chunk provenance. Mixed configurations are labeled in history. Export
+also copies the separate review sidecar without overwriting existing files.
+
+Each dispatched request retains usage, reported provider usage details (including
+reasoning/cache fields), rate snapshot, retry fingerprint and any error. Unknown
+usage stays unknown and leaves a reservation unresolved. Local cache reuse has
+zero additional charge. Inherited spend remains in the lineage budget, separate
+from the new-spend subtotal. These are token-based estimates, not billing records
+or credit-purchase fees.
+
+All providers use the existing `AI_GATEWAY_API_KEY` and
+`CLOUDFLARE_AI_GATEWAY_BASE_URL` configuration. Kimi uses the Gateway's unified
+`/compat/chat/completions` route with the `workers-ai/` prefix; it does not require
+a separate environment token. Enable Unified Billing for Workers AI in the
+Gateway configuration. The Gateway ID is also sent explicitly. Existing stored
+provider keys remain usable. Native network requests bypass Gateway response
+caching and disable Gateway retries: the shared local cache and bounded retry
+policy own reuse and accounting.
+
+## Portable cache boundary
+
+`recipe_epub::cache_contract::{CacheIdentity, CacheEntry}` is available with
+`default-features = false`. Identities contain exact serialized requests,
+provider/model configuration, prompt/schema fingerprint, and extraction-contract
+version. Entry reuse requires exact identity and supported entry version.
+Native entries contain validated chunk outputs before assembly, so saved results
+can be replayed with newer assembly/parser code. Filesystem persistence belongs
+to the native feature; no filesystem or credential dependencies enter WASM.
+
+Cubby's current `build_chunk_request` protocol remains unchanged. Compatibility
+fixtures exercise that public request against the portable envelope and prove
+it cannot collide with the indexed-source contract. Cubby can implement its own
+storage adapter later; this change does not add Cubby persistence, import,
+deployment or synchronization.
+
 ## Source first, then extraction
 
 Keep EPUBs, full-book outputs, and review files outside the public repository.
@@ -34,7 +99,7 @@ food-cli cookbook audit live.json --format json > source-audit.json
 `cookbook extract` commands are cache-only by default and need no credentials.
 A cache miss produces an incomplete saved run and exit 3. Network-enabled calls
 require the existing gateway configuration. Completed chunk outputs are cached
-using the model, prompt/schema version, text, and title hint. `--cache-dir` makes
+using exact request content, model/provider configuration, prompt/schema fingerprint, and extraction contract. `--cache-dir` makes
 the cache location explicit; saved runs are durable regardless of cache eviction.
 
 Use `--resume` with the same book, model, and output to recover interrupted work.
@@ -140,3 +205,94 @@ Bars are relative to the most frequent name; percentages use all ingredient
 occurrences. Selecting a name shows every original occurrence. **Open source**
 returns to its source document, clearing source filters so it remains visible.
 The desktop caches the same shared statistics on opening the run.
+
+### Gateway configuration for desktop launches
+
+CLI and desktop share a native configuration fallback. Exported variables (and
+local `.env` values loaded on startup) take precedence over the per-user
+`gateway.env` file. On macOS this file is
+`~/Library/Application Support/ingredient-parser/gateway.env`; on Linux it is
+`$XDG_CONFIG_HOME/ingredient-parser/gateway.env` (default `~/.config`), and on
+Windows `%APPDATA%/ingredient-parser/gateway.env`.
+
+Use the same `CLOUDFLARE_AI_GATEWAY_BASE_URL` and `AI_GATEWAY_API_KEY` (or
+`CF_AIG_TOKEN`) entries as the repository `.env`. Keep this credential file
+private (`chmod 600` on Unix). Finder launches read this file without requiring
+a repository working directory or shell environment. No provider-specific key
+is needed when the Gateway supplies credentials or Unified Billing.
+
+### Concurrent extraction and Cubby reuse
+
+CLI and desktop keep at most four requests in flight. As each completes, its
+result is checkpointed and a free slot admits the next affordable chunk; a slow
+request no longer blocks a whole batch. Each request's budget reservation is
+saved before sending it. Chunks that cannot fit the current budget are revisited
+when known usage releases reservations. Unknown charges retain their reservation.
+
+Cubby's current WASM consumer uses `extract_chunks_with` with eight slots and
+already shares request building, response validation/retry policy, and recipe
+assembly. The durable native workflow now separates transport construction and
+attempt collection from scheduling, so its real checkpoint/budget path can be
+exercised with a deterministic extractor. The next useful consolidation is a
+portable budget-admission and usage-settlement component, with caller-owned
+checkpoint hooks. Avoid routing Cubby's legacy requests through the indexed
+native protocol: their request/cache contracts remain distinct. Filesystem
+persistence and browser storage stay in their respective callers.
+
+### Progress, stopping, and history
+
+Desktop progress and CLI stderr show completed/total chunks, active requests,
+failed requests, recipes found, elapsed seconds, estimated new charges, and the
+conservative spent/reserved total. Updates occur at admission, completion, and
+once per second while waiting. Estimates are token-based, not billing statements.
+
+Use **Stop extraction** in desktop or **Ctrl-C** in CLI. Both request cooperative
+cancellation through the same `ExtractionControl`: no more chunks are admitted,
+active requests finish and save, and the result remains resumable. An active
+request may take until its transport timeout to finish. CLI returns exit 130 and
+still emits the saved result and path; JSON stays on stdout, progress on stderr.
+A process killed before it drains is shown as interrupted when its lock is gone.
+History checks the run lock to distinguish an active extraction from interruption.
+
+Desktop history supports **Resume…** and selecting two versions of the same EPUB
+for comparison. CLI equivalents:
+
+```sh
+food-cli cookbook runs
+food-cli cookbook runs --book book.epub --format json
+food-cli cookbook extract book.epub --resume --out /path/from/history.json \
+  --model gemini-2.5-flash --allow-network
+food-cli cookbook compare /path/before.json /path/after.json
+food-cli cookbook compare /path/before.json /path/after.json --format json
+```
+
+Cancellation, interruption, failure, and incomplete scope are distinct states;
+complete means the entire EPUB's chunks have outputs, not that source fidelity
+has been manually verified. A successful selected-chunk sample can therefore
+remain incomplete at the book level. Legacy metadata is not invented.
+
+### Continuations and source review checks
+
+Chunk boundaries now prefer explicit EPUB title styles (`ttl`, `recipe-title`,
+`recipe_title`, `recipetitle`) and repeated heading markup. The text heuristic is
+only a fallback. Long titles are preserved; yield and seasoning lines no longer
+create false title boundaries in documents with title markup. A necessary hard
+split retains the source title as a continuation hint. Indexed outputs are put
+in source order, and only the first recipe can use that hint. Assembly retains
+a head containing only introduction text until its adjacent continuation supplies
+ingredients; headnotes on both sides of a split are preserved.
+
+The current indexed prompt is `2026-09-09-indexed-source-v7`. Required freezing,
+unmolding, finishing, and serving actions belong in instructions, including
+paragraphs that also contain an optional aside. Explicit equipment lists can
+include non-food wrappers. A new extraction uses the new prompt and boundaries;
+older extractions remain readable and replayable, but cannot be resumed under a
+different prompt fingerprint.
+
+Desktop **Source checks** and CLI `cookbook audit RUN` expose the same shared
+review signals: unextracted/failed chunks, unresolved continuations, missing
+methods, possible method text in notes, possible equipment in ingredients, and
+more source yield labels than extracted recipes. Each signal links to its source;
+JSON includes stable kinds and recipe/chunk coordinates. These are review cues,
+not proof that a recipe is missing or that an unflagged book is complete. The
+summary index versions derived checks so old history entries can be refreshed.
