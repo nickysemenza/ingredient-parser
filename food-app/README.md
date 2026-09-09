@@ -9,18 +9,18 @@ shell requires macOS 13.3 or newer; the command service tests remain portable.
 Install Rust, the Xcode command-line tools, Node.js, and pnpm, then:
 
 ```sh
-pnpm --dir food-app/ui install
-pnpm --dir food-app/ui desktop:dev
+pnpm install
+pnpm --filter @ingredient-parser/desktop-ui desktop:dev
 ```
 
-The Vite UI runs inside the native Tauri window. `pnpm --dir food-app/ui dev`
+The Vite UI runs inside the native Tauri window. `pnpm --filter @ingredient-parser/desktop-ui dev`
 starts only the browser frontend, which requires its test bridge for native
 operations. It is not a separate browser-hosted product.
 
 Build an unsigned local application bundle:
 
 ```sh
-pnpm --dir food-app/ui desktop:build
+pnpm --filter @ingredient-parser/desktop-ui desktop:build
 ```
 
 The bundle is written beneath `target/release/bundle/macos/`. No signing,
@@ -30,7 +30,7 @@ notarization, or updater credentials are required for local development.
 
 ```sh
 cargo run -p food-app --example create_review_fixture -- /tmp/food-app-qa
-pnpm --dir food-app/ui desktop:build --debug
+pnpm --filter @ingredient-parser/desktop-ui desktop:build --debug
 "target/debug/bundle/macos/Ingredient Parser.app/Contents/MacOS/food-app" --review-run /tmp/food-app-qa/cookbook-run.json
 ```
 
@@ -51,12 +51,12 @@ cargo run -p food-app --example export_bindings -- --check
 ## Checks
 
 ```sh
-pnpm --dir food-app/ui lint
-pnpm --dir food-app/ui test
-pnpm --dir food-app/ui build
-pnpm --dir food-app/ui exec playwright install webkit
+pnpm --filter @ingredient-parser/desktop-ui lint
+pnpm --filter @ingredient-parser/desktop-ui test
+pnpm --filter @ingredient-parser/desktop-ui build
+pnpm --filter @ingredient-parser/desktop-ui exec playwright install webkit
 cargo run -p food-app --example create_review_fixture -- /tmp/food-app-qa
-pnpm --dir food-app/ui test:e2e
+pnpm --filter @ingredient-parser/desktop-ui test:e2e
 cargo test -p food-app
 cargo clippy -p food-app --all-targets -- -D warnings
 ```
@@ -65,3 +65,7 @@ Browser tests exercise interaction through a fixture-backed command bridge.
 Native macOS smoke testing separately verifies the actual command boundary,
 file dialogs, clipboard, startup run, and preference restoration. Imported source
 is rendered as text and controlled elements rather than executable HTML.
+
+Recipe scale controls and JSON presentation are shared with the WASM demo in
+[`packages/recipe-ui`](../packages/recipe-ui/README.md). Execution remains native
+Rust in this app; the shared package contains presentation only.

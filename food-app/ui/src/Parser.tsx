@@ -1,3 +1,4 @@
+import { RecipeScale } from "@ingredient-parser/recipe-ui";
 import {
   useEffect,
   useMemo,
@@ -600,21 +601,13 @@ function WebRecipe({
   return (
     <article className="web-recipe scroll">
       {typeof source.description === "string" && <p>{source.description}</p>}
-      <label className="scale">
-        Scale{" "}
-        <select
-          aria-label="Web recipe scale"
-          disabled={loading}
-          value={factor}
-          onChange={(e) => void scale(Number(e.target.value))}
-        >
-          {[0.5, 1, 2, 3, 4].map((v) => (
-            <option key={v} value={v}>
-              {v}×
-            </option>
-          ))}
-        </select>
-      </label>
+      <RecipeScale
+        className="scale"
+        label="Web recipe scale"
+        disabled={loading}
+        value={factor}
+        onChange={(value) => void scale(value)}
+      />
       {sections.length ? (
         sections.map((section, i) => (
           <section key={i}>

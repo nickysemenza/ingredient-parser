@@ -1,0 +1,7 @@
+packages:
+  - demo-site
+  - food-app/ui
+  - packages/*
+
+allowBuilds:
+  esbuild: true

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.nickysemenza.ingredient-parser",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm --filter @ingredient-parser/desktop-ui dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm --filter @ingredient-parser/desktop-ui build",
     "frontendDist": "ui/dist"
   },
   "app": {

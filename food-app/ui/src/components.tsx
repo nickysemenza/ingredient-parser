@@ -1,3 +1,5 @@
+import { JsonView } from "@ingredient-parser/recipe-ui";
+export { JsonView } from "@ingredient-parser/recipe-ui";
 import {
   useEffect,
   useId,
@@ -280,9 +282,6 @@ export function VirtualList<T>({
       {!rows.length && <p className="empty-inline">No matching rows.</p>}
     </div>
   );
-}
-export function JsonView({ value }: { value: unknown }) {
-  return <pre className="json">{JSON.stringify(value, null, 2)}</pre>;
 }
 export function Fields({ value }: { value: unknown }) {
   if (!value || typeof value !== "object")

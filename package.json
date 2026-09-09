@@ -1,0 +1,10 @@
+{
+  "name": "@ingredient-parser/workspace",
+  "private": true,
+  "packageManager": "pnpm@11.26.0",
+  "scripts": {
+    "build": "make build-demo-wasm && pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  }
+}

@@ -1,3 +1,4 @@
+import { JsonView } from "@ingredient-parser/recipe-ui";
 import { useCallback, useMemo, useState } from "react";
 import { wasm } from "./wasm";
 import { DecompositionView } from "./DecompositionView";
@@ -299,9 +300,7 @@ const IngredientResult: React.FC<{
         <summary className="cursor-pointer font-mono text-xs text-zinc-400 transition select-none hover:text-zinc-600">
           raw JSON
         </summary>
-        <pre className="mt-2 overflow-auto rounded-lg bg-zinc-900 p-3 font-mono text-xs leading-relaxed text-zinc-100">
-          {JSON.stringify(parsed, null, 2)}
-        </pre>
+        <JsonView value={parsed} className="mt-2 overflow-auto rounded-lg bg-zinc-900 p-3 font-mono text-xs leading-relaxed text-zinc-100" />
       </details>
     </div>
   );

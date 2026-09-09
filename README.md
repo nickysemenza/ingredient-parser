@@ -10,7 +10,7 @@ For full documentation, usage examples, and features, see the detailed [ingredie
 
 ## Maintainer toolkit
 
-Run `pnpm --dir food-app/ui desktop:dev` for the macOS Parser and Cookbooks
+Run `pnpm --filter @ingredient-parser/desktop-ui desktop:dev` for the macOS Parser and Cookbooks
 desktop workspaces. See [desktop setup and testing](food-app/README.md).
 The terminal interface has six command families: `ingredient`, `amount`, `text`,
 `recipe`, `cookbook`, and `corpus`. Use `--help` on a family or command to see its
@@ -49,3 +49,18 @@ To write a copy for manual inspection:
 ```sh
 cargo run -p recipe-epub-fixtures --example write_cookbook -- /tmp/synthetic-cookbook.epub
 ```
+
+### Frontend workspace
+
+Run `pnpm install --frozen-lockfile` at the repository root. The pnpm workspace
+contains `demo-site`, `food-app/ui`, and `packages/recipe-ui`, with one lockfile
+and package-manager version. Each app retains its own build configuration.
+
+- `pnpm build`: regenerate the demo WASM bindings and build all frontend packages.
+- `pnpm lint`: lint all frontend packages.
+- `pnpm test`: run shared presentation and desktop interaction tests.
+- `pnpm --filter demo-site dev`: start the demo (run `make build-demo-wasm` first).
+- `pnpm --filter @ingredient-parser/desktop-ui desktop:dev`: start the macOS app.
+
+Shared UI code uses `workspace:*` dependencies; source edits do not require a
+reinstall. Use `pnpm --filter <package> <command>` to run package-specific checks.

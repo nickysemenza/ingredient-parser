@@ -1,3 +1,4 @@
+import { RecipeScale } from "@ingredient-parser/recipe-ui";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState, parseAsFloat } from "nuqs";
@@ -130,32 +131,13 @@ export const Scraper: React.FC = () => {
                 </ul>
               )}
 
-              <div className="mt-4 flex items-center gap-2">
-                <span className="text-sm font-medium text-zinc-600">Scale:</span>
-                {SCALE_OPTIONS.map((scale) => (
-                  <button
-                    key={scale}
-                    onClick={() => setScaleFactor(scale)}
-                    className={`rounded-lg px-3 py-1 text-sm font-medium transition ${
-                      scaleFactor === scale
-                        ? "bg-accent-600 text-white shadow-sm"
-                        : "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
-                    }`}
-                  >
-                    {scale === 0.5 ? "½" : scale}x
-                  </button>
-                ))}
-                <input
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  value={scaleFactor}
-                  onChange={(e) =>
-                    setScaleFactor(parseFloat(e.target.value) || 1)
-                  }
-                  className={`w-16 rounded-lg border border-zinc-300 px-2 py-1 text-center text-sm ${FOCUS_RING}`}
-                />
-              </div>
+              <RecipeScale custom value={scaleFactor} onChange={(value) => void setScaleFactor(value)}
+                presets={SCALE_OPTIONS}
+                className="mt-4 flex flex-wrap items-center gap-2 text-sm font-medium text-zinc-600"
+                buttonClassName="rounded-lg px-3 py-1 text-sm font-medium transition border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
+                activeButtonClassName="rounded-lg px-3 py-1 text-sm font-medium transition bg-accent-600 text-white shadow-sm"
+                inputClassName={`w-16 rounded-lg border border-zinc-300 px-2 py-1 text-center text-sm ${FOCUS_RING}`}
+              />
             </div>
 
             {scrapedRecipe.image && (

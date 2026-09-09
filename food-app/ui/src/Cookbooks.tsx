@@ -1,3 +1,4 @@
+import { RecipeScale } from "@ingredient-parser/recipe-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -1002,21 +1003,12 @@ function Recipe({
           alt={recipe.title}
         />
       )}
-      <label className="scale">
-        Scale{" "}
-        <select
-          aria-label="Recipe scale"
-          disabled={!path || scaling}
-          value={scale}
-          onChange={(e) => void updateScale(Number(e.target.value))}
-        >
-          {[0.5, 1, 2, 3, 4].map((v) => (
-            <option key={v} value={v}>
-              {v}×
-            </option>
-          ))}
-        </select>
-      </label>
+      <RecipeScale
+        className="scale"
+        disabled={!path || scaling}
+        value={scale}
+        onChange={(value) => void updateScale(value)}
+      />
       {scaled.sections.map((section, i) => (
         <section key={i}>
           {section.name && <h4>{section.name}</h4>}
