@@ -93,6 +93,10 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String) -> bool {
 }
 
 impl MyApp {
+    pub fn open_review(&mut self, path: std::path::PathBuf) {
+        self.cookbook.open_review(path);
+        self.current_tab = Tab::Cookbook;
+    }
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::default();

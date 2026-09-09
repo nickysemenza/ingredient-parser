@@ -29,6 +29,9 @@ fn classify_table() {
     // CrossReference — pure navigation cruft.
     for inner in [
         "see this page",
+        "see here",
+        "see above",
+        "see below",
         "page 12",
         "this page, this page, or this page",
     ] {
@@ -117,6 +120,7 @@ fn classify_ordering() {
 fn predicates_match_arms() {
     assert!(is_cross_reference("see page 5"));
     assert!(!is_cross_reference("from Lamb Meat Soup, this page"));
+    assert!(!is_cross_reference("see here, finely chopped"));
     assert!(is_note_reference("see note"));
     assert!(!is_note_reference("note the color"));
     assert!(is_minus_equivalence("2 sticks minus 1 tablespoon"));

@@ -907,3 +907,8 @@ not valid json
         assert_eq!(tally.matched(), 0);
     }
 }
+
+/// Independent cookbook evaluation shared by CLI and desktop.
+pub mod cookbooks;
+/// Source-only deterministic cookbook sampling.
+pub mod sampling;

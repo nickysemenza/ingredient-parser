@@ -15,7 +15,14 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Ok(Box::new(MyApp::new(cc)))
+            let mut app = MyApp::new(cc);
+            let mut args = std::env::args_os().skip(1);
+            if args.next().is_some_and(|arg| arg == "--review-run")
+                && let Some(path) = args.next()
+            {
+                app.open_review(path.into());
+            }
+            Ok(Box::new(app))
         }),
     )
 }

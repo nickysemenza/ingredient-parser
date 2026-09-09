@@ -244,3 +244,108 @@ fn parse_rich_text_json() {
             .any(|c| c.get("kind") == Some(&serde_json::json!("Measure")))
     );
 }
+
+#[test]
+fn grouped_commands_preserve_legacy_outputs() {
+    for (legacy, grouped, args) in [
+        (
+            "parse-ingredient",
+            vec!["ingredient", "parse"],
+            vec!["1 cup flour, sifted"],
+        ),
+        (
+            "parse-amount",
+            vec!["amount", "parse"],
+            vec!["2 cups", "--json"],
+        ),
+        ("validate-unit", vec!["amount", "validate"], vec!["cups"]),
+    ] {
+        let old = food_cli().arg(legacy).args(&args).output().unwrap();
+        let new = food_cli().args(grouped).args(&args).output().unwrap();
+        assert_eq!(old.status.code(), new.status.code());
+        assert_eq!(old.stdout, new.stdout);
+    }
+}
+
+#[test]
+fn refresh_requires_explicit_network_authorization() {
+    let output = food_cli()
+        .args([
+            "epub",
+            "extract",
+            "missing.epub",
+            "--out",
+            "unused.json",
+            "--refresh",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn ingredient_stats_json_jsonl_filters_and_invalid_saved_parses() {
+    use recipe_epub::review::{ReviewRun, stats::ingredient_stats};
+    let dir = std::env::temp_dir().join(format!("cli-ingredient-stats-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("run.json");
+    let mut run: ReviewRun = serde_json::from_value(serde_json::json!({
+        "version":1,"epub_sha256":"synthetic","source":"fixture.epub","model":"no-network","prompt_version":"old-saved-version",
+        "parent":null,"chunks":[],"documents":[],"reserved_usd":0,
+        "recipes":[{"meta":{"title":"Soup"},"sections":[{"ingredients":["1 tsp salt","2 tsp salt","1 cup water"]}],"source":"fixture.epub","url":"fixture.epub#soup.xhtml"}],
+        "parsed":[{"sections":[{"ingredients":[{"name":"salt"},{"name":"salt"},{"name":"water"}]}]}]
+    })).unwrap();
+    run.save(&path).unwrap();
+    let output = food_cli()
+        .args(["ingredient", "stats"])
+        .arg(&path)
+        .args(["--limit", "1", "--examples", "1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let shared = ingredient_stats(&run).unwrap();
+    assert_eq!(result["unique_names"], shared.unique_names);
+    assert_eq!(result["total_occurrences"], shared.total_occurrences);
+    assert_eq!(result["names"][0]["occurrences"], 2);
+    assert_eq!(result["names"][0]["recipes"], 1);
+    assert_eq!(result["names"][0]["examples"].as_array().unwrap().len(), 1);
+    assert_eq!(result["matching_names"], 2);
+    let output = food_cli()
+        .args(["ingredient", "stats"])
+        .arg(&path)
+        .args(["--max-count", "1", "--sort", "name", "--jsonl"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).lines().count(), 1);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["name"],
+        "water"
+    );
+    let output = food_cli()
+        .args(["ingredient", "stats"])
+        .arg(&path)
+        .args(["--name", "missing"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["matching_names"],
+        0
+    );
+    run.parsed = serde_json::json!([]);
+    run.save(&path).unwrap();
+    let output = food_cli()
+        .args(["ingredient", "stats"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("replay"));
+    std::fs::remove_dir_all(dir).unwrap();
+}

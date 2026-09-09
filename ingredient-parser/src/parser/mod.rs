@@ -12,7 +12,7 @@
 //! then the fix goes in that stage:
 //!
 //! ```text
-//! cargo run -p food-cli --quiet -- parse-ingredient --explain "<line>"
+//! cargo run -p food-cli --quiet -- ingredient parse --explain "<line>"
 //! ```
 //!
 //! Follow the first incorrect interpretation and fix its owning module:

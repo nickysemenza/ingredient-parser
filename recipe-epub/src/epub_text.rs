@@ -29,7 +29,7 @@ struct CleanLine {
 /// have no archive entry. Normalizes `.`/`..` segments and a leading `/`
 /// (archive-root) so e.g. `../images/p12.jpg` from `OEBPS/text/ch1.xhtml`
 /// resolves to `OEBPS/images/p12.jpg`.
-fn resolve_relative(doc_path: &str, src: &str) -> Option<String> {
+pub(crate) fn resolve_relative(doc_path: &str, src: &str) -> Option<String> {
     // Drop any URL fragment/query before resolving (image srcs rarely carry them,
     // but a stray `#anchor` would otherwise leak into the path).
     let src = src.split(['#', '?']).next().unwrap_or(src).trim();
@@ -119,6 +119,20 @@ fn is_internal_href(href: &str) -> bool {
         && !h.starts_with("https://")
         && !h.starts_with("mailto:")
         && (h.starts_with('#') || h.contains(".htm") || h.contains(".xhtml") || h.contains('#'))
+}
+
+/// Numeric superscript internal links are editorial footnote markers, not food text.
+pub(crate) fn is_footnote_marker(element: scraper::ElementRef<'_>) -> bool {
+    element.value().name() == "a"
+        && element.value().attr("href").is_some_and(is_internal_href)
+        && element
+            .descendants()
+            .filter_map(scraper::ElementRef::wrap)
+            .any(|e| e.value().name() == "sup")
+        && {
+            let text = element.text().collect::<String>();
+            !text.trim().is_empty() && text.trim().chars().all(|c| c.is_ascii_digit())
+        }
 }
 
 /// Target chunk size in characters. Large enough that a single long recipe
@@ -365,7 +379,7 @@ pub(crate) fn clean_xhtml_to_text(xhtml: &str) -> String {
 /// document as script text. The body then never leaves `<script>`, so the DOM
 /// walk extracts zero text (this silently dropped a whole 22-chapter cookbook).
 /// Returns a borrow when there's nothing to fix, so the common path doesn't allocate.
-fn close_self_closing_rawtext(xhtml: &str) -> std::borrow::Cow<'_, str> {
+pub(crate) fn close_self_closing_rawtext(xhtml: &str) -> std::borrow::Cow<'_, str> {
     let lower = xhtml.to_ascii_lowercase();
     if !lower.contains("<script") && !lower.contains("<style") {
         return std::borrow::Cow::Borrowed(xhtml);
@@ -438,7 +452,9 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
             Edge::Open(node) => match node.value() {
                 Node::Element(e) => {
                     let name = e.name();
-                    if is_skip(name) {
+                    if is_skip(name)
+                        || scraper::ElementRef::wrap(node).is_some_and(is_footnote_marker)
+                    {
                         // An <a> whose text flows into a skipped region can't be
                         // captured reliably, and its matching </a> may be swallowed
                         // inside the skip. Abandon the open anchor so a later stray
@@ -514,7 +530,9 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
             Edge::Close(node) => {
                 if let Node::Element(e) = node.value() {
                     let name = e.name();
-                    if is_skip(name) {
+                    if is_skip(name)
+                        || scraper::ElementRef::wrap(node).is_some_and(is_footnote_marker)
+                    {
                         skip_depth = skip_depth.saturating_sub(1);
                     } else if skip_depth == 0 {
                         match name {
@@ -714,6 +732,11 @@ mod tests {
     // <br> forces a line break within a block
     #[case::line_break("<p>line one<br/>line two</p>", "line one\nline two")]
     // inline markup inside a block stays on one line
+    #[case::footnote(
+        "<p>1 teaspoon seeds, roasted<a href='#note1'><sup>1</sup></a> and crushed</p><p id='note1'>1 Roast in a dry pan.</p>",
+        "1 teaspoon seeds, roasted and crushed\n1 Roast in a dry pan."
+    )]
+    #[case::superscript_not_reference("<p>2<sup>3</sup> cups</p>", "23 cups")]
     #[case::inline("<p>1 cup <b>all-purpose</b> flour</p>", "1 cup all-purpose flour")]
     // nbsp + whitespace runs collapse
     #[case::nbsp("<p>1\u{a0}cup\n\n  flour</p>", "1 cup flour")]

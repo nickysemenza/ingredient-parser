@@ -316,7 +316,7 @@ async fn extract_cookbook_with_report<E: RecipeExtractor, F: RecipeExtractor>(
     let chunks = chunk_epub(bytes)?;
     let total = chunks.len();
     tracing::info!("epub {source}: {total} chunk(s)");
-    let report = extract_chunks_with(
+    let mut report = extract_chunks_with(
         chunks,
         source,
         &OrchestrationOptions {
@@ -372,6 +372,7 @@ async fn extract_cookbook_with_report<E: RecipeExtractor, F: RecipeExtractor>(
         }
     }
 
+    crate::source::enrich_from_source(&mut report.recipes, &crate::source::inspect_source(bytes)?);
     let stats = report.accounting(extractor.model(), escalation.map(RecipeExtractor::model));
     tracing::info!(
         "epub {source}: {} recipe(s); {}",
@@ -644,15 +645,18 @@ async fn extract_chunk_detailed<T: CallTool>(
     chunk: &Chunk,
     truncated_reasons: &[&str],
 ) -> Result<ChunkOutcome, ChunkExtractionFailure> {
-    let req = build_chunk_request(chunk);
+    let req = crate::indexed::build_indexed_chunk_request(chunk);
+    let feedback = std::sync::Mutex::new(None::<String>);
     let driven = try_extract_chunk_detailed_for_chunk(chunk, || async {
+        let previous = feedback.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        let user = match previous { Some(reason) => format!("{}\n\nThe previous attempt failed validation: {reason}. Return a corrected complete assignment using only the displayed indices.", req.user), None => req.user.clone() };
         let (input, usage, reason) = backend
             .call_tool(
                 ToolCall {
                     system: &req.system,
                     // `user`/`schema` are re-sent each attempt, so clone rather
                     // than move them out of `req`.
-                    user: req.user.clone(),
+                    user,
                     tool_name: &req.tool_name,
                     tool_desc: "Return every recipe found in the cookbook section.",
                     schema: req.tool_schema.clone(),
@@ -664,6 +668,29 @@ async fn extract_chunk_detailed<T: CallTool>(
                 },
             )
             .await?;
+        if input.is_none() {
+            return Err(CallFailure::retryable_payload(
+                EpubError::Proxy("model returned no structured extraction payload".into()),
+                usage,
+                is_truncated(reason.as_deref(), truncated_reasons),
+            ));
+        }
+        let input = input
+            .map(|input| {
+                let lowered = crate::indexed::lower_indexed_payload(chunk, input)?;
+                let recipes = crate::parse_recipes_payload(lowered.clone())?;
+                crate::extractor::validate_chunk_recipes(chunk, &recipes)?;
+                Ok::<_, EpubError>(lowered)
+            })
+            .transpose()
+            .map_err(|error| {
+                *feedback.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
+                CallFailure::retryable_payload(
+                    error,
+                    usage.clone(),
+                    is_truncated(reason.as_deref(), truncated_reasons),
+                )
+            })?;
         let truncated = is_truncated(reason.as_deref(), truncated_reasons);
         if truncated {
             warn_truncated(&chunk.doc_path);
@@ -1384,9 +1411,13 @@ mod tests {
             responses: RefCell::new(VecDeque::from([Ok((
                 Some(json!({
                     "recipes": [{
-                        "title": "Pancakes",
-                        "sections": [{ "ingredients": ["1 cup flour"] }]
-                    }]
+                        "title": [0],
+                        "description": [],
+                        "sections": [{ "name": [], "ingredients": [1], "instructions": [2] }],
+                        "notes": [],
+                        "equipment": []
+                    }],
+                    "ignored": []
                 })),
                 Usage {
                     input_tokens: 23,
@@ -1405,6 +1436,35 @@ mod tests {
         assert_eq!(outcome.usage.output_tokens, 7);
         assert!(outcome.truncated);
         assert!(!outcome.cached);
+    }
+
+    #[tokio::test]
+    async fn native_empty_response_is_a_failure_with_retry_accounting() {
+        let backend = ScriptedCallTool {
+            responses: RefCell::new(VecDeque::from([
+                Ok((
+                    None,
+                    Usage {
+                        input_tokens: 7,
+                        ..Default::default()
+                    },
+                    Some("stop".into()),
+                )),
+                Ok((
+                    None,
+                    Usage {
+                        input_tokens: 7,
+                        ..Default::default()
+                    },
+                    Some("stop".into()),
+                )),
+            ])),
+        };
+        let failure = extract_chunk_detailed(&backend, &extraction_chunk(), &["length"])
+            .await
+            .unwrap_err();
+        assert_eq!(failure.usage.input_tokens, 14);
+        assert!(failure.error.to_string().contains("no structured"));
     }
 
     #[tokio::test]

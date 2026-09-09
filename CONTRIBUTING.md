@@ -46,7 +46,7 @@ cargo clippy --all-targets
 cargo fmt --all -- --check
 
 # Parse a single line while iterating
-cargo run -p food-cli --quiet -- parse-ingredient "1 cup flour, sifted"
+cargo run -p food-cli --quiet -- ingredient parse "1 cup flour, sifted"
 
 # Benchmarks (need the `bench` feature) and fuzzing (need nightly)
 cargo bench -p ingredient --features bench
@@ -78,7 +78,7 @@ There are two kinds of rows:
 4. If it doesn't (and the *right* answer needs parser work), mark it `xfail`
    with a short reason. Get exact field values from the CLI:
    ```bash
-   cargo run -p food-cli --quiet -- parse-ingredient "your line here"
+   cargo run -p food-cli --quiet -- ingredient parse "your line here"
    ```
 5. For fractional amounts, prefer the exact fraction-string form —
    `"value": "2/3"`, `"1/3"`, or a mixed number `"1 1/2"`. A plain JSON number
@@ -91,7 +91,7 @@ There are two kinds of rows:
 To eyeball the whole corpus as a rendered table, run:
 
 ```bash
-cargo run -p food-cli --quiet -- corpus-table
+cargo run -p food-cli --quiet -- corpus table
 ```
 
 It renders `corpus.jsonl` to a temporary HTML page (grouped by section, with

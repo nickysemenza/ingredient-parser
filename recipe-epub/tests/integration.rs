@@ -57,6 +57,7 @@ const FRONT: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml"><body>
   <h1>Introduction</h1>
   <p>Welcome to the Test Cookbook. This is just a friendly intro with no recipes.</p>
+  <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="images/cover.jpg"/></svg>
 </body></html>"#;
 
 // One chapter doc with two recipes (Dessert-Person style <p class> paragraphs),
@@ -434,4 +435,322 @@ async fn continuation_chunk_merges_back_into_one_recipe() {
         "the head chunk's note was dropped: {:#?}",
         merged.meta.notes
     );
+}
+
+#[tokio::test]
+async fn review_run_cache_only_replay_and_resume_preserve_source_gaps() {
+    use recipe_epub::review::{ReviewRun, RunOptions, extract_run};
+    let dir = std::env::temp_dir().join(format!("review-offline-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("run.json");
+    let mut run = ReviewRun::inspect(&build_epub(), "fixture.epub", "unpriced-no-backend").unwrap();
+    assert!(!run.documents.is_empty());
+    let original_ids: Vec<_> = run.chunks.iter().map(|c| c.id.clone()).collect();
+    extract_run(
+        &mut run,
+        &RunOptions {
+            cache_dir: Some(dir.join("empty-cache")),
+            ..Default::default()
+        },
+        &out,
+    )
+    .await
+    .unwrap();
+    assert!(run.incomplete());
+    assert!(
+        run.chunks
+            .iter()
+            .all(|c| c.error.as_deref() == Some("cache miss (network disabled)"))
+    );
+    let mut loaded = ReviewRun::read(&out).unwrap();
+    loaded.replay().unwrap();
+    assert!(loaded.recipes.is_empty());
+    assert_eq!(
+        original_ids,
+        loaded
+            .chunks
+            .iter()
+            .map(|c| c.id.clone())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(loaded.reserved_usd, 0.0);
+    let before = std::fs::read(&out).unwrap();
+    assert!(
+        extract_run(
+            &mut loaded,
+            &RunOptions {
+                chunks: vec!["missing".into()],
+                ..Default::default()
+            },
+            &out
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(before, std::fs::read(&out).unwrap());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn complete_method_schema_and_coverage_guard() {
+    let schema = recipe_epub::recipes_tool_schema();
+    assert_eq!(
+        schema["properties"]["recipes"]["items"]["properties"]["sections"]["items"]["required"],
+        serde_json::json!(["ingredients", "instructions"])
+    );
+    let chunk = recipe_epub::Chunk {
+        title_hint: None,
+        doc_path: "recipe.xhtml".into(),
+        links: vec![],
+        images: vec![],
+        text: format!(
+            "Soup\n1 cup water\nHeat {}\nMix {}",
+            "the water in a saucepan until it reaches a gentle simmer. ".repeat(3),
+            "the ingredients carefully and continue stirring until combined. ".repeat(3)
+        ),
+    };
+    let payload = serde_json::json!({"recipes":[{"title":"Soup","sections":[{"ingredients":["1 cup water"],"instructions":[]}]}]});
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let result = rt.block_on(recipe_epub::try_extract_chunk_detailed_for_chunk(
+        &chunk,
+        || async {
+            Ok(recipe_epub::CallResult {
+                input: Some(payload.clone()),
+                usage: Default::default(),
+                truncated: false,
+            })
+        },
+    ));
+    assert!(result.is_err());
+    let mut empty_test = chunk;
+    empty_test.text.push_str("\nSERVES 2\n2g salt\n3g pepper");
+    let missing = rt.block_on(recipe_epub::try_extract_chunk_detailed_for_chunk(
+        &empty_test,
+        || async {
+            Ok(recipe_epub::CallResult {
+                input: Some(serde_json::json!({"recipes":[]})),
+                usage: Default::default(),
+                truncated: false,
+            })
+        },
+    ));
+    assert!(missing.is_err());
+}
+
+#[tokio::test]
+async fn review_budget_version_and_decisions_are_guarded() {
+    use recipe_epub::review::{
+        ReviewDecision, ReviewDecisions, ReviewRun, RunOptions, extract_run,
+    };
+    let dir = std::env::temp_dir().join(format!("review-guards-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("run.json");
+    let mut run = ReviewRun::inspect(&build_epub(), "fixture.epub", "gemini-2.5-flash").unwrap();
+    extract_run(
+        &mut run,
+        &RunOptions {
+            allow_network: true,
+            cache_dir: Some(dir.join("cache")),
+            budget_usd: 0.0,
+            ..Default::default()
+        },
+        &out,
+    )
+    .await
+    .unwrap();
+    assert_eq!(run.reserved_usd, 0.0);
+    assert!(run.chunks.iter().all(|c| c.output.is_none()));
+    assert!(
+        run.chunks
+            .iter()
+            .any(|c| c.error.as_deref() == Some("budget exhausted before request"))
+    );
+    let notes = dir.join("review.json");
+    let mut decisions = ReviewDecisions::read(&notes, &run).unwrap();
+    decisions.documents.insert(
+        run.documents[0].path.clone(),
+        ReviewDecision {
+            status: "Uncertain".into(),
+            note: "Check source photo".into(),
+        },
+    );
+    decisions.save(&notes).unwrap();
+    assert_eq!(
+        ReviewDecisions::read(&notes, &run)
+            .unwrap()
+            .documents
+            .values()
+            .next()
+            .unwrap()
+            .note,
+        "Check source photo"
+    );
+    let mut other = run.clone();
+    other.epub_sha256 = "different".into();
+    assert!(ReviewDecisions::read(&notes, &other).is_err());
+    run.version += 1;
+    run.save(&out).unwrap();
+    assert!(ReviewRun::read(&out).is_err());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn offline_replay_uses_source_captions_and_rejects_foreign_annotations() {
+    use recipe_epub::review::{ImageText, ReviewRun, SourceImageText};
+    let mut run = ReviewRun::inspect(&build_epub(), "fixture.epub", "offline").unwrap();
+    for chunk in &mut run.chunks {
+        chunk.output = Some(if chunk.source.text.contains("Pancakes") {
+            vec![er(
+                "Pancakes",
+                &["1 cup flour", "2 eggs"],
+                &["Mix and cook on a griddle."],
+            )]
+        } else {
+            vec![]
+        });
+    }
+    run.image_text = Some(SourceImageText {
+        epub_sha256: run.epub_sha256.clone(),
+        method: "synthetic captions".into(),
+        images: vec![
+            ImageText {
+                path: "OEBPS/images/p1.jpg".into(),
+                captions: vec![],
+            },
+            ImageText {
+                path: "OEBPS/images/p2.jpg".into(),
+                captions: vec!["Pancakes".into()],
+            },
+        ],
+    });
+    run.replay().unwrap();
+    assert_eq!(
+        run.recipes[0].image.as_ref().unwrap().path,
+        "OEBPS/images/p2.jpg"
+    );
+    assert_eq!(
+        run.parsed,
+        serde_json::to_value(
+            run.recipes
+                .iter()
+                .map(CookbookRecipeExt::parse)
+                .collect::<Vec<_>>()
+        )
+        .unwrap()
+    );
+    run.image_text.as_mut().unwrap().epub_sha256 = "another source".into();
+    assert!(run.replay().is_err());
+}
+
+#[test]
+fn inheriting_a_run_preserves_unchanged_outputs_and_invalidates_changed_chunks() {
+    use recipe_epub::review::ReviewRun;
+    let mut parent = ReviewRun::inspect(&build_epub(), "fixture.epub", "old-model").unwrap();
+    for c in &mut parent.chunks {
+        c.output = Some(vec![]);
+    }
+    parent.reserved_usd = 0.125;
+    let mut fresh = ReviewRun::inspect(&build_epub(), "fixture.epub", "new-model").unwrap();
+    fresh.chunks[0].source.text.push_str(" Changed cleaning.");
+    let run = fresh
+        .inherit_outputs(&parent, std::path::Path::new("parent.json"))
+        .unwrap();
+    assert!(run.chunks[0].output.is_none());
+    assert!(
+        run.chunks[1..]
+            .iter()
+            .all(|c| c.output.is_some() && c.model.as_deref() == Some("old-model"))
+    );
+    assert_eq!(run.model, "new-model");
+    assert_eq!(run.reserved_usd, 0.125);
+    assert_eq!(run.parent.as_deref(), Some("parent.json"));
+    fresh.epub_sha256 = "another book".into();
+    assert!(
+        fresh
+            .inherit_outputs(&parent, std::path::Path::new("parent.json"))
+            .is_err()
+    );
+}
+
+#[test]
+fn review_discrepancies_include_ingredient_extra_and_exact_recipe_failures() {
+    use recipe_epub::review::{ReviewRun, discrepancies_by_source};
+    let mut run = ReviewRun::inspect(&build_epub(), "fixture.epub", "offline").unwrap();
+    run.chunks[0].output = Some(vec![er("Pancakes", &["1 cup flour"], &["Mix."])]);
+    run.replay().unwrap();
+    let source = run.recipes[0].url.rsplit_once('#').unwrap().1;
+    let evaluation = serde_json::json!({
+        "rows":[{"source":source,"issues":[]}],
+        "extra_recipes":[{"source":run.recipes[0].url}],
+        "mismatches":[{"path":"recipes/0/meta/title","want":"Other","got":"Pancakes"},
+            {"path":"recipes/1","want":{"url":"epub://fixture#missing.xhtml"},"got":null}],
+        "ingredients":{"rows":[{"want":{"recipe_index":0},"fields":[true,false,true,true,true]},
+            {"want":{"recipe_index":0},"fields":[true,true,true,true,true]}]}
+    });
+    let issues = discrepancies_by_source(&run, &evaluation);
+    assert_eq!(issues[source].len(), 3);
+    assert_eq!(issues["missing.xhtml"].len(), 1);
+    assert!(
+        discrepancies_by_source(
+            &run,
+            &serde_json::json!({"rows":[{"source":source,"issues":[]}]})
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn source_inspection_retains_svg_cover_images() {
+    let source = recipe_epub::source::inspect_source(&build_epub()).unwrap();
+    assert_eq!(source[0].images[0].path, "OEBPS/images/cover.jpg");
+    assert_eq!(source[0].images[0].mime, "image/jpeg");
+}
+
+#[test]
+fn saved_name_statistics_count_occurrences_and_recipes_without_reparsing() {
+    use recipe_epub::review::{
+        ReviewRun,
+        stats::{NameSort, ingredient_stats},
+    };
+    let mut run = ReviewRun::inspect(&build_epub(), "fixture.epub", "offline").unwrap();
+    run.chunks[0].output = Some(vec![
+        er(
+            "First",
+            &["1 tsp salt", "2 tsp salt", "1 tsp Salt"],
+            &["Mix."],
+        ),
+        er("Second", &["1 tsp salt", "mystery"], &["Mix."]),
+    ]);
+    run.replay().unwrap();
+    // Stored parsing may come from older code. Statistics must not rerun it.
+    run.parsed[0]["sections"][0]["ingredients"][2]["name"] = serde_json::json!("Salt");
+    run.parsed[1]["sections"][0]["ingredients"][1]["name"] = serde_json::json!("");
+    let stats = ingredient_stats(&run).unwrap();
+    assert_eq!(stats.total_occurrences, 5);
+    assert_eq!(stats.unique_names, 3);
+    assert_eq!(stats.singleton_names, 2);
+    assert_eq!(stats.total_recipes, 2);
+    assert_eq!(stats.names[0].name, "salt");
+    assert_eq!(stats.names[0].occurrences, 3);
+    assert_eq!(stats.names[0].recipes, 2);
+    assert_eq!(stats.names[0].distinct_inputs, 2);
+    assert_eq!(stats.names[0].examples[2].recipe_index, 1);
+    assert_eq!(stats.names[0].examples[2].input, "1 tsp salt");
+    assert_eq!(
+        stats
+            .select("SALT", None, NameSort::Name)
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Salt", "salt"]
+    );
+    assert_eq!(stats.select("", Some(1), NameSort::Occurrences).len(), 2);
+    assert_eq!(stats.select("", None, NameSort::Recipes)[0].recipes, 2);
+    assert!(stats.select("absent", None, NameSort::Name).is_empty());
+    assert!(!stats.complete);
+    run.parsed[0]["sections"][0]["ingredients"] = serde_json::json!([]);
+    assert!(ingredient_stats(&run).is_err());
+    run.recipes.clear();
+    run.parsed = serde_json::json!([]);
+    assert_eq!(ingredient_stats(&run).unwrap().total_occurrences, 0);
 }

@@ -14,6 +14,11 @@ ingredient.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+sha2 = "0.11"
+xml-rs = "0.8"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+unicode-casefold = "0.2"
+
 [dev-dependencies]
 # Characterization snapshot of render_authored over every real corpus row, so a
 # change to the viewer's spelling shows up as a reviewable diff.

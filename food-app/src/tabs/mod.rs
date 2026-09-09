@@ -1,4 +1,5 @@
 mod cookbook;
+mod cookbook_review;
 mod corpus;
 mod debug;
 mod recipe;
@@ -36,3 +37,5 @@ pub(crate) fn arrow_nav(ui: &egui::Ui, selected: &mut Option<usize>, len: usize)
     *selected = next;
     true
 }
+
+mod ingredient_stats;

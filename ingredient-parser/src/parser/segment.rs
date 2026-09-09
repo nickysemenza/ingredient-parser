@@ -817,7 +817,11 @@ fn quantified_alternative(input: &str, units: &std::collections::HashSet<String>
         let food = parser
             .parse_measurement_list(primary)
             .map_or(primary, |(remaining, _)| remaining);
-        if !food.chars().any(char::is_alphabetic) {
+        if !food.chars().any(char::is_alphabetic)
+            || super::vocab::SIZE_UNIT_WORDS
+                .iter()
+                .any(|size| food.trim().eq_ignore_ascii_case(size))
+        {
             continue;
         }
         if parser

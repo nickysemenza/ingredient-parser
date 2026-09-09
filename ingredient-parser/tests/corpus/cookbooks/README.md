@@ -25,13 +25,14 @@ first 50 form the sample. No numeric-line filter or parser confidence signal is
 used. Generic ingredient lines may occur in multiple books; the split is by book,
 not by unique phrase across all books.
 
-Reproduce or verify with the Python standard library:
+Verify through the unified CLI:
 
 ```sh
-python3 scripts/sample_cookbooks.py '/path/to/Calibre' --verify
+cargo run -p food-cli -- corpus verify '/path/to/Calibre' \
+  --corpus ingredient-parser/tests/corpus/cookbooks
 ```
 
-The same script verifies the 300-line development benchmark workload. The
+The same command verifies the 300-line development benchmark workload. The
 benchmark file is kept under `benches/` so the published crate's benchmark does
 not reference excluded test files.
 
@@ -74,18 +75,18 @@ as `(from 1 lemon)` are not equivalent measures of the named food.
 ## Evaluation
 
 ```sh
-cargo run -p ingredient-corpus --example evaluate -- \
-  ingredient-parser/tests/corpus/cookbooks development
-cargo run -p ingredient-corpus --example evaluate -- \
-  ingredient-parser/tests/corpus/cookbooks holdout
+cargo run -p food-cli -- corpus evaluate \
+  ingredient-parser/tests/corpus/cookbooks --split development
+cargo run -p food-cli -- corpus evaluate \
+  ingredient-parser/tests/corpus/cookbooks --split holdout
 ```
 
 Save evaluator output to compare two frozen implementations without reopening
 labels:
 
 ```sh
-python3 scripts/compare_cookbook_eval.py before.json after.json
-python3 scripts/compare_cookbook_eval.py before.json after.json \
+cargo run -p food-cli -- corpus compare before.json after.json
+cargo run -p food-cli -- corpus compare before.json after.json \
   --book-id wok --book-id arabiyya --book-id charred \
   --book-id home-kitchen --book-id bakers-companion --book-id nopalito
 ```

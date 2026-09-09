@@ -123,6 +123,8 @@ type RefGraphView<'a> = GraphView<
 
 /// State for the Cookbook (EPUB) tab.
 pub struct CookbookTab {
+    review: super::cookbook_review::ReviewPanel,
+    show_review: bool,
     // `pub(crate)` fields are snapshotted by `crate::persist::PersistedState`
     // (inputs and view toggles only — promises and loaded data stay per-run).
     pub(crate) path: String,
@@ -184,6 +186,8 @@ pub struct CookbookTab {
 impl Default for CookbookTab {
     fn default() -> Self {
         Self {
+            review: Default::default(),
+            show_review: false,
             path: String::new(),
             no_cache: false,
             promise: None,
@@ -212,7 +216,20 @@ impl Default for CookbookTab {
 }
 
 impl CookbookTab {
+    pub fn open_review(&mut self, path: PathBuf) {
+        self.review.open(path);
+        self.show_review = true;
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.show_review, false, "Cookbook");
+            ui.selectable_value(&mut self.show_review, true, "Review");
+        });
+        if self.show_review {
+            self.review.show(ui);
+            return;
+        }
         let ctx = ui.ctx().clone();
         let load_pending = self.load_pending();
 

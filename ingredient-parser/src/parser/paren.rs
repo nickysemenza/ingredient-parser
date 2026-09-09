@@ -52,7 +52,7 @@ pub(crate) enum ParenKind {
 pub(crate) static CROSS_REF: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     #[allow(clippy::expect_used)]
     regex::Regex::new(
-        r"(?i)\s*\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*\s*\)",
+        r"(?i)\s*\(\s*(?:(?:see\s+)?(?:this page|page\s+\d+)|see\s+(?:here|above|below))(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:(?:see\s+)?(?:this page|page\s+\d+)|see\s+(?:here|above|below)))*\s*\)",
     )
     .expect("invalid cross-ref regex")
 });
@@ -63,7 +63,7 @@ pub(crate) static CROSS_REF_OPTIONAL: std::sync::LazyLock<regex::Regex> = std::s
     || {
         #[allow(clippy::expect_used)]
         regex::Regex::new(
-            r"(?i)\(\s*(?:see\s+)?(?:this page|page\s+\d+)(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:see\s+)?(?:this page|page\s+\d+))*[\s,;]+optional\s*\)",
+            r"(?i)\(\s*(?:(?:see\s+)?(?:this page|page\s+\d+)|see\s+(?:here|above|below))(?:[\s,;]*(?:to|or|and)?[\s,;]*(?:(?:see\s+)?(?:this page|page\s+\d+)|see\s+(?:here|above|below)))*[\s,;]+optional\s*\)",
         )
         .expect("invalid cross-ref-optional regex")
     },

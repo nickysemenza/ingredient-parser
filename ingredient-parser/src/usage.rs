@@ -110,7 +110,7 @@ pub fn classify_usage(
                     // describe surplus beyond the measured amount — the row's
                     // own role stays Normal. "plus more to taste" is likewise
                     // surplus, while "or more to taste" still seasons the row.
-                    if (phrase.starts_with("for ") && is_surplus_mention(hay, pos))
+                    if (*phrase != "to taste" && is_surplus_mention(hay, pos))
                         || (*phrase == "to taste" && has_recent_word(hay, pos, "plus"))
                     {
                         continue;
@@ -340,6 +340,13 @@ mod tests {
     #[case(
         "lemon juice",
         Some("plus more to taste"),
+        None,
+        None,
+        IngredientUsage::Normal
+    )]
+    #[case(
+        "sesame seeds",
+        Some("plus 4 teaspoons to garnish"),
         None,
         None,
         IngredientUsage::Normal

@@ -516,6 +516,26 @@ where
 /// (including a space before punctuation or around a hyphen); letters, numbers,
 /// units, ranges, and punctuation must still occur in the sent source text.
 pub fn validate_chunk_recipes(chunk: &Chunk, recipes: &[ExtractedRecipe]) -> Result<(), EpubError> {
+    if recipes.is_empty() {
+        let has_yield = chunk.text.lines().any(|line| {
+            let upper = line.trim().to_ascii_uppercase();
+            upper.starts_with("SERVES ") || upper.starts_with("MAKES ")
+        });
+        let quantities = chunk
+            .text
+            .lines()
+            .filter(|line| {
+                line.trim_start()
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_numeric())
+                    && line.len() < 160
+            })
+            .count();
+        if has_yield && quantities >= 3 {
+            return Err(EpubError::Proxy("source has explicit recipe yield and multiple ingredient quantities, but no recipe was returned".into()));
+        }
+    }
     let source = normalize_source_whitespace(&chunk.text);
     let hint = chunk.title_hint.as_deref().map(normalize_source_whitespace);
     for (recipe_index, recipe) in recipes.iter().enumerate() {
@@ -526,20 +546,102 @@ pub fn validate_chunk_recipes(chunk: &Chunk, recipes: &[ExtractedRecipe]) -> Res
             "title",
             &recipe.meta.title,
         )?;
+        if hint.as_deref() != Some(normalize_source_whitespace(&recipe.meta.title).as_str())
+            && !matches_complete_lines(&chunk.text, &recipe.meta.title, true)
+        {
+            return Err(EpubError::Proxy(format!(
+                "source fidelity violation in recipe {}: title {:?} omits part of its authored line or subtitle",
+                recipe_index + 1,
+                recipe.meta.title
+            )));
+        }
         for section in &recipe.sections {
             if let Some(name) = &section.name {
                 validate_source_field(&source, None, recipe_index, "section label", name)?;
             }
             for ingredient in &section.ingredients {
                 validate_source_field(&source, None, recipe_index, "ingredient", ingredient)?;
+                if !matches_complete_lines(&chunk.text, ingredient, false) {
+                    return Err(EpubError::Proxy(format!(
+                        "source fidelity violation in recipe {}: ingredient must preserve complete authored lines",
+                        recipe_index + 1
+                    )));
+                }
             }
             for instruction in &section.instructions {
                 validate_source_field(&source, None, recipe_index, "instruction", instruction)?;
             }
         }
     }
+    if recipes.len() == 1
+        && recipes[0]
+            .sections
+            .iter()
+            .any(|s| !s.ingredients.is_empty())
+        && recipes[0]
+            .sections
+            .iter()
+            .all(|s| s.instructions.is_empty())
+    {
+        let method_lines = chunk
+            .text
+            .lines()
+            .filter(|line| {
+                line.len() > 100
+                    && line.split_whitespace().next().is_some_and(|word| {
+                        matches!(
+                            word,
+                            "Mix"
+                                | "Heat"
+                                | "Crush"
+                                | "Boil"
+                                | "Rinse"
+                                | "Whisk"
+                                | "Fry"
+                                | "Knead"
+                                | "Bake"
+                        )
+                    })
+            })
+            .count();
+        if method_lines >= 2 {
+            return Err(EpubError::Proxy(
+                "source coverage violation: shared method paragraphs were omitted".into(),
+            ));
+        }
+    }
     validate_component_heading_placement(chunk, recipes)?;
     Ok(())
+}
+
+/// Match whole authored lines, allowing wrapped blocks to be joined. Never
+/// accept a substring that silently removes food, quantities, or a subtitle.
+fn matches_complete_lines(source: &str, value: &str, title: bool) -> bool {
+    let lines: Vec<_> = source
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let wanted = normalize_source_whitespace(value);
+    for start in 0..lines.len() {
+        if title && start > 0 && lines[start - 1].trim_end().ends_with(['–', '—', '-']) {
+            continue;
+        }
+        let mut joined = String::new();
+        for line in &lines[start..] {
+            if !joined.is_empty() {
+                joined.push(' ');
+            }
+            joined.push_str(line);
+            let normalized = normalize_source_whitespace(&joined);
+            if normalized == wanted {
+                return true;
+            }
+            if normalized.len() > wanted.len() {
+                break;
+            }
+        }
+    }
+    false
 }
 
 /// Preserve authored component and serving labels structurally. A short,
@@ -652,7 +754,7 @@ fn validate_source_field(
     )))
 }
 
-fn normalize_source_whitespace(value: &str) -> String {
+pub(crate) fn normalize_source_whitespace(value: &str) -> String {
     let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut out = String::with_capacity(collapsed.len());
     let mut chars = collapsed.chars().peekable();
@@ -730,19 +832,26 @@ const SYSTEM_PROMPT: &str = "\
 You extract structured recipes from the text of one section of a cookbook. The \
 section may contain zero, one, or many recipes. For every recipe actually \
 present, return an object with:\n\
-- title: the recipe's name copied VERBATIM. Do not abbreviate, expand, or reword it.\n\
+- title: the recipe's complete name copied VERBATIM, including a subtitle or \
+translation on the following line. Do not abbreviate, expand, or reword it.\n\
 - description: the headnote / intro blurb, if any (omit otherwise).\n\
 - sections: the recipe's components as an array. Most recipes have ONE section \
 (omit its name). Component recipes have several. Each section has:\n\
     - name: the component label copied VERBATIM (e.g. \"For the curry paste\"). \
 A standalone `For …` or `To serve` label is a section name, NEVER an ingredient; \
+Short standalone labels such as Masala, Batter, Filling, Paste, Salad, or Garnish \
+are also component headings when followed by that component’s ingredients. \
+Keep their ingredients grouped beneath those labels. \
 omit the name only for the main/only section.\n\
     - ingredients: each ingredient line copied VERBATIM, one per entry. Do NOT \
 parse, normalize, convert, or reword quantities or units — preserve the original \
-text exactly (e.g. \"1\\u2153 cups all-purpose flour (6.1 oz / 173g)\").\n\
+text exactly. Preserve an apparent source typo or two ingredients printed on \
+one line; do not silently split or repair it. For a wrapped ingredient, join only its complete source lines (e.g. \"1\\u2153 cups all-purpose flour (6.1 oz / 173g)\").\n\
     - instructions: the method steps for this component, copied verbatim, one per \
 entry. If the recipe has a single shared method, put all of its steps in the \
-main section.\n\
+main section. Never omit the shared method when there are several ingredient \
+groups: use the unnamed main section for every shared step, in source order. \
+Every section must include an instructions array, even when empty.\n\
 - recipe_yield: the yield/servings line if present (e.g. \"Makes 1 loaf\", \"Serves 4\").\n\
 - times: an object with any of active / total / prep / cook (e.g. \"Active Time: \
 30 minutes\"); omit fields not present and omit the object if there are none.\n\
@@ -784,7 +893,7 @@ pub fn recipes_tool_schema() -> serde_json::Value {
                                     "ingredients": string_array,
                                     "instructions": string_array
                                 },
-                                "required": ["ingredients"]
+                                "required": ["ingredients", "instructions"]
                             }
                         },
                         "recipe_yield": string,

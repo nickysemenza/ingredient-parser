@@ -33,6 +33,10 @@ mod orchestration;
 // CI tests the non-native library and compiles the browser callback example
 // for wasm32.
 mod accounting;
+pub mod indexed;
+#[cfg(feature = "native")]
+pub mod review;
+pub mod source;
 pub use accounting::{CostEstimate, ExtractionAccounting, ModelUsage};
 pub use epub_text::chunk_epub;
 pub use extractor::{
@@ -123,7 +127,7 @@ pub struct Link {
 
 /// A unit of cookbook text handed to the extractor. One chunk may contain zero,
 /// one, or many recipes; the extractor segments them.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chunk {
     /// A title hint from the TOC/heading, if any.
     pub title_hint: Option<String>,

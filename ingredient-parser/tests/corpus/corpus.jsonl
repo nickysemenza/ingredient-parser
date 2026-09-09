@@ -323,11 +323,7 @@
 {"input": "2 teaspoons melted butter", "name": "butter", "amounts": [{"unit": "tsp", "value": 2.0, "upper_value": null}], "modifier": "melted"}
 {"input": "1 tablespoon melted butter", "name": "butter", "amounts": [{"unit": "tbsp", "upper_value": null, "value": 1.0}], "modifier": "melted"}
 {"input": "2 teaspoons softened butter", "name": "butter", "amounts": [{"unit": "tsp", "value": 2.0}], "modifier": "softened"}
-// Dropped "1 small or ½ medium celery root": a leading *size* alternative
-// ("small or ½ medium <noun>") can't be parsed correctly without a size-word
-// lexicon (small/medium/large), which the Design Decisions deliberately reject
-// ("avoids blocklists for phrases like 'medium heat'"). The construction is rare
-// and its desired parse is itself ambiguous, so it's intentionally unsupported.
+// Mixed size/count alternatives retain the opaque food phrase rather than inventing a shared noun.
 {"input": "1 cinnamon stick or ¼ teaspoon ground cinnamon", "name": "cinnamon stick", "amounts": [{"unit": "whole", "value": 1.0}], "modifier": "or ¼ teaspoon ground cinnamon"}
 {"input": "2 teaspoons coriander seed or ½ teaspoon ground", "name": "coriander seed", "amounts": [{"unit": "tsp", "value": 2.0}], "modifier": "or ½ teaspoon ground"}
 {"input": "Two 18-ounce arctic char fillets, skin on", "name": "arctic char fillets", "amounts": [{"unit": "whole", "value": 2.0}, {"unit": "oz", "value": 18.0}], "modifier": "skin on"}
@@ -611,3 +607,16 @@
 {"input":"½ cup pitted mixed olives","name":"pitted mixed olives","amounts":[{"unit":"cup","value":"1/2"}]}
 {"input": "2 chicken breasts (about 9 oz / 255 g each)", "name": "chicken breasts", "amounts": [{"unit": "whole", "value": 2}], "modifier": "about 9 oz / 255 g each"}
 {"input": "2 chicken breasts (about 18 oz / 510 g in total), sliced", "name": "chicken breasts", "amounts": [{"unit": "whole", "value": 2}, {"unit": "oz", "value": 18}, {"unit": "g", "value": 510}], "modifier": "sliced"}
+
+// British metric volume spellings share the canonical volume units.
+{"input":"1 litre whole milk","name":"whole milk","amounts":[{"unit":"l","value":1}]}
+{"input":"1.7 litres whole milk","name":"whole milk","amounts":[{"unit":"l","value":"17/10"}]}
+{"input":"250 millilitres water","name":"water","amounts":[{"unit":"ml","value":250}]}
+
+// Navigation-only EPUB references do not describe food preparation.
+{"input":"12 tablespoons imli chutney (see here)","name":"imli chutney","amounts":[{"unit":"tbsp","value":12}]}
+{"input":"1 cup sauce (see above, optional)","name":"sauce","amounts":[{"unit":"cup","value":1}],"optional":true}
+{"input":"2 teaspoons paste (see below), warmed","name":"paste","amounts":[{"unit":"tsp","value":2}],"modifier":"warmed"}
+
+{"input":"1 teaspoon sesame seeds, plus 4 teaspoons to garnish","name":"sesame seeds","amounts":[{"unit":"tsp","value":1}],"modifier":"plus 4 teaspoons to garnish","usage":"normal"}
+{"input":"1 small or ½ medium bottle gourd, peeled and grated","name":"small or ½ medium bottle gourd","amounts":[{"unit":"whole","value":1}],"modifier":"peeled and grated"}

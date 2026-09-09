@@ -10,6 +10,9 @@ not infer a food ontology or expose its private structural representation.
   powder` retains the alternative in the modifier. Supported preparation
   alternatives, such as `grated or finely chopped lemon zest`, still separate
   preparation from the food.
+  Mixed size/count alternatives such as `1 small or ½ medium bottle gourd`
+  retain the complete opaque food phrase after the leading count; a size word
+  alone is not a food branch.
 - Ingredient dimensions and temperatures describe the ingredient. For example,
   `1 (9-inch) pie crust` has one whole crust and modifier `9-inch`. Standalone
   amounts and instruction rich text still recognize dimensions and temperatures.
@@ -69,3 +72,8 @@ Some presentation differences are intentional: extracted text no longer gains
 lowercase characters solely because matching was case-insensitive, and leading
 preparation appears before later descriptive text. Consumers should treat
 Modifier as display text rather than a normalized classification key.
+
+Navigation-only parentheses such as `(see here)`, `(see above)`, and `(page 12)`
+do not become preparation modifiers. Supplementary garnish quantities introduced
+by `plus` do not change the primary ingredient usage. British `litre` and
+`millilitre` spellings share the existing `l` and `ml` wire units.

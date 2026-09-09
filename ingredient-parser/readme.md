@@ -46,7 +46,7 @@ Ambiguous unquantified coordination remains in the name. Ingredient dimensions
 and temperatures stay descriptive; standalone amount and instruction parsing
 still recognize those measures. Modifier parts follow source order.
 
-To see which stage shaped a line: `cargo run -p food-cli --quiet -- parse-ingredient --explain "<line>"`
+To see which stage shaped a line: `cargo run -p food-cli --quiet -- ingredient parse --explain "<line>"`
 
 ---
 
