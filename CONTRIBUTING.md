@@ -17,8 +17,9 @@ when deciding what a line *should* parse to.
 | `recipe-parsing` | Configured recipe execution shared by ingestion and presentation |
 | `recipe-scraper` / `recipe-scraper-fetcher` | Extract recipes from web pages |
 | `recipe-epub` | Extract recipes from EPUB cookbooks (AI-assisted) |
+| `recipe-epub-fixtures` | Deterministic EPUB generation for shared test inputs |
 | `food-cli` | Command-line tool for parsing/scraping |
-| `food-app` | egui desktop playground |
+| `food-app` | macOS Tauri + React maintainer toolkit ([setup](food-app/README.md)) |
 | `demo-site` | React + Vite demo frontend |
 
 ## Downstream consumers

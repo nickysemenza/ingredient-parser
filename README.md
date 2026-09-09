@@ -10,7 +10,8 @@ For full documentation, usage examples, and features, see the detailed [ingredie
 
 ## Maintainer toolkit
 
-Run `cargo run -p food-app` for the Parser and Cookbooks desktop workspaces.
+Run `pnpm --dir food-app/ui desktop:dev` for the macOS Parser and Cookbooks
+desktop workspaces. See [desktop setup and testing](food-app/README.md).
 The terminal interface has six command families: `ingredient`, `amount`, `text`,
 `recipe`, `cookbook`, and `corpus`. Use `--help` on a family or command to see its
 inputs. Results default to human-readable output, including when piped. Select

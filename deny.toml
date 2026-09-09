@@ -12,13 +12,10 @@ feature-depth = 1
 [advisories]
 yanked = "deny"
 ignore = [
-    # Both are quadratic/unbounded-allocation DoS advisories against
-    # quick-xml, pulled in transitively only via wayland-scanner (a
-    # build-time proc-macro that codegens bindings from vendored, trusted
-    # Wayland protocol XML shipped with smithay/winit — not runtime parsing
-    # of untrusted input). Only reachable building food-app on Linux;
-    # never in the published `ingredient` crate. Re-check when winit/egui
-    # next bump their wayland stack.
+    # cargo-deny scans all target dependencies, including the Linux clipboard
+    # stack behind our macOS-only Tauri dependency. quick-xml appears only in
+    # wayland-scanner build-time code generation of trusted protocol XML; this
+    # path is not built by food-app on any supported platform.
     { id = "RUSTSEC-2026-0194", reason = "quick-xml quadratic parsing, build-time-only via wayland-scanner codegen of trusted protocol XML" },
     { id = "RUSTSEC-2026-0195", reason = "quick-xml unbounded namespace allocation, build-time-only via wayland-scanner codegen of trusted protocol XML" },
 ]
@@ -28,6 +25,8 @@ ignore = [
 allow = [
     "MIT",
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception", # target-lexicon in Tauri target metadata
+    "bzip2-1.0.6", # libbz2-rs-sys in the ZIP dependency graph
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",

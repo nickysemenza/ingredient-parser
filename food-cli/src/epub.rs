@@ -103,24 +103,13 @@ pub async fn execute(
             source,
             image_text,
         } => {
-            if out.exists() {
-                return Err("output already exists; choose a new run path".into());
-            }
-            let mut saved = ReviewRun::read(run)?;
-            if let Some(source) = source {
-                let fresh =
-                    ReviewRun::inspect(&std::fs::read(source)?, &saved.source, &saved.model)?;
-                if fresh.epub_sha256 != saved.epub_sha256 {
-                    return Err("source EPUB hash differs from run".into());
-                }
-                saved.documents = fresh.documents;
-            }
-            if let Some(path) = image_text {
-                saved.image_text = Some(serde_json::from_slice(&std::fs::read(path)?)?);
-            }
-            saved.parent = Some(run.to_string_lossy().into_owned());
-            saved.replay()?;
-            saved.save(out)?;
+            let outcome = recipe_epub::review::replay_to_run(recipe_epub::review::ReplayRequest {
+                run: run.clone(),
+                out: out.clone(),
+                source: source.clone(),
+                image_text: image_text.clone(),
+            })?;
+            let saved = outcome.run;
             if saved.incomplete() {
                 code = 3;
             }
@@ -138,50 +127,30 @@ pub async fn execute(
             chunk,
             budget_usd,
         } => {
-            if out.exists() && !resume {
-                return Err("output already exists; use --resume or choose a new path".into());
-            }
-            if *resume && !out.exists() {
-                return Err("cannot resume a missing run".into());
-            }
-            let fresh = ReviewRun::inspect(&std::fs::read(book)?, &book.to_string_lossy(), model)?;
-            if *refresh && *resume {
-                return Err(
-                    "refresh requires a new --out run; use --from to preserve its parent".into(),
-                );
-            }
-            let mut run = if let Some(parent) = from {
-                fresh.inherit_outputs(&ReviewRun::read(parent)?, parent)?
-            } else if *resume {
-                ReviewRun::read(out)?
-            } else {
-                fresh.clone()
-            };
-            if run.epub_sha256 != fresh.epub_sha256 || run.model != *model {
-                return Err("resume requires the same EPUB and model".into());
-            }
-            run.documents = fresh.documents;
-            recipe_epub::review::extract_run_with_progress(
-                &mut run,
-                &RunOptions {
-                    allow_network: *allow_network,
-                    refresh: *refresh,
-                    cache_dir: cache_dir.clone(),
-                    chunks: chunk.clone(),
-                    budget_usd: *budget_usd,
+            let outcome = recipe_epub::review::extract_to_run(
+                recipe_epub::review::ExtractionRequest {
+                    book: book.clone(),
+                    out: out.clone(),
+                    model: model.clone(),
+                    resume: *resume,
+                    from: from.clone(),
+                    options: RunOptions {
+                        allow_network: *allow_network,
+                        refresh: *refresh,
+                        cache_dir: cache_dir.clone(),
+                        chunks: chunk.clone(),
+                        budget_usd: *budget_usd,
+                    },
                 },
-                out,
-                |run| {
+                |progress| {
                     eprintln!(
                         "EPUB: {}/{} chunks complete, {} recipes, ${:.4} reserved/spent",
-                        run.chunks.iter().filter(|c| c.output.is_some()).count(),
-                        run.chunks.len(),
-                        run.recipes.len(),
-                        run.reserved_usd
-                    )
+                        progress.completed, progress.total, progress.recipes, progress.reserved_usd
+                    );
                 },
             )
             .await?;
+            let run = outcome.run;
             if run.incomplete() {
                 code = 3;
             }

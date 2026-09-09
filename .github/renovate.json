@@ -9,11 +9,10 @@
   "prHourlyLimit": 2,
   "packageRules": [
     {
-      "groupName": "egui",
+      "groupName": "tauri",
       "matchPackageNames": [
-        "eframe{/,}**",
-        "egui{/,}**",
-        "ehttp{/,}**"
+        "tauri{-,/,}**",
+        "@tauri-apps/**"
       ]
     },
     {
@@ -29,7 +28,7 @@
       ]
     },
     {
-      "groupName": "demo-site js deps",
+      "groupName": "frontend js deps",
       "matchManagers": [
         "npm"
       ]

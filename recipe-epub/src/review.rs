@@ -11,6 +11,11 @@ use std::{
 };
 
 pub mod stats;
+mod workflow;
+pub use workflow::{
+    ExtractionRequest, ReplayRequest, RunOutcome, RunProgress, WorkflowError, extract_to_run,
+    replay_to_run,
+};
 
 pub const RUN_VERSION: u32 = 1;
 
@@ -188,7 +193,7 @@ impl ReviewRun {
 }
 
 /// Network is opt-in; a missing cache entry never silently initializes a backend.
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RunOptions {
     pub allow_network: bool,
     pub refresh: bool,
@@ -206,7 +211,60 @@ pub async fn extract_run(
     extract_run_with_progress(run, options, checkpoint, |_| {}).await
 }
 
-/// Same execution engine with frontend-owned progress reporting.
+/// Build a durable run using a caller-supplied extractor and the shared cache engine.
+///
+/// This is the fixture/custom-extractor path: the caller owns transport authorization
+/// and cost policy. It does not construct the native network backend or apply its
+/// reservation policy. Existing completed chunks and valid cache entries are reused;
+/// newly produced outputs are cached, then the ordinary cache-only run engine owns
+/// replay, completion metadata, progress, and checkpointing.
+pub async fn extract_run_with_extractor<E: RecipeExtractor>(
+    run: &mut ReviewRun,
+    cache_dir: &Path,
+    checkpoint: &Path,
+    extractor: &E,
+    progress: impl FnMut(&ReviewRun),
+) -> Result<(), EpubError> {
+    if run.prompt_version != crate::cache::PROMPT_VERSION {
+        return Err(error(
+            "prompt changed; create a new extraction run (offline replay remains available)",
+        ));
+    }
+    if !extractor.model().is_empty() && extractor.model() != run.model {
+        return Err(error("extractor model differs from the run model"));
+    }
+    for chunk in &run.chunks {
+        let key = crate::cache::key(
+            &run.model,
+            &chunk.source.text,
+            chunk.source.title_hint.as_deref().unwrap_or(""),
+        );
+        if chunk.output.is_some() || crate::cache::read(cache_dir, &key).is_some() {
+            continue;
+        }
+        let output = extractor.extract(&chunk.source).await?;
+        if output.truncated {
+            return Err(error(format!(
+                "truncated custom extractor output for {}",
+                chunk.id
+            )));
+        }
+        crate::cache::write(cache_dir, &key, &output.recipes)?;
+    }
+    extract_run_with_progress(
+        run,
+        &RunOptions {
+            cache_dir: Some(cache_dir.to_owned()),
+            ..Default::default()
+        },
+        checkpoint,
+        progress,
+    )
+    .await
+}
+
+/// Same execution engine with frontend-owned progress reporting. Reports the
+/// validated initial state and each checkpoint, including cache-only completion.
 pub async fn extract_run_with_progress(
     run: &mut ReviewRun,
     options: &RunOptions,
@@ -229,6 +287,7 @@ pub async fn extract_run_with_progress(
             return Err(error(format!("unknown chunk {id}")));
         }
     }
+    progress(run);
     let cache_dir = options
         .cache_dir
         .clone()
@@ -263,6 +322,7 @@ pub async fn extract_run_with_progress(
     }
     run.replay()?;
     run.save(checkpoint)?;
+    progress(run);
     if pending.is_empty() {
         return Ok(());
     }
@@ -363,7 +423,9 @@ pub async fn extract_run_with_progress(
         }
     }
     run.replay()?;
-    run.save(checkpoint)
+    run.save(checkpoint)?;
+    progress(run);
+    Ok(())
 }
 
 /// Exact, source-authored recipe expectations; never derived from parser confidence.

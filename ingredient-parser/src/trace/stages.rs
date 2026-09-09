@@ -4,7 +4,7 @@
 //! pipeline story in `alt()` backtracking. [`StageReport`] buckets the root's
 //! direct children into the pipeline stages — normalize → recognize → grammar
 //! → segment → refine → result — so callers (the CLI's `--explain` renderer,
-//! the egui stages view) can show *which stage* shaped a line without
+//! the desktop stages view) can show *which stage* shaped a line without
 //! re-deriving the bucketing. See the routing guide in `parser/mod.rs`.
 
 use std::cell::RefCell;

@@ -1,95 +1,122 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-09T03:50:09.546567+00:00",
+  "generatedAt": "2026-09-09T04:22:11.078318+00:00",
   "title": "Design System: ingredient-parser Maintainer Toolkit",
   "extensions": {
+    "platform": "Tauri 2 / React / TypeScript / macOS",
+    "tokens": {
+      "dark": {
+        "base": "#1e1f22",
+        "mantle": "#252629",
+        "evidence": "#18191c",
+        "control": "#2a2b2f",
+        "hover": "#3c3e43",
+        "border": "#3c3e43",
+        "text": "#ebedf1",
+        "muted": "#adb1bb",
+        "blue": "#70b1ff",
+        "green": "#73cf97",
+        "yellow": "#edc663",
+        "red": "#ff8a8a",
+        "amount": "#e1b382",
+        "selection": "rgba(112, 177, 255, 0.11)",
+        "primary-ink": "#18191c"
+      },
+      "light": {
+        "base": "#f9f9fb",
+        "mantle": "#eff0f3",
+        "evidence": "#fff",
+        "control": "#eceef2",
+        "hover": "#d4d7de",
+        "border": "#d4d7de",
+        "text": "#23272f",
+        "muted": "#5c6371",
+        "blue": "#195bad",
+        "green": "#1b7341",
+        "yellow": "#825b0c",
+        "red": "#b52a2f",
+        "amount": "#8b5321",
+        "selection": "rgba(25, 91, 173, 0.11)",
+        "primary-ink": "#fff"
+      }
+    },
     "breakpoints": [
       {
-        "name": "parser-inspector-local-width",
-        "value": "900 egui points"
+        "name": "parser-stack-viewport",
+        "value": "1150px"
       },
       {
-        "name": "cookbook-inspector-local-width",
-        "value": "1050 egui points"
+        "name": "compact-workspace-viewport",
+        "value": "950px"
       },
       {
-        "name": "cookbook-document-navigation-local-width",
-        "value": "760 egui points"
+        "name": "narrow-rail-viewport",
+        "value": "720px"
       },
       {
-        "name": "cookbook-comparison-local-width",
-        "value": "650 egui points"
+        "name": "cookbook-comparison-container",
+        "value": "650px"
       },
       {
-        "name": "recipe-columns-local-width",
-        "value": "640 egui points"
+        "name": "cookbook-document-navigation-workspace",
+        "value": "760px"
       },
       {
-        "name": "cookbook-focused-inspector-local-width",
-        "value": "760 egui points"
+        "name": "cookbook-focused-inspector-workspace-width",
+        "value": "760px"
       },
       {
-        "name": "cookbook-focused-inspector-local-height",
-        "value": "480 egui points"
+        "name": "cookbook-focused-inspector-workspace-height",
+        "value": "480px"
       },
       {
-        "name": "cookbook-compact-header-local-height",
-        "value": "580 egui points"
+        "name": "recipe-columns-viewport",
+        "value": "1000px"
       }
     ]
   },
   "components": [],
   "narrative": {
     "northStar": "Native developer tools \u2014 Xcode and Instruments",
-    "overview": "**Creative North Star: Native developer tools \u2014 Xcode and Instruments.**\n\nThe application is a compact egui desktop workbench. Parser and Cookbooks have equal standing in a persistent navigation rail. System typography, neutral light and dark surfaces, and resizable working panes keep source material, results, and inspection evidence close together.\n\nThe visual character is restrained and practical, with a clear hierarchy from workspace to run to selected document and evidence. Distinct inset surfaces, readable text, compact controls, and diagnostic color organize the work. Advanced actions live in contextual menus; inspectors and disclosure sections reveal supporting evidence.\n\n**Key Characteristics:**\n\n- Dense native controls and system typography.\n- Neutral surfaces with semantic color.\n- Resizable panes and context-preserving selection.\n- Explicit source-loading and extraction actions.\n",
+    "overview": "**Creative North Star: Native developer tools \u2014 Xcode and Instruments.**\n\nThis is an Operate surface: a macOS Tauri 2 application with a React/TypeScript\nwebview and portable Rust application services. The interface keeps Parser and\nCookbooks equally prominent. System typography, neutral surfaces, resizable\nworking panes, and contextual evidence support daily maintenance work.\n\nHierarchy runs from workspace to cookbook/run to selected document to evidence.\nOpening, extraction, and advanced tools have separate, explicit controls. Keep\nsource material, computed results, and review decisions visibly distinct.\n\nThe implementation authority is `food-app/ui/src/style.css`, together with\n`components.tsx`, `Inspector.tsx`, `Parser.tsx`, and `Cookbooks.tsx`. Dimensions\nbelow are CSS pixels inside the native webview.",
     "keyCharacteristics": [
-      "Dense native controls and system typography.",
-      "Neutral surfaces with semantic color.",
-      "Resizable panes and context-preserving selection.",
-      "Explicit source-loading and extraction actions."
+      "Equal Parser and Cookbooks workspaces.",
+      "System typography and neutral light/dark surfaces.",
+      "Resizable source/result panes and shared contextual inspection.",
+      "Explicit extraction and source-safe rendering."
     ],
     "rules": [
       {
-        "name": "Native units",
-        "body": "All dimensions use egui logical points. No HTML/CSS component previews are provided because the implementation is native egui.",
-        "section": "typography"
+        "name": "Source-safe evidence",
+        "body": "Render imported content as React text; images load explicitly through Rust commands. Do not inject source HTML.",
+        "section": "components"
       },
       {
         "name": "Comparison split",
-        "body": "Source defaults to 45% of local comparison width, resizes within 30\u201365%, and retains its fraction as available width changes. Below 650 egui points, source/result tabs replace the split.",
+        "body": "Source starts at 45%, bounded 30\u201365%; below 650px comparison container width use source/result tabs.",
         "section": "layout"
       },
       {
         "name": "Focused inspection",
-        "body": "With an ingredient selected, available content width below 760 or height below 480 egui points replaces document content with the inspector. Back to review and the selected document title retain context; both Back to review and the inspector close control return to the same document.",
+        "body": "Below 760px measured workspace width or 480px height preserve document context and Back to review above focused inspection.",
         "section": "layout"
       },
       {
-        "name": "Compact comparison headings",
-        "body": "Below 650 egui points, source/result tabs replace columns and repeated pane headings are suppressed. An extracted title matching the selected document title is suppressed; distinct titles remain visible.",
-        "section": "layout"
-      },
-      {
-        "name": "Source-first table widths",
-        "body": "Parser Input initially receives 30% of available table width and Name receives 22%; resizable columns preserve user control.",
-        "section": "layout"
-      },
-      {
-        "name": "Compact run header and review controls",
-        "body": "Below 760 available width or 580 remaining height in egui points, book counts move to title hover text and the header gap becomes 4 rather than 16 points. Below 650 comparison width, Review note is an inline menu beside review controls rather than a separate collapsing row.",
+        "name": "Keyboard splitters",
+        "body": "Seven-pixel separator handles support dragging, arrow keys, Home, and End; store bounded pane percentages.",
         "section": "layout"
       }
     ],
     "dos": [
-      "Do preserve the equal standing of Parser and Cookbooks.",
-      "Do use the shared theme and existing egui controls for new surfaces.",
-      "Do keep local-width pane transitions and independent scrolling intact.",
-      "Do keep selected source, computed result, and evidence visibly connected."
+      "Preserve equal workspace standing.",
+      "Use the shared CSS tokens and React components.",
+      "Keep document identity and evidence above toolbar density.",
+      "Verify light/dark and compact states."
     ],
     "donts": [
-      "Don't introduce web landing-page typography or decorative dashboard cards into the native workbench.",
-      "Don't use semantic diagnostic colors as unrelated decoration.",
-      "Don't make opening a source or restoring a session initiate extraction."
+      "Do not inject imported HTML.",
+      "Do not initiate extraction when opening sources.",
+      "Do not add decorative dashboard cards."
     ]
   }
 }

@@ -322,7 +322,7 @@ pub struct ParseNotes {
 /// A reason a parse is worth a human look, in report order.
 ///
 /// The rule lives here so every surface agrees on it; colour and severity stay
-/// with each surface, since a miette severity, an egui palette entry and a CSS
+/// with each surface, since a miette severity, a desktop palette entry and a CSS
 /// class are not the same axis.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ReviewReason {

@@ -8,7 +8,7 @@ deploy-demo-site:
 	CLOUDFLARE_ACCOUNT_ID=9f10f078d35d86c78dedece2300a6b88 npx wrangler pages publish demo-site/dist/ --project-name=ingredient
 
 dev-ui:
-	RUST_BACKTRACE=1 cargo watch -x 'run --bin food-app'
+	pnpm --dir food-app/ui desktop:dev
 
 # Mirrors the `deny` job in .github/workflows/rust.yml: unmaintained-crate
 # advisories are informational (see deny.toml), so they're allow-listed on

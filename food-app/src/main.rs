@@ -1,33 +1,18 @@
-#![warn(clippy::all, rust_2018_idioms)]
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-use food_app::MyApp;
-
-fn main() -> eframe::Result<()> {
-    // Load AI gateway creds (AI_GATEWAY_API_KEY, CLOUDFLARE_AI_GATEWAY_BASE_URL)
-    // from a repo-root .env. Missing file is fine; real exported vars take precedence.
+fn main() {
     let _ = dotenvy::dotenv();
-    tracing_subscriber::fmt::init();
-
-    let native_options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 820.0])
-            .with_min_inner_size([800.0, 560.0]),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "ingredient-parser",
-        native_options,
-        Box::new(|cc| {
-            egui_extras::install_image_loaders(&cc.egui_ctx);
-            let mut app = MyApp::new(cc);
-            let mut args = std::env::args_os().skip(1);
-            if args.next().is_some_and(|arg| arg == "--review-run")
-                && let Some(path) = args.next()
-            {
-                app.open_review(path.into());
-            }
-            Ok(Box::new(app))
-        }),
-    )
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
+    #[cfg(target_os = "macos")]
+    if let Err(error) = food_app::run() {
+        eprintln!("Could not start Ingredient Parser: {error}");
+        std::process::exit(1);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        eprintln!(
+            "The desktop application currently supports macOS. Use food-cli on this platform."
+        );
+        std::process::exit(1);
+    }
 }

@@ -9,6 +9,13 @@ The command groups are `ingredient`, `amount`, `text`, `recipe`, `cookbook`,
 and `corpus`. Use each group's `--help` for its arguments. Results default to
 human-readable output; request `--format json` for structured data.
 
+The file-backed extraction and replay workflows live in
+`recipe_epub::review::{extract_to_run, replay_to_run}`. Both tools use those
+operations for validation, canonical run identity, parent/resume handling, and
+checkpointing. They return typed errors and progress; the CLI owns terminal
+formatting and exit statuses, and the desktop owns its Tauri transport and view
+models. Lower-level extraction and saved-run interfaces remain available.
+
 ## Source first, then extraction
 
 Keep EPUBs, full-book outputs, and review files outside the public repository.

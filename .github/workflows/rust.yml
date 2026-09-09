@@ -233,3 +233,31 @@ jobs:
           projectName: ingredient
           directory: demo-site/dist/
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+  desktop-macos:
+    name: macOS desktop
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          package_json_file: food-app/ui/package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: food-app/ui/pnpm-lock.yaml
+      - run: pnpm --dir food-app/ui install --frozen-lockfile
+      - run: pnpm --dir food-app/ui lint
+      - run: pnpm --dir food-app/ui test
+      - run: pnpm --dir food-app/ui build
+      - run: cargo run -p food-app --example export_bindings -- --check
+      - run: cargo test -p food-app
+      - run: cargo clippy -p food-app --all-targets -- -D warnings
+      - run: pnpm --dir food-app/ui exec playwright install webkit
+      - run: cargo run -p food-app --example create_review_fixture -- /tmp/food-app-qa
+      - run: pnpm --dir food-app/ui test:e2e
+      - run: pnpm --dir food-app/ui desktop:build --debug

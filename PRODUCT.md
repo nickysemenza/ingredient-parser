@@ -4,7 +4,8 @@
 
 ## Platform
 
-Native Rust desktop application using egui/eframe, paired with a headless CLI.
+macOS desktop application using Tauri 2, React, and TypeScript, backed by Rust
+application services and paired with a headless CLI.
 
 ## Users and purpose
 
