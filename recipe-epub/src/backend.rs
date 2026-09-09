@@ -221,7 +221,7 @@ pub struct ChunkDebug {
 /// tool payload and parse outcome — WITHOUT the cache and WITHOUT skipping
 /// failures the way [`extract_cookbook`] does. This is deliberately a raw model
 /// debugger, not evidence of import-valid source fidelity. Powers `food-cli
-/// debug-epub`.
+/// cookbook diagnose`.
 ///
 /// Never aborts on one bad chunk: a chunk's transport or deserialize failure is
 /// recorded in its [`ChunkDebug::error`] instead of failing the whole book — the

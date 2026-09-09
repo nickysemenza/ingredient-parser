@@ -120,7 +120,7 @@ impl CorpusTab {
     pub fn show(&mut self, ui: &mut egui::Ui) -> Option<CorpusAction> {
         let mut action = None;
 
-        ui.heading("Corpus QA");
+        ui.strong("Corpus cases");
         ui.label(
             RichText::new(
                 "Re-runs the parser over the accuracy corpus and scores each row \
@@ -264,6 +264,13 @@ impl CorpusTab {
     }
 
     fn show_table(&mut self, ui: &mut egui::Ui) {
+        let mut position = self
+            .selected
+            .and_then(|selected| self.order.iter().position(|&i| i == selected));
+        let moved = super::arrow_nav(ui, &mut position, self.order.len());
+        if moved {
+            self.selected = position.map(|i| self.order[i]);
+        }
         let mut clicked = None;
         let selected = self.selected;
         let rows = &self.rows;
@@ -276,7 +283,11 @@ impl CorpusTab {
         }
 
         let row_height = egui::TextStyle::Body.resolve(ui.style()).size + 8.0;
-        TableBuilder::new(ui)
+        let mut table = TableBuilder::new(ui);
+        if let Some(position) = position.filter(|_| moved) {
+            table = table.scroll_to_row(position, None);
+        }
+        table
             .striped(true)
             .sense(egui::Sense::click())
             .column(Column::auto().at_least(100.0))
@@ -339,7 +350,7 @@ fn show_detail(ui: &mut egui::Ui, row: &ScoredRow) -> Option<CorpusAction> {
             );
             ui.label(RichText::new(truncate_str(&row.input, 80)).monospace());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("📤 Send to Test tab").clicked() {
+                if ui.button("Inspect ingredient").clicked() {
                     action = Some(CorpusAction::SendToTest(row.input.clone()));
                 }
             });

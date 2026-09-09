@@ -5,26 +5,27 @@
 //! `eframe` (every ~30s and on exit) under [`eframe::APP_KEY`]; window geometry
 //! and egui widget memory are persisted separately by eframe's defaults.
 
-use crate::{MyApp, Tab};
+use crate::{MyApp, ParserSource, Workspace};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub(crate) struct PersistedState {
-    pub current_tab: Tab,
+    pub workspace: Workspace,
+    pub parser_source: ParserSource,
+    pub recipe_inspect: bool,
     pub theme: crate::theme::ThemeChoice,
     pub url: String,
     pub test_input: String,
     pub cookbook_path: String,
     pub library_dir: Option<std::path::PathBuf>,
     pub cookbooks_only: bool,
-    pub use_ai_fallback: bool,
     pub library_grid: bool,
     pub corpus_path: String,
 }
 
 impl Default for PersistedState {
-    // Missing fields in an older snapshot fall back to the app's defaults, not
-    // to zero values (an empty URL would otherwise clobber the sample recipe).
+    // Missing fields in an older snapshot fall back to the app's defaults, rather
+    // than discarding other saved preferences.
     fn default() -> Self {
         Self::capture(&MyApp::default())
     }
@@ -33,14 +34,15 @@ impl Default for PersistedState {
 impl PersistedState {
     pub fn capture(app: &MyApp) -> Self {
         Self {
-            current_tab: app.current_tab,
+            workspace: app.workspace,
+            parser_source: app.parser_source,
+            recipe_inspect: app.recipe_inspect,
             theme: app.theme,
             url: app.url.clone(),
             test_input: app.test.input.clone(),
             cookbook_path: app.cookbook.path.clone(),
             library_dir: app.cookbook.library_dir.clone(),
             cookbooks_only: app.cookbook.cookbooks_only,
-            use_ai_fallback: app.cookbook.use_ai_fallback,
             library_grid: app.cookbook.library_grid,
             corpus_path: app.corpus.path.clone(),
         }
@@ -48,17 +50,17 @@ impl PersistedState {
 
     /// Restore inputs and toggles onto a freshly-defaulted app. The cookbook
     /// path and library dir only prefill their controls — nothing auto-loads
-    /// or auto-scans (a load runs LLM extraction). The recipe URL *does*
-    /// re-fetch via the existing first-frame fetch on the Recipe/Debug tabs.
+    /// or auto-scans. Recipe URLs also remain idle until explicitly loaded.
     pub fn apply_to(self, app: &mut MyApp) {
-        app.current_tab = self.current_tab;
+        app.workspace = self.workspace;
+        app.parser_source = self.parser_source;
+        app.recipe_inspect = self.recipe_inspect;
         app.theme = self.theme;
         app.url = self.url;
         app.test.input = self.test_input;
         app.cookbook.path = self.cookbook_path;
         app.cookbook.library_dir = self.library_dir;
         app.cookbook.cookbooks_only = self.cookbooks_only;
-        app.cookbook.use_ai_fallback = self.use_ai_fallback;
         app.cookbook.library_grid = self.library_grid;
         app.corpus.path = self.corpus_path;
     }
@@ -73,7 +75,8 @@ mod tests {
     #[test]
     fn round_trip_through_ron() {
         let mut app = MyApp {
-            current_tab: Tab::Test,
+            workspace: Workspace::Parser,
+            parser_source: ParserSource::Corpus,
             theme: crate::theme::ThemeChoice::Latte,
             url: "https://example.com/recipe".to_string(),
             ..Default::default()
@@ -82,7 +85,6 @@ mod tests {
         app.cookbook.path = "/books/pok-pok.epub".to_string();
         app.cookbook.library_dir = Some(std::path::PathBuf::from("/books"));
         app.cookbook.cookbooks_only = false;
-        app.cookbook.use_ai_fallback = true;
         app.cookbook.library_grid = false;
         app.corpus.path = "some/other/corpus.jsonl".to_string();
 
@@ -91,21 +93,21 @@ mod tests {
         let mut fresh = MyApp::default();
         restored.apply_to(&mut fresh);
 
-        assert!(fresh.current_tab == Tab::Test);
+        assert!(fresh.workspace == Workspace::Parser);
+        assert!(fresh.parser_source == ParserSource::Corpus);
+        assert!(fresh.promise.is_none());
         assert!(fresh.theme == crate::theme::ThemeChoice::Latte);
         assert_eq!(fresh.url, app.url);
         assert_eq!(fresh.test.input, app.test.input);
         assert_eq!(fresh.cookbook.path, app.cookbook.path);
         assert_eq!(fresh.cookbook.library_dir, app.cookbook.library_dir);
         assert!(!fresh.cookbook.cookbooks_only);
-        assert!(fresh.cookbook.use_ai_fallback);
         assert!(!fresh.cookbook.library_grid);
         assert_eq!(fresh.corpus.path, app.corpus.path);
     }
 
     /// An older/empty snapshot must fall back to the app's defaults (per-field
-    /// `#[serde(default)]`), not zero values — an empty URL would otherwise
-    /// clobber the sample recipe.
+    /// `#[serde(default)]`), the same defaults as a fresh session.
     #[test]
     fn missing_fields_fall_back_to_app_defaults() {
         let restored: PersistedState = ron::from_str("()").unwrap();
@@ -113,5 +115,27 @@ mod tests {
         assert_eq!(restored.url, defaults.url);
         assert_eq!(restored.test_input, defaults.test.input);
         assert!(restored.cookbooks_only == defaults.cookbook.cookbooks_only);
+    }
+    #[test]
+    fn restoring_each_source_keeps_network_idle() {
+        for source in [
+            ParserSource::Ingredients,
+            ParserSource::Recipe,
+            ParserSource::Corpus,
+        ] {
+            let original = MyApp {
+                url: "https://example.com/recipe".into(),
+                parser_source: source,
+                workspace: Workspace::Cookbooks,
+                ..Default::default()
+            };
+            let state = PersistedState::capture(&original);
+            let mut restored = MyApp::default();
+            state.apply_to(&mut restored);
+            assert!(restored.promise.is_none());
+            assert!(restored.parser_source == source);
+            assert!(restored.workspace == Workspace::Cookbooks);
+            assert_eq!(restored.url, original.url);
+        }
     }
 }

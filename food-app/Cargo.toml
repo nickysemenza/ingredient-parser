@@ -10,8 +10,7 @@ publish = false
 
 [dependencies]
 recipe-parsing.workspace = true
-# Theme is hand-applied in src/theme.rs (Catppuccin Mocha palette): the
-# catppuccin-egui crate only supports egui <=0.33, and we're on 0.34.
+# Neutral native-tool theme is applied in src/theme.rs.
 egui_extras = { version = "0.35.0", features = ["image", "http"] }
 egui_material_icons = "0.7"
 # `persistence` enables eframe storage (App::save/get_value) — last tab,
@@ -26,7 +25,6 @@ ingredient-corpus.workspace = true # corpus schema, loader, and scoring — shar
 serde.workspace = true
 serde_json.workspace = true
 egui_ltreeview = "0.8"
-rand = "0.10.0"
 tracing.workspace = true
 tracing-subscriber = "0.3"
 # Cookbook (EPUB) tab.

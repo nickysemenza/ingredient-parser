@@ -3,7 +3,6 @@
 
 use clap::{Parser, Subcommand};
 mod epub;
-use recipe_epub::CookbookRecipeExt; // .parse() / .low_confidence_lines() on CookbookRecipe
 
 // The corpus/diagnostic verbs live in the library half so tests and other
 // crates can call them; this binary is argument parsing, printing and exit
@@ -22,12 +21,20 @@ const DEFAULT_CORPUS_PATH: &str = concat!(
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+    /// Output representation; jsonl is supported by ingredient batch and cookbook stats.
+    #[arg(long, global = true, value_enum, default_value = "human")]
+    format: OutputFormat,
+}
+
+#[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
+enum OutputFormat {
+    Human,
+    Json,
+    Jsonl,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(subcommand)]
-    Epub(epub::Command),
     #[command(subcommand)]
     Ingredient(IngredientCommand),
     #[command(subcommand)]
@@ -37,42 +44,18 @@ enum Commands {
     #[command(subcommand)]
     Recipe(RecipeCommand),
     #[command(subcommand)]
-    Library(LibraryCommand),
-    Scrape {
-        url: String,
-        #[arg(short, long)]
-        json: bool,
-        #[arg(short, long)]
-        parse: bool,
-    },
-    /// Scrape every recipe from a local EPUB cookbook file (AI-assisted)
-    ScrapeEpub {
-        /// Path to the .epub file
-        path: String,
-        #[arg(short, long)]
-        json: bool,
-        #[arg(short, long)]
-        parse: bool,
-        /// Dump one JSONL object per ingredient line: {line, name, amounts,
-        /// modifier}. For corpus harvesting / parse review. Implies neither
-        /// --json nor --parse; overrides normal output.
-        #[arg(long)]
-        dump_parsed: bool,
-        /// Model id override (default: gemini-2.5-flash; claude-* / gpt-* also work)
-        #[arg(long)]
-        model: Option<String>,
-        /// Fallback model for chunks the primary can't return parseable output
-        /// for (e.g. --escalate-model claude-sonnet-4-6). Different models fail on
-        /// different chunks, so a fallback recovers the primary's misses.
-        #[arg(long)]
-        escalate_model: Option<String>,
-        /// Bypass the on-disk extraction cache
-        #[arg(long)]
-        no_cache: bool,
-    },
+    Cookbook(CookbookCommand),
+    #[command(subcommand)]
+    Corpus(CorpusCommand),
+}
+
+#[derive(Subcommand)]
+enum CookbookCommand {
+    #[command(flatten)]
+    Review(epub::Command),
     /// Debug a single EPUB: re-run every chunk and report malformed payloads.
     /// Bypasses the cache. Defaults to `claude-haiku-4-5`.
-    DebugEpub {
+    Diagnose {
         /// Path to the .epub file
         path: String,
         /// Model id override (default: claude-haiku-4-5)
@@ -82,96 +65,14 @@ enum Commands {
         #[arg(long)]
         raw: bool,
     },
-    /// Scan a Calibre/EPUB library, ranking ingredient lines the parser misses
-    /// (have a number but yield no amount) as accuracy-corpus candidates.
-    ScanCookbooks {
-        /// Directory to scan recursively for .epub files
-        dir: String,
-        /// Max number of books to scan (uses the on-disk cache, so re-runs are free)
+    /// Inventory a Calibre/EPUB library without extraction or network requests.
+    Scan {
+        /// Directory to scan recursively for .epub files.
+        dir: std::path::PathBuf,
+        /// Maximum number of books to inspect, in path order.
         #[arg(long, default_value_t = 10)]
         limit: usize,
-        /// How many of the worst (most frequent) miss lines to print
-        #[arg(long, default_value_t = 30)]
-        bottom: usize,
-        /// How many books to extract concurrently (each book still parallelizes
-        /// its own chunks internally).
-        #[arg(long, default_value_t = 8)]
-        concurrency: usize,
     },
-    ParseIngredient {
-        name: String,
-        /// Enable debug trace output showing which parsers were used
-        #[arg(short, long)]
-        debug: bool,
-        /// Show a compact stage-level report (normalize → recognize → grammar →
-        /// refine → result) — the view for deciding where a corpus fix belongs
-        #[arg(short, long)]
-        explain: bool,
-        /// Export trace to Jaeger JSON format and write to file
-        #[arg(long)]
-        jaeger_output: Option<String>,
-        /// Print exactly one JSONL corpus row for the parse, ready to append to
-        /// tests/corpus/corpus.jsonl. Refuses (stderr + non-zero exit) when the
-        /// parse fell back or is low-confidence, so a garbage row can't be
-        /// appended blindly. Suppresses the normal JSON output.
-        #[arg(long)]
-        emit_corpus_row: bool,
-    },
-    /// Parse a file of ingredient lines (one per line) and emit one JSONL object
-    /// per line: {line, name, amounts, modifier} — the same shape as
-    /// `scrape-epub --dump-parsed`. For corpus harvesting: re-parse a prior dump
-    /// through the current parser (free), or a website's lines via
-    /// `scrape <url> --json | jq -r '.sections[].ingredients[]'`.
-    ParseLines {
-        /// Path to a file with one ingredient line per line (blank lines skipped)
-        file: String,
-    },
-    /// Corpus tooling (lint, coverage reporting). See `corpus lint --help`.
-    #[command(subcommand)]
-    Corpus(CorpusCommand),
-    /// Render the accuracy corpus (tests/corpus/corpus.jsonl) as an HTML table
-    /// and open it in the default browser (like `cargo doc --open`). Read-only;
-    /// does not touch the corpus.
-    CorpusTable {
-        /// Corpus file to render (defaults to the repo's corpus.jsonl)
-        #[arg(long, default_value = DEFAULT_CORPUS_PATH)]
-        corpus: String,
-        /// Write the HTML here instead of a temp file, and don't auto-open.
-        /// Use "-" for stdout.
-        #[arg(long)]
-        out: Option<String>,
-    },
-    /// Parse a measurement/amount string (without ingredient name)
-    ParseAmount {
-        /// The amount to parse (e.g., "2 cups", "1/2 tsp")
-        text: String,
-        /// Output as JSON
-        #[arg(short, long)]
-        json: bool,
-    },
-    /// Parse rich text (recipe instructions) with embedded measurements
-    ParseRichText {
-        /// The text to parse (e.g., "Add 1 cup flour and mix")
-        text: String,
-        /// Ingredient names to recognize (comma-separated)
-        #[arg(short, long)]
-        ingredients: String,
-        /// Output as JSON
-        #[arg(short, long)]
-        json: bool,
-    },
-    /// Validate if a unit string is recognized
-    ValidateUnit {
-        /// The unit to validate (e.g., "cup", "tablespoon")
-        unit: String,
-        /// Additional custom units (comma-separated)
-        #[arg(short = 'e', long)]
-        extra_units: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-enum IngredientCommand {
     /// Distribution of exact saved ingredient names, with original-line examples. Offline.
     Stats {
         run: std::path::PathBuf,
@@ -188,10 +89,11 @@ enum IngredientCommand {
         /// Maximum original occurrences included per name.
         #[arg(long, default_value_t = 3)]
         examples: usize,
-        /// One name record per line; omit the book summary envelope.
-        #[arg(long)]
-        jsonl: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum IngredientCommand {
     Parse {
         name: String,
         /// Enable debug trace output showing which parsers were used
@@ -212,7 +114,7 @@ enum IngredientCommand {
         emit_corpus_row: bool,
     },
     Batch {
-        /// Path to a file with one ingredient line per line (blank lines skipped)
+        /// Path to a file with one ingredient line per line (use - for stdin; blank lines reported)
         file: String,
     },
 }
@@ -222,9 +124,6 @@ enum AmountCommand {
     Parse {
         /// The amount to parse (e.g., "2 cups", "1/2 tsp")
         text: String,
-        /// Output as JSON
-        #[arg(short, long)]
-        json: bool,
     },
     Validate {
         /// The unit to validate (e.g., "cup", "tablespoon")
@@ -243,9 +142,6 @@ enum TextCommand {
         /// Ingredient names to recognize (comma-separated)
         #[arg(short, long)]
         ingredients: String,
-        /// Output as JSON
-        #[arg(short, long)]
-        json: bool,
     },
 }
 
@@ -254,27 +150,7 @@ enum RecipeCommand {
     Scrape {
         url: String,
         #[arg(short, long)]
-        json: bool,
-        #[arg(short, long)]
         parse: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum LibraryCommand {
-    Scan {
-        /// Directory to scan recursively for .epub files
-        dir: String,
-        /// Max number of books to scan (uses the on-disk cache, so re-runs are free)
-        #[arg(long, default_value_t = 10)]
-        limit: usize,
-        /// How many of the worst (most frequent) miss lines to print
-        #[arg(long, default_value_t = 30)]
-        bottom: usize,
-        /// How many books to extract concurrently (each book still parallelizes
-        /// its own chunks internally).
-        #[arg(long, default_value_t = 8)]
-        concurrency: usize,
     },
 }
 
@@ -324,20 +200,6 @@ enum CorpusCommand {
         #[arg(long)]
         report_stages: bool,
     },
-}
-
-/// Emit one JSONL object for an ingredient line zipped with its parse:
-/// `{line, name, amounts, modifier}`. Shared by `scrape-epub --dump-parsed` and
-/// `parse-lines` — the corpus-harvest review surface.
-fn emit_parsed_line(ip: &ingredient::IngredientParser, line: &str) {
-    let p = ip.from_str(line);
-    let obj = serde_json::json!({
-        "line": line,
-        "name": p.name,
-        "amounts": p.amounts,
-        "modifier": p.modifier,
-    });
-    println!("{}", serde_json::to_string(&obj).unwrap());
 }
 
 /// Render a corpus amount value: an exact fraction *string* (`"2/3"`) for a
@@ -416,7 +278,7 @@ fn build_corpus_row(ip: &ingredient::IngredientParser, input: &str) -> Result<St
 /// Collect dotted paths of every `null`-valued key in a JSON payload, e.g.
 /// `recipes[0].sections[1].instructions`. A `null` in an array-typed recipe
 /// field is exactly what serde rejects with "expected a sequence", so this
-/// points `debug-epub` straight at the offending field.
+/// points `cookbook diagnose` straight at the offending field.
 fn null_paths(v: &serde_json::Value, path: &str, out: &mut Vec<String>) {
     use serde_json::Value;
     match v {
@@ -456,7 +318,7 @@ fn read_or_exit(path: &str) -> String {
 #[tokio::main]
 async fn main() {
     // Surface the extractor's tracing (chunk skips, escalation, truncation) on
-    // stderr. Off unless RUST_LOG is set, so normal --json stdout stays clean;
+    // stderr. Off unless RUST_LOG is set, so normal --format json stdout stays clean;
     // try `RUST_LOG=recipe_epub=info`. Without this, those warns went nowhere.
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -467,83 +329,72 @@ async fn main() {
     let _ = dotenvy::dotenv();
     let cli = Cli::parse();
 
-    let command = match cli.command {
-        Commands::Ingredient(command) => match command {
-            IngredientCommand::Parse {
-                name,
-                debug,
-                explain,
-                jaeger_output,
-                emit_corpus_row,
-            } => Commands::ParseIngredient {
-                name,
-                debug,
-                explain,
-                jaeger_output,
-                emit_corpus_row,
-            },
-            IngredientCommand::Batch { file } => Commands::ParseLines { file },
-            command @ IngredientCommand::Stats { .. } => Commands::Ingredient(command),
-        },
-        Commands::Amount(command) => match command {
-            AmountCommand::Parse { text, json } => Commands::ParseAmount { text, json },
-            AmountCommand::Validate { unit, extra_units } => {
-                Commands::ValidateUnit { unit, extra_units }
-            }
-        },
-        Commands::Text(command) => match command {
-            TextCommand::Parse {
-                text,
-                ingredients,
-                json,
-            } => Commands::ParseRichText {
-                text,
-                ingredients,
-                json,
-            },
-        },
-        Commands::Recipe(command) => match command {
-            RecipeCommand::Scrape { url, json, parse } => Commands::Scrape { url, json, parse },
-        },
-        Commands::Library(command) => match command {
-            LibraryCommand::Scan {
-                dir,
-                limit,
-                bottom,
-                concurrency,
-            } => Commands::ScanCookbooks {
-                dir,
-                limit,
-                bottom,
-                concurrency,
-            },
-        },
-        Commands::Corpus(CorpusCommand::Table { corpus, out }) => {
-            Commands::CorpusTable { corpus, out }
-        }
-        command => command,
-    };
-    match &command {
-        Commands::Epub(command) => match epub::execute(command).await {
-            Ok((value, code)) => {
-                println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                if code != 0 {
-                    std::process::exit(code);
+    let format = cli.format;
+    if format == OutputFormat::Jsonl
+        && !matches!(
+            &cli.command,
+            Commands::Ingredient(IngredientCommand::Batch { .. })
+                | Commands::Cookbook(CookbookCommand::Stats { .. })
+        )
+    {
+        eprintln!("--format jsonl is supported only by ingredient batch and cookbook stats");
+        std::process::exit(2);
+    }
+    if format != OutputFormat::Human
+        && matches!(&cli.command, Commands::Corpus(CorpusCommand::Table { .. }))
+    {
+        eprintln!("corpus table writes HTML; --format is not supported");
+        std::process::exit(2);
+    }
+    match &cli.command {
+        Commands::Cookbook(CookbookCommand::Review(command)) => {
+            match epub::execute(command).await {
+                Ok((value, code)) => {
+                    if format == OutputFormat::Human
+                        && value.get("version").is_some()
+                        && value.get("chunks").is_some()
+                    {
+                        let chunks = value["chunks"].as_array().cloned().unwrap_or_default();
+                        let recipes = value["recipes"].as_array().cloned().unwrap_or_default();
+                        println!("{}", value["source"].as_str().unwrap_or("Cookbook"));
+                        println!("{} chunks · {} recipes", chunks.len(), recipes.len());
+                        for chunk in &chunks {
+                            let status = if !chunk["error"].is_null() {
+                                "failed"
+                            } else if chunk["output"].is_null() {
+                                "pending"
+                            } else {
+                                "complete"
+                            };
+                            println!(
+                                "{}\t{status}\t{}",
+                                chunk["id"].as_str().unwrap_or(""),
+                                chunk["source"]["doc_path"].as_str().unwrap_or("")
+                            );
+                        }
+                        println!(
+                            "Use --chunk <id> to inspect source and output, or --format json for the full run."
+                        );
+                    } else {
+                        print_value(&value, format);
+                    }
+                    if code != 0 {
+                        std::process::exit(code);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    std::process::exit(1);
                 }
             }
-            Err(error) => {
-                eprintln!("{error}");
-                std::process::exit(1);
-            }
-        },
-        Commands::Ingredient(IngredientCommand::Stats {
+        }
+        Commands::Cookbook(CookbookCommand::Stats {
             run,
             name,
             max_count,
             sort,
             limit,
             examples,
-            jsonl,
         }) => {
             let result = (|| -> Result<(), Box<dyn std::error::Error>> {
                 use recipe_epub::review::stats::{NameSort, ingredient_stats};
@@ -565,15 +416,32 @@ async fn main() {
                         n
                     })
                     .collect();
-                if *jsonl {
+                if format == OutputFormat::Jsonl {
                     for name in names {
                         println!("{}", serde_json::to_string(&name)?);
+                    }
+                } else if format == OutputFormat::Human {
+                    println!(
+                        "{} occurrences · {} names · {matching_names} matching",
+                        stats.total_occurrences, stats.unique_names
+                    );
+                    if !stats.complete {
+                        println!("Partial counts: extraction is incomplete");
+                    }
+                    for name in &names {
+                        println!(
+                            "{}\t{} occurrences · {} recipes",
+                            name.name, name.occurrences, name.recipes
+                        );
+                        for example in &name.examples {
+                            print_value(&serde_json::to_value(example)?, format);
+                        }
                     }
                 } else {
                     let mut value = serde_json::to_value(&stats)?;
                     value["names"] = serde_json::to_value(names)?;
                     value["matching_names"] = serde_json::json!(matching_names);
-                    println!("{}", serde_json::to_string_pretty(&value)?);
+                    print_value(&value, format);
                 }
                 Ok(())
             })();
@@ -582,12 +450,7 @@ async fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Ingredient(_)
-        | Commands::Amount(_)
-        | Commands::Text(_)
-        | Commands::Recipe(_)
-        | Commands::Library(_) => unreachable!(),
-        Commands::Scrape { url, json, parse } => {
+        Commands::Recipe(RecipeCommand::Scrape { url, parse }) => {
             let s = recipe_scraper_fetcher::Fetcher::new();
             let scraped = match s.scrape_url(url).await {
                 Ok(s) => s,
@@ -598,98 +461,18 @@ async fn main() {
             };
             if *parse {
                 let parsed = scraped.parse();
-                if *json {
+                if format == OutputFormat::Json {
                     println!("{}", serde_json::to_string_pretty(&parsed).unwrap());
                 } else {
-                    println!("{parsed:#?}")
+                    print_value(&serde_json::to_value(&parsed).unwrap(), format)
                 }
-            } else if *json {
+            } else if format == OutputFormat::Json {
                 println!("{}", serde_json::to_string_pretty(&scraped).unwrap());
             } else {
-                println!("{scraped:#?}")
+                print_value(&serde_json::to_value(&scraped).unwrap(), format)
             }
         }
-        Commands::ScrapeEpub {
-            path,
-            json,
-            parse,
-            dump_parsed,
-            model,
-            escalate_model,
-            no_cache,
-        } => {
-            let bytes = std::fs::read(path).unwrap_or_else(|e| {
-                eprintln!("failed to read {path}: {e}");
-                std::process::exit(1);
-            });
-            let opts = recipe_epub::Options {
-                model: model.clone(),
-                escalate_model: escalate_model.clone(),
-                use_cache: !no_cache,
-                ..Default::default()
-            };
-            match recipe_epub::extract_cookbook_detailed(&bytes, path, &opts).await {
-                Ok((recipes, stats)) => {
-                    // Cost/cache summary goes to stderr so --json stdout stays clean.
-                    eprintln!("{}", stats.summary());
-                    // A valid EPUB that yields nothing is almost always an
-                    // extraction bug (e.g. a content-decode failure), not an empty
-                    // book — make it loud instead of exiting 0 with no output.
-                    if stats.chunks_total == 0 || recipes.is_empty() {
-                        eprintln!(
-                            "warning: extracted {} recipe(s) from {} chunk(s) — the book may have failed to decode (check the epub)",
-                            recipes.len(),
-                            stats.chunks_total
-                        );
-                    }
-                    // Cross-recipe references (recipe A uses recipe B) to stderr too.
-                    let with_refs: Vec<_> = recipes
-                        .iter()
-                        .filter(|r| !r.references.is_empty())
-                        .collect();
-                    if !with_refs.is_empty() {
-                        let total: usize = with_refs.iter().map(|r| r.references.len()).sum();
-                        eprintln!(
-                            "cross-recipe references: {total} across {} recipe(s)",
-                            with_refs.len()
-                        );
-                        for r in with_refs {
-                            let targets: Vec<&str> =
-                                r.references.iter().map(|x| x.title.as_str()).collect();
-                            eprintln!("  {} → {}", r.meta.title, targets.join(", "));
-                        }
-                    }
-                    if *dump_parsed {
-                        // One JSONL object per ingredient line: the verbatim
-                        // line zipped with its parsed shape. For corpus harvest.
-                        let ip = ingredient::IngredientParser::new();
-                        for r in &recipes {
-                            for sec in &r.sections {
-                                for line in &sec.ingredients {
-                                    emit_parsed_line(&ip, line);
-                                }
-                            }
-                        }
-                    } else if *parse {
-                        let parsed: Vec<_> = recipes.iter().map(|r| r.parse()).collect();
-                        if *json {
-                            println!("{}", serde_json::to_string_pretty(&parsed).unwrap());
-                        } else {
-                            println!("{parsed:#?}");
-                        }
-                    } else if *json {
-                        println!("{}", serde_json::to_string_pretty(&recipes).unwrap());
-                    } else {
-                        println!("{recipes:#?}");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("epub scrape error: {e}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        Commands::DebugEpub { path, model, raw } => {
+        Commands::Cookbook(CookbookCommand::Diagnose { path, model, raw }) => {
             let bytes = std::fs::read(path).unwrap_or_else(|e| {
                 eprintln!("failed to read {path}: {e}");
                 std::process::exit(1);
@@ -707,7 +490,7 @@ async fn main() {
             let mut chunks = match recipe_epub::debug_extract_cookbook(&bytes, path, &opts).await {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("debug-epub error: {e}");
+                    eprintln!("cookbook diagnose error: {e}");
                     std::process::exit(1);
                 }
             };
@@ -722,6 +505,13 @@ async fn main() {
                 chunks.len() - failures.len(),
                 failures.len()
             );
+            if format == OutputFormat::Json {
+                print_value(
+                    &serde_json::json!({"chunks":chunks.len(),"recipes":recipes,"failures":failures.iter().map(|c| serde_json::json!({"source":c.doc_path,"error":c.error,"truncated":c.truncated,"raw":if *raw { c.raw_input.clone() } else { None }})).collect::<Vec<_>>()}),
+                    format,
+                );
+                std::process::exit(if failures.is_empty() { 0 } else { 3 });
+            }
             for c in &failures {
                 println!("\n--- FAILED chunk: {} ---", c.doc_path);
                 if let Some(h) = &c.title_hint {
@@ -761,107 +551,38 @@ async fn main() {
                 );
             }
             // Non-zero exit when any chunk failed, so this is scriptable in CI.
-            std::process::exit(if failures.is_empty() { 0 } else { 2 });
+            std::process::exit(if failures.is_empty() { 0 } else { 3 });
         }
-        Commands::ScanCookbooks {
-            dir,
-            limit,
-            bottom,
-            concurrency,
-        } => {
-            if !std::path::Path::new(dir).is_dir() {
-                eprintln!("error: '{dir}' is not a directory");
+        Commands::Cookbook(CookbookCommand::Scan { dir, limit }) => {
+            if !dir.is_dir() {
+                eprintln!("error: '{}' is not a directory", dir.display());
                 std::process::exit(1);
             }
-            let mut epubs = recipe_epub::find_epubs(std::path::Path::new(dir));
+            let mut epubs = recipe_epub::find_epubs(dir);
             epubs.sort();
             epubs.truncate(*limit);
-
-            // Per-book extraction is independent, so run several books at once
-            // (each book already parallelizes its own chunks internally).
-            // `buffer_unordered` keeps up to `concurrency` books in flight on a
-            // single task; results are aggregated as they complete.
-            use futures::stream::{self, StreamExt};
-            let opts = recipe_epub::Options::default();
-            let mut stream = stream::iter(epubs.clone())
-                .map(|path| {
-                    let opts = &opts;
-                    async move {
-                        let p = path.to_string_lossy().to_string();
-                        let bytes = match std::fs::read(&path) {
-                            Ok(b) => b,
-                            Err(e) => return (p, Err(format!("read error: {e}"))),
-                        };
-                        let result = recipe_epub::extract_cookbook_detailed(&bytes, &p, opts)
-                            .await
-                            .map_err(|e| e.to_string());
-                        (p, result)
-                    }
-                })
-                .buffer_unordered((*concurrency).max(1));
-
-            let mut candidates: std::collections::HashMap<String, usize> =
-                std::collections::HashMap::new();
-            let mut total_recipes = 0usize;
-            let mut total_lines = 0usize;
-            let mut total_chunks = 0usize;
-            let mut total_chunks_cached = 0usize;
-            let mut total_cost = 0.0f64;
-            let mut cost_known = true;
-            while let Some((p, result)) = stream.next().await {
+            let rows: Vec<_> = epubs.iter().map(|path| {
+                let result = std::fs::read(path).map_err(|error| error.to_string()).and_then(|bytes| {
+                    recipe_epub::review::ReviewRun::inspect(&bytes, &path.to_string_lossy(), "gemini-2.5-flash").map_err(|error| error.to_string())
+                });
                 match result {
-                    Ok((recipes, stats)) => {
-                        total_recipes += recipes.len();
-                        total_chunks += stats.chunks_total;
-                        total_chunks_cached += stats.chunks_cached;
-                        let estimate = stats.cost_estimate();
-                        total_cost += estimate.known_usd;
-                        cost_known &= estimate.complete;
-                        for r in &recipes {
-                            total_lines += r
-                                .sections
-                                .iter()
-                                .map(|s| s.ingredients.len())
-                                .sum::<usize>();
-                            for line in r.low_confidence_lines() {
-                                *candidates.entry(line).or_default() += 1;
-                            }
-                        }
-                        eprintln!("{p}: {} recipes · {}", recipes.len(), stats.summary());
-                    }
-                    Err(e) => eprintln!("{p}: error: {e}"),
+                    Ok(run) => serde_json::json!({"source":path,"documents":run.documents.len(),"chunks":run.chunks.len(),"epub_sha256":run.epub_sha256,"error":null}),
+                    Err(error) => { eprintln!("{}: {error}", path.display()); serde_json::json!({"source":path,"error":error}) }
                 }
-            }
-            let miss_total: usize = candidates.values().sum();
-            let mut ranked: Vec<(String, usize)> = candidates.into_iter().collect();
-            ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-            let cost_str = if cost_known {
-                format!("~${total_cost:.4}")
-            } else {
-                format!("~${total_cost:.4} known subtotal (pricing incomplete)")
-            };
-            println!(
-                "scanned {} book(s): {total_recipes} recipes, {total_lines} ingredient lines, \
-                 {miss_total} with a number but no parsed amount\n\
-                 cost: {cost_str} · {total_chunks_cached}/{total_chunks} chunks cached",
-                epubs.len()
-            );
-            println!(
-                "\ntop {} parser-miss lines (corpus candidates):",
-                (*bottom).min(ranked.len())
-            );
-            // Tab-separated stays grep/copy-friendly for piping into the corpus.
-            for (line, n) in ranked.into_iter().take(*bottom) {
-                println!("{n}\t{line}");
+            }).collect();
+            let failed = rows.iter().any(|row| !row["error"].is_null());
+            print_value(&serde_json::json!({"books":rows}), format);
+            if failed {
+                std::process::exit(1);
             }
         }
-        Commands::ParseIngredient {
+        Commands::Ingredient(IngredientCommand::Parse {
             name,
             debug,
             explain,
             jaeger_output,
             emit_corpus_row,
-        } => {
+        }) => {
             if *emit_corpus_row {
                 // Authoring helper: one JSONL row for the corpus, or a refusal.
                 let ip = ingredient::IngredientParser::new();
@@ -870,7 +591,7 @@ async fn main() {
                     Err(reason) => {
                         eprintln!(
                             "refusing to emit corpus row for {name:?}: {reason}\n\
-                             (inspect with `parse-ingredient {name:?} --explain`)"
+                             (inspect with `ingredient parse {name:?} --explain`)"
                         );
                         std::process::exit(1);
                     }
@@ -891,7 +612,7 @@ async fn main() {
                         },
                     },
                 );
-                let use_color = std::io::IsTerminal::is_terminal(&std::io::stdout());
+                let use_color = std::io::IsTerminal::is_terminal(&std::io::stderr());
 
                 // Export to Jaeger JSON if requested
                 if let Some(output_path) = jaeger_output
@@ -913,7 +634,7 @@ async fn main() {
                     && let (Some(decomposition), Some(stages)) =
                         (execution.decomposition.as_ref(), execution.stages.as_ref())
                 {
-                    print!(
+                    eprint!(
                         "{}",
                         explain::render(
                             decomposition,
@@ -921,46 +642,58 @@ async fn main() {
                             use_color,
                         )
                     );
-                    println!();
-                    println!("{}", stages.format(use_color));
+                    eprintln!();
+                    eprintln!("{}", stages.format(use_color));
                 }
 
                 // Print the full trace tree if debug is enabled
                 if *debug && let Some(trace) = execution.trace.as_ref() {
-                    println!("{}", trace.format_tree(use_color));
+                    eprintln!("{}", trace.format_tree(use_color));
                 }
-
-                // Print the result (Ingredient-line parsing never fails).
-                println!("\nResult:");
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&execution.ingredient).unwrap()
-                );
+                if format == OutputFormat::Json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&execution.ingredient).unwrap()
+                    );
+                } else {
+                    println!("{}", execution.ingredient);
+                }
             } else {
-                // JSON only — stdout must stay pipeable (`… | jq`); the human-
-                // readable Display line was breaking that.
                 let res = ingredient::from_str(name);
-                println!("{}", serde_json::to_string_pretty(&res).unwrap());
+                if format == OutputFormat::Json {
+                    println!("{}", serde_json::to_string_pretty(&res).unwrap());
+                } else {
+                    println!("{res}");
+                }
             }
         }
-        Commands::ParseLines { file } => {
-            let contents = match std::fs::read_to_string(file) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("failed to read {file}: {e}");
+        Commands::Ingredient(IngredientCommand::Batch { file }) => {
+            use std::io::Read;
+            let contents = if file == "-" {
+                let mut contents = String::new();
+                if let Err(error) = std::io::stdin().read_to_string(&mut contents) {
+                    eprintln!("failed to read stdin: {error}");
                     std::process::exit(1);
                 }
+                contents
+            } else {
+                read_or_exit(file)
             };
             let ip = ingredient::IngredientParser::new();
-            for line in contents.lines() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
+            let rows: Vec<_> = contents.lines().enumerate().map(|(index, line)| {
+                let parsed = ip.from_str(line);
+                let error = if line.trim().is_empty() { Some("empty ingredient line".to_owned()) }
+                    else { parsed.parse_notes.review_reasons().first().map(ToString::to_string) };
+                serde_json::json!({"line_number":index + 1,"line":line,"name":parsed.name,"amounts":parsed.amounts,"modifier":parsed.modifier,"optional":parsed.optional,"usage":parsed.usage,"error":error})
+            }).collect();
+            if format == OutputFormat::Jsonl {
+                for row in &rows {
+                    println!("{row}");
                 }
-                emit_parsed_line(&ip, line);
+            } else {
+                print_value(&serde_json::json!(rows), format);
             }
         }
-        Commands::Corpus(CorpusCommand::Table { .. }) => unreachable!(),
         Commands::Corpus(CorpusCommand::Compare {
             before,
             after,
@@ -971,21 +704,22 @@ async fn main() {
                 let after = serde_json::from_slice(&std::fs::read(after)?)?;
                 ingredient_corpus::cookbooks::compare(&before, &after, book_id)
             })();
-            print_result(result);
+            print_result(result, format);
         }
         Commands::Corpus(CorpusCommand::Sample { library, corpus }) => {
             print_result(
                 ingredient_corpus::sampling::sample(library, corpus).map(
                     |(rows, manifest)| serde_json::json!({"rows": rows, "manifest": manifest}),
                 ),
+                format,
             );
         }
         Commands::Corpus(CorpusCommand::Verify { library, corpus }) => {
-            print_result(ingredient_corpus::sampling::verify(library, corpus));
+            print_result(ingredient_corpus::sampling::verify(library, corpus), format);
         }
         Commands::Corpus(CorpusCommand::Evaluate { directory, split }) => {
             match ingredient_corpus::cookbooks::evaluate(directory, Some(split)) {
-                Ok(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+                Ok(value) => print_value(&value, format),
                 Err(error) => {
                     eprintln!("{error}");
                     std::process::exit(1);
@@ -1014,9 +748,16 @@ async fn main() {
                     std::process::exit(1);
                 }
             }
-            print!("{}", outcome.report);
+            if format == OutputFormat::Json {
+                print_value(
+                    &serde_json::json!({"report":outcome.report,"problems":outcome.problems}),
+                    format,
+                );
+            } else {
+                print!("{}", outcome.report);
+            }
         }
-        Commands::CorpusTable { corpus, out } => {
+        Commands::Corpus(CorpusCommand::Table { corpus, out }) => {
             let contents = match std::fs::read_to_string(corpus) {
                 Ok(c) => c,
                 Err(e) => {
@@ -1028,12 +769,12 @@ async fn main() {
             match out.as_deref() {
                 Some("-") => print!("{html}"),
                 Some(path) => {
-                    std::fs::write(path, &html).unwrap();
+                    write_or_exit(std::path::Path::new(path), &html);
                     eprintln!("wrote {path} ({rows} rows)");
                 }
                 None => {
                     let path = std::env::temp_dir().join("ingredient-corpus.html");
-                    std::fs::write(&path, &html).unwrap();
+                    write_or_exit(&path, &html);
                     eprintln!("wrote {} ({rows} rows)", path.display());
                     // Best-effort: open in the default browser. Headless/SSH
                     // environments have no opener — just leave the path printed.
@@ -1043,11 +784,11 @@ async fn main() {
                 }
             }
         }
-        Commands::ParseAmount { text, json } => {
+        Commands::Amount(AmountCommand::Parse { text }) => {
             let parser = ingredient::IngredientParser::new();
             match parser.parse_amount(text) {
                 Ok(amounts) => {
-                    if *json {
+                    if format == OutputFormat::Json {
                         println!("{}", serde_json::to_string_pretty(&amounts).unwrap());
                     } else {
                         println!("{}", tables::amount_table(&amounts));
@@ -1059,11 +800,7 @@ async fn main() {
                 }
             }
         }
-        Commands::ParseRichText {
-            text,
-            ingredients,
-            json,
-        } => {
+        Commands::Text(TextCommand::Parse { text, ingredients }) => {
             let ingredient_names: Vec<String> = ingredients
                 .split(',')
                 .map(|s| s.trim().to_string())
@@ -1072,10 +809,10 @@ async fn main() {
             let parser = ingredient::rich_text::RichParser::new(ingredient_names);
             match parser.parse(text) {
                 Ok(rich) => {
-                    if *json {
+                    if format == OutputFormat::Json {
                         println!("{}", serde_json::to_string_pretty(&rich).unwrap());
                     } else {
-                        println!("{rich:?}");
+                        print_value(&serde_json::to_value(&rich).unwrap(), format);
                     }
                 }
                 Err(e) => {
@@ -1084,7 +821,7 @@ async fn main() {
                 }
             }
         }
-        Commands::ValidateUnit { unit, extra_units } => {
+        Commands::Amount(AmountCommand::Validate { unit, extra_units }) => {
             // Validate by attempting to parse a simple measurement with this unit
             let mut parser = ingredient::IngredientParser::new();
 
@@ -1112,18 +849,75 @@ async fn main() {
                 })
                 .unwrap_or(false);
 
-            println!("{}", if is_valid { "valid" } else { "invalid" });
+            if format == OutputFormat::Json {
+                println!("{}", serde_json::json!({"unit":unit,"valid":is_valid}));
+            } else {
+                println!("{}", if is_valid { "valid" } else { "invalid" });
+            }
             std::process::exit(if is_valid { 0 } else { 1 });
         }
     }
 }
 
-fn print_result(result: Result<serde_json::Value, Box<dyn std::error::Error>>) {
+fn print_result(
+    result: Result<serde_json::Value, Box<dyn std::error::Error>>,
+    format: OutputFormat,
+) {
     match result {
-        Ok(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+        Ok(value) => print_value(&value, format),
         Err(error) => {
             eprintln!("{error}");
             std::process::exit(1);
         }
+    }
+}
+
+/// Compact, deterministic terminal rendering without debug structs or JSON punctuation.
+fn print_value(value: &serde_json::Value, format: OutputFormat) {
+    if format == OutputFormat::Json {
+        println!("{}", serde_json::to_string_pretty(value).unwrap());
+        return;
+    }
+    fn render(value: &serde_json::Value, indent: usize) {
+        let pad = " ".repeat(indent);
+        match value {
+            serde_json::Value::Object(fields) => {
+                for (key, value) in fields {
+                    if value.is_object() || value.is_array() {
+                        println!("{pad}{key}:");
+                        render(value, indent + 2);
+                    } else {
+                        println!(
+                            "{pad}{key}: {}",
+                            value
+                                .as_str()
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| value.to_string())
+                        );
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    println!("{pad}[{}]", index + 1);
+                    render(item, indent + 2);
+                }
+            }
+            value => println!(
+                "{pad}{}",
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| value.to_string())
+            ),
+        }
+    }
+    render(value, 0);
+}
+
+fn write_or_exit(path: &std::path::Path, contents: &str) {
+    if let Err(error) = std::fs::write(path, contents) {
+        eprintln!("failed to write {}: {error}", path.display());
+        std::process::exit(1);
     }
 }

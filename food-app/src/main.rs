@@ -9,7 +9,12 @@ fn main() -> eframe::Result<()> {
     let _ = dotenvy::dotenv();
     tracing_subscriber::fmt::init();
 
-    let native_options = eframe::NativeOptions::default();
+    let native_options = eframe::NativeOptions {
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_inner_size([1280.0, 820.0])
+            .with_min_inner_size([800.0, 560.0]),
+        ..Default::default()
+    };
     eframe::run_native(
         "ingredient-parser",
         native_options,

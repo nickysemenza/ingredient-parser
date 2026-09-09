@@ -15,9 +15,8 @@
 //! Behavioral properties a chunk sequence can't express (e.g. a measure's
 //! `MeasureKind`/scalability) stay in `parsing.rs` rstests.
 //!
-//! Seeded by hand. The deferred wire-up is harvesting: `scan-cookbooks` already
-//! surfaces low-confidence *ingredient* lines; the same loop can mine instruction
-//! prose into candidate rows here.
+//! Seeded by hand. Saved cookbook runs retain instruction prose that can be
+//! reviewed into independently labeled candidate rows here.
 
 #![allow(clippy::unwrap_used)]
 // Test-harness code: a malformed corpus line should fail the test loudly.

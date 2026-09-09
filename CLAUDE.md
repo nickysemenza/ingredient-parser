@@ -10,7 +10,7 @@
 - **Independent evaluation:** cookbook labels and source selection live in `ingredient-parser/tests/corpus/cookbooks/`. Read its README before sampling, labeling, or evaluating. Keep held-out labels independent of implementation output; document label corrections with source/contract evidence.
 - For debugging or iteration, parse ingredients into JSON with:
   ```
-  cargo run -p food-cli --quiet -- ingredient parse "1 cup flour, sifted"
+  cargo run -p food-cli --quiet -- ingredient parse "1 cup flour, sifted" --format json
   ```
   Add `--explain` for the compact stage view, or `--debug` for the full grammar trace tree.
 

@@ -40,6 +40,7 @@ tokio = { workspace = true, optional = true }
 walkdir = { version = "2", optional = true }  # recursive epub discovery (native fs only)
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+recipe-epub-fixtures.workspace = true
 rstest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 zip = "8"  # build tiny in-memory EPUB fixtures (epub itself reads via zip 3)

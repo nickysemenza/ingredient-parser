@@ -8,54 +8,40 @@ use ingredient::util::truncate_str;
 #[derive(Clone, Copy)]
 pub enum TraceTreeContext {
     Test,
-    Debug,
 }
 
 pub fn show_debug_tab(ui: &mut egui::Ui, traces: &[ParseTrace], selected: &mut Option<usize>) {
     let nav_changed = super::arrow_nav(ui, selected, traces.len());
-    // Use columns for better layout
-    ui.columns(2, |columns| {
-        // Left column: ingredient selector
-        columns[0].heading("Ingredients");
-        columns[0].separator();
-        egui::ScrollArea::vertical()
-            .id_salt("ingredient_list")
-            .show(&mut columns[0], |ui| {
-                for (idx, trace) in traces.iter().enumerate() {
-                    let is_selected = *selected == Some(idx);
-                    let response = ui.selectable_label(is_selected, truncate_str(&trace.input, 50));
-                    if response.clicked() {
-                        *selected = Some(idx);
+    egui::Panel::left("recipe_ingredient_list")
+        .resizable(true)
+        .default_size(260.0)
+        .show(ui, |ui| {
+            ui.strong("Ingredients");
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .id_salt("ingredient_list")
+                .show(ui, |ui| {
+                    for (idx, trace) in traces.iter().enumerate() {
+                        let response = ui.selectable_label(*selected == Some(idx), &trace.input);
+                        if response.clicked() {
+                            *selected = Some(idx);
+                        }
+                        if nav_changed && *selected == Some(idx) {
+                            response.scroll_to_me(Some(egui::Align::Center));
+                        }
                     }
-                    if nav_changed && *selected == Some(idx) {
-                        response.scroll_to_me(Some(egui::Align::Center));
-                    }
-                }
-            });
-
-        // Right column: tree view for selected ingredient
-        columns[1].heading("Parse Trace");
-        columns[1].separator();
-        if let Some(idx) = selected {
-            if let Some(trace) = traces.get(*idx) {
-                columns[1].label(format!("Input: \"{}\"", trace.input));
-                columns[1].separator();
-                egui::ScrollArea::vertical()
-                    .id_salt("trace_tree")
-                    .show(&mut columns[1], |ui| {
-                        show_trace_tree(ui, trace, TraceTreeContext::Debug);
-                    });
-            }
-        } else {
-            columns[1].label("Select an ingredient to view its parse trace");
-        }
-    });
+                });
+        });
+    if let Some(trace) = selected.and_then(|idx| traces.get(idx)) {
+        super::inspector::show_trace_inspector(ui, trace);
+    } else {
+        ui.label("Select an ingredient to inspect its fields and parser execution.");
+    }
 }
 
 pub fn show_trace_tree(ui: &mut egui::Ui, trace: &ParseTrace, context: TraceTreeContext) {
     let id_salt = match context {
         TraceTreeContext::Test => "test_parse_trace_tree",
-        TraceTreeContext::Debug => "debug_parse_trace_tree",
     };
     let id = ui.make_persistent_id(id_salt);
     TreeView::new(id).show(ui, |builder| {

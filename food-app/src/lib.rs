@@ -1,35 +1,36 @@
-//! An `egui`/`eframe` desktop app for exercising the `ingredient` parser and
-//! `recipe-scraper` end to end: paste a recipe URL, see it scraped and each
-//! ingredient line parsed, and inspect the parse trace stage-by-stage.
+//! Native maintainer workspaces for parser inspection and cookbook review.
 //!
-//! [`MyApp`] is the crate root and the `eframe::App` implementation; its tabs
-//! (Recipe/Debug/Test/Cookbook/Corpus, in `tabs/`) cover live scraping,
-//! per-ingredient trace inspection, batch corpus-style testing against pasted
-//! lines, EPUB cookbook extraction, and a live view of the accuracy corpus.
-//! `main.rs` is just the native binary entry point that constructs [`MyApp`].
-
-// UI code uses unwrap for display purposes where panics are acceptable
+//! THESIS: keep a source, its result, and the evidence for that result together.
+//! OWN-WORLD: compact system typography, neutral split panes, semantic color.
+//! STORY: choose Parser or Cookbooks, load a source explicitly, inspect evidence.
+//! FIRST VIEWPORT: navigation rail, source toolbar, working area and inspector.
+//! FORM: user-approved native developer tools, Xcode and Instruments references.
+//! FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 #![allow(clippy::unwrap_used)]
 
 mod persist;
 mod tabs;
 mod theme;
 
-use eframe::egui::{self, Image, RichText};
+use eframe::egui::{self, RichText};
 use ingredient::trace::ParseTrace;
 use poll_promise::Promise;
-use rand::RngExt;
 use recipe_scraper::{ParsedRecipe, ScrapedRecipe};
 use tabs::{CookbookTab, CorpusAction, CorpusTab, TestTab};
 use tabs::{show_debug_tab, show_parsed, show_raw};
 
 #[derive(PartialEq, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
-enum Tab {
+enum Workspace {
     #[default]
+    Parser,
+    Cookbooks,
+}
+
+#[derive(PartialEq, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+enum ParserSource {
+    #[default]
+    Ingredients,
     Recipe,
-    Debug,
-    Test,
-    Cookbook,
     Corpus,
 }
 
@@ -40,17 +41,15 @@ struct Wrapper {
 }
 
 pub struct MyApp {
-    /// `None` when download hasn't started yet.
     promise: Option<Promise<ehttp::Result<Wrapper>>>,
     url: String,
-    current_tab: Tab,
+    workspace: Workspace,
+    parser_source: ParserSource,
     theme: theme::ThemeChoice,
     selected_ingredient_idx: Option<usize>,
-    // Test tab state
+    recipe_inspect: bool,
     test: TestTab,
-    // Cookbook (EPUB) tab state
     cookbook: CookbookTab,
-    // Corpus QA tab state
     corpus: CorpusTab,
 }
 
@@ -58,11 +57,12 @@ impl Default for MyApp {
     fn default() -> Self {
         Self {
             promise: None,
-            url: "https://cooking.nytimes.com/recipes/1022674-chewy-gingerbread-cookies"
-                .to_string(),
-            current_tab: Tab::Recipe,
+            url: String::new(),
+            workspace: Workspace::Parser,
+            parser_source: ParserSource::Ingredients,
             theme: theme::ThemeChoice::default(),
             selected_ingredient_idx: None,
+            recipe_inspect: true,
             test: TestTab::default(),
             cookbook: CookbookTab::default(),
             corpus: CorpusTab::default(),
@@ -70,34 +70,12 @@ impl Default for MyApp {
     }
 }
 
-fn ui_url(ui: &mut egui::Ui, url: &mut String) -> bool {
-    let mut trigger_fetch = false;
-
-    ui.horizontal(|ui| {
-        ui.label("URL:");
-        // Fetch on Enter only — bare lost_focus() also fires on Tab/Esc/click-
-        // away, fetching a half-typed URL (same idiom as the Test tab).
-        let response = ui.add(egui::TextEdit::singleline(url).desired_width(f32::INFINITY));
-        trigger_fetch |= response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-    });
-    if ui.button("Random NYT").clicked() {
-        let mut rng = rand::rng();
-        *url = format!(
-            "https://cooking.nytimes.com/recipes/{}",
-            rng.random_range(10..15000)
-        );
-        trigger_fetch = true;
-    }
-
-    trigger_fetch
-}
-
 impl MyApp {
     pub fn open_review(&mut self, path: std::path::PathBuf) {
         self.cookbook.open_review(path);
-        self.current_tab = Tab::Cookbook;
+        self.workspace = Workspace::Cookbooks;
     }
-    /// Called once before the first frame.
+
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::default();
         if let Some(storage) = cc.storage
@@ -106,9 +84,154 @@ impl MyApp {
         {
             state.apply_to(&mut app);
         }
-        // After restoring state so the persisted flavor is the one applied.
         theme::apply(&cc.egui_ctx, app.theme);
         app
+    }
+
+    fn fetch_recipe(&mut self, ctx: &egui::Context) {
+        let ctx = ctx.clone();
+        let (sender, promise) = Promise::new();
+        let request = ehttp::Request::get(self.url.trim());
+        ehttp::fetch(request, move |response| {
+            let result = response.and_then(parse_response).map(|recipe| {
+                let parser = ingredient::IngredientParser::new();
+                let execution = recipe_parsing::execute_sections(
+                    &recipe.sections,
+                    &parser,
+                    ingredient::ParseOptions {
+                        decomposition: false,
+                        trace: ingredient::TraceDetail::Full,
+                    },
+                );
+                for diagnostic in &execution.instruction_diagnostics {
+                    tracing::warn!(
+                        section = diagnostic.section,
+                        instruction = diagnostic.instruction,
+                        "{}",
+                        diagnostic.message
+                    );
+                }
+                Wrapper {
+                    recipe,
+                    parsed: execution.recipe,
+                    traces: execution
+                        .observations
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|observation| observation.trace)
+                        .collect(),
+                }
+            });
+            sender.send(result);
+            ctx.request_repaint();
+        });
+        self.promise = Some(promise);
+        self.selected_ingredient_idx = None;
+    }
+
+    fn show_recipe(&mut self, ui: &mut egui::Ui) {
+        let pending = self.promise.as_ref().is_some_and(|p| p.ready().is_none());
+        let mut load = false;
+        ui.horizontal(|ui| {
+            ui.label("Recipe URL");
+            let available = (ui.available_width() - 85.0).max(80.0);
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.url)
+                    .desired_width(available)
+                    .hint_text("https://…"),
+            );
+            load |= response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            load |= ui
+                .add_enabled(
+                    !pending && !self.url.trim().is_empty(),
+                    egui::Button::new("Load recipe"),
+                )
+                .clicked();
+        });
+        if load && !pending && !self.url.trim().is_empty() {
+            self.fetch_recipe(ui.ctx());
+        }
+        ui.separator();
+        let Some(promise) = &self.promise else {
+            ui.add_space(24.0);
+            ui.heading("Inspect a web recipe");
+            ui.label("Load a URL to inspect its ingredient results and source recipe.");
+            return;
+        };
+        match promise.ready() {
+            None => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Loading recipe…");
+                });
+            }
+            Some(Err(error)) => {
+                ui.colored_label(ui.visuals().error_fg_color, error);
+                ui.label("Check the URL and connection, then choose Load recipe to retry.");
+            }
+            Some(Ok(w)) => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.heading(&w.recipe.name);
+                    ui.separator();
+                    ui.selectable_value(&mut self.recipe_inspect, true, "Ingredients");
+                    ui.selectable_value(&mut self.recipe_inspect, false, "Recipe & source");
+                    if !w.recipe.url.is_empty() {
+                        ui.hyperlink_to("Open source", &w.recipe.url);
+                    }
+                });
+                ui.separator();
+                if self.recipe_inspect {
+                    show_debug_tab(ui, &w.traces, &mut self.selected_ingredient_idx);
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt("recipe_content")
+                        .show(ui, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                if let Some(category) = &w.recipe.category {
+                                    ui.label(category);
+                                }
+                                if let Some(yield_) = &w.recipe.recipe_yield {
+                                    ui.label(format!(
+                                        "{} {} {}",
+                                        theme::icon::YIELD,
+                                        yield_.value,
+                                        yield_.unit
+                                    ));
+                                }
+                                if let Some(servings) = &w.recipe.servings {
+                                    ui.label(format!(
+                                        "{} {servings} servings",
+                                        theme::icon::SERVINGS
+                                    ));
+                                }
+                                if let Some(times) = &w.recipe.times {
+                                    for (label, value) in [
+                                        ("active", &times.active),
+                                        ("total", &times.total),
+                                        ("prep", &times.prep),
+                                        ("cook", &times.cook),
+                                    ] {
+                                        if let Some(value) = value {
+                                            ui.label(format!(
+                                                "{} {label}: {value}",
+                                                theme::icon::TIME
+                                            ));
+                                        }
+                                    }
+                                }
+                            });
+                            if let Some(description) = &w.recipe.description {
+                                ui.label(description);
+                            }
+                            if let Some(image) = &w.recipe.image {
+                                ui.add(egui::Image::from_uri(image).max_height(180.0));
+                            }
+                            show_parsed(ui, &w.parsed);
+                            ui.collapsing("Scraped source", |ui| show_raw(ui, &w.recipe));
+                        });
+                }
+            }
+        }
     }
 }
 
@@ -122,230 +245,104 @@ impl eframe::App for MyApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // Top panel with tab bar (always visible)
-        egui::Panel::top("tab_bar").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(
-                    &mut self.current_tab,
-                    Tab::Test,
-                    format!("{} Test Parser", theme::icon::TEST),
-                );
-                ui.separator();
-                ui.selectable_value(
-                    &mut self.current_tab,
-                    Tab::Recipe,
-                    format!("{} Recipe", theme::icon::RECIPE),
-                );
-                ui.selectable_value(
-                    &mut self.current_tab,
-                    Tab::Debug,
-                    format!("{} Debug Trace", theme::icon::DEBUG),
-                );
-                ui.selectable_value(
-                    &mut self.current_tab,
-                    Tab::Cookbook,
-                    format!("{} Cookbook", theme::icon::COOKBOOK),
-                );
-                ui.selectable_value(
-                    &mut self.current_tab,
-                    Tab::Corpus,
-                    format!("{} Corpus", theme::icon::CORPUS),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let icon = match self.theme {
-                        theme::ThemeChoice::Mocha => theme::icon::LIGHT_MODE,
-                        theme::ThemeChoice::Latte => theme::icon::DARK_MODE,
-                    };
+        self.show(ui);
+    }
+}
+
+impl MyApp {
+    fn show(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::left("workspace_rail_v2")
+            .resizable(false)
+            .exact_size(176.0)
+            .frame(theme::sidebar_frame())
+            .show(ui, |ui| {
+                ui.add_space(12.0);
+                ui.label(RichText::new("ingredient-parser").size(14.0).strong());
+                ui.add_space(24.0);
+                for (workspace, icon, label) in [
+                    (Workspace::Parser, theme::icon::TEST, "Parser"),
+                    (Workspace::Cookbooks, theme::icon::COOKBOOK, "Cookbooks"),
+                ] {
                     if ui
-                        .button(icon)
-                        .on_hover_text("Switch light/dark theme")
+                        .add_sized(
+                            [ui.available_width(), 36.0],
+                            egui::Button::new(format!("{icon}  {label}"))
+                                .right_text(())
+                                .selected(self.workspace == workspace)
+                                .frame_when_inactive(self.workspace == workspace),
+                        )
                         .clicked()
                     {
+                        self.workspace = workspace;
+                    }
+                    ui.add_space(4.0);
+                }
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    let label = match self.theme {
+                        theme::ThemeChoice::Mocha => "Light appearance",
+                        theme::ThemeChoice::Latte => "Dark appearance",
+                    };
+                    if ui.button(label).clicked() {
                         self.theme = match self.theme {
                             theme::ThemeChoice::Mocha => theme::ThemeChoice::Latte,
                             theme::ThemeChoice::Latte => theme::ThemeChoice::Mocha,
                         };
                         theme::set_theme(ui.ctx(), self.theme);
-                        // Hub colors are baked into the reference graph at
-                        // build time — rebuild it under the new palette.
                         self.cookbook.invalidate_graph();
                     }
                 });
             });
-        });
-
-        // URL bar panel (only shown for the web-scraping Recipe/Debug tabs)
-        if matches!(self.current_tab, Tab::Recipe | Tab::Debug) {
-            egui::Panel::top("url_panel").show(ui, |ui| {
-                let trigger_fetch = ui_url(ui, &mut self.url);
-
-                if trigger_fetch || self.promise.is_none() {
-                    let ctx = ui.ctx().clone();
-                    let (sender, promise) = Promise::new();
-                    let request = ehttp::Request::get(&self.url);
-                    ehttp::fetch(request, move |response| {
-                        match response.and_then(parse_response) {
-                            Ok(r) => {
-                                let parser = ingredient::IngredientParser::new();
-                                let execution = recipe_parsing::execute_sections(
-                                    &r.sections,
-                                    &parser,
-                                    ingredient::ParseOptions {
-                                        decomposition: false,
-                                        trace: ingredient::TraceDetail::Full,
-                                    },
-                                );
-                                for diagnostic in &execution.instruction_diagnostics {
-                                    tracing::warn!(
-                                        section = diagnostic.section,
-                                        instruction = diagnostic.instruction,
-                                        "{}",
-                                        diagnostic.message
-                                    );
-                                }
-                                let traces = execution
-                                    .observations
-                                    .into_iter()
-                                    .flatten()
-                                    .filter_map(|observation| observation.trace)
-                                    .collect();
-                                let parsed = execution.recipe;
-                                sender.send(Ok(Wrapper {
-                                    recipe: r,
-                                    parsed,
-                                    traces,
-                                }));
-                            }
-                            Err(e) => sender.send(Err(e)),
-                        }
-                        ctx.request_repaint();
+        if self.workspace == Workspace::Parser {
+            egui::Panel::top("workspace_toolbar_v2")
+                .frame(theme::workspace_frame())
+                .show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new("Parser").size(24.0).strong());
+                        ui.add_space(24.0);
+                        ui.selectable_value(
+                            &mut self.parser_source,
+                            ParserSource::Ingredients,
+                            "Ingredients",
+                        );
+                        ui.selectable_value(
+                            &mut self.parser_source,
+                            ParserSource::Recipe,
+                            "Recipe URL",
+                        );
+                        ui.selectable_value(
+                            &mut self.parser_source,
+                            ParserSource::Corpus,
+                            "Corpus",
+                        );
                     });
-                    self.promise = Some(promise);
-                    // The new promise's traces belong to a different recipe —
-                    // a stale index would highlight/blank the wrong ingredient
-                    // in the Debug tab until the user clicks a new row.
-                    self.selected_ingredient_idx = None;
-                };
-            });
+                });
         }
-
-        egui::CentralPanel::default().show(ui, |ui| match self.current_tab {
-            Tab::Test => {
-                self.test.show(ui);
-            }
-            Tab::Recipe => {
-                if let Some(promise) = &self.promise {
-                    match promise.ready() {
-                        None => {
-                            ui.spinner();
-                        }
-                        Some(Err(err)) => {
-                            ui.colored_label(ui.visuals().error_fg_color, err);
-                        }
-                        Some(Ok(w)) => {
-                            ui.horizontal(|ui| {
-                                ui.set_min_height(200.0);
-                                ui.vertical(|ui| {
-                                    ui.heading(w.recipe.name.clone());
-                                    if let Some(category) = &w.recipe.category {
-                                        ui.label(RichText::new(category).italics().weak());
-                                    }
-                                    // Display yield, servings, and times if present.
-                                    ui.horizontal_wrapped(|ui| {
-                                        if let Some(recipe_yield) = &w.recipe.recipe_yield {
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{} Yield: {} {}",
-                                                    theme::icon::YIELD,
-                                                    recipe_yield.value,
-                                                    recipe_yield.unit
-                                                ))
-                                                .color(theme::palette().amount()),
-                                            );
-                                        }
-                                        if let Some(servings) = &w.recipe.servings {
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{} Servings: {servings}",
-                                                    theme::icon::SERVINGS
-                                                ))
-                                                .color(theme::palette().amount()),
-                                            );
-                                        }
-                                        if let Some(t) = &w.recipe.times {
-                                            for (label, value) in [
-                                                ("active", &t.active),
-                                                ("total", &t.total),
-                                                ("prep", &t.prep),
-                                                ("cook", &t.cook),
-                                            ] {
-                                                if let Some(value) = value {
-                                                    ui.label(format!(
-                                                        "{} {label}: {value}",
-                                                        theme::icon::TIME
-                                                    ));
-                                                }
-                                            }
-                                        }
-                                    });
-                                    if let Some(description) = &w.recipe.description {
-                                        ui.add_space(4.0);
-                                        ui.label(RichText::new(description).italics());
-                                    }
-                                    if !w.recipe.url.is_empty() {
-                                        ui.hyperlink(&w.recipe.url);
-                                    }
-                                });
-                                if let Some(image) = &w.recipe.image {
-                                    ui.add(Image::from_uri(image));
-                                }
-                            });
-                            ui.separator();
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                show_parsed(ui, &w.parsed);
-                                ui.separator();
-                                show_raw(ui, &w.recipe);
-                            });
-                        }
-                    }
-                }
-            }
-            Tab::Debug => {
-                if let Some(promise) = &self.promise {
-                    match promise.ready() {
-                        None => {
-                            ui.spinner();
-                        }
-                        Some(Err(err)) => {
-                            ui.colored_label(ui.visuals().error_fg_color, err);
-                        }
-                        Some(Ok(w)) => {
-                            show_debug_tab(ui, &w.traces, &mut self.selected_ingredient_idx);
-                        }
-                    }
-                }
-            }
-            Tab::Cookbook => {
-                self.cookbook.show(ui);
-            }
-            Tab::Corpus => {
-                // The Corpus tab can hand a row's input to the Test tab; that
-                // cross-tab write lives here since the app owns both structs.
-                if let Some(action) = self.corpus.show(ui) {
-                    match action {
-                        CorpusAction::SendToTest(input) => {
+        egui::CentralPanel::default()
+            .frame(theme::workspace_frame())
+            .show(ui, |ui| match self.workspace {
+                Workspace::Cookbooks => self.cookbook.show(ui),
+                Workspace::Parser => match self.parser_source {
+                    ParserSource::Ingredients => self.test.show(ui),
+                    ParserSource::Recipe => self.show_recipe(ui),
+                    ParserSource::Corpus => {
+                        if let Some(CorpusAction::SendToTest(input)) = self.corpus.show(ui) {
                             self.test.set_input(input);
-                            self.current_tab = Tab::Test;
+                            self.parser_source = ParserSource::Ingredients;
                         }
                     }
-                }
-            }
-        });
+                },
+            });
     }
 }
 
 #[allow(clippy::needless_pass_by_value)]
 fn parse_response(response: ehttp::Response) -> Result<ScrapedRecipe, String> {
+    if !response.ok {
+        return Err(format!(
+            "HTTP {} {} from {}",
+            response.status, response.status_text, response.url
+        ));
+    }
     // The URL is arbitrary user input: a binary body (image, PDF) has no UTF-8
     // text, which must surface as an error, not a panic in the fetch callback.
     let Some(text) = response.text() else {
@@ -370,6 +367,15 @@ mod tests {
             headers: ehttp::Headers::default(),
             bytes,
         }
+    }
+
+    #[test]
+    fn http_failure_does_not_parse_error_page_as_recipe() {
+        let mut resp = response("https://example.com/missing", b"error".to_vec());
+        resp.ok = false;
+        resp.status = 404;
+        resp.status_text = "Not Found".to_owned();
+        assert!(parse_response(resp).unwrap_err().contains("HTTP 404"));
     }
 
     /// A body with valid ld+json recipe markup parses through to `Ok`.
@@ -407,5 +413,30 @@ mod tests {
 
         let err = parse_response(resp).unwrap_err();
         assert!(err.contains("failed to get recipe"));
+    }
+    #[test]
+    fn workspaces_render_at_desktop_sizes_without_starting_a_fetch() {
+        for size in [[800.0, 560.0], [1280.0, 820.0]] {
+            let ctx = egui::Context::default();
+            let mut app = MyApp::default();
+            for source in [
+                ParserSource::Ingredients,
+                ParserSource::Recipe,
+                ParserSource::Corpus,
+            ] {
+                app.parser_source = source;
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size.into())),
+                        ..Default::default()
+                    },
+                    |ui| app.show(ui),
+                );
+                assert!(app.promise.is_none());
+            }
+            app.workspace = Workspace::Cookbooks;
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| app.show(ui));
+            assert!(app.promise.is_none());
+        }
     }
 }

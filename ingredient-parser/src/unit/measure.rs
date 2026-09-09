@@ -464,7 +464,7 @@ impl Measure {
     /// (⅔ → `"2/3"`). Returns `None` for values that render exactly as a decimal
     /// (2, 0.5, 14.5), so a caller can prefer the plain JSON number there.
     ///
-    /// This backs the corpus-authoring path (`food-cli parse-ingredient
+    /// This backs the corpus-authoring path (`food-cli ingredient parse
     /// --emit-corpus-row`): the corpus stores `value` as a JSON number, and a
     /// non-terminating f64 like `0.6666…` would not round-trip to the exact ⅔ the
     /// parser produced. Emitting the fraction string preserves the exact rational.

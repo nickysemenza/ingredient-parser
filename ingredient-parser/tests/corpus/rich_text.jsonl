@@ -1,7 +1,7 @@
 // Rich-text accuracy corpus — instruction-prose counterpart to corpus.jsonl.
 // Each row: { input, [ingredients], chunks: [ {text}|{measure:[..]}|{ing} ], [xfail] }.
 // Committed rows must match RichParser output exactly; `xfail` rows are tolerated.
-// Seeded by hand; harvest instruction lines via `scan-cookbooks` later.
+// Seeded by hand; review instruction lines from saved cookbook runs for future cases.
 {"input": "hello 1 cups foo bar", "chunks": [{"text": "hello "}, {"measure": [{"unit": "cup", "value": 1.0}]}, {"text": " foo bar"}]}
 {"input": "makes 12 cookies", "chunks": [{"text": "makes "}, {"measure": [{"unit": "whole", "value": 12.0}]}, {"text": " cookies"}]}
 {"input": "cut into 2-inch pieces", "chunks": [{"text": "cut into "}, {"measure": [{"unit": "inch", "value": 2.0}]}, {"text": " pieces"}]}

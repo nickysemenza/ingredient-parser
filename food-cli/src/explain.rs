@@ -1,4 +1,4 @@
-//! Diagnostic rendering for `parse-ingredient --explain`.
+//! Diagnostic rendering for `ingredient parse --explain`.
 //!
 //! One mode, rendered with miette over the *authored* line.
 //! [`ingredient::IngredientParser::decompose`] hands us a byte span for every

@@ -5,9 +5,9 @@ run files using shared library code. Build once with `cargo build -p food-cli`,
 then call `target/debug/food-cli` repeatedly while investigating a book. Cargo
 rebuilds are needed only after code changes.
 
-The command groups are `ingredient`, `amount`, `text`, `recipe`, `epub`, `library`,
-and `corpus`. Existing flat commands remain compatible. Use each group's `--help`
-for its arguments.
+The command groups are `ingredient`, `amount`, `text`, `recipe`, `cookbook`,
+and `corpus`. Use each group's `--help` for its arguments. Results default to
+human-readable output; request `--format json` for structured data.
 
 ## Source first, then extraction
 
@@ -16,15 +16,15 @@ Inspect source before writing expectations; model output is evidence to test,
 not the source of desired labels.
 
 ```sh
-food-cli epub inspect book.epub
-food-cli epub extract book.epub --out baseline.json
-food-cli epub extract book.epub --out live.json --allow-network --budget-usd 7
-food-cli epub show live.json --summary
-food-cli epub show live.json --recipe 0
-food-cli epub audit live.json > source-audit.json
+food-cli cookbook inspect book.epub
+food-cli cookbook extract book.epub --out baseline.json
+food-cli cookbook extract book.epub --out live.json --allow-network --budget-usd 7
+food-cli cookbook show live.json --summary
+food-cli cookbook show live.json --recipe 0
+food-cli cookbook audit live.json --format json > source-audit.json
 ```
 
-New `epub extract` commands are cache-only by default and need no credentials.
+`cookbook extract` commands are cache-only by default and need no credentials.
 A cache miss produces an incomplete saved run and exit 3. Network-enabled calls
 require the existing gateway configuration. Completed chunk outputs are cached
 using the model, prompt/schema version, text, and title hint. `--cache-dir` makes
@@ -41,12 +41,12 @@ spend before allocating another independent run.
 ## Offline iteration
 
 ```sh
-food-cli epub replay live.json --out reparsed.json
-food-cli epub diff live.json reparsed.json
-food-cli epub evaluate reparsed.json --expectations expected.json
-food-cli epub extract book.epub --from live.json --out refreshed.json \
+food-cli cookbook replay live.json --out reparsed.json
+food-cli cookbook diff live.json reparsed.json
+food-cli cookbook evaluate reparsed.json --expectations expected.json
+food-cli cookbook extract book.epub --from live.json --out refreshed.json \
   --allow-network --refresh --chunk CHUNK_ID --budget-usd 10
-food-cli epub replay reparsed.json --image-text captions.json --out illustrated.json
+food-cli cookbook replay reparsed.json --image-text captions.json --out illustrated.json
 cargo run -p food-app -- --review-run illustrated.json
 ```
 
@@ -84,28 +84,33 @@ prove the absence of fabricated method text. Optional `check_image`/`image` and
 link associations. Instruction and note hyperlinks remain in source provenance;
 the existing public recipe reference format describes ingredient lines.
 
-`extract` and `replay` emit compact summaries; `show` returns the complete run or a
-selected chunk/recipe. Native extraction uses numbered source assignments, validates
+`extract` and `replay` emit compact summaries; `show` displays a compact overview or a
+selected chunk/recipe (`--format json` returns the complete structured result). Native extraction uses numbered source assignments, validates
 complete non-overlapping ownership, and copies text from the source. `audit` lists
 source block matches and unassigned blocks, hyperlinks, and images. These are
 review evidence; unassigned book prose is not automatically a missing recipe.
 
-EPUB commands emit JSON to stdout and errors to stderr. Exit 0 means the command
+Cookbook commands emit results to stdout and progress/errors to stderr. Exit 0 means the command
 completed, 1 is an operational error, 2 is invalid command syntax, 3 is incomplete
 extraction, and 4 is an expectation mismatch. `inspect` and `show` are read-only
 inspection commands: exit 0 does not certify the inspected run's completeness.
 
 `corpus sample` emits source rows and a manifest without overwriting labels;
 `corpus verify` checks them and the benchmark against local books. `corpus evaluate`
-and `corpus compare` replace the former Rust example and Python scripts. Frozen
-sampling and scoring protocols remain in the cookbook corpus README.
+and `corpus compare` score and compare saved outputs. Frozen sampling and scoring
+protocols are documented in the cookbook corpus README.
+
+`cookbook scan DIRECTORY` inventories source EPUBs offline, in path order. Use
+`--limit` to bound source inspection. It never extracts recipes or calls a model.
+`cookbook diagnose BOOK` is an explicit network diagnostic that bypasses cache
+and reports malformed extraction payloads; use `--raw` to include those payloads.
 
 ## Ingredient-name distribution
 
 ```sh
-food-cli ingredient stats illustrated.json --limit 20
-food-cli ingredient stats illustrated.json --name salt --examples 10
-food-cli ingredient stats illustrated.json --max-count 1 --sort name --jsonl
+food-cli cookbook stats illustrated.json --limit 20
+food-cli cookbook stats illustrated.json --name salt --examples 10
+food-cli cookbook stats illustrated.json --max-count 1 --sort name --format jsonl
 ```
 
 Statistics use the saved parsed names exactly, without reparsing, case folding,
@@ -114,12 +119,12 @@ current parser. Empty names are retained so failures remain visible. Shape
 mismatches between saved recipes and parses fail with exit 1 and a replay hint.
 Incomplete runs can be inspected (exit 0); `complete: false` marks partial counts.
 
-JSON includes book-wide occurrence, recipe, unique-name, and singleton totals,
+With `--format json`, the output includes book-wide occurrence, recipe, unique-name, and singleton totals,
 plus filtered name records. `matching_names` counts matches before `--limit`;
 book totals remain unchanged by filters. Name records contain occurrence counts,
 distinct recipe counts, distinct original inputs, and original-line examples
 with source URLs and recipe/section/line coordinates. `--examples` defaults to 3;
-`--jsonl` emits only name records, one per line. Sorting uses descending occurrences
+`--format jsonl` emits only name records, one per line. Sorting uses descending occurrences
 (default), descending recipes, or exact name order, with name order breaking ties.
 
 In desktop **Cookbook → Review**, open the saved run and select **Ingredient

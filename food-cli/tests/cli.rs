@@ -9,7 +9,13 @@ fn food_cli() -> Command {
 #[test]
 fn parse_ingredient_emits_json() {
     let output = food_cli()
-        .args(["parse-ingredient", "1 cup flour, sifted"])
+        .args([
+            "ingredient",
+            "parse",
+            "1 cup flour, sifted",
+            "--format",
+            "json",
+        ])
         .output()
         .unwrap();
     assert!(
@@ -28,7 +34,7 @@ fn parse_ingredient_emits_json() {
 #[test]
 fn parse_amount_success_json() {
     let output = food_cli()
-        .args(["parse-amount", "2 cups", "--json"])
+        .args(["amount", "parse", "2 cups", "--format", "json"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -41,7 +47,7 @@ fn parse_amount_success_json() {
 #[test]
 fn parse_amount_invalid_exits_nonzero() {
     let output = food_cli()
-        .args(["parse-amount", "not an amount", "--json"])
+        .args(["amount", "parse", "not an amount", "--format", "json"])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -54,7 +60,8 @@ fn emit_corpus_row_fraction_and_modifier() {
     // are in corpus order, and the modifier is carried through.
     let output = food_cli()
         .args([
-            "parse-ingredient",
+            "ingredient",
+            "parse",
             "2/3 cup chopped onion",
             "--emit-corpus-row",
         ])
@@ -83,7 +90,7 @@ fn emit_corpus_row_refuses_fallback() {
     // A line that falls back to a name-only parse must be refused (non-zero exit,
     // stderr message) so a garbage row can't be appended blindly.
     let output = food_cli()
-        .args(["parse-ingredient", "1+1 vitamins", "--emit-corpus-row"])
+        .args(["ingredient", "parse", "1+1 vitamins", "--emit-corpus-row"])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -100,7 +107,11 @@ fn scrape_epub_missing_path_exits_cleanly() {
     // exit, not a raw panic — the path is read (and can fail) before any
     // network call, so this is exercisable offline.
     let output = food_cli()
-        .args(["scrape-epub", "/tmp/does-not-exist-food-cli-test.epub"])
+        .args([
+            "cookbook",
+            "inspect",
+            "/tmp/does-not-exist-food-cli-test.epub",
+        ])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -110,7 +121,7 @@ fn scrape_epub_missing_path_exits_cleanly() {
         "must be a clean error, not a raw panic: {stderr}"
     );
     assert!(
-        stderr.contains("failed to read"),
+        stderr.contains("No such file"),
         "stderr should explain the read failure"
     );
 }
@@ -118,7 +129,7 @@ fn scrape_epub_missing_path_exits_cleanly() {
 #[test]
 fn scan_cookbooks_nonexistent_dir_errors() {
     let output = food_cli()
-        .args(["scan-cookbooks", "/tmp/does-not-exist-food-cli-test-dir"])
+        .args(["cookbook", "scan", "/tmp/does-not-exist-food-cli-test-dir"])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -135,7 +146,8 @@ fn emit_corpus_row_refuses_empty_name() {
     // an empty-name row would violate tests/accuracy.rs::never_empty_name.
     let output = food_cli()
         .args([
-            "parse-ingredient",
+            "ingredient",
+            "parse",
             "1 (5½-ounce) piece",
             "--emit-corpus-row",
         ])
@@ -151,12 +163,15 @@ fn emit_corpus_row_refuses_empty_name() {
 
 #[test]
 fn validate_unit_valid_and_invalid() {
-    let output = food_cli().args(["validate-unit", "cup"]).output().unwrap();
+    let output = food_cli()
+        .args(["amount", "validate", "cup"])
+        .output()
+        .unwrap();
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "valid");
 
     let output = food_cli()
-        .args(["validate-unit", "banana"])
+        .args(["amount", "validate", "banana"])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -172,7 +187,13 @@ fn parse_lines_emits_jsonl_per_line() {
     std::fs::write(&path, "1 cup flour\n2 tbsp sugar\n").unwrap();
 
     let output = food_cli()
-        .args(["parse-lines", path.to_str().unwrap()])
+        .args([
+            "ingredient",
+            "batch",
+            path.to_str().unwrap(),
+            "--format",
+            "jsonl",
+        ])
         .output()
         .unwrap();
     let _ = std::fs::remove_file(&path);
@@ -218,11 +239,13 @@ fn corpus_lint_report_stages_runs() {
 fn parse_rich_text_json() {
     let output = food_cli()
         .args([
-            "parse-rich-text",
+            "text",
+            "parse",
             "Add 2 cups flour and mix",
             "--ingredients",
             "flour",
-            "--json",
+            "--format",
+            "json",
         ])
         .output()
         .unwrap();
@@ -246,24 +269,25 @@ fn parse_rich_text_json() {
 }
 
 #[test]
-fn grouped_commands_preserve_legacy_outputs() {
-    for (legacy, grouped, args) in [
-        (
-            "parse-ingredient",
-            vec!["ingredient", "parse"],
-            vec!["1 cup flour, sifted"],
-        ),
-        (
-            "parse-amount",
-            vec!["amount", "parse"],
-            vec!["2 cups", "--json"],
-        ),
-        ("validate-unit", vec!["amount", "validate"], vec!["cups"]),
+fn legacy_commands_are_removed() {
+    for command in [
+        "parse-ingredient",
+        "parse-amount",
+        "validate-unit",
+        "parse-lines",
+        "epub",
+        "library",
+        "scrape-epub",
+        "scrape",
+        "debug-epub",
+        "scan-cookbooks",
+        "corpus-table",
+        "parse-rich-text",
     ] {
-        let old = food_cli().arg(legacy).args(&args).output().unwrap();
-        let new = food_cli().args(grouped).args(&args).output().unwrap();
-        assert_eq!(old.status.code(), new.status.code());
-        assert_eq!(old.stdout, new.stdout);
+        assert_eq!(
+            food_cli().arg(command).output().unwrap().status.code(),
+            Some(2)
+        );
     }
 }
 
@@ -271,7 +295,7 @@ fn grouped_commands_preserve_legacy_outputs() {
 fn refresh_requires_explicit_network_authorization() {
     let output = food_cli()
         .args([
-            "epub",
+            "cookbook",
             "extract",
             "missing.epub",
             "--out",
@@ -297,7 +321,7 @@ fn ingredient_stats_json_jsonl_filters_and_invalid_saved_parses() {
     })).unwrap();
     run.save(&path).unwrap();
     let output = food_cli()
-        .args(["ingredient", "stats"])
+        .args(["cookbook", "stats", "--format", "json"])
         .arg(&path)
         .args(["--limit", "1", "--examples", "1"])
         .output()
@@ -316,9 +340,9 @@ fn ingredient_stats_json_jsonl_filters_and_invalid_saved_parses() {
     assert_eq!(result["names"][0]["examples"].as_array().unwrap().len(), 1);
     assert_eq!(result["matching_names"], 2);
     let output = food_cli()
-        .args(["ingredient", "stats"])
+        .args(["cookbook", "stats", "--format", "jsonl"])
         .arg(&path)
-        .args(["--max-count", "1", "--sort", "name", "--jsonl"])
+        .args(["--max-count", "1", "--sort", "name"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -328,7 +352,7 @@ fn ingredient_stats_json_jsonl_filters_and_invalid_saved_parses() {
         "water"
     );
     let output = food_cli()
-        .args(["ingredient", "stats"])
+        .args(["cookbook", "stats", "--format", "json"])
         .arg(&path)
         .args(["--name", "missing"])
         .output()
@@ -337,10 +361,47 @@ fn ingredient_stats_json_jsonl_filters_and_invalid_saved_parses() {
         serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["matching_names"],
         0
     );
+    let overview = food_cli()
+        .args(["cookbook", "show"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(overview.status.success());
+    let overview = String::from_utf8(overview.stdout).unwrap();
+    assert!(overview.contains("0 chunks · 1 recipes"));
+    assert!(!overview.contains("prompt_version"));
+    let full = food_cli()
+        .args(["cookbook", "show", "--format", "json"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    let full: serde_json::Value = serde_json::from_slice(&full.stdout).unwrap();
+    assert_eq!(full["source"], "fixture.epub");
+    let expected_path = dir.join("expected.json");
+    std::fs::write(
+        &expected_path,
+        serde_json::to_vec(
+            &serde_json::json!({"epub_sha256":run.epub_sha256,"recipes":run.recipes}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let evaluated = food_cli()
+        .args(["cookbook", "evaluate", "--format", "json"])
+        .arg(&path)
+        .arg("--expectations")
+        .arg(&expected_path)
+        .output()
+        .unwrap();
+    assert_eq!(evaluated.status.code(), Some(3));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&evaluated.stdout).unwrap()["complete"],
+        false
+    );
     run.parsed = serde_json::json!([]);
     run.save(&path).unwrap();
     let output = food_cli()
-        .args(["ingredient", "stats"])
+        .args(["cookbook", "stats", "--format", "json"])
         .arg(&path)
         .output()
         .unwrap();
@@ -348,4 +409,90 @@ fn ingredient_stats_json_jsonl_filters_and_invalid_saved_parses() {
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("replay"));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn stdin_batch_preserves_order_and_reports_blank_and_review_lines() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = food_cli()
+        .args(["ingredient", "batch", "-", "--format", "jsonl"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"1 cup flour\n\n1+1 vitamins\n2 tbsp sugar\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let rows: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[0]["line"], "1 cup flour");
+    assert_eq!(rows[1]["error"], "empty ingredient line");
+    assert!(rows[2]["error"].is_string());
+    assert_eq!(rows[3]["line_number"], 4);
+    assert_eq!(rows[3]["name"], "sugar");
+}
+
+#[test]
+fn default_is_human_even_when_piped_and_trace_keeps_json_clean() {
+    let output = food_cli()
+        .args(["ingredient", "parse", "1 cup flour"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout).is_err());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("flour"));
+    let output = food_cli()
+        .args([
+            "ingredient",
+            "parse",
+            "1 cup flour",
+            "--format",
+            "json",
+            "--debug",
+            "--explain",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["name"],
+        "flour"
+    );
+    assert!(!output.stderr.is_empty());
+    assert_eq!(
+        food_cli()
+            .args(["ingredient", "parse", "flour", "--format", "jsonl"])
+            .output()
+            .unwrap()
+            .status
+            .code(),
+        Some(2)
+    );
+}
+
+#[test]
+fn corpus_table_write_failure_is_operational() {
+    let output = food_cli()
+        .args([
+            "corpus",
+            "table",
+            "--out",
+            "/nonexistent-food-cli-output-directory/table.html",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("failed to write"));
 }

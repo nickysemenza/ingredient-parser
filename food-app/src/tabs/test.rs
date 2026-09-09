@@ -5,11 +5,11 @@ use crate::theme;
 use eframe::egui::{self, RichText};
 use egui_extras::{Column, TableBuilder};
 use ingredient::ingredient::Ingredient;
-use ingredient::trace::{GrammarOutcome, ParseTrace, StageReport};
+use ingredient::trace::{ParseTrace, StageReport};
 use ingredient::util::truncate_str;
 use ingredient::{Confidence, ParseNotes, ParseOptions, TraceDetail};
 
-use super::debug::{TraceTreeContext, show_trace_tree};
+use super::inspector::{IngredientInspector, Inspection};
 
 /// One parsed input line with everything the table and detail views need.
 struct LineResult {
@@ -41,13 +41,6 @@ impl LineResult {
             .and_then(|i| i.modifier.as_deref())
             .unwrap_or("")
     }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum DetailView {
-    Stages,
-    Tree,
-    Json,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -87,7 +80,7 @@ pub struct TestTab {
     pub(crate) input: String,
     results: Vec<LineResult>,
     selected: Option<usize>,
-    detail: DetailView,
+    inspector: IngredientInspector,
     /// Active sort: column + ascending. `None` keeps input order.
     sort: Option<(SortColumn, bool)>,
     /// Sorted view into `results` — rebuilt on parse or header click, never
@@ -101,7 +94,7 @@ impl Default for TestTab {
             input: "2 cups all-purpose flour, sifted".to_string(),
             results: Vec::new(),
             selected: None,
-            detail: DetailView::Stages,
+            inspector: IngredientInspector::default(),
             sort: None,
             order: Vec::new(),
         }
@@ -118,22 +111,26 @@ impl TestTab {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Test Ingredient Parser");
-        ui.separator();
-
         ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::multiline(&mut self.input)
-                    .desired_rows(4)
-                    .desired_width(500.0)
-                    .font(egui::TextStyle::Monospace)
-                    .hint_text("one ingredient line per line"),
-            );
+            let changed = ui
+                .add(
+                    egui::TextEdit::multiline(&mut self.input)
+                        .desired_rows(4)
+                        .desired_width((ui.available_width() - 100.0).max(160.0))
+                        .font(egui::TextStyle::Monospace)
+                        .hint_text("one ingredient line per line"),
+                )
+                .changed();
+            if changed {
+                self.selected = None;
+                self.results.clear();
+                self.order.clear();
+            }
             ui.vertical(|ui| {
                 // Cmd/Ctrl+Enter parses; plain Enter keeps inserting newlines
                 // in the multiline editor.
                 let hotkey = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
-                if ui.button("Parse").clicked() || hotkey {
+                if theme::primary_button(ui, "Parse").clicked() || hotkey {
                     self.parse();
                 }
                 ui.label(RichText::new("⌘⏎ to parse").weak().small());
@@ -151,32 +148,24 @@ impl TestTab {
         if let Some(idx) = self.selected
             && let Some(row) = self.results.get(idx)
         {
-            let detail = &mut self.detail;
-            egui::Panel::bottom("test_detail")
+            let panel = if ui.available_width() < 900.0 {
+                egui::Panel::bottom("parser_inspector_compact").default_size(260.0)
+            } else {
+                egui::Panel::right("parser_inspector").default_size(380.0)
+            };
+            panel
                 .resizable(true)
-                .default_size(280.0)
+                .frame(theme::sidebar_frame())
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(detail, DetailView::Stages, "Stages");
-                        ui.selectable_value(detail, DetailView::Tree, "Trace tree");
-                        ui.selectable_value(detail, DetailView::Json, "JSON");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("📤 Copy Jaeger JSON").clicked() {
-                                ui.ctx().copy_text(row.trace.to_jaeger_json());
-                            }
-                            ui.label(RichText::new(truncate_str(&row.input, 60)).weak());
-                        });
-                    });
-                    ui.separator();
-                    egui::ScrollArea::both()
-                        .id_salt("test_detail_scroll")
-                        .show(ui, |ui| match detail {
-                            DetailView::Stages => show_stages(ui, &row.stages),
-                            DetailView::Tree => {
-                                show_trace_tree(ui, &row.trace, TraceTreeContext::Test);
-                            }
-                            DetailView::Json => show_json(ui, row.ingredient.as_ref()),
-                        });
+                    self.inspector.show(
+                        ui,
+                        Inspection {
+                            input: &row.input,
+                            ingredient: row.ingredient.as_ref(),
+                            stages: &row.stages,
+                            trace: &row.trace,
+                        },
+                    );
                 });
         }
 
@@ -224,6 +213,13 @@ impl TestTab {
     }
 
     fn show_table(&mut self, ui: &mut egui::Ui) {
+        let mut position = self
+            .selected
+            .and_then(|selected| self.order.iter().position(|&i| i == selected));
+        let moved = super::arrow_nav(ui, &mut position, self.order.len());
+        if moved {
+            self.selected = position.map(|i| self.order[i]);
+        }
         // Locals so the table closures don't need `&mut self`; changes are
         // applied after the table renders.
         let mut sort = self.sort;
@@ -233,12 +229,27 @@ impl TestTab {
         let order = &self.order;
 
         let row_height = egui::TextStyle::Body.resolve(ui.style()).size + 8.0;
-        TableBuilder::new(ui)
+        let available_width = ui.available_width();
+        let mut table = TableBuilder::new(ui).id_salt("parser-results-v2");
+        if let Some(position) = position.filter(|_| moved) {
+            table = table.scroll_to_row(position, None);
+        }
+        table
             .striped(true)
             .sense(egui::Sense::click())
-            .column(Column::auto().at_least(200.0).resizable(true).clip(true))
-            .column(Column::auto().at_least(140.0).resizable(true).clip(true))
-            .column(Column::auto().at_least(110.0).resizable(true).clip(true))
+            .column(
+                Column::initial(available_width * 0.30)
+                    .at_least(130.0)
+                    .resizable(true)
+                    .clip(true),
+            )
+            .column(
+                Column::initial(available_width * 0.22)
+                    .at_least(90.0)
+                    .resizable(true)
+                    .clip(true),
+            )
+            .column(Column::auto().at_least(70.0).resizable(true).clip(true))
             .column(Column::remainder().clip(true))
             .column(Column::auto().at_least(70.0))
             .header(22.0, |mut header| {
@@ -339,113 +350,34 @@ fn confidence_badge(ui: &mut egui::Ui, diagnostics: &ParseNotes) {
         .on_hover_text(notes.join("\n"));
 }
 
-/// Render a [`StageReport`] as one card per pipeline stage, mirroring the
-/// CLI's `--explain` view: normalize → recognize → grammar → segment → refine
-/// → result.
-fn show_stages(ui: &mut egui::Ui, report: &StageReport) {
-    stage_card(ui, "input", |ui| {
-        ui.monospace(format!("\"{}\"", report.input));
-    });
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    stage_card(ui, "normalize", |ui| {
-        if report.normalize.is_empty() {
-            ui.label(RichText::new("(no rewrites fired)").weak());
-        } else {
-            for r in &report.normalize {
-                ui.monospace(format!("{}  \"{}\" → \"{}\"", r.name, r.before, r.after));
-            }
-        }
-    });
-
-    if !report.recognizers.is_empty() {
-        stage_card(ui, "recognize", |ui| {
-            for r in &report.recognizers {
-                match &r.output {
-                    Some(out) => {
-                        ui.label(
-                            RichText::new(format!("{} ✓ → {out}", r.name))
-                                .color(theme::palette().trace_ok()),
-                        );
-                    }
-                    None => {
-                        ui.label(
-                            RichText::new(format!("{} ✗", r.name))
-                                .color(theme::palette().trace_fail()),
-                        );
-                    }
-                }
-            }
-        });
+    #[test]
+    fn sorting_preserves_selected_source_identity() {
+        let mut tab = TestTab::default();
+        tab.set_input("1 cup sugar\n2 cups flour".into());
+        tab.selected = Some(0);
+        tab.sort = Some((SortColumn::Name, true));
+        tab.rebuild_order();
+        assert_eq!(tab.order, vec![1, 0]);
+        assert_eq!(tab.selected, Some(0));
+        assert_eq!(tab.results[tab.selected.unwrap()].input, "1 cup sugar");
     }
 
-    if let Some(grammar) = &report.grammar {
-        stage_card(ui, "grammar", |ui| match grammar {
-            GrammarOutcome::Parsed(name) => {
-                ui.label(
-                    RichText::new(format!("name=\"{name}\"")).color(theme::palette().trace_ok()),
-                );
-            }
-            GrammarOutcome::FellBack => {
-                ui.label(
-                    RichText::new("(no parse — fell back)").color(theme::palette().trace_fail()),
-                );
-            }
-            GrammarOutcome::Skipped => {
-                ui.label(RichText::new("(skipped — recognizer produced the result)").weak());
-            }
-        });
-    }
-
-    if !report.segment.is_empty() {
-        stage_card(ui, "segment", |ui| {
-            for r in &report.segment {
-                ui.monospace(format!("{}  \"{}\" → {}", r.name, r.before, r.after));
-            }
-        });
-    }
-
-    stage_card(ui, "refine", |ui| {
-        if report.refine.is_empty() {
-            ui.label(RichText::new("(no passes changed it)").weak());
-        } else {
-            for r in &report.refine {
-                ui.monospace(format!("{}  \"{}\" → {}", r.name, r.before, r.after));
-            }
-        }
-    });
-
-    stage_card(ui, "result", |ui| match &report.result_preview {
-        Some(name) => {
-            ui.label(RichText::new(format!("name=\"{name}\"")).color(theme::palette().trace_ok()));
-        }
-        None => {
-            ui.label(RichText::new("(name-only fallback)").color(theme::palette().trace_fail()));
-        }
-    });
-}
-
-/// One pipeline stage as a labeled card row.
-fn stage_card(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
-    ui.horizontal_top(|ui| {
-        // Fixed-width label gutter so the stage cards align.
-        ui.allocate_ui(egui::vec2(72.0, 0.0), |ui| {
-            ui.label(RichText::new(label).strong().monospace());
-        });
-        theme::card_compact(ui, |ui| {
-            ui.vertical(add_contents);
-        });
-    });
-}
-
-/// The selected row's full ingredient JSON (read-only, selectable).
-fn show_json(ui: &mut egui::Ui, ingredient: Option<&Ingredient>) {
-    match ingredient {
-        Some(i) => {
-            let json = serde_json::to_string_pretty(i).unwrap_or_default();
-            ui.add(egui::TextEdit::multiline(&mut json.as_str()).code_editor());
-        }
-        None => {
-            ui.label(RichText::new("(no parsed ingredient)").weak());
-        }
+    #[test]
+    fn replacing_source_replaces_results_and_selection() {
+        let mut tab = TestTab::default();
+        tab.set_input("1 cup sugar\n2 cups flour".into());
+        tab.selected = Some(1);
+        tab.set_input("salt to taste".into());
+        assert_eq!(tab.selected, Some(0));
+        assert_eq!(tab.results.len(), 1);
+        assert_eq!(tab.results[0].input, "salt to taste");
+        assert_eq!(tab.results[0].trace.input, "salt to taste");
+        tab.set_input(String::new());
+        assert!(tab.results.is_empty());
+        assert!(tab.selected.is_none());
     }
 }

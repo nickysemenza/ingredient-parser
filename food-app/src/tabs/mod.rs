@@ -2,6 +2,7 @@ mod cookbook;
 mod cookbook_review;
 mod corpus;
 mod debug;
+pub(crate) mod inspector;
 mod recipe;
 mod test;
 
@@ -39,3 +40,31 @@ pub(crate) fn arrow_nav(ui: &egui::Ui, selected: &mut Option<usize>, len: usize)
 }
 
 mod ingredient_stats;
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    #[test]
+    fn arrow_navigation_selects_first_row_and_stops_at_end() {
+        let context = egui::Context::default();
+        let mut selected = None;
+        for expected in [Some(0), Some(1), Some(1)] {
+            let input = egui::RawInput {
+                events: vec![egui::Event::Key {
+                    key: egui::Key::ArrowDown,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            };
+            let _ = context.run_ui(input, |ui| {
+                arrow_nav(ui, &mut selected, 2);
+            });
+            assert_eq!(selected, expected);
+            let _ = context.run_ui(egui::RawInput::default(), |_| {});
+        }
+    }
+}

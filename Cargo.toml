@@ -10,6 +10,7 @@ members = [
     "recipe-scraper",
     "recipe-scraper-fetcher",
     "recipe-epub",
+    "recipe-epub-fixtures",
     "food-cli",
     "food-app",
 ]
@@ -45,6 +46,7 @@ recipe-parsing = { path = "recipe-parsing" }
 recipe-scraper = { path = "recipe-scraper" }
 recipe-scraper-fetcher = { path = "recipe-scraper-fetcher" }
 recipe-epub = { path = "recipe-epub" }
+recipe-epub-fixtures = { path = "recipe-epub-fixtures" }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

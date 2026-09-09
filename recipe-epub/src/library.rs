@@ -13,7 +13,7 @@ use crate::backend::Backend;
 use crate::{EpubError, Options};
 
 /// Recursively collect `.epub` files under `dir` (unreadable directories are
-/// silently skipped). Shared by the CLI's `scan-cookbooks` and the app's library
+/// silently skipped). Shared by the CLI's `cookbook scan` and the app's library
 /// browser.
 pub fn find_epubs(dir: &Path) -> Vec<PathBuf> {
     walkdir::WalkDir::new(dir)

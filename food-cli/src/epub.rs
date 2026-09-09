@@ -1,4 +1,4 @@
-//! Headless cookbook review. Output is JSON; exit 3 denotes incomplete extraction,
+//! Headless cookbook review. Rendering is owned by the binary; exit 3 denotes incomplete extraction,
 //! exit 4 denotes expectation mismatches, and exit 1 denotes an operational error.
 use clap::Subcommand;
 use recipe_epub::review::{ReviewRun, RunOptions};

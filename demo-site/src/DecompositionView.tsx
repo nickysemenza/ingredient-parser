@@ -23,7 +23,7 @@ const FIELD_ORDER: WField[] = ["amount", "name", "modifier"];
  * in monospace with a colored underline under the text that became each
  * amount/name/modifier, plus a legend. The labels describe the *final* fields,
  * so a prep word the parser moved out of the name shows as modifier. Mirrors
- * `parse-ingredient --explain`. Renders nothing until there's input.
+ * `ingredient parse --explain`. Renders nothing until there's input.
  */
 export function DecompositionView({
   decomp,

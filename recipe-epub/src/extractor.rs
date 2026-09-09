@@ -1052,7 +1052,7 @@ mod tests {
     // Regression: real `claude-haiku-4-5` output on Tartine Book No. 3 produced
     // four malformed chunks that each `?`-aborted the cookbook import. The lenient
     // deserializers must now absorb every shape instead of erroring. See the
-    // `food-cli debug-epub` taxonomy: missing `ingredients`, double-encoded
+    // `food-cli cookbook diagnose` taxonomy: missing `ingredients`, double-encoded
     // `recipes` string, plus `null` arrays (the original browser failure).
 
     #[test]

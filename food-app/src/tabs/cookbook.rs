@@ -1,6 +1,4 @@
-//! Cookbook tab: load a local EPUB cookbook and browse its AI-extracted
-//! recipes.
-
+//! Source-first cookbook workspace and local library browser.
 use crate::theme;
 use eframe::egui::{self, RichText};
 use egui_graphs::{
@@ -8,78 +6,28 @@ use egui_graphs::{
     Graph as EguiGraph, GraphView, LayoutForceDirected, SettingsInteraction, SettingsNavigation,
     SettingsStyle, get_layout_state, set_layout_state,
 };
-
 use hub_shape::HubLabelNodeShape;
 use petgraph::Directed;
 use petgraph::stable_graph::{DefaultIx, NodeIndex, StableGraph};
 use poll_promise::Promise;
-use recipe_epub::{
-    BookMeta, CookbookGuess, CookbookRecipe, CookbookRecipeExt, ExtractionAccounting,
-    ExtractionReport, ImageRef, Options, ParsedCookbookRecipe,
-};
+use recipe_epub::{BookMeta, CookbookGuess, CookbookRecipe};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// A fully loaded book: its recipes + extraction stats, plus the materialized
-/// image bytes (the book cover and every recipe's hero photo) read once off the
-/// UI thread. The bytes are registered with egui as `bytes://<archive_path>` URIs
-/// the first frame they're observed, then referenced by `Image::from_uri`.
-struct LoadedBook {
-    recipes: Vec<CookbookRecipe>,
-    stats: ExtractionAccounting,
-    /// Complete per-chunk outcome evidence. The compact accounting summary is
-    /// useful at a glance; this preserves the failures and truncations needed
-    /// to tell an incomplete import from a cookbook with fewer recipes.
-    report: ExtractionReport,
-    /// The book's cover reference (URI key), if any.
-    cover: Option<ImageRef>,
-    /// De-duplicated `(archive_path, bytes)` for the cover + all heroes.
-    images: Vec<(String, Vec<u8>)>,
-}
-
-type LoadResult = Result<LoadedBook, String>;
-
-/// A book discovered while scanning a library directory: its metadata, the
-/// tag-based guess, the final cookbook verdict (which the AI fallback may override
-/// for [`CookbookGuess::Unknown`] books), and (for confirmed cookbooks) its cover
-/// image bytes for the library-grid thumbnail.
 struct ScannedBook {
     meta: BookMeta,
-    guess: CookbookGuess,
     is_cookbook: bool,
     cover: Option<Vec<u8>>,
-    /// Lowercased "title authors" haystack, precomputed at scan time so the
-    /// library filter doesn't rebuild it per book per frame.
     search_key: String,
 }
-
-/// The `bytes://` URI a library cover is registered under (keyed by book path so
-/// each book's thumbnail is distinct).
 fn cover_uri(path: &Path) -> String {
     format!("bytes://cover/{}", path.to_string_lossy())
 }
-
 type ScanResult = Result<Vec<ScannedBook>, String>;
-
-/// Live extraction progress, shared between the worker thread (which writes it as
-/// each chunk finishes) and the UI thread (which reads it each frame to draw the
-/// progress bar). Lock-free atomics — Relaxed is fine for a display counter.
-#[derive(Default)]
-struct ExtractProgressCell {
-    done: AtomicUsize,
-    total: AtomicUsize,
-    cached: AtomicUsize,
-}
-
-/// What the library browser wants the caller to do after a frame (kept separate
-/// from rendering so the per-row click handlers don't need `&mut self`).
 enum LibraryAction {
     None,
     Rescan,
     Load(String),
 }
-
 /// Node circle radius in canvas units. egui_graphs sizes the node label font to
 /// the radius, so this also controls label legibility (default 5 is too small).
 const NODE_RADIUS: f32 = 14.0;
@@ -99,7 +47,7 @@ const PREWARM_STEPS: u32 = 250;
 /// egui_graphs `Graph` specialized to our payload-free directed graph. Node
 /// labels carry the recipe title; the node payload is the recipe's index in the
 /// loaded `recipes` Vec so a click can jump back to the browser.
-type RefGraph =
+pub(super) type RefGraph =
     EguiGraph<usize, (), Directed, DefaultIx, HubLabelNodeShape, egui_graphs::DefaultEdgeShape>;
 
 /// Force-directed `GraphView` with center gravity — clusters the "building
@@ -121,453 +69,150 @@ type RefGraphView<'a> = GraphView<
     LayoutForceDirected<FruchtermanReingoldWithCenterGravity>,
 >;
 
-/// State for the Cookbook (EPUB) tab.
+/// The cookbook workspace keeps source inspection and durable review in one place.
 pub struct CookbookTab {
     review: super::cookbook_review::ReviewPanel,
-    show_review: bool,
-    // `pub(crate)` fields are snapshotted by `crate::persist::PersistedState`
-    // (inputs and view toggles only — promises and loaded data stay per-run).
     pub(crate) path: String,
-    no_cache: bool,
-    /// `None` until a load is started.
-    promise: Option<Promise<LoadResult>>,
-    /// Live chunk-extraction progress for the in-flight `promise`, drawn as a
-    /// determinate bar while it runs. Re-created on each load.
-    extract_progress: Option<Arc<ExtractProgressCell>>,
-    /// When the in-flight load started — drives the elapsed label shown before
-    /// the chunk count is known.
-    load_started: Option<std::time::Instant>,
-    /// Immutable source identity for the current load. The editable picker path
-    /// must not rename an already-running import in its progress label.
-    active_path: Option<String>,
-    selected: usize,
-    /// Presentation-only multiplier for the selected cookbook recipe. Parsing
-    /// and source strings remain unchanged; `Measure::scale` owns which values
-    /// are safe to resize.
-    recipe_scale: f64,
-    /// Memoized parse of the selected recipe, keyed by its index. `r.parse()`
-    /// rebuilds both nom parsers (`IngredientParser`/`RichParser`) and re-parses
-    /// every line — wasteful to redo on every immediate-mode repaint (scroll,
-    /// hover, cursor blink). Recomputed only when `selected` changes; cleared on
-    /// each load (a new book reuses the same indices). Mirrors the web app's
-    /// WASM-parse memoization.
-    parsed_cache: Option<(usize, ParsedCookbookRecipe)>,
-    /// Title→index and its reverse, rebuilt only when a book loads.
-    reference_index: Option<ReferenceIndex>,
-    /// Whether the central panel shows the reference digraph vs the browser.
-    show_graph: bool,
-    /// The reference digraph, rebuilt only when the loaded book changes.
-    /// `graph_nodes[node_index] = recipe index` for click-to-select.
-    graph: Option<RefGraph>,
-    /// Whether the layout has been pre-warmed (run headless) for the current
-    /// graph, so it opens settled rather than visibly animating into place.
-    graph_prewarmed: bool,
-    /// The library directory last scanned (for `Re-scan`); also the starting
-    /// directory for the file pickers when restored from a previous session.
     pub(crate) library_dir: Option<PathBuf>,
-    /// `None` until a library scan is started.
-    scan: Option<Promise<ScanResult>>,
-    /// Show only books judged to be cookbooks in the library list.
     pub(crate) cookbooks_only: bool,
-    /// Run the AI fallback over untagged books during a scan.
-    pub(crate) use_ai_fallback: bool,
-    /// Free-text filter over the library list (title + authors).
-    filter_text: String,
-    /// Whether the library browser shows the cover grid (vs. a compact text list).
     pub(crate) library_grid: bool,
-    /// Whether the loaded book's image bytes (cover + heroes) have been registered
-    /// with egui this load. Reset on each [`Self::start_load`].
-    images_registered: bool,
-    /// Whether the scanned library's cover bytes have been registered with egui.
-    /// Reset on each [`Self::start_scan`].
+    scan: Option<Promise<ScanResult>>,
+    filter_text: String,
     library_covers_registered: bool,
+    show_library: bool,
 }
-
 impl Default for CookbookTab {
     fn default() -> Self {
         Self {
             review: Default::default(),
-            show_review: false,
             path: String::new(),
-            no_cache: false,
-            promise: None,
-            extract_progress: None,
-            load_started: None,
-            active_path: None,
-            selected: 0,
-            recipe_scale: 1.0,
-            parsed_cache: None,
-            reference_index: None,
-            show_graph: false,
-            graph: None,
-            graph_prewarmed: false,
             library_dir: None,
-            scan: None,
-            // Default the library list to cookbooks only — the whole point of
-            // pointing at a Calibre root is to skip the novels.
             cookbooks_only: true,
-            use_ai_fallback: false,
+            library_grid: false,
+            scan: None,
             filter_text: String::new(),
-            library_grid: true,
-            images_registered: false,
             library_covers_registered: false,
+            show_library: true,
         }
     }
 }
-
 impl CookbookTab {
     pub fn open_review(&mut self, path: PathBuf) {
         self.review.open(path);
-        self.show_review = true;
-    }
-
-    pub fn show(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.show_review, false, "Cookbook");
-            ui.selectable_value(&mut self.show_review, true, "Review");
-        });
-        if self.show_review {
-            self.review.show(ui);
-            return;
+        if let Some(source) = self.review.source_path() {
+            self.path = source.to_owned();
         }
+        self.show_library = false;
+    }
+    pub(crate) fn invalidate_graph(&mut self) {
+        self.review.invalidate_graph();
+    }
+    pub fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
-        let load_pending = self.load_pending();
-
-        // Source controls: pick a single EPUB, pick a whole library, or type a path.
-        ui.add_enabled_ui(!load_pending, |ui| {
+        ui.add_enabled_ui(!self.review.busy(), |ui| {
             ui.horizontal(|ui| {
-                if ui.button("📂 Pick EPUB…").clicked()
-                    && let Some(p) = self.file_dialog().add_filter("EPUB", &["epub"]).pick_file()
-                {
-                    self.path = p.to_string_lossy().into_owned();
-                    self.start_load(ctx.clone());
-                }
-                if ui
-                    .button("🗂 Pick library…")
-                    .on_hover_text("Pick a Calibre root (or any folder); finds every .epub inside")
-                    .clicked()
-                    && let Some(dir) = self.file_dialog().pick_folder()
-                {
-                    self.start_scan(dir, ctx.clone());
-                }
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.path)
-                        .hint_text("/path/to/cookbook.epub")
-                        .desired_width(340.0),
-                );
-                ui.checkbox(&mut self.no_cache, "No cache");
-                let can_load = !self.path.trim().is_empty();
-                if ui
-                    .add_enabled(can_load, egui::Button::new("Load"))
-                    .clicked()
-                {
-                    self.start_load(ctx.clone());
+                ui.label(RichText::new("Cookbooks").size(24.0).strong());
+                ui.add_space(24.0);
+                ui.menu_button("Open…", |ui| {
+                    if ui.button("Cookbook EPUB…").clicked()
+                        && let Some(path) =
+                            self.file_dialog().add_filter("EPUB", &["epub"]).pick_file()
+                    {
+                        self.path = path.to_string_lossy().into_owned();
+                        self.show_library = false;
+                        self.review.inspect(PathBuf::from(&self.path), ctx.clone());
+                        ui.close();
+                    }
+                    if ui.button("Saved run…").clicked()
+                        && let Some(path) =
+                            self.file_dialog().add_filter("Run", &["json"]).pick_file()
+                    {
+                        self.open_review(path);
+                        ui.close();
+                    }
+                    if ui.button("Library folder…").clicked()
+                        && let Some(path) = self.file_dialog().pick_folder()
+                    {
+                        self.start_scan(path, ctx.clone());
+                        ui.close();
+                    }
+                    ui.separator();
+                    ui.menu_button("Inspect path", |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.path)
+                                .hint_text("Cookbook EPUB path")
+                                .desired_width(300.0),
+                        );
+                        if ui
+                            .add_enabled(
+                                !self.path.trim().is_empty(),
+                                egui::Button::new("Inspect source"),
+                            )
+                            .clicked()
+                        {
+                            self.show_library = false;
+                            self.review
+                                .inspect(PathBuf::from(self.path.trim()), ctx.clone());
+                            ui.close();
+                        }
+                    });
+                });
+                if self.scan.is_some() {
+                    ui.toggle_value(&mut self.show_library, "Library");
                 }
             });
         });
-        ui.label(
-            RichText::new(
-                "Default model gemini-2.5-flash via the Cloudflare AI Gateway \
-                 (reads AI_GATEWAY_API_KEY + CLOUDFLARE_AI_GATEWAY_BASE_URL). First \
-                 load runs LLM extraction (cached afterwards).",
-            )
-            .weak()
-            .small(),
-        );
         ui.separator();
-
-        // Register image bytes with egui once they're ready (cover thumbnails for
-        // the scanned library, cover + hero photos for the loaded book), so the
-        // `bytes://…` URIs the views reference resolve.
-        self.register_library_covers(&ctx);
-        self.register_loaded_images(&ctx);
-
-        // Library browser as a resizable LEFT sidebar — shown only once a library
-        // has been scanned. The loaded book (below) fills the area to its right.
+        if !self.library_covers_registered
+            && let Some(Ok(books)) = self.scan.as_ref().and_then(Promise::ready)
+        {
+            for book in books {
+                if let Some(bytes) = &book.cover {
+                    ctx.include_bytes(cover_uri(&book.meta.path), bytes.clone());
+                }
+            }
+            self.library_covers_registered = true;
+        }
         let mut action = LibraryAction::None;
-        if self.scan.is_some() {
-            egui::Panel::left("library_browser")
+        if self.show_library && self.scan.is_some() {
+            egui::Panel::left("cookbook-library")
                 .resizable(true)
-                .default_size(320.0)
-                .show(ui, |ui| {
-                    if let Some(scan) = &self.scan {
-                        // Disjoint field borrows: `scan` (shared) vs the
-                        // filter/toggle fields (mutable) — distinct `self` fields.
-                        let cookbooks_only = &mut self.cookbooks_only;
-                        let use_ai = &mut self.use_ai_fallback;
-                        let filter = &mut self.filter_text;
-                        let grid = &mut self.library_grid;
-                        match scan.ready() {
-                            None => {
-                                ui.horizontal(|ui| {
-                                    ui.spinner();
-                                    let dir = self
-                                        .library_dir
-                                        .as_deref()
-                                        .and_then(Path::file_name)
-                                        .map(|d| d.to_string_lossy().into_owned())
-                                        .unwrap_or_else(|| "library".to_string());
-                                    ui.label(format!("Scanning {dir}…"));
-                                });
-                            }
-                            Some(Err(err)) => {
-                                ui.colored_label(ui.visuals().error_fg_color, err);
-                            }
-                            Some(Ok(books)) => {
-                                action = show_library(
-                                    ui,
-                                    books,
-                                    cookbooks_only,
-                                    use_ai,
-                                    filter,
-                                    grid,
-                                    !load_pending,
-                                );
-                            }
-                        }
-                    }
-                });
-            match action {
-                LibraryAction::None => {}
-                LibraryAction::Rescan => {
-                    if let Some(dir) = self.library_dir.clone() {
-                        self.start_scan(dir, ctx.clone());
-                    }
-                }
-                LibraryAction::Load(path) => {
-                    if !load_pending {
-                        self.path = path;
-                        self.start_load(ctx.clone());
-                    }
-                }
-            }
-        }
-
-        let Some(promise) = &self.promise else {
-            ui.label("Pick or load an EPUB to view its recipes.");
-            return;
-        };
-
-        // Bound before the match so the pending arm can read it alongside the
-        // shared `&self.promise` borrow (distinct fields → disjoint borrows).
-        let progress = self.extract_progress.as_ref();
-        match promise.ready() {
-            None => {
-                // Once the chunk count is known, show a determinate bar that fills
-                // chunk-by-chunk; until then, fall back to the spinner.
-                let total = progress.map_or(0, |p| p.total.load(Ordering::Relaxed));
-                if total > 0 {
-                    let done = progress.map_or(0, |p| p.done.load(Ordering::Relaxed));
-                    let cached = progress.map_or(0, |p| p.cached.load(Ordering::Relaxed));
-                    ui.add(
-                        egui::ProgressBar::new(done as f32 / total as f32).text(format!(
-                            "Extracting… {done}/{total} chunks · {cached} cached"
-                        )),
-                    );
-                } else {
-                    ui.horizontal(|ui| {
+                .default_size(250.0)
+                .show(ui, |ui| match self.scan.as_ref().and_then(Promise::ready) {
+                    None => {
                         ui.spinner();
-                        let file = self.loading_file_name();
-                        let elapsed = self.load_started.map_or(0, |t| t.elapsed().as_secs());
-                        ui.label(format!("Extracting {file}… ({elapsed}s)"));
-                    });
-                    // No chunk callbacks arrive yet in this phase (chunking the
-                    // EPUB itself) — tick the elapsed label ourselves.
-                    ui.ctx()
-                        .request_repaint_after(std::time::Duration::from_secs(1));
-                }
-            }
-            Some(Err(err)) => {
-                ui.colored_label(ui.visuals().error_fg_color, err);
-            }
-            Some(Ok(book)) if book.recipes.is_empty() => {
-                ui.label("No recipes found in this EPUB.");
-            }
-            Some(Ok(book)) => {
-                let LoadedBook {
-                    recipes,
-                    stats,
-                    report,
-                    cover,
-                    images: _,
-                } = book;
-                // Disjoint field borrows: `recipes` from self.promise (shared);
-                // the rest from distinct `self` fields. Bind each before any
-                // closure so no closure captures all of `self`.
-                let selected = &mut self.selected;
-                let parsed_cache = &mut self.parsed_cache;
-                let reference_index = &mut self.reference_index;
-                let show_graph = &mut self.show_graph;
-                let graph_slot = &mut self.graph;
-                let graph_prewarmed = &mut self.graph_prewarmed;
-                let recipe_scale = &mut self.recipe_scale;
-                if *selected >= recipes.len() {
-                    *selected = 0;
-                }
-                let index = reference_index.get_or_insert_with(|| ReferenceIndex::build(recipes));
-                let ref_count: usize = recipes
-                    .iter()
-                    .flat_map(|recipe| &recipe.references)
-                    .filter(|reference| index.resolve(&reference.title).is_some())
-                    .count();
-
-                ui.horizontal(|ui| {
-                    // The book's cover as a small thumbnail at the head of the row.
-                    if let Some(c) = cover {
-                        ui.add(
-                            egui::Image::from_uri(format!("bytes://{}", c.path))
-                                .fit_to_exact_size(egui::vec2(28.0, 38.0))
-                                .corner_radius(3.0),
+                        ui.label("Scanning library…");
+                    }
+                    Some(Err(error)) => {
+                        ui.colored_label(ui.visuals().error_fg_color, error);
+                    }
+                    Some(Ok(books)) => {
+                        action = show_library(
+                            ui,
+                            books,
+                            &mut self.cookbooks_only,
+                            &mut self.filter_text,
+                            &mut self.library_grid,
+                            !self.review.busy(),
                         );
                     }
-                    ui.label(RichText::new(format!("{} recipes", recipes.len())).weak());
-                    ui.separator();
-                    ui.label(RichText::new(stats.status_summary()).weak().small())
-                        .on_hover_text(stats.summary());
-                    ui.separator();
-                    // Browse | Graph toggle. The graph is only useful when there
-                    // are references to draw.
-                    ui.selectable_value(show_graph, false, "Browse");
-                    ui.add_enabled_ui(ref_count > 0, |ui| {
-                        ui.selectable_value(show_graph, true, "Graph")
-                            .on_disabled_hover_text("no cross-recipe references in this book");
-                    });
-                    if ref_count > 0 {
-                        ui.label(
-                            RichText::new(format!("{ref_count} references"))
-                                .weak()
-                                .small(),
-                        );
-                    }
-                    ui.separator();
-                    ui.label(RichText::new("Scale").small());
-                    for (factor, label) in [(0.5, "½×"), (1.0, "1×"), (2.0, "2×"), (3.0, "3×")]
-                    {
-                        ui.selectable_value(recipe_scale, factor, label);
-                    }
-                    ui.add(
-                        egui::DragValue::new(recipe_scale)
-                            .range(0.1..=20.0)
-                            .speed(0.1)
-                            .suffix("×"),
-                    );
-                    ui.separator();
-                    // Copy the whole book's extracted recipes (verbatim lines +
-                    // references) as pretty JSON to the clipboard — the same
-                    // shape as `scrape-epub --json`.
-                    if ui
-                        .button("Copy JSON")
-                        .on_hover_text("Copy all recipes as JSON to the clipboard")
-                        .clicked()
-                    {
-                        match serde_json::to_string_pretty(recipes) {
-                            Ok(json) => ui.ctx().copy_text(json),
-                            Err(e) => tracing::error!("copy JSON failed: {e}"),
-                        }
-                    }
                 });
-                if has_extraction_diagnostics(report) {
-                    ui.collapsing(
-                        RichText::new("Extraction diagnostics").color(ui.visuals().warn_fg_color),
-                        |ui| {
-                            for diagnostic in extraction_diagnostics(report) {
-                                ui.label(diagnostic);
-                            }
-                        },
-                    );
+        }
+        match action {
+            LibraryAction::None => {}
+            LibraryAction::Rescan => {
+                if let Some(dir) = self.library_dir.clone() {
+                    self.start_scan(dir, ctx.clone());
                 }
-
-                egui::Panel::left("cookbook_list")
-                    .resizable(true)
-                    .default_size(240.0)
-                    .show(ui, |ui| {
-                        let mut nav_selected = Some(*selected);
-                        let nav_changed = super::arrow_nav(ui, &mut nav_selected, recipes.len());
-                        if let (true, Some(s)) = (nav_changed, nav_selected) {
-                            *selected = s;
-                        }
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            for (i, r) in recipes.iter().enumerate() {
-                                let response = ui.selectable_value(selected, i, &r.meta.title);
-                                if nav_changed && *selected == i {
-                                    response.scroll_to_me(Some(egui::Align::Center));
-                                }
-                            }
-                        });
-                    });
-                egui::CentralPanel::default().show(ui, |ui| {
-                    if *show_graph {
-                        // Build the graph lazily; rebuild when the recipe set
-                        // changes (node count won't line up otherwise).
-                        if graph_slot.is_none() {
-                            *graph_slot = Some(build_reference_graph(recipes));
-                            *graph_prewarmed = false;
-                        }
-                        if let Some(graph) = graph_slot
-                            && let Some(open_idx) =
-                                show_reference_graph(ui, graph, selected, graph_prewarmed)
-                        {
-                            // "Open" clicked on a node: jump to that recipe
-                            // in the Browse view.
-                            *selected = open_idx;
-                            *show_graph = false;
-                        }
-                    } else {
-                        // Parse the selected recipe once and reuse it across
-                        // repaints — recompute only when the selection changes.
-                        let sel = *selected;
-                        let stale = !matches!(parsed_cache.as_ref(), Some((idx, _)) if *idx == sel);
-                        if stale {
-                            *parsed_cache = Some((sel, recipes[sel].parse()));
-                        }
-                        if let Some((_, parsed)) = parsed_cache.as_ref()
-                            && let Some(nav) =
-                                show_recipe_detail(ui, recipes, sel, parsed, index, *recipe_scale)
-                        {
-                            // Clicked a "Uses recipes" link → navigate to it.
-                            *selected = nav;
-                        }
-                    }
-                });
+            }
+            LibraryAction::Load(path) => {
+                self.path = path.clone();
+                self.show_library = false;
+                self.review.inspect(PathBuf::from(path), ctx);
             }
         }
+        self.review.show(ui);
     }
-
-    /// Register the loaded book's image bytes (cover + every hero) with egui the
-    /// first frame the load is ready, so `bytes://<path>` URIs resolve. Idempotent
-    /// per load (guarded by `images_registered`).
-    fn register_loaded_images(&mut self, ctx: &egui::Context) {
-        if self.images_registered {
-            return;
-        }
-        let Some(Ok(book)) = self.promise.as_ref().and_then(Promise::ready) else {
-            return;
-        };
-        for (path, bytes) in &book.images {
-            ctx.include_bytes(format!("bytes://{path}"), bytes.clone());
-        }
-        self.images_registered = true;
-    }
-
-    /// Register the scanned library's cover bytes with egui once the scan is ready,
-    /// so the grid's `bytes://cover/<path>` thumbnails resolve. Idempotent per scan.
-    fn register_library_covers(&mut self, ctx: &egui::Context) {
-        if self.library_covers_registered {
-            return;
-        }
-        let Some(Ok(books)) = self.scan.as_ref().and_then(Promise::ready) else {
-            return;
-        };
-        for b in books {
-            if let Some(bytes) = &b.cover {
-                ctx.include_bytes(cover_uri(&b.meta.path), bytes.clone());
-            }
-        }
-        self.library_covers_registered = true;
-    }
-
-    /// A native file dialog starting in the last-scanned library directory
-    /// (restored across sessions), so repeat picks don't start from $HOME.
     fn file_dialog(&self) -> rfd::FileDialog {
         let dialog = rfd::FileDialog::new();
         match &self.library_dir {
@@ -575,118 +220,23 @@ impl CookbookTab {
             None => dialog,
         }
     }
-
-    /// Drop the built reference graph so it rebuilds with the active palette
-    /// (hub-node colors are baked in at build time). Called on theme switches.
-    pub(crate) fn invalidate_graph(&mut self) {
-        self.graph = None;
-        self.graph_prewarmed = false;
-    }
-
-    fn start_load(&mut self, ctx: egui::Context) {
-        if self.load_pending() {
-            return;
-        }
-        let path = self.path.trim().to_string();
-        let no_cache = self.no_cache;
-        self.selected = 0;
-        self.recipe_scale = 1.0;
-        // A new book reuses recipe indices, so both caches are stale by identity.
-        self.parsed_cache = None;
-        self.reference_index = None;
-        self.load_started = Some(std::time::Instant::now());
-        self.active_path = Some(path.clone());
-        self.graph = None; // rebuilt for the newly loaded book
-        self.graph_prewarmed = false;
-        self.images_registered = false; // re-register for the newly loaded book
-
-        // Fresh progress cell for this load (so no stale bar from a prior run);
-        // one clone stays on `self` for the UI, the other goes to the worker.
-        let progress = Arc::new(ExtractProgressCell::default());
-        self.extract_progress = Some(progress.clone());
-        let progress_ctx = ctx.clone();
-        self.promise = Some(Promise::spawn_thread("scrape_epub", move || {
-            let result = (|| -> LoadResult {
-                let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|e| format!("tokio runtime: {e}"))?;
-                let opts = Options {
-                    use_cache: !no_cache,
-                    ..Default::default()
-                };
-                let extraction = rt
-                    .block_on(recipe_epub::extract_cookbook_report_with_progress(
-                        &bytes,
-                        &path,
-                        &opts,
-                        |p| {
-                            // Publish the latest counts and wake the UI so the bar
-                            // advances live as each chunk lands.
-                            progress.done.store(p.done, Ordering::Relaxed);
-                            progress.total.store(p.total, Ordering::Relaxed);
-                            progress.cached.store(p.cached, Ordering::Relaxed);
-                            progress_ctx.request_repaint();
-                        },
-                    ))
-                    .map_err(|e| e.to_string())?;
-                let recipes = extraction.report.recipes.clone();
-                // Materialize the cover + each recipe's hero photo in one EPUB open,
-                // off the UI thread, so the views just reference the registered bytes.
-                let (cover, images) = recipe_epub::collect_recipe_images(&bytes, &recipes);
-                Ok(LoadedBook {
-                    recipes,
-                    stats: extraction.accounting,
-                    report: extraction.report,
-                    cover,
-                    images,
-                })
-            })();
-            // Wake the UI thread when extraction finishes (poll-promise doesn't
-            // repaint on its own).
-            ctx.request_repaint();
-            result
-        }));
-    }
-
-    fn load_pending(&self) -> bool {
-        self.promise
-            .as_ref()
-            .is_some_and(|promise| promise.ready().is_none())
-    }
-
-    fn loading_file_name(&self) -> String {
-        Path::new(self.active_path.as_deref().unwrap_or(&self.path))
-            .file_name()
-            .map(|file| file.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "recipes".to_string())
-    }
-
-    /// Scan a directory for epubs and classify each as cookbook-or-not. Runs off
-    /// the UI thread (like [`Self::start_load`]); reading each book's OPF is cheap
-    /// (lazy, no content decompression). When `use_ai_fallback` is on, the
-    /// untagged ([`CookbookGuess::Unknown`]) books are settled by one batched LLM
-    /// call.
     fn start_scan(&mut self, dir: PathBuf, ctx: egui::Context) {
         self.library_dir = Some(dir.clone());
-        self.library_covers_registered = false; // re-register for the new scan
-        let use_ai = self.use_ai_fallback;
+        self.show_library = true;
+        self.library_covers_registered = false;
         self.scan = Some(Promise::spawn_thread("scan_library", move || {
-            let result = scan_library(&dir, use_ai);
+            let result = scan_library(&dir);
             ctx.request_repaint();
             result
         }));
     }
 }
 
-/// Scan `dir` for EPUBs and classify each: tag heuristic, then one batched AI
-/// call for the unsettled books, then covers for confirmed cookbooks, then
-/// cookbooks-first alphabetical.
+/// Scan local metadata and covers without invoking an extraction backend.
 ///
 /// Free function rather than closure body so it is reachable without a live
 /// egui context; the thread and repaint stay at the call site.
-fn scan_library(dir: &std::path::Path, use_ai: bool) -> ScanResult {
+fn scan_library(dir: &std::path::Path) -> ScanResult {
     let mut books: Vec<ScannedBook> = recipe_epub::find_epubs(dir)
         .iter()
         .filter_map(|p| recipe_epub::book_metadata(p).ok())
@@ -695,40 +245,12 @@ fn scan_library(dir: &std::path::Path, use_ai: bool) -> ScanResult {
             let search_key = format!("{} {}", meta.title, meta.authors.join(" ")).to_lowercase();
             ScannedBook {
                 is_cookbook: guess == CookbookGuess::Yes,
-                guess,
                 meta,
                 cover: None,
                 search_key,
             }
         })
         .collect();
-
-    // AI fallback: classify only the untagged books the heuristic
-    // couldn't settle, in one batched call.
-    if use_ai {
-        let unknown: Vec<usize> = books
-            .iter()
-            .enumerate()
-            .filter(|(_, b)| b.guess == CookbookGuess::Unknown)
-            .map(|(i, _)| i)
-            .collect();
-        if !unknown.is_empty() {
-            let metas: Vec<BookMeta> = unknown.iter().map(|&i| books[i].meta.clone()).collect();
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| format!("tokio runtime: {e}"))?;
-            let verdicts = rt
-                .block_on(recipe_epub::classify_cookbooks_ai(
-                    &metas,
-                    &Options::default(),
-                ))
-                .map_err(|e| e.to_string())?;
-            for (&i, is_cookbook) in unknown.iter().zip(verdicts) {
-                books[i].is_cookbook = is_cookbook;
-            }
-        }
-    }
 
     // Read covers only for confirmed cookbooks (one cover decompress
     // each) — bounds the extra I/O over a large library while still
@@ -755,18 +277,12 @@ fn show_library(
     ui: &mut egui::Ui,
     books: &[ScannedBook],
     cookbooks_only: &mut bool,
-    use_ai: &mut bool,
     filter: &mut String,
     grid: &mut bool,
     can_load: bool,
 ) -> LibraryAction {
     let mut action = LibraryAction::None;
     let cookbook_count = books.iter().filter(|b| b.is_cookbook).count();
-    let unknown_count = books
-        .iter()
-        .filter(|b| b.guess == CookbookGuess::Unknown)
-        .count();
-
     ui.label(
         RichText::new(format!(
             "{} epubs · {cookbook_count} cookbooks",
@@ -777,13 +293,8 @@ fn show_library(
     // Toggles reflow in the narrow sidebar rather than overflowing one row.
     ui.horizontal_wrapped(|ui| {
         ui.checkbox(cookbooks_only, "Cookbooks only");
-        ui.checkbox(use_ai, "Use AI for untagged")
-            .on_hover_text(format!(
-                "{unknown_count} book(s) have no tags to judge from. Enable, then Re-scan to \
-             classify them with the model.",
-            ));
         // Toggle the cover grid off to reclaim space (falls back to a compact list).
-        ui.toggle_value(grid, "🖼 Covers")
+        ui.toggle_value(grid, "Covers")
             .on_hover_text("Show cover thumbnails (off = compact list)");
         if ui
             .button("Re-scan")
@@ -794,7 +305,6 @@ fn show_library(
         }
     });
     ui.horizontal(|ui| {
-        ui.label("🔎");
         ui.add(
             egui::TextEdit::singleline(filter)
                 .hint_text("filter by title or author")
@@ -882,7 +392,7 @@ fn book_card(ui: &mut egui::Ui, b: &ScannedBook) -> egui::Response {
                 ui.painter().text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    "📕",
+                    "EPUB",
                     egui::FontId::proportional(28.0),
                     ui.visuals().weak_text_color(),
                 );
@@ -900,240 +410,8 @@ fn book_card(ui: &mut egui::Ui, b: &ScannedBook) -> egui::Response {
         })
 }
 
-/// Render the selected recipe's detail view. Returns `Some(idx)` if the user
-/// clicked one of the "Uses recipes" links, so the caller can navigate there.
-/// `parsed` is the caller's memoized `recipes[selected].parse()` — passed in
-/// (not computed here) so the per-line nom parsing doesn't rerun every repaint.
-fn show_recipe_detail(
-    ui: &mut egui::Ui,
-    recipes: &[CookbookRecipe],
-    selected: usize,
-    parsed: &ParsedCookbookRecipe,
-    index: &ReferenceIndex,
-    scale: f64,
-) -> Option<usize> {
-    let r = &recipes[selected];
-    let mut navigate_to = None;
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        // The recipe's hero photo, if one was found near its title (bytes were
-        // registered under `bytes://<path>` when the book loaded).
-        if let Some(img) = &r.image {
-            ui.add(
-                egui::Image::from_uri(format!("bytes://{}", img.path))
-                    .max_height(240.0)
-                    .max_width(ui.available_width())
-                    .corner_radius(6.0),
-            );
-            ui.add_space(6.0);
-        }
-        ui.heading(&r.meta.title);
-        if let Some(category) = &r.meta.category {
-            ui.label(RichText::new(category).italics().weak());
-        }
-
-        ui.horizontal_wrapped(|ui| {
-            if let Some(y) = &r.meta.recipe_yield {
-                ui.label(
-                    RichText::new(format!("{} {y}", theme::icon::YIELD))
-                        .color(theme::palette().amount()),
-                );
-            }
-            if let Some(t) = &r.meta.times {
-                for (label, value) in [
-                    ("active", &t.active),
-                    ("total", &t.total),
-                    ("prep", &t.prep),
-                    ("cook", &t.cook),
-                ] {
-                    if let Some(value) = value {
-                        ui.label(format!("{} {label}: {value}", theme::icon::TIME));
-                    }
-                }
-            }
-        });
-
-        if let Some(description) = &r.meta.description {
-            ui.add_space(4.0);
-            ui.label(RichText::new(description).italics());
-        }
-
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Scale").strong());
-            ui.label(format!("{scale}×"));
-        });
-
-        ui.separator();
-        // `parsed` (the caller's memoized `r.parse()`) drives the color-coded
-        // view. Ingredient lines that reference another recipe get a clickable
-        // "→ <recipe>" link.
-        if let Some(nav) =
-            show_sections_with_links(ui, &r.sections, &parsed.sections, r, index, scale)
-        {
-            navigate_to = Some(nav);
-        }
-
-        if !r.meta.equipment.is_empty() || !r.meta.notes.is_empty() {
-            ui.separator();
-            for e in &r.meta.equipment {
-                ui.label(format!("{} {e}", theme::icon::EQUIPMENT));
-            }
-            for n in &r.meta.notes {
-                ui.label(RichText::new(format!("{} {n}", theme::icon::NOTE)).weak());
-            }
-        }
-
-        // Other recipes in this book that this one uses as ingredients —
-        // rendered as links that navigate to the referenced recipe.
-        if !r.references.is_empty() {
-            ui.separator();
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("↳ Uses recipes:").strong());
-                for reference in &r.references {
-                    // Resolve the reference title to a recipe index. If found,
-                    // render a clickable link.
-                    if let Some(idx) = index.resolve(&reference.title) {
-                        if ui.link(&reference.title).clicked() {
-                            navigate_to = Some(idx);
-                        }
-                    } else {
-                        ui.label(&reference.title);
-                    }
-                }
-            });
-        }
-
-        // The reverse edge: other recipes in this book that reference THIS one
-        // (e.g. "Brioche Dough" is used by the Apricot Tart, the Bostock, …).
-        let used_by = index.used_by(selected);
-        if !used_by.is_empty() {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("↰ Used by:").strong());
-                for &idx in used_by {
-                    if ui.link(&recipes[idx].meta.title).clicked() {
-                        navigate_to = Some(idx);
-                    }
-                }
-            });
-        }
-
-        ui.add_space(8.0);
-        ui.label(RichText::new(&r.url).weak().small());
-    });
-    navigate_to
-}
-
-/// Render a cookbook recipe's parsed sections (color-coded ingredients +
-/// measurement-aware instructions), like `recipe::show_parsed_sections`, but
-/// with an extra clickable "→ <recipe>" link after any ingredient line that
-/// references another recipe. Returns the recipe index to navigate to if a link
-/// was clicked.
-///
-/// `raw` is the verbatim section list (whose ingredient strings are matched
-/// against `recipe.references[].line`); `parsed` is the same sections after
-/// parsing. They align 1:1.
-fn show_sections_with_links(
-    ui: &mut egui::Ui,
-    raw: &[recipe_epub::RecipeSection],
-    parsed: &[recipe_epub::ParsedSection],
-    recipe: &CookbookRecipe,
-    index: &ReferenceIndex,
-    scale: f64,
-) -> Option<usize> {
-    let mut navigate_to = None;
-    for (raw_sec, sec) in raw.iter().zip(parsed) {
-        if let Some(name) = &sec.name {
-            ui.heading(name);
-        }
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                for (raw_line, ing) in raw_sec.ingredients.iter().zip(&sec.ingredients) {
-                    theme::card_compact(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            super::recipe::show_ingredient_collapsing_scaled(ui, ing, scale);
-                            // If this verbatim line is a cross-recipe reference, add
-                            // a link to the target recipe.
-                            if let Some(idx) = recipe
-                                .references
-                                .iter()
-                                .find(|x| &x.line == raw_line)
-                                .and_then(|x| index.resolve(&x.title))
-                                && ui
-                                    .link(
-                                        RichText::new(format!("{} open", theme::icon::OPEN))
-                                            .small(),
-                                    )
-                                    .clicked()
-                            {
-                                navigate_to = Some(idx);
-                            }
-                        });
-                    });
-                }
-            });
-            ui.vertical(|ui| {
-                for instr in &sec.instructions {
-                    super::recipe::show_instruction_chunks_scaled(ui, instr, scale);
-                }
-            });
-        });
-    }
-    navigate_to
-}
-
-/// Compact, source-oriented diagnostics that can sit behind the summary row
-/// without drowning the recipe browser in transport details.
-fn extraction_diagnostics(report: &ExtractionReport) -> Vec<String> {
-    let mut lines = Vec::new();
-    for chunk in &report.chunks {
-        if let Some(primary) = &chunk.primary_failure {
-            lines.push(format!(
-                "Chunk {} ({}) recovered with {:?} after primary failure: {}",
-                chunk.index, chunk.doc_path, chunk.tier, primary.message
-            ));
-        }
-    }
-    for failure in &report.failures {
-        let fallback = failure
-            .fallback
-            .as_ref()
-            .map(|f| format!("; fallback: {}", f.message))
-            .unwrap_or_default();
-        lines.push(format!(
-            "Chunk {} ({}) failed: {}{fallback}",
-            failure.index, failure.doc_path, failure.primary.message
-        ));
-    }
-    for truncation in &report.truncations {
-        lines.push(format!(
-            "Chunk {} ({}) {:?} attempt was truncated",
-            truncation.index, truncation.doc_path, truncation.tier
-        ));
-    }
-    lines
-}
-
-fn has_extraction_diagnostics(report: &ExtractionReport) -> bool {
-    !report.failures.is_empty()
-        || !report.truncations.is_empty()
-        || report
-            .chunks
-            .iter()
-            .any(|chunk| chunk.primary_failure.is_some())
-}
-
-/// Build the recipe-reference digraph: a node per recipe that participates in at
-/// least one reference (uses or is used), and a directed edge A→B for every
-/// "recipe A uses recipe B" reference. Node payload = the recipe's index in
-/// `recipes` (for click-to-select); node label = the recipe title.
-/// Title → recipe index for one book. Repeated titles remain
-/// deliberately unresolved: picking the last occurrence would make a visible
-/// link point somewhere the extraction contract called ambiguous.
 pub(crate) struct ReferenceIndex {
     forward: std::collections::HashMap<String, Option<usize>>,
-    /// For each recipe, the distinct recipes that reference it. The reverse edge
-    /// used to be an O(n·refs) scan inside the detail view, recomputed every
-    /// repaint.
-    reverse: Vec<Vec<usize>>,
 }
 
 impl ReferenceIndex {
@@ -1151,35 +429,15 @@ impl ReferenceIndex {
                 }
             }
         }
-        let mut reverse: Vec<Vec<usize>> = vec![Vec::new(); recipes.len()];
-        for (src, r) in recipes.iter().enumerate() {
-            for reference in &r.references {
-                // `resolve_references` emits one RecipeRef per ingredient LINE,
-                // so a recipe naming the same target twice must still appear
-                // once. The scan this replaced used `.any(...)`, which deduped
-                // implicitly.
-                if let Some(Some(dst)) = forward.get(reference.title.as_str())
-                    && src != *dst
-                    && !reverse[*dst].contains(&src)
-                {
-                    reverse[*dst].push(src);
-                }
-            }
-        }
-        Self { forward, reverse }
+        Self { forward }
     }
 
     pub(crate) fn resolve(&self, title: &str) -> Option<usize> {
         self.forward.get(title).copied().flatten()
     }
-
-    /// Recipes that reference `idx`, excluding itself.
-    pub(crate) fn used_by(&self, idx: usize) -> &[usize] {
-        self.reverse.get(idx).map_or(&[], Vec::as_slice)
-    }
 }
 
-fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
+pub(super) fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
     let index = ReferenceIndex::build(recipes);
 
     // Collect the directed edges (by recipe index) and the set of participants.
@@ -1271,7 +529,7 @@ fn build_reference_graph(recipes: &[CookbookRecipe]) -> RefGraph {
 /// Render the reference digraph, sync a node click to `selected`, and return
 /// `Some(recipe_idx)` if the user clicked the "Open" affordance to jump to that
 /// recipe in the Browse view.
-fn show_reference_graph(
+pub(super) fn show_reference_graph(
     ui: &mut egui::Ui,
     graph: &mut RefGraph,
     selected: &mut usize,
@@ -1501,26 +759,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn pending_import_cannot_be_replaced_or_renamed() {
-        let mut tab = CookbookTab {
-            path: "/books/active.epub".to_string(),
-            active_path: Some("/books/active.epub".to_string()),
-            selected: 3,
-            ..Default::default()
-        };
-        let (_sender, promise) = Promise::new();
-        tab.promise = Some(promise);
-        tab.path = "/books/replacement.epub".to_string();
-
-        tab.start_load(egui::Context::default());
-
-        assert!(tab.load_pending());
-        assert_eq!(tab.selected, 3);
-        assert_eq!(tab.active_path.as_deref(), Some("/books/active.epub"));
-        assert_eq!(tab.loading_file_name(), "active.epub");
-    }
-
     /// One title→index answer for the three places that used to each scan the
     /// recipe list themselves — two of them inside render functions.
     #[test]
@@ -1547,60 +785,6 @@ mod tests {
         ];
         let index = ReferenceIndex::build(&recipes);
         assert_eq!(index.resolve("Sauce"), None);
-        assert!(index.used_by(0).is_empty());
-        assert!(index.used_by(1).is_empty());
-    }
-
-    #[test]
-    fn truncation_diagnostics_remain_visible_without_a_failed_chunk() {
-        let report = ExtractionReport {
-            recipes: Vec::new(),
-            chunks: Vec::new(),
-            failures: Vec::new(),
-            usage: recipe_epub::Usage::default(),
-            primary_usage: recipe_epub::Usage::default(),
-            fallback_usage: recipe_epub::Usage::default(),
-            chunks_cached: 0,
-            truncations: vec![recipe_epub::ChunkTruncation {
-                index: 4,
-                doc_path: "chapter.xhtml".to_string(),
-                tier: recipe_epub::ModelTier::Fallback,
-            }],
-        };
-        assert!(has_extraction_diagnostics(&report));
-        assert_eq!(
-            extraction_diagnostics(&report),
-            vec!["Chunk 4 (chapter.xhtml) Fallback attempt was truncated".to_string()]
-        );
-    }
-
-    /// A source that references the same target on two ingredient lines gets
-    /// two `RecipeRef`s (resolve_references is per-line), and must still appear
-    /// ONCE under "Used by". The scan this replaced used `.any(...)`, which got
-    /// that for free.
-    #[test]
-    fn reference_index_reverse_edges_are_deduplicated() {
-        let recipes = [
-            recipe("Pie Dough", &[]),
-            recipe("Apple Pie", &["Pie Dough", "Pie Dough"]),
-        ];
-        let index = ReferenceIndex::build(&recipes);
-        assert_eq!(index.used_by(0), &[1]);
-    }
-
-    /// The reverse edge is cached, not rescanned per frame: it must exclude a
-    /// self-reference and list every recipe that points at a target.
-    #[test]
-    fn reference_index_reverse_edges() {
-        let recipes = [
-            recipe("Pie Dough", &["Pie Dough"]),
-            recipe("Apple Pie", &["Pie Dough"]),
-            recipe("Cherry Pie", &["Pie Dough", "Missing"]),
-        ];
-        let index = ReferenceIndex::build(&recipes);
-        assert_eq!(index.used_by(0), &[1, 2], "both pies use the dough");
-        assert!(index.used_by(1).is_empty());
-        assert!(index.used_by(2).is_empty());
     }
 
     /// A self-reference and an unresolvable target both fail to resolve to an

@@ -1,4 +1,4 @@
-//! Catppuccin theme (Mocha dark / Latte light) for the food-app egui UI.
+//! Neutral light/dark native-tool theme for the maintainer workspaces.
 //!
 //! egui ships stock defaults and has no built-in system-font support. This
 //! module applies a cohesive palette, loads a macOS system font at runtime
@@ -11,7 +11,7 @@ use eframe::egui::{self, Color32, CornerRadius, FontData, FontDefinitions, FontF
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// One Catppuccin flavor's colors. Semantic accessors (`amount()`, `name()`,
+/// One appearance's colors. Semantic accessors (`amount()`, `name()`,
 /// …) map the app's render roles onto the flavor so call sites don't pick raw
 /// colors themselves.
 pub struct Palette {
@@ -65,46 +65,45 @@ impl Palette {
     }
 }
 
-// RGB of the published hex values: https://github.com/catppuccin/catppuccin
 const MOCHA: Palette = Palette {
-    base: Color32::from_rgb(30, 30, 46),        // #1e1e2e
-    mantle: Color32::from_rgb(24, 24, 37),      // #181825
-    crust: Color32::from_rgb(17, 17, 27),       // #11111b
-    surface0: Color32::from_rgb(49, 50, 68),    // #313244
-    surface1: Color32::from_rgb(69, 71, 90),    // #45475a
-    surface2: Color32::from_rgb(88, 91, 112),   // #585b70
-    overlay1: Color32::from_rgb(127, 132, 156), // #7f849c
-    subtext0: Color32::from_rgb(166, 173, 200), // #a6adc8
-    text: Color32::from_rgb(205, 214, 244),     // #cdd6f4
-    blue: Color32::from_rgb(137, 180, 250),     // #89b4fa
-    lavender: Color32::from_rgb(180, 190, 254), // #b4befe
-    green: Color32::from_rgb(166, 227, 161),    // #a6e3a1
-    yellow: Color32::from_rgb(249, 226, 175),   // #f9e2af
-    peach: Color32::from_rgb(250, 179, 135),    // #fab387
-    red: Color32::from_rgb(243, 139, 168),      // #f38ba8
+    base: Color32::from_rgb(30, 31, 34),
+    mantle: Color32::from_rgb(37, 38, 41),
+    crust: Color32::from_rgb(24, 25, 28),
+    surface0: Color32::from_rgb(42, 43, 47),
+    surface1: Color32::from_rgb(60, 62, 67),
+    surface2: Color32::from_rgb(74, 77, 83),
+    overlay1: Color32::from_rgb(148, 153, 163),
+    subtext0: Color32::from_rgb(173, 177, 187),
+    text: Color32::from_rgb(235, 237, 241),
+    blue: Color32::from_rgb(112, 177, 255),
+    lavender: Color32::from_rgb(143, 188, 255),
+    green: Color32::from_rgb(115, 207, 151),
+    yellow: Color32::from_rgb(237, 198, 99),
+    peach: Color32::from_rgb(225, 179, 130),
+    red: Color32::from_rgb(255, 138, 138),
     dark: true,
 };
 
 const LATTE: Palette = Palette {
-    base: Color32::from_rgb(239, 241, 245),     // #eff1f5
-    mantle: Color32::from_rgb(230, 233, 239),   // #e6e9ef
-    crust: Color32::from_rgb(220, 224, 232),    // #dce0e8
-    surface0: Color32::from_rgb(204, 208, 218), // #ccd0da
-    surface1: Color32::from_rgb(188, 192, 204), // #bcc0cc
-    surface2: Color32::from_rgb(172, 176, 190), // #acb0be
-    overlay1: Color32::from_rgb(140, 143, 161), // #8c8fa1
-    subtext0: Color32::from_rgb(108, 111, 133), // #6c6f85
-    text: Color32::from_rgb(76, 79, 105),       // #4c4f69
-    blue: Color32::from_rgb(30, 102, 245),      // #1e66f5
-    lavender: Color32::from_rgb(114, 135, 253), // #7287fd
-    green: Color32::from_rgb(64, 160, 43),      // #40a02b
-    yellow: Color32::from_rgb(223, 142, 29),    // #df8e1d
-    peach: Color32::from_rgb(254, 100, 11),     // #fe640b
-    red: Color32::from_rgb(210, 15, 57),        // #d20f39
+    base: Color32::from_rgb(249, 249, 251),
+    mantle: Color32::from_rgb(239, 240, 243),
+    crust: Color32::from_rgb(255, 255, 255),
+    surface0: Color32::from_rgb(236, 238, 242),
+    surface1: Color32::from_rgb(212, 215, 222),
+    surface2: Color32::from_rgb(193, 200, 211),
+    overlay1: Color32::from_rgb(102, 109, 123),
+    subtext0: Color32::from_rgb(92, 99, 113),
+    text: Color32::from_rgb(35, 39, 47),
+    blue: Color32::from_rgb(25, 91, 173),
+    lavender: Color32::from_rgb(34, 92, 173),
+    green: Color32::from_rgb(27, 115, 65),
+    yellow: Color32::from_rgb(130, 91, 12),
+    peach: Color32::from_rgb(139, 83, 33),
+    red: Color32::from_rgb(181, 42, 47),
     dark: false,
 };
 
-/// Which Catppuccin flavor is active. Persisted across sessions.
+/// Appearance choice. Existing serialized names remain readable.
 #[derive(Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ThemeChoice {
     #[default]
@@ -143,8 +142,24 @@ pub fn apply(ctx: &egui::Context, choice: ThemeChoice) {
     // family, so `icon::*` codepoints render inline in normal text labels.
     egui_material_icons::initialize(ctx);
     ctx.global_style_mut(|style| {
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        style.spacing.item_spacing = egui::vec2(8.0, 5.0);
         style.spacing.button_padding = egui::vec2(8.0, 4.0);
+        style.spacing.interact_size.y = 28.0;
+        style
+            .text_styles
+            .insert(egui::TextStyle::Small, egui::FontId::proportional(12.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Body, egui::FontId::proportional(14.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Button, egui::FontId::proportional(14.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Heading, egui::FontId::proportional(22.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Monospace, egui::FontId::monospace(13.0));
     });
 }
 
@@ -154,7 +169,7 @@ fn visuals(p: &Palette) -> egui::Visuals {
     } else {
         egui::Visuals::light()
     };
-    let radius = CornerRadius::same(6);
+    let radius = CornerRadius::same(4);
 
     v.panel_fill = p.base;
     v.window_fill = p.mantle;
@@ -164,7 +179,7 @@ fn visuals(p: &Palette) -> egui::Visuals {
     v.hyperlink_color = p.lavender;
     v.error_fg_color = p.red;
     v.window_corner_radius = radius;
-    v.selection.bg_fill = Color32::from_rgba_unmultiplied(p.blue.r(), p.blue.g(), p.blue.b(), 90);
+    v.selection.bg_fill = Color32::from_rgba_unmultiplied(p.blue.r(), p.blue.g(), p.blue.b(), 28);
     v.selection.stroke = Stroke::new(1.0, p.lavender);
 
     let w = &mut v.widgets;
@@ -259,12 +274,6 @@ pub fn card<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R)
     card_with(ui, egui::Margin::same(8), add_contents)
 }
 
-/// A tighter [`card`] for single-line content (e.g. ingredient rows), so the
-/// surface hugs the text instead of reading as an oversized pill.
-pub fn card_compact<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    card_with(ui, egui::Margin::symmetric(8, 2), add_contents)
-}
-
 fn card_with<R>(
     ui: &mut egui::Ui,
     inner_margin: egui::Margin,
@@ -274,10 +283,57 @@ fn card_with<R>(
     egui::Frame::group(ui.style())
         .fill(p.surface0)
         .stroke(Stroke::new(1.0, p.surface1))
-        .corner_radius(CornerRadius::same(6))
+        .corner_radius(CornerRadius::same(3))
         .inner_margin(inner_margin)
         .show(ui, add_contents)
         .inner
+}
+
+/// Inset structural panes distinguish navigation and inspection from evidence.
+pub fn workspace_frame() -> egui::Frame {
+    egui::Frame::new().fill(palette().base).inner_margin(16)
+}
+
+pub fn sidebar_frame() -> egui::Frame {
+    egui::Frame::new().fill(palette().mantle).inner_margin(12)
+}
+
+pub fn evidence_frame() -> egui::Frame {
+    egui::Frame::new().fill(palette().crust).inner_margin(16)
+}
+
+/// Retain the user's comparison split as the window or inspector changes width.
+pub fn comparison_panel(ui: &egui::Ui) -> egui::Panel {
+    let id = egui::Id::new("review-comparison-source");
+    let width = ui.available_width();
+    let previous = ui.data_mut(|data| data.get_persisted::<f32>(id.with("available")));
+    if let Some(previous) = previous.filter(|previous| *previous > 0.0)
+        && (previous - width).abs() > 1.0
+        && let Some(mut state) = egui::containers::panel::PanelState::load(ui.ctx(), id)
+    {
+        let fraction = (state.size().x / previous).clamp(0.3, 0.65);
+        state.outer_rect.max.x = state.outer_rect.min.x + width * fraction;
+        ui.data_mut(|data| data.insert_persisted(id, state));
+    }
+    ui.data_mut(|data| data.insert_persisted(id.with("available"), width));
+    egui::Panel::left(id)
+        .default_size(width * 0.45)
+        .size_range((width * 0.3)..=(width * 0.65))
+}
+
+pub fn pane_heading(ui: &mut egui::Ui, title: &str) {
+    ui.label(egui::RichText::new(title).size(17.0).strong());
+    ui.add_space(10.0);
+}
+
+pub fn primary_button(ui: &mut egui::Ui, title: &str) -> egui::Response {
+    let p = palette();
+    let ink = if p.dark { p.crust } else { Color32::WHITE };
+    ui.add(
+        egui::Button::new(egui::RichText::new(title).color(ink).strong())
+            .fill(p.blue)
+            .min_size(egui::vec2(0.0, 32.0)),
+    )
 }
 
 /// Material Symbols codepoints for the app's affordances. `apply()` registers
@@ -286,17 +342,56 @@ fn card_with<R>(
 pub mod icon {
     use egui_material_icons::icons;
 
+    pub const CLOSE: &str = icons::ICON_CLOSE.codepoint;
     pub const TEST: &str = icons::ICON_SCIENCE.codepoint;
-    pub const RECIPE: &str = icons::ICON_MENU_BOOK.codepoint;
-    pub const DEBUG: &str = icons::ICON_SEARCH.codepoint;
     pub const COOKBOOK: &str = icons::ICON_AUTO_STORIES.codepoint;
-    pub const CORPUS: &str = icons::ICON_FACT_CHECK.codepoint;
     pub const YIELD: &str = icons::ICON_SCALE.codepoint;
     pub const SERVINGS: &str = icons::ICON_RESTAURANT.codepoint;
     pub const TIME: &str = icons::ICON_SCHEDULE.codepoint;
     pub const EQUIPMENT: &str = icons::ICON_HANDYMAN.codepoint;
     pub const NOTE: &str = icons::ICON_STICKY_NOTE_2.codepoint;
     pub const OPEN: &str = icons::ICON_OPEN_IN_NEW.codepoint;
-    pub const DARK_MODE: &str = icons::ICON_DARK_MODE.codepoint;
-    pub const LIGHT_MODE: &str = icons::ICON_LIGHT_MODE.codepoint;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn luminance(rgb: [f64; 3]) -> f64 {
+        rgb.into_iter()
+            .zip([0.2126, 0.7152, 0.0722])
+            .map(|(c, weight)| {
+                let c = c / 255.0;
+                (if c <= 0.04045 {
+                    c / 12.92
+                } else {
+                    ((c + 0.055) / 1.055).powf(2.4)
+                }) * weight
+            })
+            .sum()
+    }
+
+    #[test]
+    fn semantic_text_remains_readable_on_selected_rows() {
+        for p in [&MOCHA, &LATTE] {
+            let selection = visuals(p).selection.bg_fill;
+            let alpha = f64::from(selection.a()) / 255.0;
+            let foreground = [p.blue.r(), p.blue.g(), p.blue.b()];
+            let background = [p.base.r(), p.base.g(), p.base.b()];
+            let composite = std::array::from_fn(|i| {
+                f64::from(foreground[i]) * alpha + f64::from(background[i]) * (1.0 - alpha)
+            });
+            let bg = luminance(composite);
+            for color in [
+                p.text, p.blue, p.green, p.peach, p.yellow, p.red, p.subtext0,
+            ] {
+                let fg = luminance([color.r(), color.g(), color.b()].map(f64::from));
+                let contrast = (fg.max(bg) + 0.05) / (fg.min(bg) + 0.05);
+                assert!(
+                    contrast >= 4.5,
+                    "selected text contrast {contrast:.2} for {color:?}"
+                );
+            }
+        }
+    }
 }

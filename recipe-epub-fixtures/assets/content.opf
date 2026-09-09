@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="2.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Synthetic cookbook</dc:title><dc:creator>Fixture Author</dc:creator>
+<dc:identifier id="bookid">urn:recipe-epub-fixtures:synthetic-cookbook:v1</dc:identifier>
+<dc:language>en</dc:language><dc:subject>Cooking</dc:subject>
+<dc:description>Invented recipes for software tests. Not a cooking reference.</dc:description>
+</metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+<item id="recipe0" href="tomato-soup.xhtml" media-type="application/xhtml+xml"/>
+<item id="recipe1" href="flatbread.xhtml" media-type="application/xhtml+xml"/>
+<item id="recipe2" href="lemon-dressing.xhtml" media-type="application/xhtml+xml"/>
+</manifest><spine toc="ncx"><itemref idref="recipe0"/>
+<itemref idref="recipe1"/>
+<itemref idref="recipe2"/></spine></package>

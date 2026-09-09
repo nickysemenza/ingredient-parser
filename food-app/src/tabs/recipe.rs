@@ -73,18 +73,6 @@ pub(crate) fn show_ingredient_collapsing(
     });
 }
 
-/// A scaled ingredient display with the original parsed JSON retained for
-/// source inspection.
-pub(crate) fn show_ingredient_collapsing_scaled(
-    ui: &mut egui::Ui,
-    i: &ingredient::ingredient::Ingredient,
-    scale: f64,
-) {
-    ui.collapsing(make_rich_scaled(i, scale), |ui| {
-        ui.label(serde_json::to_string_pretty(&i).unwrap())
-    });
-}
-
 /// One instruction line as a card of measurement-aware chunks (amounts and
 /// ingredient names color-coded). Shared by the web Recipe tab and the
 /// Cookbook (EPUB) tab.
@@ -143,9 +131,9 @@ fn section_columns(
         ui.label(RichText::new("Instructions").strong());
         instructions(ui);
     } else {
-        ui.horizontal(|ui| {
-            ui.vertical(ingredients);
-            ui.vertical(instructions);
+        ui.columns(2, |columns| {
+            ingredients(&mut columns[0]);
+            instructions(&mut columns[1]);
         });
     }
 }
@@ -161,9 +149,7 @@ fn show_parsed_sections(ui: &mut egui::Ui, sections: &[ParsedSection]) {
             ui,
             |ui| {
                 section.ingredients.iter().for_each(|x| {
-                    theme::card_compact(ui, |ui| {
-                        show_ingredient_collapsing(ui, x);
-                    });
+                    show_ingredient_collapsing(ui, x);
                 });
             },
             |ui| {
