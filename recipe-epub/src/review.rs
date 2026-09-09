@@ -403,6 +403,17 @@ async fn extract_run_with_transport<E: RecipeExtractor>(
         .iter()
         .map(|(i, _)| reservation(&run.chunks[*i].source))
         .collect::<Result<_, _>>()?;
+    if reservations
+        .iter()
+        .all(|reserved| run.reserved_usd + reserved > options.budget_usd)
+    {
+        for (i, _) in pending {
+            run.chunks[i].error = Some("budget exhausted before request".into());
+        }
+        run.save(checkpoint)?;
+        progress(run);
+        return Ok(());
+    }
     let transport = create_transport()?;
     use futures::{StreamExt, stream::FuturesUnordered};
     let mut waiting: std::collections::VecDeque<_> =
@@ -1215,6 +1226,44 @@ mod pool_tests {
                 truncated: false,
             })
         }
+    }
+
+    #[tokio::test]
+    async fn exhausted_budget_does_not_construct_transport()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = std::env::temp_dir().join(store::new_id());
+        std::fs::create_dir_all(&root)?;
+        let checkpoint = root.join("run.json");
+        let mut run = ReviewRun::inspect(
+            &recipe_epub_fixtures::cookbook_epub()?,
+            "test",
+            "gemini-2.5-flash",
+        )?;
+        extract_run_with_transport::<Arc<Probe>>(
+            &mut run,
+            &RunOptions {
+                allow_network: true,
+                budget_usd: 0.0,
+                cache_dir: Some(root.join("cache")),
+                ..Default::default()
+            },
+            &checkpoint,
+            &ExtractionControl::default(),
+            |_| {},
+            || Err(EpubError::MissingBaseUrl),
+            |_, _| vec![],
+        )
+        .await?;
+        assert!(run.charges.is_empty());
+        assert_eq!(run.reserved_usd, 0.0);
+        assert!(
+            ReviewRun::read(&checkpoint)?
+                .chunks
+                .iter()
+                .all(|c| c.error.as_deref() == Some("budget exhausted before request"))
+        );
+        std::fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     #[tokio::test]

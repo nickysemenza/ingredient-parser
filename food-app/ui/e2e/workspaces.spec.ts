@@ -126,7 +126,15 @@ test.beforeEach(async ({ page }) => {
           reservedUsd: 0,
           active: 2, failed: 0, elapsedSeconds: 4, estimatedUsd: 0, stopping: false,
         });
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        const control = window as unknown as {
+          __holdExtraction?: boolean;
+          __finishExtraction?: () => void;
+        };
+        if (control.__holdExtraction) {
+          await new Promise<void>((resolve) => {
+            control.__finishExtraction = resolve;
+          });
+        }
         return data.cookbook;
       }
       if (command === "load_corpus") return data.corpus;
@@ -267,6 +275,9 @@ test("extraction saves automatically and preferences restore idle", async ({
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
   await openSource(page);
   await page.getByRole("button", { name: "Extraction…", exact: true }).click();
+  await page.evaluate(() => {
+    (window as unknown as { __holdExtraction: boolean }).__holdExtraction = true;
+  });
   await page.getByRole("button", { name: "Extract", exact: true }).click();
   await expect(page.locator(".cookbooks .progress")).toBeVisible();
   await expect(
@@ -291,6 +302,12 @@ test("extraction saves automatically and preferences restore idle", async ({
   expect(extraction?.args.request?.resume).toBe(false);
   expect(extraction?.args.request?.out).toBe("");
   expect(calls.some((c) => c.command === "dialog_save")).toBe(false);
+  await page.evaluate(() => {
+    (window as unknown as { __finishExtraction: () => void }).__finishExtraction();
+  });
+  await expect(
+    page.getByRole("button", { name: "Extraction…", exact: true }),
+  ).toBeEnabled();
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "Library", exact: true }),
