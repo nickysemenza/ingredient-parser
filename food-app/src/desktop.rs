@@ -2,6 +2,7 @@
 use crate::{backend as service, operations::Operations};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager, State, ipc::Channel};
+use tauri_plugin_opener::OpenerExt;
 
 #[derive(Default)]
 struct CloseState(AtomicBool);
@@ -26,6 +27,90 @@ fn set_close_blocked(blocked: bool, state: State<'_, CloseState>) {
 fn quit_app(app: tauri::AppHandle, state: State<'_, CloseState>) {
     state.0.store(false, Ordering::Relaxed);
     app.exit(0);
+}
+
+#[tauri::command]
+fn set_shell_appearance(
+    window: tauri::WebviewWindow,
+    dark: bool,
+    title: String,
+    review_enabled: bool,
+) -> Result<(), String> {
+    if let Some(menu) = window.app_handle().menu()
+        && let Some(item) = menu.get("review-menu")
+        && let Some(submenu) = item.as_submenu()
+    {
+        for id in [
+            "review-accept",
+            "review-incorrect",
+            "review-uncertain",
+            "review-next",
+        ] {
+            if let Some(item) = submenu.get(id)
+                && let Some(item) = item.as_menuitem()
+            {
+                item.set_enabled(review_enabled)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    window.set_title(&title).map_err(|e| e.to_string())?;
+    window
+        .set_theme(Some(if dark {
+            tauri::Theme::Dark
+        } else {
+            tauri::Theme::Light
+        }))
+        .map_err(|e| e.to_string())?;
+    let color = if dark {
+        tauri::window::Color(30, 31, 34, 255)
+    } else {
+        tauri::window::Color(249, 249, 251, 255)
+    };
+    window
+        .set_background_color(Some(color))
+        .map_err(|e| e.to_string())
+}
+
+fn source_url(value: &str) -> Result<tauri::Url, String> {
+    let url = tauri::Url::parse(value).map_err(|_| "The source URL is invalid.".to_owned())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err("Only HTTP and HTTPS recipe URLs can be opened.".into());
+    }
+    Ok(url)
+}
+
+#[tauri::command]
+async fn open_source_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let url = source_url(&url)?;
+    blocking(move || {
+        app.opener()
+            .open_url(url.as_str(), None::<&str>)
+            .map_err(|e| format!("Could not open the recipe in your browser: {e}"))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn reveal_file(app: tauri::AppHandle, path: String, review: bool) -> Result<(), String> {
+    blocking(move || {
+        let path = if review {
+            service::review_path(&path)?
+        } else {
+            path
+        };
+        let resolved = std::path::Path::new(&path).canonicalize().map_err(|e| {
+            if review {
+                format!("The review file is unavailable. Save a review first, then try again: {e}")
+            } else {
+                format!("Cannot find {path}. Locate the file and open it again: {e}")
+            }
+        })?;
+        app.opener()
+            .reveal_item_in_dir(resolved)
+            .map_err(|e| format!("Could not reveal the file in Finder: {e}"))
+    })
+    .await
 }
 
 async fn blocking<T: Send + 'static>(
@@ -159,6 +244,11 @@ pub fn run() -> tauri::Result<()> {
     let app = tauri::Builder::default()
         .manage(Operations::default())
         .manage(CloseState::default())
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -211,13 +301,43 @@ pub fn run() -> tauri::Result<()> {
                 )
                 .fullscreen()
                 .build()?;
+            let review_menu = SubmenuBuilder::with_id(app, "review-menu", "Review")
+                .item(
+                    &MenuItemBuilder::with_id("review-accept", "Mark Accepted")
+                        .accelerator("CmdOrCtrl+Alt+A")
+                        .build(app)?,
+                )
+                .item(
+                    &MenuItemBuilder::with_id("review-incorrect", "Mark Incorrect")
+                        .accelerator("CmdOrCtrl+Alt+I")
+                        .build(app)?,
+                )
+                .item(
+                    &MenuItemBuilder::with_id("review-uncertain", "Mark Uncertain")
+                        .accelerator("CmdOrCtrl+Alt+U")
+                        .build(app)?,
+                )
+                .separator()
+                .item(
+                    &MenuItemBuilder::with_id("review-next", "Save and Next Unreviewed")
+                        .accelerator("CmdOrCtrl+Shift+Enter")
+                        .build(app)?,
+                )
+                .build()?;
             let window_menu = SubmenuBuilder::new(app, "Window")
                 .minimize()
                 .maximize()
                 .build()?;
             app.set_menu(
                 MenuBuilder::new(app)
-                    .items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu])
+                    .items(&[
+                        &app_menu,
+                        &file_menu,
+                        &edit_menu,
+                        &view_menu,
+                        &review_menu,
+                        &window_menu,
+                    ])
                     .build()?,
             )?;
             Ok(())
@@ -234,6 +354,9 @@ pub fn run() -> tauri::Result<()> {
             let _ = app.emit_to("main", "app-menu", event.id().as_ref());
         })
         .invoke_handler(tauri::generate_handler![
+            set_shell_appearance,
+            reveal_file,
+            open_source_url,
             startup_run,
             set_close_blocked,
             quit_app,
@@ -266,4 +389,22 @@ pub fn run() -> tauri::Result<()> {
         }
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn external_recipe_urls_only_allow_web_protocols() {
+        for url in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "tauri://localhost",
+            "not a URL",
+        ] {
+            assert!(source_url(url).is_err(), "{url}");
+        }
+        assert!(source_url("https://example.com/recipe?servings=2").is_ok());
+        assert!(source_url("http://localhost/recipe").is_ok());
+    }
 }

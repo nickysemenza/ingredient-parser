@@ -17,7 +17,8 @@
         "width": 1280,
         "height": 820,
         "minWidth": 800,
-        "minHeight": 560
+        "minHeight": 560,
+        "titleBarStyle": "Transparent"
       }
     ],
     "security": {

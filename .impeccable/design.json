@@ -73,7 +73,30 @@
         "name": "recipe-columns-viewport",
         "value": "1000px"
       }
-    ]
+    ],
+    "desktopPolish": {
+      "nativeTitlebar": "transparent, themed, retains traffic lights and native behavior",
+      "statusBar": {
+        "minHeight": 26,
+        "fontSize": 12
+      },
+      "recentRuns": {
+        "limit": 8,
+        "restore": "idle"
+      },
+      "reviewShortcuts": {
+        "accepted": "Cmd+Alt+A",
+        "incorrect": "Cmd+Alt+I",
+        "uncertain": "Cmd+Alt+U",
+        "saveNext": "Cmd+Shift+Enter"
+      },
+      "motion": {
+        "inspectorDurationMs": 150,
+        "inspectorOffsetPx": 3,
+        "reducedMotion": "disabled",
+        "themeColors": "immediate"
+      }
+    }
   },
   "components": [],
   "narrative": {

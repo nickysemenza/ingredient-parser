@@ -170,3 +170,25 @@ source context intact while switching workspaces and inspector views.
 - Keep selected source, result, and inspector visibly connected at every supported size.
 - Verify light/dark appearance, long real content, focus, errors, and compact layouts.
 - Avoid landing-page typography, decorative dashboards, and automatic extraction.
+
+## Native desktop polish
+
+The transparent native titlebar retains macOS traffic lights and window behavior.
+Its background follows the work-area theme; the title shows the selected document
+and cookbook identity. Review menu commands are enabled only in an available
+saved-run review context. Keep native and in-context shortcut labels aligned:
+Cmd–Option–A accepts, Cmd–Option–I marks incorrect, Cmd–Option–U marks uncertain,
+and Cmd–Shift–Return saves and advances to the next unreviewed source document.
+Advance occurs only after saving succeeds and follows source order, wrapping once.
+It clears presentation filters when advancing so the selected document is visible.
+
+A 26px status bar uses the mantle surface, muted 12px text, and tabular counts.
+It shows pending work, saved/unsaved review state, and remaining reviews. Cookbook
+progress remains visible when switching to Parser. Recent runs appear in Open,
+retain at most eight unique paths, and never reopen automatically. Run tools offer
+Finder reveal actions; web recipes offer an explicit browser action.
+
+Motion is limited to a 150ms, 3px inspector entrance and a subtle button press.
+Reduced-motion preferences disable these effects. Theme colors switch immediately
+to avoid transient text/background contrast failures. Notifications, a command
+palette, and single-instance handling are outside this pass.

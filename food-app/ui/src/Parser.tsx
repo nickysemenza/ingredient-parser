@@ -9,6 +9,7 @@ import {
 import { FileText, FlaskConical, Play } from "lucide-react";
 import {
   api,
+  openSourceUrl,
   display,
   type CorpusResult,
   type IngredientResult,
@@ -600,6 +601,14 @@ function WebRecipe({
   const sections = scaled.sections;
   return (
     <article className="web-recipe scroll">
+      <button
+        className="source-link"
+        onClick={() =>
+          void openSourceUrl(recipe.url).catch((e) => onError(String(e)))
+        }
+      >
+        Open original recipe in browser
+      </button>
       {typeof source.description === "string" && <p>{source.description}</p>}
       <RecipeScale
         className="scale"

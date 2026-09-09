@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import {
   api,
+  isNative,
+  revealFile,
   copy,
   discardChanges,
   pick,
@@ -34,6 +36,11 @@ import {
   VirtualList,
 } from "./components";
 import { Inspector } from "./Inspector";
+import {
+  useRecentRuns,
+  type ReviewAction,
+  type WorkspaceStatus,
+} from "./shell";
 const titleOf = (doc: SourceDocument) =>
   doc.blocks.find((b) => /^h[123]$/.test(b.tag))?.text ??
   doc.blocks.find((b) => b.text)?.text ??
@@ -45,6 +52,9 @@ export function Cookbooks({
   openSignal,
   saveSignal,
   startupPath,
+  active,
+  reviewAction,
+  onStatus,
 }: {
   onError: (v: string) => void;
   onBusy: (v: boolean) => void;
@@ -52,7 +62,11 @@ export function Cookbooks({
   openSignal: number;
   saveSignal: number;
   startupPath: string | null;
+  active: boolean;
+  reviewAction: ReviewAction;
+  onStatus: (status: WorkspaceStatus) => void;
 }) {
+  const recent = useRecentRuns();
   const [book, setBook] = useState<CookbookResult | null>(null);
   const [library, setLibrary] = useState<LibraryBook[]>([]);
   const [librarySearch, setLibrarySearch] = useState("");
@@ -120,7 +134,63 @@ export function Cookbooks({
     observer.observe(work.current);
     return () => observer.disconnect();
   }, []);
+  const bookName =
+    book?.source
+      .split(/[\\/]/)
+      .pop()
+      ?.replace(/\.epub$/i, "") ?? "Cookbooks";
+  const title = doc ? `${titleOf(doc)} · ${bookName}` : bookName;
+  const remaining =
+    book?.documents.filter(
+      (document) =>
+        !book.review.some(
+          (note) =>
+            note.document === document.path && note.status !== "Unreviewed",
+        ),
+    ).length ?? 0;
+  const canReview =
+    !!book?.path &&
+    !!doc &&
+    !loading &&
+    view === "Review" &&
+    !showLibrary &&
+    !showExtraction;
+  const statusMessage =
+    loading ||
+    (dirty
+      ? "Unsaved review"
+      : saved
+        ? "Review saved"
+        : book?.path
+          ? "Review up to date"
+          : book
+            ? "Source inspection"
+            : "No cookbook open");
+  const statusDetail =
+    loading && progress
+      ? `${progress.completed}/${progress.total} chunks · ${progress.recipes} recipes`
+      : book?.path
+        ? `${remaining} of ${book.documents.length} unreviewed`
+        : "";
+  useEffect(
+    () =>
+      onStatus({
+        title,
+        canReview,
+        message: statusMessage,
+        detail: statusDetail,
+      }),
+    [title, canReview, statusMessage, statusDetail, onStatus],
+  );
   const accept = (next: CookbookResult) => {
+    if (next.path)
+      recent.remember(
+        next.path,
+        next.source
+          .split(/[\\/]/)
+          .pop()
+          ?.replace(/\.epub$/i, "") || next.path,
+      );
     setBook(next);
     setSelected(0);
     const nextDoc = next.documents[0];
@@ -148,6 +218,7 @@ export function Cookbooks({
     running.current = true;
     const id = ++operation.current;
     setLoading(label);
+    setProgress(null);
     onBusy(true);
     onError("");
     try {
@@ -183,6 +254,17 @@ export function Cookbooks({
         accept,
       );
   };
+  const openRecent = async (path: string) => {
+    if (running.current || !(await protect())) return;
+    await run(
+      "Opening saved run…",
+      () => api.run(path),
+      (next) => {
+        setShowLibrary(false);
+        accept(next);
+      },
+    );
+  };
   const openPath = async (path: string) => {
     if (running.current || !(await protect())) return;
     await run("Inspecting source…", () => api.book(path), accept);
@@ -200,7 +282,7 @@ export function Cookbooks({
     setSaved(false);
     setInspection(null);
   };
-  const saveReview = async () => {
+  const saveReview = async (advance = false) => {
     if (!book?.path || !doc) return;
     const path = doc.path;
     const value = { ...decision };
@@ -208,21 +290,95 @@ export function Cookbooks({
       "Saving review…",
       () => api.review(book.path!, path, value.status, value.note),
       () => {
-        setBook((prev) =>
-          prev
-            ? {
-                ...prev,
-                review: [
-                  ...prev.review.filter((d) => d.document !== path),
-                  { document: path, ...value },
-                ],
-              }
-            : prev,
-        );
+        const review = [
+          ...book.review.filter((d) => d.document !== path),
+          { document: path, ...value },
+        ];
+        setBook({ ...book, review });
         setSaved(true);
+        if (advance) {
+          // Review queue follows source order, wraps once, and ignores presentation filters.
+          const nextIndex = Array.from(
+            { length: book.documents.length - 1 },
+            (_, offset) => (selected + offset + 1) % book.documents.length,
+          ).find(
+            (index) =>
+              !review.some(
+                (note) =>
+                  note.document === book.documents[index].path &&
+                  note.status !== "Unreviewed",
+              ),
+          );
+          if (nextIndex !== undefined) {
+            setSelected(nextIndex);
+            setDecision(
+              review.find(
+                (note) => note.document === book.documents[nextIndex].path,
+              ) ?? { status: "Unreviewed", note: "" },
+            );
+            setInspection(null);
+            setSaved(false);
+            setQuery("");
+            setStatusFilter("All");
+            setMissingOnly(false);
+          }
+        }
       },
     );
   };
+  const reviewCommand = (command: string) => {
+    if (
+      !active ||
+      running.current ||
+      !book?.path ||
+      !doc ||
+      view !== "Review" ||
+      showLibrary ||
+      showExtraction
+    )
+      return;
+    if (command === "review-next") {
+      void saveReview(true);
+      return;
+    }
+    const status =
+      command === "review-accept"
+        ? "Accepted"
+        : command === "review-incorrect"
+          ? "Incorrect"
+          : command === "review-uncertain"
+            ? "Uncertain"
+            : null;
+    if (status) {
+      setDecision({ ...decision, status });
+      setSaved(false);
+    }
+  };
+  useEffect(() => {
+    if (reviewAction.id) reviewCommand(reviewAction.command);
+  }, [reviewAction]);
+  useEffect(() => {
+    if (isNative() || !active) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.repeat) return;
+      const command =
+        event.shiftKey && event.key === "Enter"
+          ? "review-next"
+          : event.altKey
+            ? {
+                KeyA: "review-accept",
+                KeyI: "review-incorrect",
+                KeyU: "review-uncertain",
+              }[event.code]
+            : undefined;
+      if (command) {
+        event.preventDefault();
+        reviewCommand(command);
+      }
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  });
   useEffect(() => {
     if (openSignal) void openBook("epub");
   }, [openSignal]);
@@ -499,6 +655,33 @@ export function Cookbooks({
         >
           Save review
         </button>
+        <Menu label="Review actions">
+          <button
+            disabled={!book?.path || !!loading}
+            onClick={() => reviewCommand("review-accept")}
+          >
+            Mark accepted <kbd>⌘⌥A</kbd>
+          </button>
+          <button
+            disabled={!book?.path || !!loading}
+            onClick={() => reviewCommand("review-incorrect")}
+          >
+            Mark incorrect <kbd>⌘⌥I</kbd>
+          </button>
+          <button
+            disabled={!book?.path || !!loading}
+            onClick={() => reviewCommand("review-uncertain")}
+          >
+            Mark uncertain <kbd>⌘⌥U</kbd>
+          </button>
+          <hr />
+          <button
+            disabled={!book?.path || !!loading}
+            onClick={() => void saveReview(true)}
+          >
+            Save and next unreviewed <kbd>⌘⇧↵</kbd>
+          </button>
+        </Menu>
         <Menu label={decision.note ? "Review note •" : "Review note"}>
           <label>
             Review note
@@ -572,6 +755,25 @@ export function Cookbooks({
           </button>
           <hr />
           <button onClick={() => setShowPath(!showPath)}>Inspect path…</button>
+          {recent.runs.length > 0 && (
+            <>
+              <hr />
+              <p className="menu-section">Recent runs</p>
+              {recent.runs.map((item) => (
+                <button
+                  key={item.path}
+                  className="recent-run"
+                  title={item.path}
+                  disabled={!!loading}
+                  onClick={() => void openRecent(item.path)}
+                >
+                  <strong>{item.name}</strong>
+                  <span>{item.path.split(/[\\/]/).pop()}</span>
+                </button>
+              ))}
+              <button onClick={recent.clear}>Clear recent runs</button>
+            </>
+          )}
         </Menu>
         {library.length > 0 && (
           <button
@@ -637,6 +839,32 @@ export function Cookbooks({
               Extraction…
             </button>
             <Menu label="Run tools">
+              <button
+                onClick={() =>
+                  void revealFile(book.source).catch((e) => onError(String(e)))
+                }
+              >
+                Reveal EPUB in Finder
+              </button>
+              <button
+                disabled={!book.path}
+                onClick={() =>
+                  void revealFile(book.path!).catch((e) => onError(String(e)))
+                }
+              >
+                Reveal saved run in Finder
+              </button>
+              <button
+                disabled={!book.path}
+                onClick={() =>
+                  void revealFile(book.path!, true).catch((e) =>
+                    onError(String(e)),
+                  )
+                }
+              >
+                Reveal review file in Finder
+              </button>
+              <hr />
               <button
                 onClick={() =>
                   void copy(JSON.stringify(book.run, null, 2)).catch((e) =>

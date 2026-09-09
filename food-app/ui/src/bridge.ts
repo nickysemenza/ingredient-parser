@@ -151,3 +151,8 @@ export function display(v: unknown): string {
         ? JSON.stringify(v)
         : String(v);
 }
+
+export const revealFile = (path: string, review = false) =>
+  call<void>("reveal_file", { path, review });
+export const openSourceUrl = (url: string) =>
+  call<void>("open_source_url", { url });

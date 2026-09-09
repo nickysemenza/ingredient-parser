@@ -69,3 +69,20 @@ is rendered as text and controlled elements rather than executable HTML.
 Recipe scale controls and JSON presentation are shared with the WASM demo in
 [`packages/recipe-ui`](../packages/recipe-ui/README.md). Execution remains native
 Rust in this app; the shared package contains presentation only.
+
+## Daily review controls
+
+- **Open → Recent runs** reopens one of the last eight saved runs. Restoring the
+  list does not open files, extract content, or start network requests.
+- **Run tools → Reveal … in Finder** locates the source EPUB, saved run, or review
+  sidecar. Save a review first to create its sidecar.
+- **Open original recipe in browser** is available in a loaded web recipe's
+  Recipe & source presentation.
+- **Review** in the macOS menu bar, or **Review actions** beside the review status,
+  exposes Cmd–Option–A (accepted), Cmd–Option–I (incorrect), Cmd–Option–U
+  (uncertain), and Cmd–Shift–Return (save and next unreviewed).
+- Save-and-next follows source order, wraps once, and clears filters when moving.
+  A failed save keeps the current document, decision, and notes intact.
+
+The native titlebar tracks the selected document and theme. The bottom status
+bar shows saved/unsaved state, extraction progress, and remaining review count.

@@ -1374,3 +1374,91 @@ details p {
   width: 100%;
   height: 100%;
 }
+
+/* The native titlebar retains traffic lights and shares this work-area color. */
+.status-bar {
+  min-height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--mantle);
+  color: var(--muted);
+  font-size: 12px;
+}
+.status-bar > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.status-detail {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.menu-section {
+  padding: 5px 7px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.menu-content .recent-run {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.recent-run strong,
+.recent-run span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-run strong {
+  font-weight: 500;
+}
+.recent-run span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.menu-content {
+  max-height: min(420px, 70dvh);
+  overflow-y: auto;
+}
+kbd {
+  margin-left: auto;
+  padding-left: 12px;
+  font: inherit;
+  color: var(--muted);
+  font-size: 12px;
+}
+.source-link {
+  align-self: flex-start;
+  margin-bottom: 12px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  button {
+    transition: transform 120ms ease-out;
+  }
+  button:active:not(:disabled) {
+    transform: translateY(0.5px);
+  }
+  .inspector {
+    animation: inspector-reveal 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes inspector-reveal {
+    from {
+      transform: translateY(3px);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+}
+@media (max-width: 950px) {
+  .status-bar {
+    padding-inline: 16px;
+    gap: 8px;
+  }
+}

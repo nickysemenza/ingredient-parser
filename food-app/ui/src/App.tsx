@@ -4,6 +4,7 @@ import { call, discardChanges, isNative } from "./bridge";
 import { Notice, useStored } from "./components";
 import { Parser } from "./Parser";
 import { Cookbooks } from "./Cookbooks";
+import type { ReviewAction, WorkspaceStatus } from "./shell";
 export function App() {
   const [workspace, setWorkspace] = useStored<"Parser" | "Cookbooks">(
     "v1:workspace",
@@ -14,6 +15,16 @@ export function App() {
     "dark",
     "light",
   ]);
+  const [bookStatus, setBookStatus] = useState<WorkspaceStatus>({
+    title: "Cookbooks",
+    canReview: false,
+    message: "No cookbook open",
+    detail: "",
+  });
+  const [reviewAction, setReviewAction] = useState<ReviewAction>({
+    id: 0,
+    command: "",
+  });
   const [error, setError] = useState("");
   const [parserBusy, setParserBusy] = useState(false);
   const [bookBusy, setBookBusy] = useState(false);
@@ -27,7 +38,13 @@ export function App() {
   const asking = useRef(false);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    if (isNative())
+      void call("set_shell_appearance", {
+        dark: theme === "dark",
+        reviewEnabled: workspace === "Cookbooks" && bookStatus.canReview,
+        title: `${workspace === "Cookbooks" ? bookStatus.title : "Parser"} — Ingredient Parser`,
+      }).catch((e) => setError(String(e)));
+  }, [theme, workspace, bookStatus.title, bookStatus.canReview]);
   useEffect(() => {
     if (isNative())
       void call("set_close_blocked", { blocked }).catch((e) =>
@@ -56,6 +73,11 @@ export function App() {
     import("@tauri-apps/api/event")
       .then(({ listen }) =>
         listen<string>("app-menu", async (e) => {
+          if (e.payload.startsWith("review-"))
+            setReviewAction((previous) => ({
+              id: previous.id + 1,
+              command: e.payload,
+            }));
           if (e.payload === "parser") setWorkspace("Parser");
           if (e.payload === "cookbooks") setWorkspace("Cookbooks");
           if (e.payload === "open") {
@@ -134,8 +156,27 @@ export function App() {
             openSignal={openSignal}
             saveSignal={saveSignal}
             startupPath={startupPath}
+            active={workspace === "Cookbooks"}
+            reviewAction={reviewAction}
+            onStatus={setBookStatus}
           />
         </div>
+        <footer className="status-bar" aria-label="Workspace status">
+          <span role="status">
+            {bookBusy
+              ? bookStatus.message
+              : parserBusy
+                ? "Parsing…"
+                : workspace === "Cookbooks"
+                  ? bookStatus.message
+                  : "Ready"}
+          </span>
+          <span className="status-detail">
+            {bookBusy || workspace === "Cookbooks"
+              ? bookStatus.detail
+              : "Native Rust parser"}
+          </span>
+        </footer>
       </main>
     </div>
   );

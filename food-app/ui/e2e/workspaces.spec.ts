@@ -21,6 +21,8 @@ test.beforeEach(async ({ page }) => {
       };
       calls.__calls ??= [];
       calls.__calls.push({ command, args });
+      if (command === "reveal_file" || command === "open_source_url")
+        return null;
       if (command === "parse_batch") return data.ingredients;
       if (command === "inspect_ingredient") {
         const inspection = data.inspections[String(args?.input)];
@@ -212,9 +214,7 @@ test("cache-only extraction is explicit and preferences restore idle", async ({
   await page
     .getByRole("button", { name: "Extract to saved run…", exact: true })
     .click();
-  await expect(
-    page.getByText("Reading cached extraction…", { exact: false }),
-  ).toBeVisible();
+  await expect(page.locator(".cookbooks .progress")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Extraction…", exact: true }),
   ).toBeDisabled();
@@ -273,11 +273,16 @@ test("corpus scoring preserves field context during ingredient inspection", asyn
   await page.goto("/");
   await page.getByRole("tab", { name: "Corpus", exact: true }).click();
   await page.getByRole("button", { name: "Load & score" }).click();
-  const regression = fixture.corpus.cases.find(
-    (row: { status: string }) => ["regression", "xfail", "promote"].includes(row.status.toLowerCase()),
+  const regression = fixture.corpus.cases.find((row: { status: string }) =>
+    ["regression", "xfail", "promote"].includes(row.status.toLowerCase()),
   );
   expect(regression).toBeTruthy();
-  await page.getByRole("combobox", { name: "Show" }).selectOption(regression.status[0].toUpperCase()+regression.status.slice(1).toLowerCase());
+  await page
+    .getByRole("combobox", { name: "Show" })
+    .selectOption(
+      regression.status[0].toUpperCase() +
+        regression.status.slice(1).toLowerCase(),
+    );
   await page
     .getByRole("textbox", { name: "Find corpus input" })
     .fill(regression.input);
@@ -312,6 +317,9 @@ test("web recipe loads human sections and scales through the backend", async ({
     page.getByRole("heading", { name: fixture.webRecipe.title, exact: true }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Recipe & source" }).click();
+  await page
+    .getByRole("button", { name: "Open original recipe in browser" })
+    .click();
   await expect(page.locator(".web-recipe .instructions")).toContainText(
     fixture.webRecipe.sections[0].instructions[0],
   );
@@ -331,6 +339,9 @@ test("web recipe loads human sections and scales through the backend", async ({
           __calls: { command: string; args: Record<string, unknown> }[];
         }
       ).__calls,
+  );
+  expect(calls.find((c) => c.command === "open_source_url")?.args.url).toBe(
+    fixture.webRecipe.url,
   );
   expect(calls.find((c) => c.command === "scale_web_recipe")?.args.factor).toBe(
     2,
@@ -462,4 +473,148 @@ test("parser failure evidence belongs to the selected failure input", async ({
     path: "test-results/parser-failure.png",
     fullPage: true,
   });
+});
+
+test("recent runs restore idle and reopen through the native bridge", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open saved run", exact: true })
+    .click();
+  await page.getByText("Run tools", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "Reveal saved run in Finder", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as { __calls: { command: string }[] }
+          ).__calls.filter((call) => call.command === "reveal_file").length,
+      ),
+    )
+    .toBe(1);
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Source and result, side by side" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __calls?: unknown[] }).__calls ?? [],
+    ),
+  ).toEqual([]);
+  await page
+    .locator(".workspace-heading summary")
+    .filter({ hasText: /^Open/ })
+    .click();
+  await page.locator(".recent-run").first().click();
+  await expect(page.locator(".document-heading h2")).toBeVisible();
+  await page
+    .locator(".workspace-heading summary")
+    .filter({ hasText: /^Open/ })
+    .click();
+  await page.getByRole("button", { name: "Clear recent runs" }).click();
+  await expect(page.locator(".recent-run")).toHaveCount(0);
+});
+
+test("review shortcuts save before advancing and preserve notes", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open saved run", exact: true })
+    .click();
+  const original = await page.locator(".document-heading h2").innerText();
+  // Put a second real document back into the review queue.
+  await page
+    .getByRole("listbox", { name: "Source documents" })
+    .getByRole("option")
+    .filter({ hasText: "Flatbread" })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Review status", exact: true })
+    .selectOption("Unreviewed");
+  await page.getByRole("button", { name: "Save review", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Save review", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("listbox", { name: "Source documents" })
+    .getByRole("option")
+    .first()
+    .click();
+
+  await page
+    .locator("summary")
+    .filter({ hasText: /^Review note/ })
+    .click();
+  await page
+    .getByRole("textbox", { name: "Review note", exact: true })
+    .fill("Checked against source");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Meta+Alt+KeyA");
+  await expect(
+    page.getByRole("combobox", { name: "Review status", exact: true }),
+  ).toHaveValue("Accepted");
+  await expect(page.getByLabel("Workspace status")).toContainText(
+    "Unsaved review",
+  );
+  await page.keyboard.press("Meta+Shift+Enter");
+  await expect(page.locator(".document-heading h2")).not.toHaveText(original);
+  const saves = await page.evaluate(() =>
+    (
+      window as unknown as {
+        __calls: { command: string; args: Record<string, unknown> }[];
+      }
+    ).__calls.filter((call) => call.command === "save_review"),
+  );
+  expect(saves).toHaveLength(2);
+  expect(saves[1].args).toMatchObject({
+    status: "Accepted",
+    note: "Checked against source",
+  });
+});
+
+test("failed save keeps the current document and unsaved review", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    const previous = (
+      window as unknown as {
+        __FIXTURE_INVOKE__: (
+          command: string,
+          args?: Record<string, unknown>,
+        ) => Promise<unknown>;
+      }
+    ).__FIXTURE_INVOKE__;
+    (
+      window as unknown as { __FIXTURE_INVOKE__: typeof previous }
+    ).__FIXTURE_INVOKE__ = (command, args) => {
+      if (command === "save_review")
+        return Promise.reject(new Error("Review file is read-only"));
+      return previous(command, args);
+    };
+  });
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open saved run", exact: true })
+    .click();
+  const original = await page.locator(".document-heading h2").innerText();
+  await page.keyboard.press("Meta+Alt+KeyA");
+  await page.keyboard.press("Meta+Shift+Enter");
+  await expect(page.getByRole("alert")).toContainText(
+    "Review file is read-only",
+  );
+  await expect(page.locator(".document-heading h2")).toHaveText(original);
+  await expect(page.getByLabel("Workspace status")).toContainText(
+    "Unsaved review",
+  );
+  await expect(
+    page.getByRole("combobox", { name: "Review status", exact: true }),
+  ).toHaveValue("Accepted");
 });
