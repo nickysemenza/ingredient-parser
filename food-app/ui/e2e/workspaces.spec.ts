@@ -62,6 +62,7 @@ test.beforeEach(async ({ page }) => {
             : "fixture.json";
       if (command === "cookbook_models")
         return [
+          { id: "automatic", label: "Automatic", enabled: true, status: "Verified recovery" },
           {
             id: "gemini-2.5-flash",
             label: "Gemini 2.5 Flash",
@@ -199,7 +200,7 @@ for (const size of [
     await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
     await openExtraction(page);
     await expect(
-      page.getByRole("button", { name: "Save review", exact: true }),
+      page.getByRole("region", { name: "Extraction feedback", exact: true }),
     ).toBeVisible();
     await page.screenshot({
       path: `test-results/cookbook-${size.width}.png`,
@@ -221,19 +222,11 @@ for (const size of [
       });
     if (size.width === 800) {
       await expect(
-        page.getByRole("button", { name: "Back to review" }),
+        page.getByRole("button", { name: "Back to source" }),
       ).toBeVisible();
-      await page.getByRole("button", { name: "Back to review" }).click();
+      await page.getByRole("button", { name: "Back to source" }).click();
     } else await page.getByRole("button", { name: "Close inspector" }).click();
-    const select = page.getByRole("combobox", {
-      name: "Review status",
-      exact: true,
-    });
-    await select.selectOption("Accepted");
-    await page
-      .getByRole("button", { name: "Save review", exact: true })
-      .click();
-    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Review status", exact: true })).toHaveCount(0);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -289,20 +282,21 @@ test("extraction saves automatically and preferences restore idle", async ({
   ).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "Save review", exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   const calls = await page.evaluate(
     () =>
       (
         window as unknown as {
           __calls: {
             command: string;
-            args: { request?: { allowNetwork: boolean; out: string } };
+            args: { request?: { allowNetwork: boolean; out: string; resume: boolean; model: string } };
           }[];
         }
       ).__calls,
   );
   const extraction = calls.find((c) => c.command === "extract_run");
   expect(extraction?.args.request?.allowNetwork).toBe(true);
+  expect(extraction?.args.request?.model).toBe("automatic");
   expect(extraction?.args.request?.resume).toBe(false);
   expect(extraction?.args.request?.out).toBe("");
   expect(calls.some((c) => c.command === "dialog_save")).toBe(false);
@@ -326,24 +320,13 @@ test("extraction saves automatically and preferences restore idle", async ({
     ),
   ).toHaveLength(0);
 });
-test("canceling unsaved document switch retains the current document", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
+test("source navigation requires no manual approval", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
   await openExtraction(page);
-  await page
-    .getByRole("combobox", { name: "Review status", exact: true })
-    .selectOption("Incorrect");
-  page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("option", { name: /Flatbread/ }).click();
-  await expect(page.locator(".document-heading h2")).toHaveText(
-    fixture.cookbook.documents[0].blocks.find((b: { tag: string }) =>
-      /^h[123]$/.test(b.tag),
-    ).text,
-  );
-  await expect(page.getByText("Unsaved", { exact: true })).toBeVisible();
+  await expect(page.locator(".document-heading h2")).toContainText("Flatbread");
+  await expect(page.getByRole("combobox", { name: "Review status" })).toHaveCount(0);
 });
 
 test("corpus scoring preserves field context during ingredient inspection", async ({
@@ -499,7 +482,7 @@ test("saved run statistics, references, replay and scaling retain real evidence"
   await expect(page.locator(".tool-inspector .inspector-input")).toHaveText(
     input,
   );
-  await page.getByRole("button", { name: "Back to source review" }).click();
+  await page.getByRole("button", { name: "Back to source" }).click();
   await page.getByText("Extraction tools", { exact: true }).click();
   await page
     .getByRole("button", { name: "Reference graph", exact: true })
@@ -601,99 +584,17 @@ test("recent runs restore idle and reopen through the native bridge", async ({
   await expect(page.locator(".recent-run")).toHaveCount(0);
 });
 
-test("review shortcuts save before advancing and preserve notes", async ({
-  page,
-}) => {
+test("legacy review shortcuts do not write or advance", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openExtraction(page);
-  const original = await page.locator(".document-heading h2").innerText();
-  // Put a second real document back into the review queue.
-  await page
-    .getByRole("listbox", { name: "Source documents" })
-    .getByRole("option")
-    .filter({ hasText: "Flatbread" })
-    .click();
-  await page
-    .getByRole("combobox", { name: "Review status", exact: true })
-    .selectOption("Unreviewed");
-  await page.getByRole("button", { name: "Save review", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Save review", exact: true }),
-  ).toBeDisabled();
-  await page
-    .getByRole("listbox", { name: "Source documents" })
-    .getByRole("option")
-    .first()
-    .click();
-
-  await page
-    .locator("summary")
-    .filter({ hasText: /^Review note/ })
-    .click();
-  await page
-    .getByRole("textbox", { name: "Review note", exact: true })
-    .fill("Checked against source");
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("Meta+Alt+KeyA");
-  await expect(
-    page.getByRole("combobox", { name: "Review status", exact: true }),
-  ).toHaveValue("Accepted");
-  await expect(page.getByLabel("Workspace status")).toContainText(
-    "Unsaved review",
-  );
-  await page.keyboard.press("Meta+Shift+Enter");
-  await expect(page.locator(".document-heading h2")).not.toHaveText(original);
-  const saves = await page.evaluate(() =>
-    (
-      window as unknown as {
-        __calls: { command: string; args: Record<string, unknown> }[];
-      }
-    ).__calls.filter((call) => call.command === "save_review"),
-  );
-  expect(saves).toHaveLength(2);
-  expect(saves[1].args).toMatchObject({
-    status: "Accepted",
-    note: "Checked against source",
-  });
-});
-
-test("failed save keeps the current document and unsaved review", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.evaluate(() => {
-    const previous = (
-      window as unknown as {
-        __FIXTURE_INVOKE__: (
-          command: string,
-          args?: Record<string, unknown>,
-        ) => Promise<unknown>;
-      }
-    ).__FIXTURE_INVOKE__;
-    (
-      window as unknown as { __FIXTURE_INVOKE__: typeof previous }
-    ).__FIXTURE_INVOKE__ = (command, args) => {
-      if (command === "save_review")
-        return Promise.reject(new Error("Review file is read-only"));
-      return previous(command, args);
-    };
-  });
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
   await openExtraction(page);
   const original = await page.locator(".document-heading h2").innerText();
   await page.keyboard.press("Meta+Alt+KeyA");
   await page.keyboard.press("Meta+Shift+Enter");
-  await expect(page.getByRole("alert")).toContainText(
-    "Review file is read-only",
-  );
   await expect(page.locator(".document-heading h2")).toHaveText(original);
-  await expect(page.getByLabel("Workspace status")).toContainText(
-    "Unsaved review",
-  );
-  await expect(
-    page.getByRole("combobox", { name: "Review status", exact: true }),
-  ).toHaveValue("Accepted");
+  await expect(page.getByRole("button", { name: "Save review" })).toHaveCount(0);
+  await expect(page.getByLabel("Extraction feedback")).toContainText("Not assessed");
+  expect(await page.evaluate(() => (window as unknown as { __calls: {command: string}[] }).__calls.filter(c => c.command === "save_review"))).toHaveLength(0);
 });
 
 test("model dropdown focus and selection update preflight without extracting", async ({
@@ -710,6 +611,7 @@ test("model dropdown focus and selection update preflight without extracting", a
     host.__FIXTURE_INVOKE__ = async (command, args) => {
       if (command === "cookbook_models")
         return [
+          { id: "automatic", label: "Automatic", enabled: true, status: "Verified recovery" },
           {
             id: "gemini-2.5-flash",
             label: "Baseline",
@@ -737,8 +639,9 @@ test("model dropdown focus and selection update preflight without extracting", a
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
   await openSource(page);
   await page.getByRole("button", { name: "Extraction…", exact: true }).click();
+  await page.getByText("Advanced options", { exact: true }).click();
   const picker = page.getByRole("combobox", { name: "Model", exact: true });
-  await expect(picker).toHaveValue("gemini-2.5-flash");
+  await expect(picker).toHaveValue("automatic");
   await expect(page.getByText(/estimated additional cost/)).toContainText(
     "$0.0010–$0.0040",
   );
@@ -750,7 +653,7 @@ test("model dropdown focus and selection update preflight without extracting", a
   await expect(page.getByText(/estimated additional cost/)).toContainText(
     "$0.0010–$0.0020",
   );
-  await expect(page.getByLabel("Total budget (USD)")).toHaveValue("10");
+  await expect(page.getByLabel("Spending limit (USD)")).toHaveValue("10");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
 });
 
@@ -871,7 +774,7 @@ test("a library cookbook opens its latest extraction without file selection", as
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
   await page.locator(".library-entry > button").first().click();
   await expect(
-    page.getByRole("button", { name: "Save review", exact: true }),
+    page.getByRole("region", { name: "Extraction feedback", exact: true }),
   ).toBeVisible();
   const calls = await page.evaluate(
     () => (window as unknown as { __calls: { command: string }[] }).__calls,
@@ -893,7 +796,7 @@ test("extraction shows accounting and stops without losing its result", async ({
     host.__FIXTURE_INVOKE__ = async (command, args) => {
       if (command === "extract_run") {
         const channel = args?.onProgress as { onmessage: (data: unknown) => void };
-        channel.onmessage({ path: "stopped.json", completed: 1, total: 8, recipes: 2, active: 4, failed: 0, elapsedSeconds: 12, estimatedUsd: 0.02, reservedUsd: 0.50, stopping: false });
+        channel.onmessage({ path: "stopped.json", completed: 1, total: 8, recipes: 2, active: 4, failed: 0, elapsedSeconds: 12, estimatedUsd: 0.02, reservedUsd: 0.50, unresolvedUsd: 0.48, activeModels: ["GLM 5.3 Flash (extracting)", "Gemini 2.5 Flash (verifying)"], stopping: false });
         return new Promise((resolve) => { finish = resolve; });
       }
       if (command === "cancel_extraction") {
@@ -912,6 +815,9 @@ test("extraction shows accounting and stops without losing its result", async ({
   await expect(page.locator(".progress")).toContainText("4 active");
   await expect(page.locator(".progress")).toContainText("12s");
   await expect(page.locator(".progress")).toContainText("$0.0200 estimated");
+  await expect(page.locator(".progress")).toContainText("GLM 5.3 Flash (extracting)");
+  await expect(page.locator(".progress")).toContainText("Gemini 2.5 Flash (verifying)");
+  await expect(page.locator(".progress")).toContainText("$0.4800 reserved (not confirmed spend)");
   await page.getByRole("button", { name: "Stop extraction", exact: true }).click();
   await expect(page.locator(".run-heading")).toContainText("cancelled extraction");
   await expect(page.getByRole("button", { name: "Stop extraction", exact: true })).toHaveCount(0);
@@ -928,14 +834,14 @@ test("source checks expose suspect method text and navigate to its source", asyn
       const value = await original(command, args);
       if (command !== "open_run") return value;
       const book = value as { documents: { path: string }[] };
-      return { ...book, qualityIssues: [{ kind: "possible_method_in_notes", source: book.documents[1].path, chunk: null, recipe: 0, message: "Possible method step stored in notes. Check whether this action is required or optional.", detail: "Pour into molds and freeze until firm." }] };
+      return { ...book, feedback: { phase: "Incomplete", stopReason: "model stages exhausted", policy: ["GLM 5.3 Flash", "Gemini 2.5 Flash"], extractionUsd: 0.01, verificationUsd: 0.02, unresolvedUsd: 0, checks: [], findings: [{ category: "fidelity", source: book.documents[1].path, lines: [], model: "Gemini 2.5 Flash", resolved: false, message: "Possible method step stored in notes: Pour into molds and freeze until firm." }] } };
     };
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
   await openExtraction(page);
   await page.locator(".source-checks summary").click();
-  await expect(page.locator(".source-checks")).toContainText("1 review flags");
+  await expect(page.locator(".source-checks")).toContainText("Unresolved · fidelity");
   await expect(page.locator(".source-checks")).toContainText("Possible method step stored in notes");
   const source = await page.locator(".source-checks button").textContent();
   await page.locator(".source-checks button").click();
@@ -950,18 +856,18 @@ test("source checks distinguish processing errors from content warnings", async 
       const value = await original(command, args);
       if (command !== "open_run") return value;
       const book = value as { documents: { path: string }[] };
-      return { ...book, qualityIssues: [
-        { kind: "failed_chunk", source: book.documents[0].path, chunk: "chunk-failed", recipe: null, message: "Source processing failed. Recipe coverage for this chunk is unresolved.", detail: "request timeout: response deadline exceeded" },
-        { kind: "missing_method", source: book.documents[1].path, chunk: null, recipe: 0, message: "Recipe has ingredients but no method.", detail: "Fixture recipe" },
-      ] };
+      return { ...book, feedback: { phase: "Incomplete", stopReason: "verification budget exhausted", policy: ["GLM 5.3 Flash", "Gemini 2.5 Flash"], extractionUsd: 0.12, verificationUsd: 0.02, unresolvedUsd: 0.01, checks: ["Group 1 verified"], findings: [
+        { category: "processing", source: book.documents[0].path, lines: [], model: "GLM 5.3 Flash", resolved: true, message: "request timeout: response deadline exceeded" },
+        { category: "fidelity", source: book.documents[1].path, lines: [1], model: "Gemini 2.5 Flash", resolved: false, message: "Recipe has ingredients but no method." },
+      ] } };
     };
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
   await openExtraction(page);
   await page.locator(".source-checks summary").click();
-  await expect(page.getByRole("heading", { name: "Processing failures (1)" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Content review (1)" })).toBeVisible();
+  await expect(page.locator(".source-checks")).toContainText("Recovered · processing");
+  await expect(page.locator(".source-checks")).toContainText("Unresolved · fidelity");
   await expect(page.locator(".source-checks")).toContainText("request timeout: response deadline exceeded");
 });
 

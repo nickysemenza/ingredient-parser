@@ -1,5 +1,11 @@
 # Cookbook review
 
+Desktop and CLI extraction now default to [automatic extraction and AI feedback](automatic-cookbook-extraction.md).
+Manual review queues and approvals are no longer part of the app. Historical
+review sidecars and the inspection/evaluation APIs below remain compatible;
+historical processing success is not automated source verification.
+
+
 `food-cli` is the supported headless entry point. `food-app` opens the same local
 run files using shared library code. Build once with `cargo build -p food-cli`,
 then call `target/debug/food-cli` repeatedly while investigating a book. Cargo

@@ -332,11 +332,6 @@ pub fn run() -> tauri::Result<()> {
                         .accelerator("CmdOrCtrl+O")
                         .build(app)?,
                 )
-                .item(
-                    &MenuItemBuilder::with_id("save", "Save Review")
-                        .accelerator("CmdOrCtrl+S")
-                        .build(app)?,
-                )
                 .close_window()
                 .build()?;
             let edit_menu = SubmenuBuilder::new(app, "Edit")
@@ -361,43 +356,13 @@ pub fn run() -> tauri::Result<()> {
                 )
                 .fullscreen()
                 .build()?;
-            let review_menu = SubmenuBuilder::with_id(app, "review-menu", "Review")
-                .item(
-                    &MenuItemBuilder::with_id("review-accept", "Mark Accepted")
-                        .accelerator("CmdOrCtrl+Alt+A")
-                        .build(app)?,
-                )
-                .item(
-                    &MenuItemBuilder::with_id("review-incorrect", "Mark Incorrect")
-                        .accelerator("CmdOrCtrl+Alt+I")
-                        .build(app)?,
-                )
-                .item(
-                    &MenuItemBuilder::with_id("review-uncertain", "Mark Uncertain")
-                        .accelerator("CmdOrCtrl+Alt+U")
-                        .build(app)?,
-                )
-                .separator()
-                .item(
-                    &MenuItemBuilder::with_id("review-next", "Save and Next Unreviewed")
-                        .accelerator("CmdOrCtrl+Shift+Enter")
-                        .build(app)?,
-                )
-                .build()?;
             let window_menu = SubmenuBuilder::new(app, "Window")
                 .minimize()
                 .maximize()
                 .build()?;
             app.set_menu(
                 MenuBuilder::new(app)
-                    .items(&[
-                        &app_menu,
-                        &file_menu,
-                        &edit_menu,
-                        &view_menu,
-                        &review_menu,
-                        &window_menu,
-                    ])
+                    .items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu])
                     .build()?,
             )?;
             Ok(())

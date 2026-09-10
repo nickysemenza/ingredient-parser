@@ -76,9 +76,9 @@ async fn extraction_owns_validation_resume_parent_and_offline_progress() -> Resu
         "explicit paths must be discoverable before extraction returns"
     );
     assert!(outcome.run.incomplete());
-    assert_eq!(updates.len(), 2);
-    assert_eq!(updates[1].total, outcome.run.chunks.len());
-    assert_eq!(updates[1].completed, 0);
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].total, outcome.run.chunks.len());
+    assert_eq!(updates[0].completed, 0);
     let before = std::fs::read(&outcome.path)?;
     assert!(matches!(
         extract_to_run(request.clone(), |_| {}).await,
@@ -350,5 +350,96 @@ async fn cancellation_is_durable_and_history_distinguishes_interruption_and_fail
     let mut other = interrupted.clone();
     other.epub_sha256 = "another book".into();
     assert!(recipe_epub::review::diff(&interrupted, &other).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_workflow_reuses_portable_verified_cache_without_network() -> Result {
+    let fixture = Fixture::new()?;
+    let mut request = fixture.request();
+    request.options.budget_usd = 10.0;
+    let prepared = recipe_epub::review::prepare(&request)?;
+    let mut state = prepared.recovery.clone().ok_or("missing state")?;
+    let cache = request
+        .options
+        .cache_dir
+        .as_ref()
+        .ok_or("missing cache")?
+        .join("verified-recovery-v1");
+    std::fs::create_dir_all(&cache)?;
+    while let Some(action) = state.next_action()? {
+        let value = if let Some(index) = action.chunk {
+            let chunk = &state.source[index];
+            let doc = prepared
+                .documents
+                .iter()
+                .find(|d| d.path == chunk.doc_path)
+                .ok_or("missing source")?;
+            let mut title = vec![];
+            let mut ingredients = vec![];
+            let mut instructions = vec![];
+            let mut notes = vec![];
+            let mut ignored = vec![];
+            for (line, text) in chunk.text.lines().enumerate() {
+                let block = doc.blocks.iter().find(|b| b.text.trim() == text.trim());
+                if text.trim().is_empty() {
+                    ignored.push(line);
+                } else if block.is_some_and(|b| b.tag == "h1") {
+                    title.push(line);
+                } else if block
+                    .is_some_and(|b| b.classes.split_whitespace().any(|c| c == "ingredient"))
+                {
+                    ingredients.push(line);
+                } else if block
+                    .is_some_and(|b| b.classes.split_whitespace().any(|c| c == "instruction"))
+                {
+                    instructions.push(line);
+                } else {
+                    notes.push(line);
+                }
+            }
+            serde_json::json!({"recipes":[{"title":title,"description":[],"notes":notes,"equipment":[],"sections":[{"name":[],"ingredients":ingredients,"instructions":instructions}]}],"ignored":ignored})
+        } else {
+            let index = action.verification_chunk.ok_or("missing target")?;
+            let source = &state.source[index];
+            let doc = prepared
+                .documents
+                .iter()
+                .find(|d| d.path == source.doc_path)
+                .ok_or("missing source")?;
+            serde_json::json!({"classifications":source.text.lines().enumerate().map(|(line,text)| {
+                let block = doc.blocks.iter().find(|b| b.text.trim() == text.trim());
+                let kind = if block.is_some_and(|b| b.classes.split_whitespace().any(|c| c == "ingredient")) { "ingredient" }
+                    else if block.is_some_and(|b| b.classes.split_whitespace().any(|c| c == "instruction")) { "method" }
+                    else if text.trim().is_empty() { "non_recipe" } else { "metadata" };
+                serde_json::json!({"chunk":index,"line":line,"kind":kind})
+            }).collect::<Vec<_>>(),"findings":[]})
+        };
+        state.apply(&action, value.clone())?;
+        if !state.groups[action.group].candidates[action.candidate]
+            .feedback
+            .is_empty()
+        {
+            return Err("authored fixture unexpectedly failed validation".into());
+        }
+        std::fs::write(
+            cache.join(format!("{}.json", action.key)),
+            serde_json::to_vec(&value)?,
+        )?;
+    }
+    assert!(state.complete());
+    let outcome = extract_to_run(request, |_| {}).await?;
+    assert!(!outcome.run.incomplete());
+    assert_eq!(outcome.run.status(), "complete");
+    assert!(
+        outcome
+            .run
+            .recovery
+            .as_ref()
+            .is_some_and(|s| s.attempts.is_empty())
+    );
+    assert_eq!(outcome.run.reserved_usd, 0.0);
+    let restored = ReviewRun::read(&outcome.path)?;
+    assert!(restored.recovery.as_ref().is_some_and(|s| s.complete()));
     Ok(())
 }

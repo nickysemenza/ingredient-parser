@@ -18,6 +18,8 @@ pub enum Command {
         #[arg(long)]
         book: Option<PathBuf>,
     },
+    /// Show AI verification findings and recovery attempts.
+    Feedback { run: PathBuf },
     /// List curated extraction models and compatibility status.
     Models,
     /// Inspect cleaned source chunks without AI or credentials.
@@ -42,7 +44,7 @@ pub enum Command {
         allow_network: bool,
         #[arg(long, requires = "allow_network")]
         refresh: bool,
-        #[arg(long, default_value = recipe_epub::models::DEFAULT_MODEL)]
+        #[arg(long, default_value = recipe_epub::recovery::AUTOMATIC)]
         model: String,
         #[arg(long)]
         cache_dir: Option<PathBuf>,
@@ -103,6 +105,7 @@ pub async fn execute(
         Command::Results { book } => {
             serde_json::to_value(recipe_epub::review::results::list(book.as_deref())?)?
         }
+        Command::Feedback { run } => serde_json::to_value(ReviewRun::read(run)?.recovery)?,
         Command::Models => serde_json::to_value(recipe_epub::models::catalog())?,
         Command::Inspect { book, chunk } => {
             let run =
@@ -187,7 +190,8 @@ pub async fn execute(
                 &control,
                 |p| {
                     eprintln!(
-                        "EPUB: {}/{} chunks · {} active · {} failed · {} recipes · {}s · {} estimated · ${:.4} spent/reserved{}",
+                        "{}: {}/{} chunks · {} active · {} failed attempts · {} recipes · {}s · {} estimated · ${:.4} reserved (not confirmed spend) · {}{}",
+                        p.phase,
                         p.completed,
                         p.total,
                         p.active,
@@ -197,7 +201,8 @@ pub async fn execute(
                         p.estimated_usd
                             .map(|v| format!("${v:.4}"))
                             .unwrap_or_else(|| "unknown".into()),
-                        p.reserved_usd,
+                        p.unresolved_usd,
+                        p.active_models.join(", "),
                         if p.stopping {
                             " · stopping; saving active requests"
                         } else {
@@ -274,11 +279,92 @@ fn select(
 }
 
 fn run_summary(run: &ReviewRun, path: Option<&std::path::Path>) -> serde_json::Value {
-    serde_json::json!({"quality_issues":recipe_epub::review::quality::issues(run),"status":run.status(),"run":path,"source":run.source,"epub_sha256":run.epub_sha256,"chunks":run.chunks.len(),"completed_chunks":run.chunks.iter().filter(|c|c.output.is_some()).count(),"recipes":run.recipes.len(),"cached":run.chunks.iter().filter(|c| c.cached).count(),"incomplete":run.incomplete(),"reserved_usd":run.reserved_usd,"failures":run.chunks.iter().filter(|c| c.error.is_some()).map(|c| serde_json::json!({"id":c.id,"error":c.error})).collect::<Vec<_>>()})
+    serde_json::json!({"extraction_feedback":run.recovery,"quality_issues":recipe_epub::review::quality::issues(run),"status":run.status(),"run":path,"source":run.source,"epub_sha256":run.epub_sha256,"chunks":run.chunks.len(),"completed_chunks":run.chunks.iter().filter(|c|c.output.is_some()).count(),"recipes":run.recipes.len(),"cached":run.chunks.iter().filter(|c| c.cached).count(),"incomplete":run.incomplete(),"reserved_usd":run.reserved_usd,"failures":run.chunks.iter().filter(|c| c.error.is_some()).map(|c| serde_json::json!({"id":c.id,"error":c.error})).collect::<Vec<_>>()})
 }
 
 /// Terminal presentation only; history and comparison policy remain shared Rust.
 pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
+    let feedback = if matches!(command, Command::Feedback { .. }) {
+        value
+    } else {
+        &value["extraction_feedback"]
+    };
+    if feedback.is_object() {
+        println!(
+            "Extraction feedback: {}",
+            feedback["phase"].as_str().unwrap_or("Not assessed")
+        );
+        if let Some(reason) = feedback["stop_reason"].as_str() {
+            println!("{reason}");
+        }
+        let mut rows = vec![];
+        let mut extraction = 0.0;
+        let mut verification = 0.0;
+        let mut unresolved = 0.0;
+        for attempt in feedback["attempts"].as_array().into_iter().flatten() {
+            let reservation = attempt["reservation_usd"].as_f64().unwrap_or(0.0);
+            let charge = attempt["estimated_usd"].as_f64();
+            if charge.is_none() {
+                unresolved += reservation;
+            }
+            if attempt["verification"] == true {
+                verification += charge.unwrap_or(0.0);
+            } else {
+                extraction += charge.unwrap_or(0.0);
+            }
+        }
+        println!(
+            "Extraction/recovery: ${extraction:.4} · Verification: ${verification:.4} · ${unresolved:.4} unresolved reservations"
+        );
+        for group in feedback["groups"].as_array().into_iter().flatten() {
+            let resolved = group["accepted"].is_number();
+            for candidate in group["candidates"].as_array().into_iter().flatten() {
+                if candidate["verified"] == true {
+                    rows.push(vec![
+                        "Verification".into(),
+                        candidate["model"].as_str().unwrap_or("unknown").into(),
+                        group["chunks"].to_string(),
+                        if resolved {
+                            "All automated group checks passed".into()
+                        } else {
+                            "Source issues detected".into()
+                        },
+                    ]);
+                }
+                for finding in candidate["feedback"].as_array().into_iter().flatten() {
+                    rows.push(vec![
+                        if resolved {
+                            "Recovered".into()
+                        } else {
+                            "Unresolved".into()
+                        },
+                        finding["model"].as_str().unwrap_or("unknown").into(),
+                        format!("chunk {} lines {}", finding["chunk"], finding["lines"]),
+                        finding["message"].as_str().unwrap_or("").into(),
+                    ]);
+                }
+            }
+        }
+        if food_cli::tables::interactive() {
+            println!(
+                "{}",
+                food_cli::tables::terminal_table(
+                    &["Result", "Model", "Source", "AI / source feedback"],
+                    &rows
+                )
+            );
+        } else {
+            for row in rows {
+                println!("{}", row.join(" · "));
+            }
+        }
+    }
+    if matches!(command, Command::Feedback { .. }) {
+        if feedback.is_null() {
+            println!("Automated verification: Not assessed");
+        }
+        return true;
+    }
     if matches!(command, Command::Results { .. }) {
         let rows: Vec<Vec<String>> = value["rows"]
             .as_array()
@@ -315,10 +401,7 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
                         "{}/{} complete; {} failed; {} pending",
                         r["completed"], r["total"], row["failed_chunks"], row["pending_chunks"]
                     ),
-                    format!(
-                        "{} recipes; {} flags",
-                        r["recipes"], row["content_review_flags"]
-                    ),
+                    format!("{} recipes", r["recipes"]),
                     row["attempts"]
                         .as_u64()
                         .map(|n| format!("{n} calls; {} failed", row["failed_attempts"]))
@@ -350,7 +433,7 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
                         "Model / prompt",
                         "Success",
                         "Book coverage",
-                        "Review",
+                        "Recipes",
                         "Attempts",
                         "Estimate / unresolved"
                     ],
@@ -411,7 +494,7 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
                     money(&row["new_spend_usd"]),
                     money(&row["unresolved_usd"])
                 );
-                println!("  Source review flags: {}", row["quality_flags"]);
+                println!("  Source checks: {}", row["quality_flags"]);
                 println!("  {}", text("path"));
             }
             println!(
@@ -441,7 +524,7 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
                 .filter(|i| i["kind"] == "unextracted_chunk")
                 .count();
             println!(
-                "Source checks: {unknown} unextracted chunks · {} review flags",
+                "Source checks: {unknown} unextracted chunks · {} source checks",
                 issues.len() - unknown
             );
             for issue in issues
@@ -455,7 +538,7 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
                     issue["message"].as_str().unwrap_or("Review source")
                 );
             }
-            println!("Use cookbook audit <run> for review details.");
+            println!("Use cookbook feedback <run> for AI verification and recovery details.");
             true
         }
         Command::Audit { .. } => {
@@ -470,7 +553,7 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
                 }
             }
             println!(
-                "Use --attribution --format json for source block attribution and structured review flags. These signals do not prove complete recipe coverage."
+                "Use --attribution --format json for source block attribution and structured source checks. These signals do not prove complete recipe coverage."
             );
             true
         }

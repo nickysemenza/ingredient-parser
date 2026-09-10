@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
-  Check,
   FileText,
   FolderOpen,
   Search,
@@ -13,7 +12,6 @@ import {
 } from "lucide-react";
 import {
   api,
-  isNative,
   revealFile,
   copy,
   discardChanges,
@@ -22,7 +20,6 @@ import {
   type CookbookRecipe,
   type CookbookResult,
   type ExtractionProgress,
-  type Decision,
   type IngredientInspection,
   type Json,
   type LibraryBook,
@@ -52,10 +49,10 @@ export function Cookbooks({
   onBusy,
   onDirty,
   openSignal,
-  saveSignal,
+  saveSignal: _saveSignal,
   startupPath,
   active,
-  reviewAction,
+  reviewAction: _reviewAction,
   onStatus,
 }: {
   onError: (v: string) => void;
@@ -78,13 +75,8 @@ export function Cookbooks({
   const [libraryGrid, setLibraryGrid] = useStored("v1:library-grid", false);
   const [selected, setSelected] = useState(0);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
+
   const [missingOnly, setMissingOnly] = useState(false);
-  const [decision, setDecision] = useState<Decision>({
-    status: "Unreviewed",
-    note: "",
-  });
-  const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState("");
   const [inspection, setInspection] = useState<IngredientInspection | null>(
     null,
@@ -118,7 +110,7 @@ export function Cookbooks({
   const [allowNetwork, setAllowNetwork] = useState(true);
   const [budget, setBudget] = useState(10);
   const [refresh, setRefresh] = useState(false);
-  const [model, setModel] = useStored("v1:extraction-model", "");
+  const [model, setModel] = useStored("v2:extraction-model", "automatic");
   const [chunkSelection, setChunkSelection] = useState<string[]>([]);
   const [inspectPath, setInspectPath] = useStored("v1:book-path", "");
   const [showPath, setShowPath] = useState(false);
@@ -129,13 +121,7 @@ export function Cookbooks({
   const didStartup = useRef(false);
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
   const doc = book?.documents[selected];
-  const original = book?.review.find((d) => d.document === doc?.path) ?? {
-    status: "Unreviewed",
-    note: "",
-  };
-  const dirty =
-    !!doc &&
-    (decision.status !== original.status || decision.note !== original.note);
+  const dirty = false;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
   useEffect(() => {
     if (!work.current) return;
@@ -152,40 +138,9 @@ export function Cookbooks({
       .pop()
       ?.replace(/\.epub$/i, "") ?? "Cookbooks";
   const title = doc ? `${titleOf(doc)} · ${bookName}` : bookName;
-  const remaining =
-    book?.documents.filter(
-      (document) =>
-        !book.review.some(
-          (note) =>
-            note.document === document.path && note.status !== "Unreviewed",
-        ),
-    ).length ?? 0;
-  const canReview =
-    !!book?.path &&
-    !!doc &&
-    !loading &&
-    view === "Review" &&
-    !showLibrary &&
-    !showHistory &&
-    !showResults &&
-    !showExtraction;
-  const statusMessage =
-    loading ||
-    (dirty
-      ? "Unsaved review"
-      : saved
-        ? "Review saved"
-        : book?.path
-          ? "Review up to date"
-          : book
-            ? "Source inspection"
-            : "No cookbook open");
-  const statusDetail =
-    loading && progress
-      ? `${progress.completed}/${progress.total} chunks · ${progress.recipes} recipes`
-      : book?.path
-        ? `${remaining} of ${book.documents.length} unreviewed`
-        : "";
+  const canReview = false;
+  const statusMessage = (loading && progress?.phase) || loading || (book?.path ? book.status : book ? "Source inspection" : "No cookbook open");
+  const statusDetail = loading && progress ? `${progress.completed}/${progress.total} chunks · ${progress.recipes} recipes` : "";
   useEffect(
     () =>
       onStatus({
@@ -213,20 +168,13 @@ export function Cookbooks({
     setStopping(false);
     setRefresh(false);
     setSelected(0);
-    const nextDoc = next.documents[0];
-    setDecision(
-      next.review.find((d) => d.document === nextDoc?.path) ?? {
-        status: "Unreviewed",
-        note: "",
-      },
-    );
-    setSaved(false);
+
     setInspection(null);
     setImages({});
     setView("Review");
     setChunkSelection([]);
     setQuery("");
-    setModel(next.model);
+    setModel("automatic");
   };
   const protect = async () => !dirty || (await discardChanges());
   const run = async <T,>(
@@ -302,118 +250,12 @@ export function Cookbooks({
     if (running.current || index === selected || !(await protect()) || !book)
       return;
     setSelected(index);
-    setDecision(
-      book.review.find((d) => d.document === book.documents[index].path) ?? {
-        status: "Unreviewed",
-        note: "",
-      },
-    );
-    setSaved(false);
+
     setInspection(null);
   };
-  const saveReview = async (advance = false) => {
-    if (!book?.path || !doc) return;
-    const path = doc.path;
-    const value = { ...decision };
-    await run(
-      "Saving review…",
-      () => api.review(book.path!, path, value.status, value.note),
-      () => {
-        const review = [
-          ...book.review.filter((d) => d.document !== path),
-          { document: path, ...value },
-        ];
-        setBook({ ...book, review });
-        setSaved(true);
-        if (advance) {
-          // Review queue follows source order, wraps once, and ignores presentation filters.
-          const nextIndex = Array.from(
-            { length: book.documents.length - 1 },
-            (_, offset) => (selected + offset + 1) % book.documents.length,
-          ).find(
-            (index) =>
-              !review.some(
-                (note) =>
-                  note.document === book.documents[index].path &&
-                  note.status !== "Unreviewed",
-              ),
-          );
-          if (nextIndex !== undefined) {
-            setSelected(nextIndex);
-            setDecision(
-              review.find(
-                (note) => note.document === book.documents[nextIndex].path,
-              ) ?? { status: "Unreviewed", note: "" },
-            );
-            setInspection(null);
-            setSaved(false);
-            setQuery("");
-            setStatusFilter("All");
-            setMissingOnly(false);
-          }
-        }
-      },
-    );
-  };
-  const reviewCommand = (command: string) => {
-    if (
-      !active ||
-      running.current ||
-      !book?.path ||
-      !doc ||
-      view !== "Review" ||
-      showLibrary ||
-      showExtraction
-    )
-      return;
-    if (command === "review-next") {
-      void saveReview(true);
-      return;
-    }
-    const status =
-      command === "review-accept"
-        ? "Accepted"
-        : command === "review-incorrect"
-          ? "Incorrect"
-          : command === "review-uncertain"
-            ? "Uncertain"
-            : null;
-    if (status) {
-      setDecision({ ...decision, status });
-      setSaved(false);
-    }
-  };
-  useEffect(() => {
-    if (reviewAction.id) reviewCommand(reviewAction.command);
-  }, [reviewAction]);
-  useEffect(() => {
-    if (isNative() || !active) return;
-    const keydown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.repeat) return;
-      const command =
-        event.shiftKey && event.key === "Enter"
-          ? "review-next"
-          : event.altKey
-            ? {
-                KeyA: "review-accept",
-                KeyI: "review-incorrect",
-                KeyU: "review-uncertain",
-              }[event.code]
-            : undefined;
-      if (command) {
-        event.preventDefault();
-        reviewCommand(command);
-      }
-    };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
-  });
   useEffect(() => {
     if (openSignal) void openBook("epub");
   }, [openSignal]);
-  useEffect(() => {
-    if (saveSignal) void saveReview();
-  }, [saveSignal]);
   useEffect(() => {
     if (!active || didStartup.current) return;
     didStartup.current = true;
@@ -428,11 +270,7 @@ export function Cookbooks({
       book?.documents
         .map((d, index) => ({ d, index }))
         .filter(({ d }) => {
-          const status =
-            book.review.find((r) => r.document === d.path)?.status ??
-            "Unreviewed";
           return (
-            (statusFilter === "All" || statusFilter === status) &&
             (!missingOnly ||
               book.chunks.some((c) => c.document === d.path && !c.complete)) &&
             (d.path + " " + titleOf(d))
@@ -440,7 +278,7 @@ export function Cookbooks({
               .includes(query.toLowerCase())
           );
         }) ?? [],
-    [book, statusFilter, missingOnly, query],
+    [book, missingOnly, query],
   );
   const libraryRows = library.filter(
     (b) =>
@@ -596,19 +434,7 @@ export function Cookbooks({
             />
             Missing extraction
           </label>
-          <label>
-            Review status
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              {["All", "Unreviewed", "Accepted", "Incorrect", "Uncertain"].map(
-                (s) => (
-                  <option key={s}>{s}</option>
-                ),
-              )}
-            </select>
-          </label>
+
         </Menu>
       </div>
       <div className="search">
@@ -632,8 +458,7 @@ export function Cookbooks({
             <span>
               {book?.chunks.some((c) => c.document === d.path && !c.complete)
                 ? "Needs extraction"
-                : (book?.review.find((r) => r.document === d.path)?.status ??
-                  "Unreviewed")}
+                : "Processed"}
             </span>
           </div>
         )}
@@ -718,7 +543,7 @@ export function Cookbooks({
         <div className="empty-inline">
           <h3>No extracted recipe for this document</h3>
           <p>
-            Review the source before marking it accepted. Use Extraction to read
+            Use Extraction to read
             cached results or start a new extraction.
           </p>
         </div>
@@ -733,84 +558,6 @@ export function Cookbooks({
           {doc.path}
         </p>
       </header>
-      <div className="review-controls">
-        <label>
-          Review status
-          <select
-            value={decision.status}
-            disabled={!!loading}
-            onChange={(e) => {
-              setDecision({ ...decision, status: e.target.value });
-              setSaved(false);
-            }}
-          >
-            {["Unreviewed", "Accepted", "Incorrect", "Uncertain"].map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="primary"
-          disabled={!book?.path || !!loading || !dirty}
-          onClick={() => void saveReview()}
-        >
-          Save review
-        </button>
-        <Menu label="Review actions">
-          <button
-            disabled={!book?.path || !!loading}
-            onClick={() => reviewCommand("review-accept")}
-          >
-            Mark accepted <kbd>⌘⌥A</kbd>
-          </button>
-          <button
-            disabled={!book?.path || !!loading}
-            onClick={() => reviewCommand("review-incorrect")}
-          >
-            Mark incorrect <kbd>⌘⌥I</kbd>
-          </button>
-          <button
-            disabled={!book?.path || !!loading}
-            onClick={() => reviewCommand("review-uncertain")}
-          >
-            Mark uncertain <kbd>⌘⌥U</kbd>
-          </button>
-          <hr />
-          <button
-            disabled={!book?.path || !!loading}
-            onClick={() => void saveReview(true)}
-          >
-            Save and next unreviewed <kbd>⌘⇧↵</kbd>
-          </button>
-        </Menu>
-        <Menu label={decision.note ? "Review note •" : "Review note"}>
-          <label>
-            Review note
-            <textarea
-              aria-label="Review note"
-              rows={4}
-              value={decision.note}
-              onChange={(e) => {
-                setDecision({ ...decision, note: e.target.value });
-                setSaved(false);
-              }}
-              placeholder="Evidence, uncertainty, or corrections…"
-            />
-          </label>
-        </Menu>
-        {saved && !dirty && (
-          <span role="status" className="success">
-            <Check size={14} />
-            Saved
-          </span>
-        )}
-        {dirty && <span className="caption">Unsaved</span>}
-        {!book?.path && (
-          <span className="caption">
-            Extract this cookbook to save review decisions
-          </span>
-        )}
-      </div>
       <div className="comparison-tabs">
         <Tabs
           value={compactView}
@@ -903,13 +650,13 @@ export function Cookbooks({
       {loading && (
         <div role="status" className="progress">
           <span className="spinner" />
-          {stopping || progress?.stopping ? "Stopping; saving active requests…" : loading}
+          {stopping || progress?.stopping ? "Stopping; saving active requests…" : (progress?.phase || loading)}
           {progress && (
             <span>
               {progress.completed}/{progress.total} chunks · {progress.recipes}{" "}
-              recipes · {progress.active} active · {progress.failed} failed · {Math.floor(progress.elapsedSeconds)}s
+              recipes · {progress.activeModels?.join(", ")} · {progress.active} active · {progress.failed} failed attempts · {Math.floor(progress.elapsedSeconds)}s
               {" · "}{progress.estimatedUsd == null ? "Cost unknown" : `$${progress.estimatedUsd.toFixed(4)} estimated`}
-              {" · "}${progress.reservedUsd.toFixed(4)} spent/reserved
+              {" · "}${(progress.unresolvedUsd ?? progress.reservedUsd).toFixed(4)} reserved (not confirmed spend)
             </span>
           )}
           {progress && <button disabled={stopping || progress.stopping} onClick={() => {
@@ -957,16 +704,7 @@ export function Cookbooks({
               >
                 Reveal extraction in Finder
               </button>
-              <button
-                disabled={!book.path}
-                onClick={() =>
-                  void revealFile(book.path!, true).catch((e) =>
-                    onError(String(e)),
-                  )
-                }
-              >
-                Reveal review file in Finder
-              </button>
+
               <hr />
               <button
                 onClick={() =>
@@ -1085,7 +823,7 @@ export function Cookbooks({
                     : `${r.model} · ${r.promptVersion}`}{" "}
                   · {r.recipes} recipes · {r.completed}/{r.total} chunks ·{" "}
                   {r.status || (r.incomplete ? "Incomplete" : "Complete")}
-                  {r.qualityFlags != null && r.qualityFlags > 0 && ` · ${r.qualityFlags} source review flags`}
+
                 </p>
                 <p className="caption">
                   {r.createdAt === null
@@ -1114,7 +852,7 @@ export function Cookbooks({
                 <button onClick={() => void revealFile(r.path)}>Reveal</button>
                 {r.incomplete && <button onClick={() => {
                   void run("Opening extraction…", () => api.run(r.path), (next) => {
-                    accept(next); setResumeRun(true); setModel(next.model); setShowExtraction(true);
+                    accept(next); setResumeRun(true); setModel(!next.feedback || next.feedback.policy.length === 1 ? next.model : "automatic"); setShowExtraction(true);
                   });
                 }}>Resume…</button>}
                 <button
@@ -1243,7 +981,7 @@ export function Cookbooks({
           <BookOpen size={34} />
           <h2>Your cookbooks</h2>
           <p>
-            Browse your Calibre library to extract recipes or review previous
+            Browse your Calibre library to extract recipes or inspect previous
             extractions.
           </p>
           <div className="actions">
@@ -1255,28 +993,24 @@ export function Cookbooks({
           </div>
         </div>
       )}
-      {book?.path && !showLibrary && !showHistory && !showResults && (book.qualityIssues?.length ?? 0) > 0 && (
-        <details className="source-checks">
-          <summary>Source checks: {book.qualityIssues.filter((i) => i.kind === "unextracted_chunk").length} unextracted chunks · {book.qualityIssues.filter((i) => i.kind !== "unextracted_chunk").length} review flags</summary>
-          <p>These checks identify possible gaps and misplaced content. They do not verify that every recipe is complete.</p>
-          {[
-            { label: "Processing failures", issues: book.qualityIssues.filter((i) => i.kind === "failed_chunk") },
-            { label: "Unprocessed source", issues: book.qualityIssues.filter((i) => i.kind === "unextracted_chunk") },
-            { label: "Content review", issues: book.qualityIssues.filter((i) => i.kind !== "failed_chunk" && i.kind !== "unextracted_chunk") },
-          ].filter((group) => group.issues.length > 0).map((group) => <section key={group.label}>
-          <h3>{group.label} ({group.issues.length})</h3>
-          <ul>
-            {group.issues.map((issue, index) => <li key={`${issue.kind}-${index}`}>
-              <button onClick={() => {
-                const i = book.documents.findIndex((d) => d.path === issue.source);
-                if (i >= 0) { void selectDocument(i); setView("Review"); }
-              }}>{issue.source}{issue.chunk ? ` · ${issue.chunk}` : ""}</button>
-              <p>{issue.message}</p>
-              {issue.detail && <blockquote>{issue.detail}</blockquote>}
-            </li>)}
-          </ul>
-          </section>)}
-        </details>
+      {book?.path && !showLibrary && !showHistory && !showResults && (
+        <section className="source-checks" aria-label="Extraction feedback">
+          <h2>Extraction feedback</h2>
+          {book.feedback ? <>
+            <p><strong>{book.feedback.phase}</strong> · {book.feedback.stopReason || (book.feedback.phase === "Complete" ? "All automated checks passed" : "Checking source coverage and fidelity")}</p>
+            <p className="caption">Extraction/recovery: ${book.feedback.extractionUsd.toFixed(4)} · Verification: ${book.feedback.verificationUsd.toFixed(4)} · ${book.feedback.unresolvedUsd.toFixed(4)} unresolved reservations</p>
+            <details><summary>Recovery policy and AI feedback ({book.feedback.findings.length})</summary>
+              <p>{book.feedback.policy.join(" → ")}</p>
+              <ul>{book.feedback.checks.map((check, i) => <li key={i}>{check}</li>)}</ul>
+              <ul>{book.feedback.findings.map((f, i) => <li key={i}>
+                <strong>{f.resolved ? "Recovered" : "Unresolved"} · {f.category}</strong>
+                <p>{f.message}</p>
+                <button onClick={() => { const index = book.documents.findIndex(d => d.path === f.source); if (index >= 0) void selectDocument(index); }}>{f.source}{f.chunk ? ` · ${f.chunk}` : ""}{f.lines.length > 0 ? ` · source lines ${f.lines.map(n => n + 1).join(", ")}` : ""}</button>
+                <p className="caption">Feedback from {f.model}</p>
+              </li>)}</ul>
+            </details>
+          </> : <p>Automated verification: Not assessed. This historical extraction has not run the new source checks.</p>}
+        </section>
       )}
       {book &&
         !showLibrary &&
@@ -1285,7 +1019,7 @@ export function Cookbooks({
           <section className="tool-view">
             <button className="back" onClick={() => setView("Review")}>
               <ArrowLeft size={15} />
-              Back to source review
+              Back to source
             </button>
             <h2>{view}</h2>
             <div className="scroll">
@@ -1329,7 +1063,7 @@ export function Cookbooks({
             <div className="focus-context">
               <button onClick={() => setInspection(null)}>
                 <ArrowLeft size={15} />
-                Back to review
+                Back to source
               </button>
               <strong>{doc && titleOf(doc)}</strong>
             </div>
@@ -1386,6 +1120,12 @@ export function Cookbooks({
             reused; clicking Extract authorizes the estimated network work
             below.
           </p>
+          <p>{model === "automatic" ? "Automatic extraction starts with GLM 5.3 Flash, verifies source coverage, and recovers unresolved groups with other models." : "Your selected model extracts the source; a separate model verifies coverage and fidelity."}</p>
+          <details>
+            <summary>Advanced options</summary>
+            {preview?.policy && <p className="caption">Policy: {preview.policy.join(" → ")}<br />
+              Remaining: ${preview.extractionRemainingUsd?.toFixed(2)} extraction/recovery · ${preview.verificationRemainingUsd?.toFixed(2)} verification
+            </p>}
           <label>
             Model
             <select
@@ -1400,14 +1140,14 @@ export function Cookbooks({
               )}
               {modelChoices.map((m) => (
                 <option key={m.id} value={m.id} disabled={!m.enabled}>
-                  {m.label} · {m.status}
+                  {m.label}
                 </option>
               ))}
             </select>
           </label>
           {allowNetwork && (
             <label>
-              Total budget (USD)
+              Spending limit (USD)
               <input
                 type="number"
                 min="0"
@@ -1418,8 +1158,7 @@ export function Cookbooks({
               />
             </label>
           )}
-          <details>
-            <summary>Advanced options</summary>
+
             <label className="check-label">
               <input
                 type="checkbox"
@@ -1455,7 +1194,7 @@ export function Cookbooks({
                 onChange={(e) => {
                   setResumeRun(e.target.checked);
                   setRefresh(false);
-                  if (e.target.checked) setModel(book.model);
+                  if (e.target.checked) setModel(!book.feedback || book.feedback.policy.length === 1 ? book.model : "automatic");
                 }}
               />
               Resume this extraction

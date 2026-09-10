@@ -151,7 +151,33 @@ pub struct QualityIssue {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+pub struct ExtractionFeedback {
+    pub phase: String,
+    pub stop_reason: Option<String>,
+    pub policy: Vec<String>,
+    pub extraction_usd: f64,
+    pub verification_usd: f64,
+    pub unresolved_usd: f64,
+    pub findings: Vec<ExtractionFinding>,
+    pub checks: Vec<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractionFinding {
+    pub category: String,
+    pub message: String,
+    pub source: String,
+    #[ts(optional)]
+    pub chunk: Option<String>,
+    pub lines: Vec<usize>,
+    pub model: String,
+    pub resolved: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct CookbookResult {
+    #[ts(optional)]
+    pub feedback: Option<ExtractionFeedback>,
     pub quality_issues: Vec<QualityIssue>,
     pub status: String,
     pub path: Option<String>,
@@ -184,6 +210,14 @@ pub struct ExtractionRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractionProgress {
+    #[serde(default)]
+    #[ts(optional)]
+    pub active_models: Option<Vec<String>>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub unresolved_usd: Option<f64>,
+    #[ts(optional)]
+    pub phase: Option<String>,
     pub active: usize,
     pub failed: usize,
     pub elapsed_seconds: f64,
@@ -474,6 +508,69 @@ fn result(run: &ReviewRun, path: Option<&str>) -> AppResult<CookbookResult> {
         Default::default()
     };
     Ok(CookbookResult {
+        feedback: run.recovery.as_ref().map(|s| ExtractionFeedback {
+            checks: s
+                .groups
+                .iter()
+                .enumerate()
+                .flat_map(|(i, g)| {
+                    g.candidates.iter().filter(|c| c.verified).map(move |c| {
+                        format!(
+                            "Group {} · {} · {}",
+                            i + 1,
+                            if c.model == "gemini-2.5-flash" {
+                                "GLM 5.3 verifier"
+                            } else {
+                                "Gemini 2.5 Flash verifier"
+                            },
+                            if c.feedback.is_empty() {
+                                "All automated group checks passed"
+                            } else {
+                                "Source issues detected"
+                            }
+                        )
+                    })
+                })
+                .collect(),
+            phase: s.phase.clone(),
+            stop_reason: s.stop_reason.clone(),
+            policy: s.models.clone(),
+            extraction_usd: s
+                .attempts
+                .iter()
+                .filter(|a| !a.verification)
+                .filter_map(|a| a.estimated_usd)
+                .sum(),
+            verification_usd: s
+                .attempts
+                .iter()
+                .filter(|a| a.verification)
+                .filter_map(|a| a.estimated_usd)
+                .sum(),
+            unresolved_usd: s
+                .attempts
+                .iter()
+                .filter(|a| a.estimated_usd.is_none())
+                .map(|a| a.reservation_usd)
+                .sum(),
+            findings: s
+                .feedback()
+                .into_iter()
+                .map(|f| ExtractionFinding {
+                    source: s
+                        .source
+                        .get(f.chunk)
+                        .map(|c| c.doc_path.clone())
+                        .unwrap_or_default(),
+                    chunk: run.chunks.get(f.chunk).map(|c| c.id.clone()),
+                    category: f.category,
+                    message: f.message,
+                    lines: f.lines,
+                    model: f.model,
+                    resolved: f.resolved,
+                })
+                .collect(),
+        }),
         quality_issues: recipe_epub::review::quality::issues(run)
             .into_iter()
             .map(|issue| QualityIssue {
@@ -570,6 +667,12 @@ pub struct ModelChoice {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractionPreview {
+    #[ts(optional)]
+    pub policy: Option<Vec<String>>,
+    #[ts(optional)]
+    pub extraction_remaining_usd: Option<f64>,
+    #[ts(optional)]
+    pub verification_remaining_usd: Option<f64>,
     pub total: usize,
     pub cached: usize,
     pub pending: usize,
@@ -600,15 +703,23 @@ pub struct SavedRun {
     pub unresolved_usd: f64,
 }
 pub fn cookbook_models() -> Vec<ModelChoice> {
-    recipe_epub::models::catalog()
-        .into_iter()
-        .map(|m| ModelChoice {
-            id: m.id.into(),
-            label: m.label.into(),
-            enabled: m.enabled,
-            status: m.status.into(),
-        })
-        .collect()
+    std::iter::once(ModelChoice {
+        id: recipe_epub::recovery::AUTOMATIC.into(),
+        label: "Automatic".into(),
+        enabled: true,
+        status: "Source verification and bounded recovery".into(),
+    })
+    .chain(
+        recipe_epub::models::catalog()
+            .into_iter()
+            .map(|m| ModelChoice {
+                id: m.id.into(),
+                label: m.label.into(),
+                enabled: m.enabled,
+                status: m.status.into(),
+            }),
+    )
+    .collect()
 }
 impl From<recipe_epub::review::store::RunSummary> for SavedRun {
     fn from(r: recipe_epub::review::store::RunSummary) -> Self {
@@ -700,6 +811,9 @@ pub fn extraction_preview(request: ExtractionRequest) -> AppResult<ExtractionPre
     let plan =
         recipe_epub::review::preflight::plan(&run, &request.options).map_err(|e| e.to_string())?;
     Ok(ExtractionPreview {
+        policy: plan.recovery.as_ref().map(|p| p.models.clone()),
+        extraction_remaining_usd: plan.recovery.as_ref().map(|p| p.extraction_remaining_usd),
+        verification_remaining_usd: plan.recovery.as_ref().map(|p| p.verification_remaining_usd),
         total: plan.total,
         cached: plan.cached,
         pending: plan.pending,
@@ -763,6 +877,9 @@ pub async fn extract_run_controlled(
         control,
         |update| {
             progress(ExtractionProgress {
+                active_models: Some(update.active_models),
+                unresolved_usd: Some(update.unresolved_usd),
+                phase: Some(update.phase.into()),
                 active: update.active,
                 failed: update.failed,
                 elapsed_seconds: update.elapsed_seconds as f64,
@@ -892,6 +1009,8 @@ pub fn bindings_source() -> String {
         CookbookRecipe::decl(&ts_rs::Config::default()),
         CookbookChunk::decl(&ts_rs::Config::default()),
         QualityIssue::decl(&ts_rs::Config::default()),
+        ExtractionFeedback::decl(&ts_rs::Config::default()),
+        ExtractionFinding::decl(&ts_rs::Config::default()),
         CookbookResult::decl(&ts_rs::Config::default()),
         ExtractionRequest::decl(&ts_rs::Config::default()),
         ExtractionProgress::decl(&ts_rs::Config::default()),

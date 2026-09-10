@@ -572,7 +572,7 @@ async fn post_json(
     Ok(text)
 }
 
-fn transient_delay(error: &EpubError) -> Option<u64> {
+pub(crate) fn transient_delay(error: &EpubError) -> Option<u64> {
     let EpubError::Request(failure) = error else {
         return None;
     };
@@ -1309,6 +1309,39 @@ impl Backend {
         } else {
             Ok(Backend::Claude(ClaudeExtractor::from_env(opts, source)?))
         }
+    }
+
+    pub(crate) fn recovery_usage(&self, key: &str) -> Option<serde_json::Value> {
+        let conn = match self {
+            Self::Claude(e) => &e.conn,
+            Self::OpenAi(e) => &e.conn,
+        };
+        conn.raw_usage
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(key)
+    }
+    pub(crate) async fn recovery_call(&self, action: &crate::recovery::Action) -> ToolResponse {
+        self.call_tool(
+            ToolCall {
+                system: &action.request.system,
+                user: action.request.user.clone(),
+                tool_name: &action.request.tool_name,
+                tool_desc: "Return the requested structured result",
+                schema: action.request.tool_schema.clone(),
+                max_tokens: 16000,
+            },
+            &CallMeta {
+                id: &action.key,
+                doc_path: "",
+                call: if action.chunk.is_some() {
+                    "extract"
+                } else {
+                    "verify"
+                },
+            },
+        )
+        .await
     }
 
     /// Ask the model which of `books` are cookbooks (one batched call). Returns a

@@ -24,6 +24,7 @@ mod extractor;
 mod library;
 pub mod models;
 mod orchestration;
+pub mod recovery;
 
 // Pure extraction API — compiles to wasm32: EPUB unzip + text chunking
 // (`chunk_epub`), per-chunk request building (`build_chunk_request`), LLM

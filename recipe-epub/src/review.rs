@@ -10,6 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod automatic;
 pub mod preflight;
 pub mod quality;
 pub mod results;
@@ -44,6 +45,8 @@ pub struct RunChunk {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewRun {
+    #[serde(default)]
+    pub recovery: Option<crate::recovery::State>,
     #[serde(default)]
     pub execution_status: Option<String>,
     #[serde(default)]
@@ -92,7 +95,11 @@ impl ExtractionControl {
 impl ReviewRun {
     pub fn status(&self) -> &str {
         if !self.incomplete() {
-            return "complete";
+            return if self.recovery.is_some() {
+                "complete"
+            } else {
+                "not_assessed"
+            };
         }
         match self.execution_status.as_deref() {
             Some("running" | "stopping") => "interrupted",
@@ -121,6 +128,7 @@ impl ReviewRun {
             })
             .collect();
         Ok(Self {
+            recovery: None,
             execution_status: None,
             metadata: None,
             charges: vec![],
@@ -180,6 +188,9 @@ impl ReviewRun {
         if run.chunks.iter().any(|c| !ids.insert(&c.id)) {
             return Err(error("duplicate chunk IDs"));
         }
+        if let Some(state) = &run.recovery {
+            state.validate().map_err(error)?;
+        }
         Ok(run)
     }
 
@@ -230,7 +241,9 @@ impl ReviewRun {
     }
 
     pub fn incomplete(&self) -> bool {
-        self.chunks.is_empty() || self.chunks.iter().any(|c| c.output.is_none())
+        self.recovery.as_ref().is_some_and(|s| !s.complete())
+            || self.chunks.is_empty()
+            || self.chunks.iter().any(|c| c.output.is_none())
     }
 }
 

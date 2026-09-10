@@ -1,5 +1,5 @@
 //! File-backed workflows used by both maintainer tools. No terminal or UI policy.
-use super::{ReviewRun, RunOptions, extract_run_controlled};
+use super::{ReviewRun, RunOptions};
 use crate::EpubError;
 use std::path::{Path, PathBuf};
 
@@ -57,8 +57,11 @@ pub struct RunOutcome {
     pub run: ReviewRun,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct RunProgress {
+    pub active_models: Vec<String>,
+    pub unresolved_usd: f64,
+    pub phase: &'static str,
     pub active: usize,
     pub failed: usize,
     pub elapsed_seconds: u64,
@@ -153,7 +156,12 @@ pub fn prepare(request: &ExtractionRequest) -> Result<ReviewRun, WorkflowError> 
             "resume requires an explicit run path",
         ));
     }
-    let fresh = super::store::inspect(&request.book, &request.model)?;
+    let initial_model = if request.model == crate::recovery::AUTOMATIC {
+        crate::recovery::ORDER[0]
+    } else {
+        &request.model
+    };
+    let fresh = super::store::inspect(&request.book, initial_model)?;
     let mut run = if request.resume {
         let path = output_path(&request.out, true)?;
         ReviewRun::read(&path)?
@@ -163,13 +171,68 @@ pub fn prepare(request: &ExtractionRequest) -> Result<ReviewRun, WorkflowError> 
     } else {
         fresh.clone()
     };
-    if run.epub_sha256 != fresh.epub_sha256 || run.model != request.model {
+    if run.epub_sha256 != fresh.epub_sha256 || run.model != initial_model {
         return Err(WorkflowError::SourceMismatch(
             "resume requires the same EPUB and model",
         ));
     }
     run.source = request.book.to_string_lossy().into_owned();
     run.documents = fresh.documents;
+    if run.recovery.is_none() {
+        let mut state = crate::recovery::State::new(
+            run.chunks.iter().map(|c| c.source.clone()).collect(),
+            &request.model,
+            request.options.budget_usd,
+        )
+        .map_err(super::error)?;
+        state.documents = run.documents.clone();
+        if let Some(parent) = &request.from {
+            let old = ReviewRun::read(parent)?;
+            if let Some(previous) = old.recovery
+                && previous.policy == state.policy
+                && previous.models == state.models
+                && previous.source.len() == state.source.len()
+                && previous
+                    .source
+                    .iter()
+                    .zip(&state.source)
+                    .all(|(a, b)| a.text == b.text && a.doc_path == b.doc_path)
+            {
+                state.groups = previous.groups;
+                for group in &mut state.groups {
+                    let selected = request.options.chunks.is_empty()
+                        || group
+                            .chunks
+                            .iter()
+                            .any(|i| request.options.chunks.contains(&run.chunks[*i].id));
+                    if selected {
+                        group.candidates.clear();
+                        group.accepted = None;
+                    }
+                }
+            }
+        }
+        for group in &mut state.groups {
+            group.enabled = request.options.chunks.is_empty()
+                || group
+                    .chunks
+                    .iter()
+                    .any(|i| request.options.chunks.contains(&run.chunks[*i].id));
+        }
+        run.recovery = Some(state);
+    }
+    if let Some(state) = &run.recovery {
+        let expected: Vec<String> = if request.model == crate::recovery::AUTOMATIC {
+            crate::recovery::ORDER.iter().map(|s| (*s).into()).collect()
+        } else {
+            vec![request.model.clone()]
+        };
+        if state.models != expected {
+            return Err(WorkflowError::InvalidRequest(
+                "resume requires the same extraction policy",
+            ));
+        }
+    }
     super::preflight::plan(&run, &request.options)?;
     Ok(run)
 }
@@ -196,7 +259,7 @@ pub async fn extract_to_run_controlled(
                 "resume requires an explicit run path",
             ));
         }
-        automatic = super::store::destination(&request.book, &request.model)?;
+        automatic = super::store::destination(&request.book, &run.model)?;
         &automatic
     } else {
         &request.out
@@ -239,28 +302,78 @@ pub async fn extract_to_run_controlled(
     // checkpoint so other callers can discover this run before it finishes.
     run.save(&path)?;
     super::store::register(&run, &path)?;
-    let extraction = extract_run_controlled(&mut run, &request.options, &path, control, |run| {
-        let charges = &run.charges[first_charge..];
-        progress(RunProgress {
-            active: charges.iter().filter(|c| c.status == "pending").count(),
-            failed: charges
-                .iter()
-                .filter(|c| c.status == "failed" || c.status == "truncated")
-                .count(),
-            elapsed_seconds: started.elapsed().as_secs(),
-            estimated_usd: charges
-                .iter()
-                .filter(|c| c.status != "pending")
-                .map(|c| c.estimated_usd)
-                .sum::<Option<f64>>()
-                .map(|value| value.max(0.0)),
-            stopping: control.is_cancelled(),
-            completed: run.chunks.iter().filter(|c| c.output.is_some()).count(),
-            total: run.chunks.len(),
-            recipes: run.recipes.len(),
-            reserved_usd: run.reserved_usd,
-        });
-    })
+    let extraction = super::automatic::execute(
+        &mut run,
+        &request.model,
+        &request.options,
+        &path,
+        control,
+        |run| {
+            let charges = &run.charges[first_charge..];
+            progress(RunProgress {
+                active_models: run
+                    .recovery
+                    .as_ref()
+                    .map(|s| {
+                        let mut labels: Vec<_> = s
+                            .attempts
+                            .iter()
+                            .filter(|a| a.pending)
+                            .map(|a| {
+                                format!(
+                                    "{} ({})",
+                                    crate::models::catalog()
+                                        .iter()
+                                        .find(|m| m.id == a.model)
+                                        .map_or(a.model.as_str(), |m| m.label),
+                                    if a.verification {
+                                        "verifying"
+                                    } else {
+                                        "extracting"
+                                    }
+                                )
+                            })
+                            .collect();
+                        labels.sort();
+                        labels.dedup();
+                        labels
+                    })
+                    .unwrap_or_default(),
+                unresolved_usd: run.recovery.as_ref().map_or(0.0, |s| {
+                    s.attempts
+                        .iter()
+                        .filter(|a| a.estimated_usd.is_none())
+                        .map(|a| a.reservation_usd)
+                        .sum()
+                }),
+                phase: match run.recovery.as_ref().map(|s| s.phase.as_str()) {
+                    Some("Verifying") => "Verifying",
+                    Some("Recovering") => "Recovering",
+                    Some("Complete") => "Complete",
+                    Some("Incomplete") => "Incomplete",
+                    _ => "Extracting",
+                },
+                active: charges.iter().filter(|c| c.status == "pending").count(),
+                failed: charges
+                    .iter()
+                    .filter(|c| c.status == "failed" || c.status == "truncated")
+                    .count(),
+                elapsed_seconds: started.elapsed().as_secs(),
+                estimated_usd: charges
+                    .iter()
+                    .filter(|c| c.status != "pending")
+                    .filter_map(|c| c.estimated_usd)
+                    .sum::<f64>()
+                    .max(0.0)
+                    .into(),
+                stopping: control.is_cancelled(),
+                completed: run.chunks.iter().filter(|c| c.output.is_some()).count(),
+                total: run.chunks.len(),
+                recipes: run.recipes.len(),
+                reserved_usd: run.reserved_usd,
+            });
+        },
+    )
     .await;
     run.execution_status = Some(
         if !run.incomplete() {

@@ -157,7 +157,7 @@ pub fn destination(book: &Path, model: &str) -> Result<PathBuf, EpubError> {
 }
 pub fn summary(run: &ReviewRun, path: &Path) -> RunSummary {
     RunSummary {
-        summary_version: 3,
+        summary_version: 4,
         quality_flags: Some(
             super::quality::issues(run)
                 .iter()
@@ -265,7 +265,7 @@ pub fn list(book: Option<&Path>) -> Result<Vec<RunSummary>, EpubError> {
             && let Ok(item) = serde_json::from_slice::<RunSummary>(&bytes)
             && item.path.exists()
         {
-            let item = if item.summary_version != 3
+            let item = if item.summary_version != 4
                 || item.status.is_empty()
                 || item.status == "running"
                 || item.quality_flags.is_none()
