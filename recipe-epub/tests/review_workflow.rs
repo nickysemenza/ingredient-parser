@@ -61,7 +61,20 @@ async fn extraction_owns_validation_resume_parent_and_offline_progress() -> Resu
         Err(WorkflowError::MissingRun(_))
     ));
     let mut updates = vec![];
-    let outcome = extract_to_run(request.clone(), |p| updates.push(p)).await?;
+    let mut discovered_while_running = false;
+    let outcome = extract_to_run(request.clone(), |p| {
+        discovered_while_running |= recipe_epub::review::store::list(Some(&request.book))
+            .is_ok_and(|rows| {
+                rows.iter()
+                    .any(|row| row.path == request.out && row.status == "running")
+            });
+        updates.push(p);
+    })
+    .await?;
+    assert!(
+        discovered_while_running,
+        "explicit paths must be discoverable before extraction returns"
+    );
     assert!(outcome.run.incomplete());
     assert_eq!(updates.len(), 2);
     assert_eq!(updates[1].total, outcome.run.chunks.len());

@@ -1,6 +1,5 @@
 //! Curated model choices. Availability is explicit rather than guessed from IDs.
 use serde::Serialize;
-pub const DEFAULT_MODEL: &str = "gemini-2.5-flash";
 #[derive(Debug, Clone, Serialize)]
 pub struct Model {
     pub id: &'static str,
@@ -13,139 +12,102 @@ pub struct Model {
     pub pricing_checked: &'static str,
     pub pricing_source: &'static str,
 }
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Rates {
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: f64,
+    pub cache_write: f64,
+}
+struct Entry {
+    model: Model,
+    listed: bool,
+    rates: Option<Rates>,
+}
+include!("model_catalog.rs");
+
 pub fn catalog() -> Vec<Model> {
-    vec![
-        Model {
-            id: DEFAULT_MODEL,
-            label: "Gemini 2.5 Flash",
-            provider: "google-ai-studio",
-            transport: "chat-completions",
-            max_output_tokens: 16000,
-            pricing_checked: "2026-09-09",
-            pricing_source: "https://ai.google.dev/gemini-api/docs/pricing",
-            enabled: true,
-            status: "Existing baseline",
-        },
-        Model {
-            id: "gemini-2.5-flash-lite",
-            label: "Gemini 2.5 Flash-Lite",
-            provider: "google-ai-studio",
-            transport: "chat-completions",
-            max_output_tokens: 16000,
-            pricing_checked: "2026-09-09",
-            pricing_source: "https://ai.google.dev/gemini-api/docs/pricing",
-            enabled: true,
-            status: "Compatible; not benchmarked",
-        },
-        Model {
-            id: "claude-haiku-4-5",
-            label: "Claude Haiku 4.5",
-            provider: "anthropic",
-            transport: "messages",
-            max_output_tokens: 16000,
-            pricing_checked: "2026-09-09",
-            pricing_source: "https://platform.claude.com/docs/en/about-claude/pricing",
-            enabled: true,
-            status: "Experimental; source validation failures in evaluation",
-        },
-        Model {
-            id: "gemini-3.5-flash-lite",
-            label: "Gemini 3.5 Flash-Lite",
-            provider: "google-ai-studio",
-            transport: "chat-completions",
-            max_output_tokens: 16000,
-            pricing_checked: "2026-09-09",
-            pricing_source: "https://ai.google.dev/gemini-api/docs/pricing",
-            enabled: true,
-            status: "Experimental; evaluated 2026-09-09",
-        },
-        Model {
-            id: "gemini-3.7-flash",
-            label: "Gemini 3.7 Flash",
-            provider: "google-ai-studio",
-            transport: "chat-completions",
-            max_output_tokens: 16000,
-            pricing_checked: "2026-09-09",
-            pricing_source: "https://ai.google.dev/gemini-api/docs/pricing",
-            enabled: true,
-            status: "Experimental; evaluated 2026-09-09",
-        },
-        Model {
-            id: "claude-sonnet-5",
-            label: "Claude Sonnet 5",
-            provider: "anthropic",
-            transport: "messages",
-            max_output_tokens: 16000,
-            pricing_checked: "2026-09-09",
-            pricing_source: "https://platform.claude.com/docs/en/about-claude/pricing",
-            enabled: true,
-            status: "Experimental; evaluated 2026-09-09",
-        },
-        Model {
-            id: "gpt-5.6-luna",
-            label: "GPT-5.6 Luna",
-            provider: "openai",
-            transport: "responses",
-            max_output_tokens: 16000,
-            pricing_checked: "2026-09-09",
-            pricing_source: "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
-            enabled: true,
-            status: "Experimental; Responses verified 2026-09-09",
-        },
-        Model {
-            id: "@cf/moonshotai/kimi-k2.6",
-            label: "Kimi K2.6",
-            provider: "workers-ai",
-            transport: "gateway-unified-chat-completions",
-            max_output_tokens: 16000,
-            pricing_checked: "2026-09-09",
-            pricing_source: "https://developers.cloudflare.com/workers-ai/platform/pricing/",
-            enabled: false,
-            status: "Experimental; Gateway authenticated, recipe requests timed out",
-        },
-        Model {
-            id: "@cf/moonshotai/kimi-k2.7-code",
-            label: "Kimi K2.7 Code",
-            provider: "workers-ai",
-            transport: "gateway-unified-chat-completions",
-            max_output_tokens: 16000,
-            pricing_checked: "2026-09-09",
-            pricing_source: "https://developers.cloudflare.com/workers-ai/platform/pricing/",
-            enabled: true,
-            status: "Experimental; Gateway and structured output verified",
-        },
-    ]
+    ENTRIES
+        .iter()
+        .filter(|e| e.listed)
+        .map(|e| e.model.clone())
+        .collect()
 }
-
-/// Explicit legacy aliases remain supported for downstream callers.
+fn entry(id: &str) -> Option<&'static Entry> {
+    ENTRIES.iter().find(|e| e.model.id == id)
+}
+/// Only exact catalog IDs are supported, including unlisted legacy models.
 pub fn provider(id: &str) -> Option<&'static str> {
-    if let Some(m) = catalog().into_iter().find(|m| m.id == id) {
-        return Some(m.provider);
-    }
-    match id {
-        "claude-haiku-4-5-20251001"
-        | "claude-sonnet-4-5"
-        | "claude-sonnet-4-6"
-        | "claude-opus-4-5"
-        | "claude-opus-4-5-20251101" => Some("anthropic"),
-        "gemini-2.0-flash"
-        | "gemini-2.0-flash-lite"
-        | "gemini-2.5-flash-002"
-        | "gemini-2.5-flash-lite-preview" => Some("google-ai-studio"),
-        "gpt-4o-mini" | "gpt-4o" | "gpt-4.1-mini" | "o3-mini" | "o1" | "o3" | "o4-mini" => {
-            Some("openai")
-        }
-        _ => None,
-    }
+    entry(id).map(|e| e.model.provider)
+}
+/// The model-specific source used by new accounting snapshots.
+pub fn pricing_source(id: &str) -> Option<&'static str> {
+    entry(id).map(|e| e.model.pricing_source)
+}
+/// Verification date for the rate snapshot, when the model is known.
+pub fn pricing_checked(id: &str) -> Option<&'static str> {
+    entry(id).map(|e| e.model.pricing_checked)
+}
+pub(crate) fn rates(id: &str) -> Option<Rates> {
+    entry(id).and_then(|e| e.rates)
 }
 
-/// Primary pricing references; snapshots are dated in each saved charge.
-pub fn pricing_source(id: &str) -> Option<&'static str> {
-    match provider(id)? {
-        "google-ai-studio" => Some("https://ai.google.dev/gemini-api/docs/pricing"),
-        "anthropic" => Some("https://platform.claude.com/docs/en/about-claude/pricing"),
-        "openai" => Some("https://developers.openai.com/api/docs/pricing"),
-        "workers-ai" => Some("https://developers.cloudflare.com/workers-ai/platform/pricing/"),
-        _ => None,
+#[cfg(test)]
+mod catalog_tests {
+    #[test]
+    fn catalog_metadata_is_valid() {
+        let mut ids = std::collections::HashSet::new();
+        for e in super::ENTRIES {
+            let m = &e.model;
+            assert!(!m.id.is_empty() && ids.insert(m.id), "duplicate/empty ID");
+            assert!(m.max_output_tokens > 0 && !m.label.is_empty());
+            assert!(m.pricing_source.starts_with("https://"));
+            assert_eq!(m.pricing_checked.len(), 10);
+            assert!(
+                match m.provider {
+                    "workers-ai" | "google-ai-studio" =>
+                        m.transport == "gateway-unified-chat-completions",
+                    "anthropic" => m.transport == "messages",
+                    "openai" => matches!(m.transport, "responses" | "chat-completions"),
+                    _ => false,
+                },
+                "unsupported routing for {}",
+                m.id
+            );
+            if let Some(r) = e.rates {
+                assert!(
+                    [r.input, r.output, r.cache_read, r.cache_write]
+                        .iter()
+                        .all(|n| n.is_finite() && *n >= 0.0)
+                );
+            }
+        }
+    }
+    #[test]
+    fn preserves_curated_and_legacy_boundaries() {
+        let models = super::catalog();
+        assert_eq!(models.len(), 14);
+        assert!(
+            models
+                .iter()
+                .any(|m| m.id == super::DEFAULT_MODEL && m.enabled)
+        );
+        assert!(!models.iter().any(|m| m.id == "gpt-4o"));
+        assert_eq!(super::provider("gpt-4o"), Some("openai"));
+        assert!(super::rates("gpt-4o").is_none());
+        assert!(super::provider("gemini-2.5-flash-future").is_none());
+        assert!(super::rates("gemini-2.5-flash-future").is_none());
+    }
+    #[test]
+    fn explicit_cache_rates_are_used() {
+        let usage = crate::Usage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_read_input_tokens: 1_000_000,
+            cache_creation_input_tokens: 1_000_000,
+        };
+        let cost = crate::accounting::cost_for_usage("@cf/zai-org/glm-5.3-flash", &usage);
+        assert!(cost.is_some_and(|c| (c - (0.15 + 0.50 + 0.03 + 0.1875)).abs() < 1e-12));
     }
 }

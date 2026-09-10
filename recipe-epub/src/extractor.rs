@@ -516,6 +516,24 @@ where
 /// (including a space before punctuation or around a hyphen); letters, numbers,
 /// units, ranges, and punctuation must still occur in the sent source text.
 pub fn validate_chunk_recipes(chunk: &Chunk, recipes: &[ExtractedRecipe]) -> Result<(), EpubError> {
+    validate_recipe_content(chunk, recipes, false)
+}
+
+/// Indexed titles already own complete, validated source lines. A translation
+/// may follow a headnote instead of immediately following the primary title.
+#[cfg(feature = "native")]
+pub(crate) fn validate_indexed_chunk_recipes(
+    chunk: &Chunk,
+    recipes: &[ExtractedRecipe],
+) -> Result<(), EpubError> {
+    validate_recipe_content(chunk, recipes, true)
+}
+
+fn validate_recipe_content(
+    chunk: &Chunk,
+    recipes: &[ExtractedRecipe],
+    indexed_titles: bool,
+) -> Result<(), EpubError> {
     if recipes.is_empty() {
         let has_yield = chunk.text.lines().any(|line| {
             let upper = line.trim().to_ascii_uppercase();
@@ -539,21 +557,23 @@ pub fn validate_chunk_recipes(chunk: &Chunk, recipes: &[ExtractedRecipe]) -> Res
     let source = normalize_source_whitespace(&chunk.text);
     let hint = chunk.title_hint.as_deref().map(normalize_source_whitespace);
     for (recipe_index, recipe) in recipes.iter().enumerate() {
-        validate_source_field(
-            &source,
-            hint.as_deref(),
-            recipe_index,
-            "title",
-            &recipe.meta.title,
-        )?;
-        if hint.as_deref() != Some(normalize_source_whitespace(&recipe.meta.title).as_str())
-            && !matches_complete_lines(&chunk.text, &recipe.meta.title, true)
-        {
-            return Err(EpubError::Proxy(format!(
-                "source fidelity violation in recipe {}: title {:?} omits part of its authored line or subtitle",
-                recipe_index + 1,
-                recipe.meta.title
-            )));
+        if !indexed_titles {
+            validate_source_field(
+                &source,
+                hint.as_deref(),
+                recipe_index,
+                "title",
+                &recipe.meta.title,
+            )?;
+            if hint.as_deref() != Some(normalize_source_whitespace(&recipe.meta.title).as_str())
+                && !matches_complete_lines(&chunk.text, &recipe.meta.title, true)
+            {
+                return Err(EpubError::Proxy(format!(
+                    "source fidelity violation in recipe {}: title {:?} omits part of its authored line or subtitle",
+                    recipe_index + 1,
+                    recipe.meta.title
+                )));
+            }
         }
         for section in &recipe.sections {
             if let Some(name) = &section.name {

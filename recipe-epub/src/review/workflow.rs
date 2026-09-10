@@ -235,6 +235,10 @@ pub async fn extract_to_run_controlled(
     let started = std::time::Instant::now();
     let first_charge = run.charges.len();
     run.execution_status = Some("running".into());
+    // Explicit paths are outside the automatic store scan. Publish the initial
+    // checkpoint so other callers can discover this run before it finishes.
+    run.save(&path)?;
+    super::store::register(&run, &path)?;
     let extraction = extract_run_controlled(&mut run, &request.options, &path, control, |run| {
         let charges = &run.charges[first_charge..];
         progress(RunProgress {
@@ -248,7 +252,8 @@ pub async fn extract_to_run_controlled(
                 .iter()
                 .filter(|c| c.status != "pending")
                 .map(|c| c.estimated_usd)
-                .sum(),
+                .sum::<Option<f64>>()
+                .map(|value| value.max(0.0)),
             stopping: control.is_cancelled(),
             completed: run.chunks.iter().filter(|c| c.output.is_some()).count(),
             total: run.chunks.len(),

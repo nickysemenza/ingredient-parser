@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { open, save, confirm } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type {
+  ModelBookResults,
   ModelChoice,
   ExtractionPreview,
   SavedRun,
@@ -60,6 +61,7 @@ export function call<T>(
   return invoke<T>(command, args);
 }
 export const api = {
+  results: (book: string | null) => call<ModelBookResults>("cookbook_results", { book }),
   models: () => call<ModelChoice[]>("cookbook_models"),
   runs: (book: string | null) => call<SavedRun[]>("cookbook_runs", { book }),
   preview: (request: ExtractionRequest) =>

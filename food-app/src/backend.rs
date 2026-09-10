@@ -638,6 +638,45 @@ pub fn cookbook_runs(book: Option<String>) -> AppResult<Vec<SavedRun>> {
         .map_err(|e| e.to_string())
         .map(|rows| rows.into_iter().map(SavedRun::from).collect())
 }
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelBookResult {
+    pub latest: SavedRun,
+    pub runs: usize,
+    pub failed_chunks: usize,
+    pub pending_chunks: usize,
+    pub content_review_flags: usize,
+    pub processing_success_rate: Option<f64>,
+    pub attempts: Option<usize>,
+    pub failed_attempts: Option<usize>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelBookResults {
+    pub rows: Vec<ModelBookResult>,
+    pub unreadable: Vec<String>,
+}
+pub fn cookbook_results(book: Option<String>) -> AppResult<ModelBookResults> {
+    let report = recipe_epub::review::results::list(book.as_deref().map(Path::new))
+        .map_err(|e| e.to_string())?;
+    Ok(ModelBookResults {
+        unreadable: report.unreadable,
+        rows: report
+            .rows
+            .into_iter()
+            .map(|r| ModelBookResult {
+                latest: r.latest.into(),
+                runs: r.runs,
+                failed_chunks: r.failed_chunks,
+                pending_chunks: r.pending_chunks,
+                content_review_flags: r.content_review_flags,
+                processing_success_rate: r.processing_success_rate,
+                attempts: r.attempts,
+                failed_attempts: r.failed_attempts,
+            })
+            .collect(),
+    })
+}
 fn shared_request(request: ExtractionRequest) -> recipe_epub::review::ExtractionRequest {
     recipe_epub::review::ExtractionRequest {
         book: request.book.into(),
@@ -651,6 +690,7 @@ fn shared_request(request: ExtractionRequest) -> recipe_epub::review::Extraction
             cache_dir: request.cache_dir.map(Into::into),
             chunks: request.chunks,
             budget_usd: request.budget_usd,
+            concurrency: 4,
         },
     }
 }
@@ -834,6 +874,8 @@ pub fn bindings_source() -> String {
         ModelChoice::decl(&ts_rs::Config::default()),
         ExtractionPreview::decl(&ts_rs::Config::default()),
         SavedRun::decl(&ts_rs::Config::default()),
+        ModelBookResult::decl(&ts_rs::Config::default()),
+        ModelBookResults::decl(&ts_rs::Config::default()),
         Value::decl(&ts_rs::Config::default()),
         IngredientResult::decl(&ts_rs::Config::default()),
         TraceNode::decl(&ts_rs::Config::default()),

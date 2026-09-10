@@ -164,6 +164,10 @@ fn cookbook_models() -> Vec<service::ModelChoice> {
     service::cookbook_models()
 }
 #[tauri::command]
+async fn cookbook_results(book: Option<String>) -> Result<service::ModelBookResults, String> {
+    blocking(move || service::cookbook_results(book)).await
+}
+#[tauri::command]
 async fn cookbook_runs(book: Option<String>) -> Result<Vec<service::SavedRun>, String> {
     blocking(move || service::cookbook_runs(book)).await
 }
@@ -435,6 +439,7 @@ pub fn run() -> tauri::Result<()> {
             scale_web_recipe,
             cookbook_models,
             cookbook_runs,
+            cookbook_results,
             extraction_preview,
             export_run,
             extract_run,

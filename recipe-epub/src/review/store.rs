@@ -23,6 +23,8 @@ pub struct RunMetadata {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallRecord {
+    #[serde(default)]
+    pub failure: Option<serde_json::Value>,
     /// Provider details, including reasoning/cached token breakdowns when reported.
     #[serde(default)]
     pub raw_usage: Option<serde_json::Value>,
@@ -155,7 +157,7 @@ pub fn destination(book: &Path, model: &str) -> Result<PathBuf, EpubError> {
 }
 pub fn summary(run: &ReviewRun, path: &Path) -> RunSummary {
     RunSummary {
-        summary_version: 2,
+        summary_version: 3,
         quality_flags: Some(
             super::quality::issues(run)
                 .iter()
@@ -197,6 +199,12 @@ pub fn summary(run: &ReviewRun, path: &Path) -> RunSummary {
                     c.prompt_version.as_deref().unwrap_or("unknown prompt")
                 )
             })
+            // Requested configuration matters even if all its new calls failed:
+            // inherited successes must not look like successes from this model.
+            .chain(std::iter::once(format!(
+                "{} / {}",
+                run.model, run.prompt_version
+            )))
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect(),
@@ -257,7 +265,7 @@ pub fn list(book: Option<&Path>) -> Result<Vec<RunSummary>, EpubError> {
             && let Ok(item) = serde_json::from_slice::<RunSummary>(&bytes)
             && item.path.exists()
         {
-            let item = if item.summary_version != 2
+            let item = if item.summary_version != 3
                 || item.status.is_empty()
                 || item.status == "running"
                 || item.quality_flags.is_none()

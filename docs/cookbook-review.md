@@ -93,7 +93,7 @@ food-cli cookbook extract book.epub --out baseline.json
 food-cli cookbook extract book.epub --out live.json --allow-network --budget-usd 7
 food-cli cookbook show live.json --summary
 food-cli cookbook show live.json --recipe 0
-food-cli cookbook audit live.json --format json > source-audit.json
+food-cli cookbook audit live.json --attribution --format json > source-audit.json
 ```
 
 `cookbook extract` commands are cache-only by default and need no credentials.
@@ -282,7 +282,7 @@ in source order, and only the first recipe can use that hint. Assembly retains
 a head containing only introduction text until its adjacent continuation supplies
 ingredients; headnotes on both sides of a split are preserved.
 
-The current indexed prompt is `2026-09-09-indexed-source-v7`. Required freezing,
+The current indexed prompt is `2026-09-09-indexed-source-v8`. Required freezing,
 unmolding, finishing, and serving actions belong in instructions, including
 paragraphs that also contain an optional aside. Explicit equipment lists can
 include non-food wrappers. A new extraction uses the new prompt and boundaries;
@@ -296,3 +296,43 @@ more source yield labels than extracted recipes. Each signal links to its source
 JSON includes stable kinds and recipe/chunk coordinates. These are review cues,
 not proof that a recipe is missing or that an unflagged book is complete. The
 summary index versions derived checks so old history entries can be refreshed.
+
+### Terminal tables and detailed failures
+
+Interactive human output uses responsive tables for extraction history, models,
+preflight, comparisons, source checks, and name statistics. Narrow terminals use
+stacked records. `cookbook runs --paths` includes full paths; redirected human
+output and JSON retain paths. JSON/JSONL remain free of terminal formatting.
+Progress stays on stderr; no color is required to understand status or unknown costs.
+
+`cookbook audit RUN` returns lightweight quality checks, including the saved
+failure reason. Add `--attribution` to compute source-block matches; the returned
+`documents` field is present only with that option. `show RUN --chunk ID --format
+json` includes the chunk source and failure. Run JSON `charges[].attempts[]`
+retains usage and structured native failure details when available. Historical
+missing details remain unknown. Source checks distinguish processing failures,
+unprocessed source, and content review; a failed prose chunk is not automatically
+a missing recipe.
+
+`cookbook extract --concurrency 1` is useful for provider diagnostics; the default
+and maximum are four. Transient timeouts, connection failures, 429s and server
+errors share the existing two-attempt limit with payload repairs, so no third
+hidden retry can exceed a chunk reservation. Retry-After seconds up to 60 are
+honored; longer delays stop that dispatch rather than retrying early.
+
+The v8 prompt preserves combined timing/category lines once in notes. Source
+ownership remains strict for ingredients and instructions. Publisher `p.rt`
+recipe headings now guide chunk boundaries. Source matching indexes normalized
+blocks once per document, retaining ambiguity for repeated wording.
+
+
+## Model-by-book results
+
+`cookbook results [--book BOOK.epub] [--format json]` and desktop **Model results**
+show the latest extraction separately for each book/model/prompt configuration.
+Processing success counts completed versus completed-plus-failed chunks, including
+cache reuse. Always read it beside whole-book completion and pending chunks: 100%
+on a sample is not complete book coverage or verified recipe fidelity. Attempts,
+failed attempts, review flags, estimated new spend, and unresolved reservations
+are shown for that same run. Historical unknowns stay unknown. Filter the desktop
+table by book/model/prompt and open the underlying extraction for source review.

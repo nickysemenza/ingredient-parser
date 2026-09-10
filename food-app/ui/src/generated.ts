@@ -2,6 +2,8 @@
 export type ModelChoice = { id: string, label: string, enabled: boolean, status: string, };
 export type ExtractionPreview = { total: number, cached: number, pending: number, lowUsd: number | null, highUsd: number | null, reservationUsd: number | null, basis: string, };
 export type SavedRun = { qualityFlags: number | null, status: string, epubSha256: string, path: string, title: string, model: string, promptVersion: string, configurations: Array<string>, createdAt: number | null, recipes: number, completed: number, total: number, incomplete: boolean, reservedUsd: number, newSpendUsd: number | null, inheritedReservedUsd: number | null, unresolvedUsd: number, };
+export type ModelBookResult = { latest: SavedRun, runs: number, failedChunks: number, pendingChunks: number, contentReviewFlags: number, processingSuccessRate: number | null, attempts: number | null, failedAttempts: number | null, };
+export type ModelBookResults = { rows: Array<ModelBookResult>, unreadable: Array<string>, };
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
 export type IngredientResult = { lineNumber: number, input: string, name: string, amounts: Array<string>, modifier: string | null, optional: boolean, usage: string, confidence: string, reviewReasons: Array<string>, json: JsonValue, };
 export type TraceNode = { name: string, input: string, outcome: string, detail: string, children: Array<TraceNode>, };

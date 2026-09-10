@@ -9,7 +9,7 @@ use crate::{EpubError, ExtractedRecipe};
 
 /// Bump when the system prompt or tool schema changes — old entries then miss
 /// and are re-extracted rather than returning stale-shaped data.
-pub(crate) const PROMPT_VERSION: &str = "2026-09-09-indexed-source-v7";
+pub(crate) const PROMPT_VERSION: &str = "2026-09-09-indexed-source-v11";
 
 /// Per-user cache directory; independent of the durable run store.
 pub(crate) fn default_dir() -> PathBuf {

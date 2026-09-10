@@ -18,7 +18,7 @@ use crate::{
     CallFailure, CallResult, Chunk, ChunkExtractionFailure, ChunkOutcome, CookbookRecipe,
     EpubError, ExtractProgress, ExtractionAccounting, ExtractionStats, ModelTier,
     OrchestrationOptions, RecipeExtractor, Usage, build_chunk_request, cache, chunk_epub,
-    extract_chunks_with, parse_recipes_payload, try_extract_chunk_detailed_for_chunk,
+    extract_chunks_with, parse_recipes_payload, try_extract_chunk_detailed,
 };
 
 // ===========================================================================
@@ -494,7 +494,7 @@ fn resolve_gateway_token() -> Result<String, EpubError> {
 /// The Cloudflare AI Gateway root, e.g.
 /// `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>` — NO provider
 /// suffix. Each backend appends its own provider path (`/anthropic/v1/messages`,
-/// `/openai/chat/completions`, `/google-ai-studio/v1beta/openai/chat/completions`).
+/// `/openai/chat/completions`, `/compat/chat/completions`).
 /// All model traffic routes through the gateway; there is no direct-provider path.
 fn gateway_base() -> Result<String, EpubError> {
     nonempty_env("CLOUDFLARE_AI_GATEWAY_BASE_URL")
@@ -527,17 +527,81 @@ async fn post_json(
     for (name, value) in headers {
         req = req.header(*name, value);
     }
-    let resp = req.json(body).send().await?;
+    let resp = req.json(body).send().await.map_err(request_error)?;
 
     let status = resp.status();
-    let text = resp.text().await?;
-    if !status.is_success() {
-        return Err(EpubError::Api {
-            status: status.as_u16(),
-            body: text,
+    let request_id = resp
+        .headers()
+        .get("cf-aig-log-id")
+        .or_else(|| resp.headers().get("x-request-id"))
+        .or_else(|| resp.headers().get("cf-ray"))
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let retry_after_secs = resp
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            v.parse::<u64>().ok().or_else(|| {
+                httpdate::parse_http_date(v).ok().map(|at| {
+                    at.duration_since(std::time::SystemTime::now())
+                        .unwrap_or_default()
+                        .as_secs_f64()
+                        .ceil() as u64
+                })
+            })
         });
+    let text = resp.text().await.map_err(|error| {
+        let mut error = request_error(error);
+        if let EpubError::Request(details) = &mut error {
+            details.status = Some(status.as_u16());
+            details.request_id = request_id.clone();
+            details.retry_after_secs = retry_after_secs;
+        }
+        error
+    })?;
+    if !status.is_success() {
+        return Err(EpubError::Request(Box::new(crate::RequestFailure {
+            kind: "http_status".into(),
+            message: text,
+            status: Some(status.as_u16()),
+            request_id,
+            retry_after_secs,
+        })));
     }
     Ok(text)
+}
+
+fn transient_delay(error: &EpubError) -> Option<u64> {
+    let EpubError::Request(failure) = error else {
+        return None;
+    };
+    if failure.kind == "timeout"
+        || failure.kind == "connection"
+        || failure
+            .status
+            .is_some_and(|s| s == 429 || (500..600).contains(&s))
+    {
+        Some(failure.retry_after_secs.unwrap_or(2)).filter(|seconds| *seconds <= 60)
+    } else {
+        None
+    }
+}
+fn request_error(error: reqwest::Error) -> EpubError {
+    EpubError::Request(Box::new(crate::RequestFailure {
+        kind: if error.is_timeout() {
+            "timeout"
+        } else if error.is_connect() {
+            "connection"
+        } else {
+            "transport"
+        }
+        .into(),
+        message: error.without_url().to_string(),
+        status: None,
+        request_id: None,
+        retry_after_secs: None,
+    }))
 }
 
 /// Per-call context for the Cloudflare AI Gateway `cf-aig-metadata` header, so
@@ -623,6 +687,10 @@ impl GatewayClient {
         let known = *usage != Usage::default();
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).push(
             crate::review::store::CallRecord {
+                failure: result.as_ref().err().map(|failure| match &failure.error {
+                    EpubError::Request(details) => json!(details),
+                    _ => json!({"kind":"validation", "message":failure.error.to_string()}),
+                }),
                 raw_usage: self
                     .raw_usage
                     .lock()
@@ -749,9 +817,9 @@ async fn extract_chunk_detailed<T: CallTool>(
 ) -> Result<ChunkOutcome, ChunkExtractionFailure> {
     let req = crate::indexed::build_indexed_chunk_request(chunk);
     let feedback = std::sync::Mutex::new(None::<String>);
-    let driven = try_extract_chunk_detailed_for_chunk(chunk, || async {
+    let driven = try_extract_chunk_detailed(&chunk.doc_path, || async {
         let previous = feedback.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-        let user = match previous { Some(reason) => format!("{}\n\nThe previous attempt failed validation: {reason}. Return a corrected complete assignment using only the displayed indices.", req.user), None => req.user.clone() };
+        let user = match previous { Some(reason) => format!("{}\n\nThe previous attempt failed validation: {reason}. Return a corrected complete assignment using only the displayed indices. Include both top-level arrays, recipes and ignored. Every section must include name, ingredients, and instructions arrays, using [] for an empty field; do not omit keys or required source methods.", req.user), None => req.user.clone() };
         let fingerprint = {
             use sha2::{Digest, Sha256};
             let bytes = serde_json::to_vec(&json!({"system": req.system, "user": user, "tool": req.tool_name, "schema": req.tool_schema})).map_err(|e| CallFailure::transport(e.into()))?;
@@ -777,18 +845,28 @@ async fn extract_chunk_detailed<T: CallTool>(
                 },
             )
             .await;
+        let response = match response {
+            Err(failure) => {
+                let delay = transient_delay(&failure.error);
+                if let Some(delay) = delay {
+                    tokio::time::sleep(Duration::from_secs(delay)).await;
+                    Err(CallFailure::retryable_payload(failure.error, failure.usage, failure.truncated))
+                } else { Err(failure) }
+            }
+            ok => ok,
+        };
         let response = response.and_then(|(input, usage, reason)| {
             let validated = input.ok_or_else(|| EpubError::Proxy("model returned no structured extraction payload".into()))
                 .and_then(|input| {
                     let lowered = crate::indexed::lower_indexed_payload(chunk, input)?;
                     let recipes = crate::parse_recipes_payload(lowered.clone())?;
-                    crate::extractor::validate_chunk_recipes(chunk, &recipes)?;
+                    crate::extractor::validate_indexed_chunk_recipes(chunk, &recipes)?;
                     Ok(lowered)
                 });
             match validated {
                 Ok(input) => Ok((Some(input), usage, reason)),
                 Err(error) => {
-                    *feedback.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
+                    *feedback.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string().split("; selection=").next().unwrap_or("invalid payload").chars().take(1024).collect());
                     Err(CallFailure::retryable_payload(error, usage, is_truncated(reason.as_deref(), truncated_reasons)))
                 }
             }
@@ -952,6 +1030,19 @@ pub(crate) struct OpenAiExtractor {
 }
 
 impl OpenAiExtractor {
+    fn endpoint(base: &str, model: &str) -> Result<String, EpubError> {
+        match crate::models::provider(model) {
+            // Use Gateway's provider adapter, including its managed/BYOK credentials.
+            // The nested Google OpenAI route rejected gateway-only authorization;
+            // this route explicitly selects Gateway's Google credential adapter.
+            Some("google-ai-studio" | "workers-ai") => {
+                Ok(format!("{base}/compat/chat/completions"))
+            }
+            Some("openai") if model == "gpt-5.6-luna" => Ok(format!("{base}/openai/responses")),
+            Some("openai") => Ok(format!("{base}/openai/chat/completions")),
+            _ => Err(EpubError::Cache(format!("Unsupported chat model {model}"))),
+        }
+    }
     /// Build from the environment. All traffic routes through the Cloudflare AI
     /// Gateway (BYOK — the gateway injects the provider key); the provider path is
     /// selected from the model catalog and appended to [`gateway_base`].
@@ -964,15 +1055,7 @@ impl OpenAiExtractor {
             .clone()
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
         let base = gateway_base()?;
-        let endpoint = match crate::models::provider(&model) {
-            Some("google-ai-studio") => {
-                format!("{base}/google-ai-studio/v1beta/openai/chat/completions")
-            }
-            Some("workers-ai") => format!("{base}/compat/chat/completions"),
-            Some("openai") if model == "gpt-5.6-luna" => format!("{base}/openai/responses"),
-            Some("openai") => format!("{base}/openai/chat/completions"),
-            _ => return Err(EpubError::Cache(format!("Unsupported chat model {model}"))),
-        };
+        let endpoint = Self::endpoint(&base, &model)?;
         Ok(Self {
             conn: GatewayClient::from_env(endpoint, model, source)?,
         })
@@ -1018,10 +1101,11 @@ impl CallTool for OpenAiExtractor {
         } else {
             "max_tokens"
         };
-        let wire_model = if crate::models::provider(&self.conn.model) == Some("workers-ai") {
-            format!("workers-ai/{}", self.conn.model)
-        } else {
-            self.conn.model.clone()
+        let wire_model = match crate::models::provider(&self.conn.model) {
+            Some(provider @ ("workers-ai" | "google-ai-studio")) => {
+                format!("{provider}/{}", self.conn.model)
+            }
+            _ => self.conn.model.clone(),
         };
         let body = json!({
             "model": wire_model,
@@ -1451,6 +1535,26 @@ mod tests {
         assert_eq!(obj["prompt_version"], cache::PROMPT_VERSION);
         // All values must be strings (the gateway accepts string/number/bool).
         assert!(obj.values().all(serde_json::Value::is_string));
+    }
+
+    #[test]
+    fn gateway_chat_routes_select_provider_credential_adapters() {
+        let base = "https://gateway.ai.cloudflare.com/v1/account/gateway";
+        for model in [
+            "gemini-2.5-flash",
+            "@cf/zai-org/glm-5.3-flash",
+            "@cf/moonshotai/kimi-k2.7-code",
+        ] {
+            assert_eq!(
+                OpenAiExtractor::endpoint(base, model).unwrap(),
+                format!("{base}/compat/chat/completions")
+            );
+        }
+        assert_eq!(
+            OpenAiExtractor::endpoint(base, "gpt-5.6-luna").unwrap(),
+            format!("{base}/openai/responses")
+        );
+        assert!(OpenAiExtractor::endpoint(base, "unknown").is_err());
     }
 
     #[test]
@@ -2041,4 +2145,53 @@ fn finder_launch_reads_shared_gateway_configuration() -> Result<(), Box<dyn std:
     std::fs::remove_dir_all(root)?;
     assert!(result.success());
     Ok(())
+}
+
+#[cfg(test)]
+mod transport_diagnostics_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    #[tokio::test]
+    async fn status_and_retry_details_survive_response() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut data = [0; 4096];
+            assert!(socket.read(&mut data).await.unwrap() > 0);
+            socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 4\r\nRetry-After: 3\r\ncf-aig-log-id: test-request\r\nConnection: close\r\n\r\nslow").await.unwrap();
+        });
+        let error = post_json(
+            &build_client().unwrap(),
+            &format!("http://{address}"),
+            &[],
+            "test",
+            &json!({}),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(transient_delay(&error), Some(3));
+        assert!(
+            matches!(error,EpubError::Request(ref details) if details.status==Some(429) && details.request_id.as_deref()==Some("test-request"))
+        );
+        server.await.unwrap();
+    }
+    #[test]
+    fn permanent_errors_and_long_retry_delays_do_not_retry_early() {
+        for (status, delay, expected) in [
+            (401, None, None),
+            (429, Some(61), None),
+            (503, None, Some(2)),
+        ] {
+            let error = EpubError::Request(Box::new(crate::RequestFailure {
+                kind: "http_status".into(),
+                message: String::new(),
+                status: Some(status),
+                request_id: None,
+                retry_after_secs: delay,
+            }));
+            assert_eq!(transient_delay(&error), expected);
+        }
+    }
 }

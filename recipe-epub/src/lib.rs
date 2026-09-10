@@ -102,6 +102,9 @@ pub enum EpubError {
     /// The model API returned a non-success status or an unexpected shape.
     #[error("model api error (status {status}): {body}")]
     Api { status: u16, body: String },
+    /// Structured native request failure; credentials and URLs are omitted.
+    #[error("{0}")]
+    Request(Box<RequestFailure>),
     /// JSON (de)serialization failed.
     #[error("deserialize error: {0}")]
     Deserialize(#[from] serde_json::Error),
@@ -113,6 +116,16 @@ pub enum EpubError {
     /// native backends raise [`EpubError::Http`]/[`EpubError::Api`] instead.
     #[error("chunk extraction call failed: {0}")]
     Proxy(String),
+}
+
+#[derive(Debug, thiserror::Error, Serialize, Deserialize)]
+#[error("request {kind}: {message} (status {status:?}, request {request_id:?})")]
+pub struct RequestFailure {
+    pub kind: String,
+    pub message: String,
+    pub status: Option<u16>,
+    pub request_id: Option<String>,
+    pub retry_after_secs: Option<u64>,
 }
 
 /// An EPUB internal hyperlink found inside an ingredient/text line — the visible

@@ -1504,3 +1504,15 @@ kbd {
 .source-checks p { margin: 0.4rem 0; }
 .source-checks li { margin-block: 0.7rem; }
 .source-checks blockquote { margin: 0.4rem 0; padding-left: 0.8rem; border-left: 2px solid var(--border); }
+
+.model-results { overflow: auto; }
+.model-results > p { max-width: 85ch; }
+.model-results label { display: flex; align-items: center; gap: 8px; margin-block: 12px; }
+.model-results-scroll { overflow: auto; }
+.model-results table { border-collapse: collapse; width: 100%; font-size: 12px; text-align: left; }
+.model-results caption { text-align: left; padding-block: 12px; font-weight: 600; }
+.model-results th, .model-results td { padding: 10px 12px; vertical-align: top; border-bottom: 1px solid var(--border); }
+.model-results thead { background: var(--mantle); }
+.model-results tbody th { min-width: 220px; max-width: 330px; font-weight: 400; overflow-wrap: anywhere; }
+.model-results td { min-width: 90px; font-variant-numeric: tabular-nums; }
+.model-results td span, .model-results th span { display: block; margin-top: 4px; }

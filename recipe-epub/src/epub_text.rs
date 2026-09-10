@@ -20,6 +20,7 @@ use crate::{Chunk, EpubError, ImageRef, Link};
 struct CleanLine {
     recipe_title: bool,
     heading: bool,
+    heading_text: Option<String>,
     text: String,
     links: Vec<Link>,
     images: Vec<ImageRef>,
@@ -291,7 +292,11 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
             doc = Some(path);
         }
         if is_title {
-            last_title = Some(line.text.clone());
+            last_title = Some(
+                line.heading_text
+                    .clone()
+                    .unwrap_or_else(|| line.text.clone()),
+            );
         }
         // This line's index within the chunk is its position in `lines` (the same
         // index it will have after `lines.join("\n")`), so tag the line's images.
@@ -374,6 +379,17 @@ fn is_block(tag: &str) -> bool {
     )
 }
 
+/// Publisher yield spans are standalone metadata even when nested in a headnote.
+/// Other inline spans must remain joined (fractions, emphasis, and ingredient names).
+fn is_line_boundary(element: &scraper::node::Element) -> bool {
+    is_block(element.name())
+        || element.attr("class").is_some_and(|classes| {
+            classes
+                .split_whitespace()
+                .any(|class| matches!(class, "yield" | "bullseye"))
+        })
+}
+
 /// Non-rendered subtrees whose text must be dropped (CSS, scripts, `<head>`).
 fn is_skip(tag: &str) -> bool {
     matches!(tag, "head" | "script" | "style" | "noscript" | "title")
@@ -448,7 +464,8 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
     let xhtml = close_self_closing_rawtext(xhtml);
     let dom = Html::parse_document(&xhtml);
     let mut buf = String::new();
-    let mut title_offsets: Vec<(usize, bool)> = Vec::new();
+    let mut title_offsets: Vec<(usize, bool, usize)> = Vec::new();
+    let mut open_titles: Vec<(ego_tree::NodeId, usize, bool)> = Vec::new();
     let mut skip_depth = 0usize;
     // Internal anchors, recorded as (byte offset in `buf` where the link text
     // began, href, link text) so each can later be mapped to its split line.
@@ -506,19 +523,30 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                             // are skipped — their buf offsets wouldn't map onto a
                             // row rendered later at `</tr>`.
                             _ if table_depth == 0 => {
-                                if is_block(name) {
+                                if is_line_boundary(e) {
                                     buf.push(SEP);
                                 }
                                 let recipe_title = e.attr("class").is_some_and(|classes| {
                                     classes.split_whitespace().any(|c| {
                                         matches!(
                                             c.to_ascii_lowercase().as_str(),
-                                            "ttl" | "recipe-title" | "recipe_title" | "recipetitle"
-                                        )
+                                            "rt" | "ttl"
+                                                | "recipe-title"
+                                                | "recipe_title"
+                                                | "recipetitle"
+                                        ) || c
+                                            .to_ascii_lowercase()
+                                            .strip_prefix("recipe_title")
+                                            .is_some_and(|suffix| {
+                                                suffix.starts_with(|ch: char| ch.is_ascii_digit())
+                                                    && suffix
+                                                        .chars()
+                                                        .all(|ch| ch.is_ascii_alphanumeric())
+                                            })
                                     })
                                 });
                                 if recipe_title || matches!(name, "h1" | "h2") {
-                                    title_offsets.push((buf.len(), recipe_title));
+                                    open_titles.push((node.id(), buf.len(), recipe_title));
                                 }
                                 if name == "a"
                                     && let Some(href) = e.attr("href")
@@ -560,6 +588,10 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                 _ => {}
             },
             Edge::Close(node) => {
+                if let Some(index) = open_titles.iter().rposition(|(id, _, _)| *id == node.id()) {
+                    let (_, start, recipe) = open_titles.remove(index);
+                    title_offsets.push((start, recipe, buf.len()));
+                }
                 if let Node::Element(e) = node.value() {
                     let name = e.name();
                     if is_skip(name)
@@ -596,7 +628,7 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                                     let text = buf[start..].to_string();
                                     links.push((start, href, text));
                                 }
-                                if is_block(name) {
+                                if is_line_boundary(e) {
                                     buf.push(SEP);
                                 }
                             }
@@ -634,10 +666,15 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
             out.push(CleanLine {
                 recipe_title: title_offsets
                     .iter()
-                    .any(|(off, recipe)| *recipe && *off >= line_start && *off < line_end),
+                    .any(|(off, recipe, _)| *recipe && *off >= line_start && *off < line_end),
                 heading: title_offsets
                     .iter()
-                    .any(|(off, _)| *off >= line_start && *off < line_end),
+                    .any(|(off, _, _)| *off >= line_start && *off < line_end),
+                heading_text: title_offsets
+                    .iter()
+                    .filter(|(off, _, _)| *off >= line_start && *off < line_end)
+                    .max_by_key(|(_, _, end)| *end)
+                    .map(|(start, _, end)| normalize_ws(&buf[*start..*end].replace(SEP, " "))),
                 text,
                 links: line_links,
                 images: Vec::new(),
@@ -750,6 +787,7 @@ mod tests {
             CleanLine {
                 recipe_title: false,
                 heading: false,
+                heading_text: None,
                 text: text.to_string(),
                 links: Vec::new(),
                 images: Vec::new(),
@@ -923,6 +961,7 @@ mod tests {
                 CleanLine {
                     recipe_title: false,
                     heading: false,
+                    heading_text: None,
                     text: "Chocolate Cake".to_string(),
                     links: Vec::new(),
                     images: vec![hero.clone()],
@@ -1062,10 +1101,70 @@ mod boundary_regression {
     use super::*;
 
     #[test]
-    fn marked_long_titles_keep_yields_and_unquantified_ingredients_with_recipe() {
+    fn hard_split_keeps_the_full_multiline_heading_in_its_hint() {
+        let html = format!(
+            "<p class='recipe_title0'>Roasted vegetables<br/><em>The Hard Way</em></p>{}",
+            "<p>Cook gently until tender, then stir.</p>".repeat(1000)
+        );
+        let lines = clean_xhtml_to_lines(&html, "chapter.xhtml");
+        let expected = lines
+            .iter()
+            .map(|l| l.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let chunks = window_chunks(
+            lines
+                .into_iter()
+                .map(|l| ("chapter.xhtml".into(), l))
+                .collect(),
+        );
+        assert!(chunks.len() > 1);
+        assert!(
+            chunks
+                .iter()
+                .skip(1)
+                .all(|c| c.title_hint.as_deref() == Some("Roasted vegetables The Hard Way"))
+        );
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|c| c.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            expected
+        );
+    }
+
+    #[test]
+    fn decorative_metadata_separator_splits_translation_from_yield() {
+        assert_eq!(
+            clean_xhtml_to_text(
+                "<p class='rh1'>Green Sauce <span class='bullseye'><img src='dot.png' /></span> Makes 1 cup</p>"
+            ),
+            "Green Sauce\nMakes 1 cup"
+        );
+    }
+
+    #[test]
+    fn nested_yield_is_separate_from_headnote_without_breaking_inline_text() {
+        let text = clean_xhtml_to_text(
+            "<div class='headnote'>A <em>simple</em> cake. <span class='yield'><span class='bold'>MAKES 6 SERVINGS</span></span></div><div class='IL_item'>1<span>½</span> cups flour</div>",
+        );
+        assert_eq!(text, "A simple cake.\nMAKES 6 SERVINGS\n1½ cups flour");
+    }
+
+    #[rstest::rstest]
+    #[case("ttl")]
+    #[case("recipe_title0")]
+    #[case("recipe_title0b")]
+    #[case("recipe_title1")]
+    fn marked_long_titles_keep_yields_and_unquantified_ingredients_with_recipe(
+        #[case] class: &str,
+    ) {
         let mut html = String::new();
         for i in 0..8 {
-            html.push_str(&format!("<p class='ttl'>Roasted vegetables number {i} with a very long source authored recipe title and sauce</p><p>Serves 4</p><p>salt and freshly ground black pepper</p><p>1 cup vegetables</p><p>{}.</p>", "Cook gently. ".repeat(350)));
+            let class = if i == 0 { "recipe_title" } else { class };
+            html.push_str(&format!("<p class='{class}'>Roasted vegetables number {i} with a very long source authored recipe title and sauce</p><p>Serves 4</p><p>salt and freshly ground black pepper</p><p>1 cup vegetables</p><p>{}.</p>", "Cook gently. ".repeat(350)));
         }
         let lines = clean_xhtml_to_lines(&html, "chapter.xhtml");
         let expected = lines

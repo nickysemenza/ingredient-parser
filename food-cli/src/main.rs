@@ -428,11 +428,29 @@ async fn main() {
                     if !stats.complete {
                         println!("Partial counts: extraction is incomplete");
                     }
-                    for name in &names {
+                    if tables::interactive() {
+                        let rows = names
+                            .iter()
+                            .map(|n| {
+                                vec![
+                                    n.name.clone(),
+                                    n.occurrences.to_string(),
+                                    n.recipes.to_string(),
+                                ]
+                            })
+                            .collect::<Vec<_>>();
                         println!(
-                            "{}\t{} occurrences · {} recipes",
-                            name.name, name.occurrences, name.recipes
+                            "{}",
+                            tables::terminal_table(&["Name", "Occurrences", "Recipes"], &rows)
                         );
+                    }
+                    for name in &names {
+                        if !tables::interactive() {
+                            println!(
+                                "{}\t{} occurrences · {} recipes",
+                                name.name, name.occurrences, name.recipes
+                            );
+                        }
                         for example in &name.examples {
                             print_value(&serde_json::to_value(example)?, format);
                         }

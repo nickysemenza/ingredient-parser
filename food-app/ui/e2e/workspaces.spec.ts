@@ -79,6 +79,10 @@ test.beforeEach(async ({ page }) => {
           reservationUsd: 0.1,
           basis: "Fixture estimate",
         };
+      if (command === "cookbook_results") return { rows: [{
+        latest: { path: data.cookbook.path, title: "Fixture cookbook", model: "test-model", promptVersion: "v8", configurations: ["test-model / v8", "parent-model / v7"], createdAt: null, recipes: 3, completed: 2, total: 10, incomplete: true, reservedUsd: 0.1, newSpendUsd: null, unresolvedUsd: 0.1, qualityFlags: 1 },
+        runs: 2, failedChunks: 0, pendingChunks: 8, contentReviewFlags: 1, processingSuccessRate: 1, attempts: null, failedAttempts: null,
+      }], unreadable: [] };
       if (command === "cookbook_runs")
         return [
           {
@@ -936,4 +940,44 @@ test("source checks expose suspect method text and navigate to its source", asyn
   const source = await page.locator(".source-checks button").textContent();
   await page.locator(".source-checks button").click();
   await expect(page.locator(".document-heading")).toContainText(source ?? "");
+});
+
+test("source checks distinguish processing errors from content warnings", async ({ page }) => {
+  await page.addInitScript(() => {
+    const host = window as unknown as { __FIXTURE_INVOKE__: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
+    const original = host.__FIXTURE_INVOKE__;
+    host.__FIXTURE_INVOKE__ = async (command, args) => {
+      const value = await original(command, args);
+      if (command !== "open_run") return value;
+      const book = value as { documents: { path: string }[] };
+      return { ...book, qualityIssues: [
+        { kind: "failed_chunk", source: book.documents[0].path, chunk: "chunk-failed", recipe: null, message: "Source processing failed. Recipe coverage for this chunk is unresolved.", detail: "request timeout: response deadline exceeded" },
+        { kind: "missing_method", source: book.documents[1].path, chunk: null, recipe: 0, message: "Recipe has ingredients but no method.", detail: "Fixture recipe" },
+      ] };
+    };
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await openExtraction(page);
+  await page.locator(".source-checks summary").click();
+  await expect(page.getByRole("heading", { name: "Processing failures (1)" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Content review (1)" })).toBeVisible();
+  await expect(page.locator(".source-checks")).toContainText("request timeout: response deadline exceeded");
+});
+
+test("model results distinguish partial coverage and open the underlying extraction", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
+  await page.getByRole("button", { name: "Model results", exact: true }).click();
+  const table = page.getByRole("table", { name: "Processing success by book and model" });
+  await expect(table).toContainText("100.0%");
+  await expect(table).toContainText("2/10 complete");
+  await expect(table).toContainText("8 pending");
+  await expect(table).toContainText("Mixed: test-model / v8, parent-model / v7");
+  await expect(table).toContainText("Unknown");
+  await page.getByRole("searchbox", { name: "Filter books or models" }).fill("absent");
+  await expect(page.getByText("No matching books or models.")).toBeVisible();
+  await page.getByRole("searchbox", { name: "Filter books or models" }).fill("parent-model");
+  await table.getByRole("button", { name: /Open Fixture cookbook/ }).click();
+  await expect(page.getByRole("heading", { name: "Extracted result", exact: true })).toBeVisible();
 });

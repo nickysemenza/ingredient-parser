@@ -10,6 +10,13 @@ pub enum Command {
     Runs {
         #[arg(long)]
         book: Option<PathBuf>,
+        #[arg(long)]
+        paths: bool,
+    },
+    /// Compare latest processing results per book, model, and prompt.
+    Results {
+        #[arg(long)]
+        book: Option<PathBuf>,
     },
     /// List curated extraction models and compatibility status.
     Models,
@@ -43,6 +50,8 @@ pub enum Command {
         chunk: Vec<String>,
         #[arg(long, default_value_t = 10.0)]
         budget_usd: f64,
+        #[arg(long, default_value_t = 4, value_parser = clap::value_parser!(u8).range(1..=4))]
+        concurrency: u8,
     },
     /// Inspect a saved run or select one source chunk.
     Show {
@@ -73,7 +82,11 @@ pub enum Command {
         expectations: PathBuf,
     },
     /// Inspect source-to-result matches, unassigned blocks, images, and links.
-    Audit { run: PathBuf },
+    Audit {
+        run: PathBuf,
+        #[arg(long)]
+        attribution: bool,
+    },
     /// Compare saved extraction and parser outputs.
     #[command(alias = "compare")]
     Diff { before: PathBuf, after: PathBuf },
@@ -84,8 +97,11 @@ pub async fn execute(
 ) -> Result<(serde_json::Value, i32), Box<dyn std::error::Error>> {
     let mut code = 0;
     let value = match command {
-        Command::Runs { book } => {
+        Command::Runs { book, .. } => {
             serde_json::to_value(recipe_epub::review::store::list(book.as_deref())?)?
+        }
+        Command::Results { book } => {
+            serde_json::to_value(recipe_epub::review::results::list(book.as_deref())?)?
         }
         Command::Models => serde_json::to_value(recipe_epub::models::catalog())?,
         Command::Inspect { book, chunk } => {
@@ -137,6 +153,7 @@ pub async fn execute(
             cache_dir,
             chunk,
             budget_usd,
+            concurrency,
             dry_run,
         } => {
             let request = recipe_epub::review::ExtractionRequest {
@@ -151,6 +168,7 @@ pub async fn execute(
                     cache_dir: cache_dir.clone(),
                     chunks: chunk.clone(),
                     budget_usd: *budget_usd,
+                    concurrency: usize::from(*concurrency),
                 },
             };
             if *dry_run {
@@ -225,7 +243,14 @@ pub async fn execute(
 
             result
         }
-        Command::Audit { run } => recipe_epub::review::source_audit(&ReviewRun::read(run)?),
+        Command::Audit { run, attribution } => {
+            let run = ReviewRun::read(run)?;
+            if *attribution {
+                recipe_epub::review::source_audit(&run)
+            } else {
+                serde_json::json!({"epub_sha256":run.epub_sha256,"quality_issues":recipe_epub::review::quality::issues(&run)})
+            }
+        }
         Command::Diff { before, after } => {
             recipe_epub::review::diff(&ReviewRun::read(before)?, &ReviewRun::read(after)?)?
         }
@@ -254,6 +279,97 @@ fn run_summary(run: &ReviewRun, path: Option<&std::path::Path>) -> serde_json::V
 
 /// Terminal presentation only; history and comparison policy remain shared Rust.
 pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
+    if matches!(command, Command::Results { .. }) {
+        let rows: Vec<Vec<String>> = value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|row| {
+                let r = &row["latest"];
+                let text = |v: &serde_json::Value| {
+                    v.as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| v.to_string())
+                };
+                vec![
+                    text(&r["title"]),
+                    if let Some(configurations) =
+                        r["configurations"].as_array().filter(|c| c.len() > 1)
+                    {
+                        format!(
+                            "Mixed:\n{}",
+                            configurations
+                                .iter()
+                                .map(text)
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        )
+                    } else {
+                        format!("{}\n{}", text(&r["model"]), text(&r["prompt_version"]))
+                    },
+                    row["processing_success_rate"]
+                        .as_f64()
+                        .map(|p| format!("{:.1}%", p * 100.0))
+                        .unwrap_or_else(|| "unknown".into()),
+                    format!(
+                        "{}/{} complete; {} failed; {} pending",
+                        r["completed"], r["total"], row["failed_chunks"], row["pending_chunks"]
+                    ),
+                    format!(
+                        "{} recipes; {} flags",
+                        r["recipes"], row["content_review_flags"]
+                    ),
+                    row["attempts"]
+                        .as_u64()
+                        .map(|n| format!("{n} calls; {} failed", row["failed_attempts"]))
+                        .unwrap_or_else(|| "unknown".into()),
+                    format!(
+                        "{} new / ${:.4} unresolved / {} inherited reservation",
+                        r["new_spend_usd"]
+                            .as_f64()
+                            .map(|v| format!("${v:.4}"))
+                            .unwrap_or_else(|| "unknown".into()),
+                        r["unresolved_usd"].as_f64().unwrap_or(0.0),
+                        r["inherited_reserved_usd"]
+                            .as_f64()
+                            .map(|v| format!("${v:.4}"))
+                            .unwrap_or_else(|| "unknown".into())
+                    ),
+                ]
+            })
+            .collect();
+        println!(
+            "Latest run per book/model/prompt. Success = completed / (completed + failed) chunks, including cache reuse. Pending chunks excluded. This does not verify recipe fidelity."
+        );
+        if food_cli::tables::interactive() {
+            println!(
+                "{}",
+                food_cli::tables::terminal_table(
+                    &[
+                        "Book",
+                        "Model / prompt",
+                        "Success",
+                        "Book coverage",
+                        "Review",
+                        "Attempts",
+                        "Estimate / unresolved"
+                    ],
+                    &rows
+                )
+            );
+        } else {
+            for row in rows {
+                println!("{}", row.join(" · ").replace('\n', " / "));
+            }
+        }
+        for warning in value["unreadable"].as_array().into_iter().flatten() {
+            eprintln!("Unreadable run: {warning}");
+        }
+        return true;
+    }
+    if food_cli::tables::interactive() && print_table(command, value) {
+        return true;
+    }
     let money = |value: &serde_json::Value| {
         value
             .as_f64()
@@ -354,7 +470,7 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
                 }
             }
             println!(
-                "Use --format json for source block attribution and structured review flags. These signals do not prove complete recipe coverage."
+                "Use --attribution --format json for source block attribution and structured review flags. These signals do not prove complete recipe coverage."
             );
             true
         }
@@ -384,4 +500,200 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
         }
         _ => false,
     }
+}
+
+fn print_table(command: &Command, value: &serde_json::Value) -> bool {
+    let text = |v: &serde_json::Value| -> String {
+        match v {
+            serde_json::Value::Null => "unknown".into(),
+            serde_json::Value::String(s) => s.clone(),
+            _ => v.to_string(),
+        }
+    };
+    let money = |v: &serde_json::Value| {
+        v.as_f64()
+            .map(|n| format!("${n:.4}"))
+            .unwrap_or_else(|| "unknown".into())
+    };
+    let (headers, rows): (Vec<&str>, Vec<Vec<String>>) = match command {
+        Command::Runs { paths, .. } => {
+            let mut headers = vec![
+                "Book / identity",
+                "Status",
+                "Recipes / chunks",
+                "Model / prompt",
+                "Age",
+                "Estimated / reserved",
+                "Flags",
+            ];
+            if *paths {
+                headers.push("Path");
+            }
+            let rows = value
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|r| {
+                    let identity = std::path::Path::new(r["path"].as_str().unwrap_or(""))
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .and_then(|s| s.rsplit("--").next())
+                        .unwrap_or("unknown");
+                    let mut row = vec![
+                        format!("{}\n{}", text(&r["title"]), identity),
+                        text(&r["status"]),
+                        format!(
+                            "{} recipes\n{}/{} chunks",
+                            r["recipes"], r["completed"], r["total"]
+                        ),
+                        format!("{}\n{}", text(&r["model"]), text(&r["prompt_version"])),
+                        r["created_at"]
+                            .as_u64()
+                            .map(|t| {
+                                format!(
+                                    "{}h",
+                                    recipe_epub::review::store::now().saturating_sub(t) / 3600
+                                )
+                            })
+                            .unwrap_or_else(|| "unknown".into()),
+                        format!(
+                            "{} estimated\n{} unresolved",
+                            money(&r["new_spend_usd"]),
+                            money(&r["unresolved_usd"])
+                        ),
+                        text(&r["quality_flags"]),
+                    ];
+                    if *paths {
+                        row.push(text(&r["path"]));
+                    }
+                    row
+                })
+                .collect();
+            (headers, rows)
+        }
+        Command::Models => (
+            vec!["Model", "Transport", "Availability"],
+            value
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|r| {
+                    vec![
+                        format!("{}\n{}", text(&r["label"]), text(&r["id"])),
+                        text(&r["transport"]),
+                        format!(
+                            "{}\n{}",
+                            if r["enabled"].as_bool() == Some(true) {
+                                "Available"
+                            } else {
+                                "Unavailable"
+                            },
+                            text(&r["status"])
+                        ),
+                    ]
+                })
+                .collect(),
+        ),
+        Command::Audit { .. } => (
+            vec!["Kind", "Source / chunk", "Finding"],
+            value["quality_issues"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|r| {
+                    vec![
+                        text(&r["kind"]),
+                        format!(
+                            "{}\n{}",
+                            text(&r["source"]),
+                            r["chunk"].as_str().unwrap_or("")
+                        ),
+                        format!(
+                            "{}\n{}",
+                            text(&r["message"]),
+                            r["detail"].as_str().unwrap_or("")
+                        ),
+                    ]
+                })
+                .collect(),
+        ),
+        Command::Extract { dry_run: true, .. } => (
+            vec!["Preflight", "Value"],
+            [
+                "total",
+                "cached",
+                "pending",
+                "estimated_low_usd",
+                "estimated_high_usd",
+                "reservation_usd",
+                "basis",
+            ]
+            .iter()
+            .map(|key| {
+                vec![
+                    key.replace('_', " "),
+                    if key.ends_with("usd") {
+                        money(&value[key])
+                    } else {
+                        text(&value[key])
+                    },
+                ]
+            })
+            .collect(),
+        ),
+        Command::Diff { .. } => (
+            vec!["Comparison", "Before", "After"],
+            ["model", "status", "recipes", "cost"]
+                .iter()
+                .map(|key| {
+                    vec![
+                        key.to_string(),
+                        text(&value[format!("before_{key}")]),
+                        text(&value[format!("after_{key}")]),
+                    ]
+                })
+                .chain(std::iter::once(vec![
+                    "Changed sources".into(),
+                    value["changed_sources"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(&text)
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                    String::new(),
+                ]))
+                .collect(),
+        ),
+        Command::Show { summary: true, .. } => (
+            vec!["Extraction", "Value"],
+            vec![
+                vec!["Status".into(), text(&value["status"])],
+                vec!["Recipes".into(), text(&value["recipes"])],
+                vec![
+                    "Chunks".into(),
+                    format!("{}/{}", value["completed_chunks"], value["chunks"]),
+                ],
+                vec!["Spent/reserved".into(), money(&value["reserved_usd"])],
+                vec!["Source".into(), text(&value["source"])],
+            ]
+            .into_iter()
+            .chain(value["failures"].as_array().into_iter().flatten().map(|f| {
+                vec![
+                    text(&f["id"]),
+                    f["error"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .split("; selection=")
+                        .next()
+                        .unwrap_or("unknown")
+                        .into(),
+                ]
+            }))
+            .collect(),
+        ),
+        _ => return false,
+    };
+    println!("{}", food_cli::tables::terminal_table(&headers, &rows));
+    true
 }

@@ -182,38 +182,20 @@ impl ExtractionAccounting {
 }
 
 pub(crate) fn cost_for_usage(model: &str, u: &Usage) -> Option<f64> {
-    let (input, output) = price_per_mtok(model)?;
-    let cached_rate = match model {
-        "@cf/moonshotai/kimi-k2.6" => 0.16,
-        "@cf/moonshotai/kimi-k2.7-code" => 0.19,
-        _ => input * 0.1,
-    };
+    let rates = crate::models::rates(model)?;
     Some(
-        (u.input_tokens as f64 * input
-            + u.cache_creation_input_tokens as f64 * input * 1.25
-            + u.cache_read_input_tokens as f64 * cached_rate
-            + u.output_tokens as f64 * output)
+        (u.input_tokens as f64 * rates.input
+            + u.cache_creation_input_tokens as f64 * rates.cache_write
+            + u.cache_read_input_tokens as f64 * rates.cache_read
+            + u.output_tokens as f64 * rates.output)
             / 1_000_000.0,
     )
 }
 
-/// Exact, versioned aliases. Unknown future versions must never inherit an old rate.
+/// Exact catalog IDs only. Unknown future versions never inherit an old rate.
+#[cfg(any(feature = "native", test))]
 pub(crate) fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
-    match model {
-        "gemini-3.5-flash-lite" => Some((0.30, 2.50)),
-        "claude-sonnet-5" => Some((2.0, 10.0)),
-        "gpt-5.6-luna" => Some((0.20, 1.20)),
-        "@cf/moonshotai/kimi-k2.6" | "@cf/moonshotai/kimi-k2.7-code" => Some((0.95, 4.0)),
-        "gemini-3.7-flash" => Some((0.75, 3.75)),
-        "claude-haiku-4-5" | "claude-haiku-4-5-20251001" => Some((1.0, 5.0)),
-        "claude-sonnet-4-5" | "claude-sonnet-4-6" => Some((3.0, 15.0)),
-        "claude-opus-4-5" | "claude-opus-4-5-20251101" => Some((5.0, 25.0)),
-        "gemini-2.5-flash-lite" | "gemini-2.5-flash-lite-preview" => Some((0.10, 0.40)),
-        "gemini-2.5-flash" | "gemini-2.5-flash-002" => Some((0.30, 2.50)),
-        "gemini-2.0-flash-lite" => Some((0.075, 0.30)),
-        "gemini-2.0-flash" => Some((0.10, 0.40)),
-        _ => None,
-    }
+    crate::models::rates(model).map(|r| (r.input, r.output))
 }
 
 #[cfg(test)]

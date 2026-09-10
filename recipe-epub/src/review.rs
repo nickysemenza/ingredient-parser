@@ -12,6 +12,7 @@ use std::{
 
 pub mod preflight;
 pub mod quality;
+pub mod results;
 pub mod stats;
 pub mod store;
 mod workflow;
@@ -241,6 +242,8 @@ pub struct RunOptions {
     pub cache_dir: Option<PathBuf>,
     pub chunks: Vec<String>,
     pub budget_usd: f64,
+    /// Zero uses the default four-worker pool.
+    pub concurrency: usize,
 }
 
 /// Bounded calls reserve budget and checkpoint before requests and after each result.
@@ -431,7 +434,14 @@ async fn extract_run_with_transport<E: RecipeExtractor>(
             waiting.len()
         };
         for _ in 0..candidates {
-            if results.len() >= 4 || control.is_cancelled() {
+            if results.len()
+                >= (if options.concurrency == 0 {
+                    4
+                } else {
+                    options.concurrency.clamp(1, 4)
+                })
+                || control.is_cancelled()
+            {
                 break;
             }
             let Some(((i, key), reserved)) = waiting.pop_front() else {
@@ -467,7 +477,9 @@ async fn extract_run_with_transport<E: RecipeExtractor>(
                         ..Usage::default()
                     },
                 ),
-                rate_date: "2026-09-09".into(),
+                rate_date: crate::models::pricing_checked(&run.model)
+                    .unwrap_or_default()
+                    .into(),
                 rate_source: crate::models::pricing_source(&run.model).map(str::to_owned),
                 status: "pending".into(),
             });
@@ -477,14 +489,18 @@ async fn extract_run_with_transport<E: RecipeExtractor>(
             run.chunks[i].request_identity = Some(key.clone());
             run.chunks[i].model = Some(run.model.clone());
             run.chunks[i].prompt_version = Some(run.prompt_version.clone());
-            run.chunks[i].output = None;
+            let removed_output = run.chunks[i].output.take().is_some();
             if options.refresh {
                 run.chunks[i].usage = Usage::default();
             }
             run.chunks[i].error =
                 Some("request pending; reservation retained if interrupted".into());
+            // Admission changes accounting only unless replacing an existing
+            // output. Avoid reparsing the entire book before every request.
             // Persist before the future can be polled and send a request.
-            run.replay()?;
+            if removed_output {
+                run.replay()?;
+            }
             if let Some(metadata) = &mut run.metadata {
                 metadata.updated_at = Some(store::now());
             }
@@ -1103,9 +1119,10 @@ pub fn source_audit(run: &ReviewRun) -> serde_json::Value {
                 }
             }
         }
+        let fields: Vec<_> = fields.into_iter().map(|(path, text)| (path, norm(&text))).collect();
         let blocks: Vec<_> = doc.blocks.iter().map(|block| {
             let needle = norm(&block.text);
-            let matches: Vec<_> = fields.iter().filter(|(_,text)|!needle.is_empty() && norm(text).contains(&needle)).map(|(path,_)|path).collect();
+            let matches: Vec<_> = fields.iter().filter(|(_,text)|!needle.is_empty() && text.contains(&needle)).map(|(path,_)|path).collect();
             serde_json::json!({"id":block.id,"text":block.text,"fields":matches,"links":block.links})
         }).collect();
         serde_json::json!({"source":doc.path,"blocks":blocks,"images":doc.images})

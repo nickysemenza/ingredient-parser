@@ -48,18 +48,46 @@ fn method_like_note(note: &str) -> bool {
 
 pub fn issues(run: &ReviewRun) -> Vec<QualityIssue> {
     let mut issues = vec![];
+    let ingredient_lines: std::collections::HashMap<_, std::collections::HashSet<_>> = run
+        .documents
+        .iter()
+        .map(|doc| {
+            (
+                doc.path.as_str(),
+                doc.blocks
+                    .iter()
+                    .filter(|block| crate::source::is_ingredient_block(block))
+                    .map(|block| crate::extractor::normalize_source_whitespace(&block.text))
+                    .collect(),
+            )
+        })
+        .collect();
     for (i, chunk) in run.chunks.iter().enumerate() {
         if chunk.output.is_none() {
-            let failed = chunk
-                .error
-                .as_deref()
-                .is_some_and(|e| e != "cache miss (network disabled)");
+            let failed = chunk.error.as_deref().is_some_and(|e| {
+                e != "cache miss (network disabled)"
+                    && e != "request pending; reservation retained if interrupted"
+            });
             issues.push(QualityIssue {
-                kind: if failed { "failed_chunk" } else { "unextracted_chunk" }.into(),
-                source: chunk.source.doc_path.clone(), chunk: Some(chunk.id.clone()), recipe: None,
-                message: if failed { "This source chunk could not be extracted; recipes or recipe parts may be missing." }
-                    else { "This source chunk has not been extracted; its recipe coverage is unknown." }.into(),
-                detail: None,
+                kind: if failed {
+                    "failed_chunk"
+                } else {
+                    "unextracted_chunk"
+                }
+                .into(),
+                source: chunk.source.doc_path.clone(),
+                chunk: Some(chunk.id.clone()),
+                recipe: None,
+                message: if failed {
+                    "Source processing failed. Recipe coverage for this chunk is unresolved."
+                } else {
+                    "This source chunk has not been extracted; its recipe coverage is unknown."
+                }
+                .into(),
+                detail: chunk
+                    .error
+                    .as_deref()
+                    .map(|e| e.split("; selection=").next().unwrap_or(e).to_owned()),
             });
             continue;
         }
@@ -107,6 +135,13 @@ pub fn issues(run: &ReviewRun) -> Vec<QualityIssue> {
             issues.push(QualityIssue { kind: "missing_method".into(), source: source.clone(), chunk: None, recipe: Some(i), message: "This recipe has ingredients but no method. Check the source and adjacent chunks.".into(), detail: Some(recipe.meta.title.clone()) });
         }
         for section in &recipe.sections {
+            if let Some(name) = &section.name
+                && ingredient_lines.get(source.as_str()).is_some_and(|lines| {
+                    lines.contains(&crate::extractor::normalize_source_whitespace(name))
+                })
+            {
+                issues.push(QualityIssue { kind: "possible_ingredient_as_heading".into(), source: source.clone(), chunk: None, recipe: Some(i), message: "An ingredient-styled source line is used as a section heading. Check whether an ingredient is missing from the list.".into(), detail: Some(name.clone()) });
+            }
             if !section.ingredients.is_empty()
                 && section.name.as_deref().is_some_and(|name| {
                     matches!(
@@ -126,6 +161,13 @@ pub fn issues(run: &ReviewRun) -> Vec<QualityIssue> {
         {
             issues.push(QualityIssue { kind: "possible_method_in_notes".into(), source: source.clone(), chunk: None, recipe: Some(i), message: "Possible method step stored in notes. Check whether this action is required or optional.".into(), detail: Some(note.clone()) });
         }
+        for note in &recipe.meta.notes {
+            if ingredient_lines.get(source.as_str()).is_some_and(|lines| {
+                lines.contains(&crate::extractor::normalize_source_whitespace(note))
+            }) {
+                issues.push(QualityIssue { kind: "possible_ingredient_in_notes".into(), source: source.clone(), chunk: None, recipe: Some(i), message: "An ingredient-styled source line is stored in notes. Check ingredient coverage and grouping.".into(), detail: Some(note.clone()) });
+            }
+        }
     }
     issues
 }
@@ -133,6 +175,59 @@ pub fn issues(run: &ReviewRun) -> Vec<QualityIssue> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ingredient_styled_notes_are_visible_as_content_issues()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut run = ReviewRun::inspect(
+            &recipe_epub_fixtures::cookbook_epub()?,
+            "book",
+            "gemini-2.5-flash",
+        )?;
+        run.documents.push(crate::source::SourceDocument {
+            path: "ingredients.xhtml".into(),
+            anchors: vec![],
+            images: vec![],
+            blocks: vec![crate::source::SourceBlock {
+                id: "item".into(),
+                element_index: 0,
+                anchor: None,
+                tag: "p".into(),
+                classes: "IL_item".into(),
+                text: "Salsa Roja, for serving".into(),
+                links: vec![],
+            }],
+        });
+        run.recipes.push(serde_json::from_value(serde_json::json!({
+            "meta":{"title":"Tacos","notes":["Salsa Roja, for serving", "Prepare ahead if desired"]},
+            "sections":[],"source":"book","url":"book#ingredients.xhtml","references":[]
+        }))?);
+        let checks = issues(&run);
+        let misplaced: Vec<_> = checks
+            .iter()
+            .filter(|i| i.kind == "possible_ingredient_in_notes")
+            .collect();
+        assert_eq!(misplaced.len(), 1);
+        assert_eq!(
+            misplaced[0].detail.as_deref(),
+            Some("Salsa Roja, for serving")
+        );
+        run.recipes[0].meta.notes.clear();
+        let mut section = crate::RecipeSection::new(vec!["1 egg".into()], vec![]);
+        section.name = Some("Salsa Roja, for serving".into());
+        run.recipes[0].sections.push(section);
+        assert!(
+            issues(&run)
+                .iter()
+                .any(|i| i.kind == "possible_ingredient_as_heading")
+        );
+        run.recipes[0].sections[0].name = Some("To serve".into());
+        assert!(
+            !issues(&run)
+                .iter()
+                .any(|i| i.kind == "possible_ingredient_as_heading")
+        );
+        Ok(())
+    }
     #[test]
     fn flags_method_shaped_notes_without_reclassifying_source()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -142,6 +237,10 @@ mod tests {
             "gemini-2.5-flash",
         )?;
         assert!(issues(&run).iter().all(|i| i.kind == "unextracted_chunk"));
+        run.chunks[0].error = Some("request pending; reservation retained if interrupted".into());
+        assert!(issues(&run).iter().all(|i| i.kind == "unextracted_chunk"));
+        run.chunks[0].error = Some("request timeout".into());
+        assert!(issues(&run).iter().any(|i| i.kind == "failed_chunk"));
         run.chunks[0].output = Some(vec![]);
         run.chunks[0].source.title_hint = Some("Prior recipe".into());
         assert!(

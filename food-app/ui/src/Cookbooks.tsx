@@ -1,3 +1,4 @@
+import { ModelResults } from "./ModelResults";
 import type { ModelChoice, ExtractionPreview, SavedRun } from "./generated";
 import { RecipeScale } from "@ingredient-parser/recipe-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -111,6 +112,7 @@ export function Cookbooks({
   const [stopping, setStopping] = useState(false);
   const [comparePaths, setComparePaths] = useState<string[]>([]);
   const [savedRuns, setSavedRuns] = useState<SavedRun[]>([]);
+  const [showResults, setShowResults] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showExtraction, setShowExtraction] = useState(false);
   const [allowNetwork, setAllowNetwork] = useState(true);
@@ -164,6 +166,8 @@ export function Cookbooks({
     !loading &&
     view === "Review" &&
     !showLibrary &&
+    !showHistory &&
+    !showResults &&
     !showExtraction;
   const statusMessage =
     loading ||
@@ -204,6 +208,7 @@ export function Cookbooks({
     setBook(next);
     setShowLibrary(false);
     setShowHistory(false);
+    setShowResults(false);
     setResumeRun(false);
     setStopping(false);
     setRefresh(false);
@@ -268,6 +273,7 @@ export function Cookbooks({
   const browseLibrary = async () => {
     if (running.current || !(await protect())) return;
     setShowHistory(false);
+    setShowResults(false);
     await run(
       "Loading cookbook library…",
       () => api.library(libraryDirectory),
@@ -1041,12 +1047,17 @@ export function Cookbooks({
           disabled={!!loading}
           onClick={() => {
             setShowLibrary(false);
+            setShowResults(false);
             setShowHistory(!showHistory);
           }}
         >
           Extraction history
         </button>
+        <button disabled={!!loading} aria-pressed={showResults} onClick={() => {
+          setShowLibrary(false); setShowHistory(false); setShowResults(!showResults);
+        }}>Model results</button>
       </div>
+      {showResults && <ModelResults onOpen={(path) => { setShowResults(false); void openRecent(path); }} />}
       {showHistory && (
         <section className="library run-history">
           <h2>Extraction history</h2>
@@ -1094,6 +1105,7 @@ export function Cookbooks({
                 <button
                   onClick={() => {
                     setShowHistory(false);
+    setShowResults(false);
                     void openRecent(r.path);
                   }}
                 >
@@ -1226,7 +1238,7 @@ export function Cookbooks({
           </div>
         </section>
       )}
-      {!book && !showLibrary && !showHistory && !loading && (
+      {!book && !showLibrary && !showHistory && !showResults && !loading && (
         <div className="empty">
           <BookOpen size={34} />
           <h2>Your cookbooks</h2>
@@ -1243,12 +1255,18 @@ export function Cookbooks({
           </div>
         </div>
       )}
-      {book?.path && !showLibrary && !showHistory && (book.qualityIssues?.length ?? 0) > 0 && (
+      {book?.path && !showLibrary && !showHistory && !showResults && (book.qualityIssues?.length ?? 0) > 0 && (
         <details className="source-checks">
           <summary>Source checks: {book.qualityIssues.filter((i) => i.kind === "unextracted_chunk").length} unextracted chunks · {book.qualityIssues.filter((i) => i.kind !== "unextracted_chunk").length} review flags</summary>
           <p>These checks identify possible gaps and misplaced content. They do not verify that every recipe is complete.</p>
+          {[
+            { label: "Processing failures", issues: book.qualityIssues.filter((i) => i.kind === "failed_chunk") },
+            { label: "Unprocessed source", issues: book.qualityIssues.filter((i) => i.kind === "unextracted_chunk") },
+            { label: "Content review", issues: book.qualityIssues.filter((i) => i.kind !== "failed_chunk" && i.kind !== "unextracted_chunk") },
+          ].filter((group) => group.issues.length > 0).map((group) => <section key={group.label}>
+          <h3>{group.label} ({group.issues.length})</h3>
           <ul>
-            {book.qualityIssues.map((issue, index) => <li key={`${issue.kind}-${index}`}>
+            {group.issues.map((issue, index) => <li key={`${issue.kind}-${index}`}>
               <button onClick={() => {
                 const i = book.documents.findIndex((d) => d.path === issue.source);
                 if (i >= 0) { void selectDocument(i); setView("Review"); }
@@ -1257,11 +1275,12 @@ export function Cookbooks({
               {issue.detail && <blockquote>{issue.detail}</blockquote>}
             </li>)}
           </ul>
+          </section>)}
         </details>
       )}
       {book &&
         !showLibrary &&
-        !showHistory &&
+        !showHistory && !showResults &&
         (view !== "Review" ? (
           <section className="tool-view">
             <button className="back" onClick={() => setView("Review")}>
