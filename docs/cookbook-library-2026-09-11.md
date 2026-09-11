@@ -131,6 +131,81 @@ What the worst books had in common, and what changed:
   South (100% recall, 333 references) outranked books that lost recipes;
   now 0.1.
 
+## New answer keys
+
+Four of the sample's worst books, chosen for shapes the six did not cover,
+were labelled from their HTML by Opus subagents (the run only seeded the
+skeleton's candidates; every count came from the markup):
+
+| Key | Shape | Recipes | What the markup taught |
+|---|---|---|---|
+| Thai Food Made Easy | calibre-page-split | 100 | one `div.chapter` per recipe cut into three files (photo, recipe, sidebar); `p.serves` used for yield, group label and step alike; dot leaders and bare "preparation"/"cooking" labels on every recipe |
+| Bi-Rite Market's Eat Good Food | publisher-div-based | 89 | one `div.recipe` with a fixed child sequence; the contents interleave product sections with recipes, so a contents-only recall would count "Flour" and "Beef" as missing recipes |
+| The Little Paris Kitchen | publisher-classes | 117 + 3 variants | each ingredient list is one paragraph with `•` between the items, which no quantity heuristic could see; the contents list chapters only |
+| The Slanted Door | publisher-div-based | 109 | no `<p>` at all; the c04 contents anchors are off by one (the "Chicken Stock" entry points at the chapter header), and three dessert recipes sit right after two stacked non-recipe headings |
+
+Scored from the cache before any further change: Bi-Rite 100% recall, no
+phantoms, samples 50% (photo counts, where the key counts the next recipe's
+lead photo inside the block); Slanted Door 100% recall with two phantoms
+("GINGER SYRUP" and "HONEY SYRUP", sub-recipes with their own lists inside
+cocktails, a judgment call the key treats as sections); Thai Food 78% with
+three chunks failing on bare timing labels and two "phantoms" that are the
+same recipe with its subtitle joined on ("Pineapple with caramelised chilli
+sauce" for the heading "Pineapple"); The Little Paris Kitchen 39%, the
+bullet-paragraph shape.
+
+Three changes followed: bare timing labels ("preparation", "cooking",
+"3 minutes (per batch)") are furniture; the cleaner splits a paragraph of
+three or more bulleted, mostly quantity-like items into one line per item;
+and title matching pairs exact titles first and then lets a one-word title
+take a joined subtitle of two or more words. Re-scored with a two-model
+ladder while Luna was unavailable: **Thai Food 78% → 99%** (one missing,
+two label phantoms), **The Little Paris Kitchen 39% → 94%** (seven missing,
+no phantoms). The bullet split changes the chunk text of every book that
+prints bullets, so those books cost a real re-run; a partial re-sweep
+under a $3 ceiling (14 of the 25 books, two-model ladder, before the last
+label rule) reached 98.9% mean contents recall on the nine scorable books
+against 94.6% before, and is not otherwise comparable.
+
+The six earlier keys had their judgment calls resolved from the HTML too:
+Flour Water Salt Yeast's three worked-example formulas are `not_recipes`
+(tables with commentary and no method) while "FEEDING YOUR LEVAIN", which
+has a bulleted list and a method, is a recipe; Zuni's "HOUSE-CURED PORK
+CHOP & TENDERLOIN…" is a recipe and "THE BASIC BRINE" its ingredient
+section; Bouchon's "Eclairs" is a family head like "Macarons". Nothing
+Fancy and Pok Pok were already right.
+
+## What the phase found about the providers
+
+GPT 5.6 Luna is billed through the account's own OpenAI key, not the
+gateway's unified billing, and that key ran out of credit mid-phase: every
+Luna call answered 429 "You have no credits remaining", and the run burned
+three backoff retries per chunk before falling to Haiku, which is why the
+second live six-book eval came in at 97.2% recall and 280 s for Pok Pok.
+That message now exhausts the model for the run at the first refusal. The
+clean gate number for this phase needs the key topped up (or a two-model
+ladder), so the last measurements below use `gemini-2.5-flash,
+claude-haiku-4-5`.
+
+## Where it stands
+
+Live, `--no-cache`, default ladder (Gemini at low reasoning, Luna, Haiku), the six original keys and the four new ones, after every commit above:
+
+| Book | Recall | Missing | Phantoms | Leaks | Samples | Wall | Cost |
+|---|---|---|---|---|---|---|---|
+| Bi-Rite Market's Eat Good Food | 100.0% | 0 | 0 | 0 | 62% | 84 s | $0.24 |
+| Bouchon Bakery | 97.9% | 3 | 1 | 1 | 88% | 119 s | $0.19 |
+| Dessert Person | 100.0% | 0 | 0 | 0 | 100% | 45 s | $0.15 |
+| Flour Water Salt Yeast | 97.4% | 1 | 0 | 0 | 88% | 87 s | $0.10 |
+| The Little Paris Kitchen | 94.0% | 7 | 0 | 0 | 38% | 48 s | $0.11 |
+| Nothing Fancy | 100.0% | 0 | 0 | 0 | 100% | 41 s | $0.09 |
+| Pok Pok_ Food and Stories From the | 98.9% | 1 | 0 | 0 | 50% | 108 s | $0.22 |
+| The Slanted Door | 100.0% | 0 | 2 | 0 | 62% | 51 s | $0.08 |
+| Thai Food Made Easy | 99.0% | 1 | 4 | 4 | 0% | 81 s | $0.44 |
+| The Zuni Cafe Cookbook_ A Compendi | 99.0% | 2 | 0 | 0 | 75% | 62 s | $0.24 |
+
+Mean contents recall **98.6%** over ten books (98.4% over six before this pass), 7 phantoms (8 before, over six), max wall **119 s** (183 s before), $1.88 for ten books. The gate still fails on five leaks, all judgment calls between the keys and the extractor: Bouchon's "Eclairs" family head, which the extractor gives the éclair recipe's ingredients, and Thai Food Made Easy's four "6 ways with" entries, prose paragraphs with inline quantities that the model reads as recipes. Slanted Door's two phantoms are cocktail sub-syrups with their own lists.
+
 ## Budget
 
 | Step | Cost |
@@ -139,3 +214,9 @@ What the worst books had in common, and what changed:
 | eval, reasoning none | $3.07 |
 | eval, reasoning low | $1.14 |
 | classify calls (dry runs) | < $0.10 |
+| 25-book sample sweep | $5.63 |
+| live six-book eval, Luna unavailable | $0.82 |
+| Thai Food and Little Paris Kitchen re-scores | $0.75 |
+| partial re-sweep (14 books) | $3.06 |
+| final live ten-book eval | $1.88 |
+| **total** | **≈ $17** of the $25 ceiling |
