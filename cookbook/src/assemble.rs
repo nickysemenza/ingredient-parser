@@ -84,7 +84,7 @@ pub fn assemble(
                 });
                 item = recipe;
             }
-            if item.kind == Kind::Recipe && is_formula_table(book, &item) {
+            if is_formula_table(book, &item) {
                 // A baker's formula printed for comparison, with no method:
                 // kept as prose, not offered as a recipe.
                 item.kind = Kind::Essay;
@@ -508,7 +508,8 @@ fn prose_recipe_to_technique(mut item: ChunkItem) -> ChunkItem {
 /// only table rows as ingredients is a formula listed for comparison, not
 /// something to cook from.
 fn is_formula_table(book: &BookLines, item: &ChunkItem) -> bool {
-    item.kind == Kind::Recipe
+    // A formula printed as a variation of a base recipe is still a formula.
+    matches!(item.kind, Kind::Recipe | Kind::Variation)
         && !item.continues
         && item.step_count() <= 2
         && item.recipe_yield.is_none()

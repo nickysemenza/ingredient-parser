@@ -699,6 +699,7 @@ fn line_json(book: &Book, idx: usize) -> Value {
         "classes": l.clean.classes,
         "heading": l.clean.heading,
         "in_figure": l.clean.in_figure,
+        "transformed": l.clean.transformed,
         "anchors": l.clean.anchors,
         "links": l.clean.links.iter().map(|k| json!({"text": k.text, "href": k.href})).collect::<Vec<_>>(),
         "images": l.clean.images.iter().map(|i| &i.path).collect::<Vec<_>>(),
