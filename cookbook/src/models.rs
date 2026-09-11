@@ -229,15 +229,20 @@ static CATALOG: &[Model] = &[
         pricing_checked: "2026-09-09",
         pricing_source: "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
     },
-    // Workers AI models are priced and routable but disabled until their
-    // timeouts on long chunks are resolved.
+    // Workers AI models are priced and routable but disabled. Probed on
+    // Nothing Fancy on 2026-09-11 (single model, no second opinion or
+    // escalation): the ones that answer take 50-60 s per chunk at the median
+    // and hit the 180 s transport timeout on a few chunks per book, so a
+    // book takes 4-6 minutes; the rest are refused with 402 "Insufficient
+    // wholesale credits" (gateway error 2021), i.e. not covered by unified
+    // billing on this account.
     Model {
         id: "@cf/zai-org/glm-4.7-flash",
         label: "GLM 4.7 Flash",
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
-        status: "Disabled: validation failures and timeouts",
+        status: "Disabled: 402 insufficient wholesale credits (not covered by unified billing)",
         max_output_tokens: 16_000,
         rates: rates!(0.06, 0.40, 0.006, 0.075),
         priors: UNMEASURED,
@@ -250,10 +255,16 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
-        status: "Disabled: timeouts on long chunks",
+        status: "Disabled: 98% recall on Nothing Fancy at $0.07, but 49 s per chunk at the median and timeouts on long chunks (277 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.15, 0.50, 0.03, 0.1875),
-        priors: UNMEASURED,
+        priors: Priors {
+            ttft_ms_p50: 5500,
+            ttft_ms_p90: 10100,
+            output_tps: 58.0,
+            retry_rate: 0.13,
+            measured: "2026-09-11 Nothing Fancy probe",
+        },
         pricing_checked: "2026-09-09",
         pricing_source: CF_PRICING,
     },
@@ -263,10 +274,16 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
-        status: "Disabled: timeouts on long chunks",
+        status: "Disabled: 99% recall on Nothing Fancy but $0.82 per book, 57 s per chunk at the median and timeouts on long chunks (333 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(1.40, 4.40, 0.26, 1.75),
-        priors: UNMEASURED,
+        priors: Priors {
+            ttft_ms_p50: 6500,
+            ttft_ms_p90: 14500,
+            output_tps: 75.0,
+            retry_rate: 0.15,
+            measured: "2026-09-11 Nothing Fancy probe",
+        },
         pricing_checked: "2026-09-09",
         pricing_source: CF_PRICING,
     },
@@ -276,7 +293,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
-        status: "Disabled: timeouts on long chunks",
+        status: "Disabled: 402 insufficient wholesale credits (not covered by unified billing)",
         max_output_tokens: 16_000,
         rates: rates!(0.44, 1.32, 0.014, 0.55),
         priors: UNMEASURED,
@@ -289,7 +306,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
-        status: "Disabled: unevaluated",
+        status: "Disabled: 402 insufficient wholesale credits (not covered by unified billing)",
         max_output_tokens: 16_000,
         rates: rates!(0.10, 0.30, 0.01, 0.125),
         priors: UNMEASURED,
@@ -302,10 +319,16 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
-        status: "Disabled: provider and schema failures",
+        status: "Disabled: 95% recall on Nothing Fancy, 53 s per chunk at the median, timeouts and a 402 on long chunks (272 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.95, 4.00, 0.19, 1.1875),
-        priors: UNMEASURED,
+        priors: Priors {
+            ttft_ms_p50: 11000,
+            ttft_ms_p90: 31000,
+            output_tps: 57.0,
+            retry_rate: 0.13,
+            measured: "2026-09-11 Nothing Fancy probe",
+        },
         pricing_checked: "2026-09-09",
         pricing_source: CF_PRICING,
     },

@@ -17,6 +17,22 @@ Yeast), live through Cloudflare AI Gateway with the chunk cache off.
 gemini-2.5-flash and claude-haiku-4-5 were measured as the head and fallback
 of the previous default ladder rather than alone (below).
 
+### Workers AI (Nothing Fancy only, 29 chunks, 180 s transport timeout)
+
+| Model | Recall | Phantoms | Samples | Cost | Wall | Failures |
+|---|---|---|---|---|---|---|
+| @cf/zai-org/glm-5.3-flash | 98.1% | 0 | 88% | $0.07 | 277 s | 2 timeouts, 2 invalid |
+| @cf/zai-org/glm-5.3 | 99.1% | 0 | 100% | $0.82 | 333 s | 3 timeouts, 2 invalid |
+| @cf/moonshotai/kimi-k2.7-code | 95.4% | 0 | 100% | $0.52 | 272 s | 2 timeouts, 1 `402`, 1 invalid |
+| @cf/deepseek-ai/deepseek-v4-flash-0731, @cf/google/gemma-4-26b-a4b-it, @cf/zai-org/glm-4.7-flash | — | — | — | — | — | Every call `402 Insufficient wholesale credits` (gateway error 2021): not covered by unified billing on this account |
+
+The GLM models read as accurately as the chosen ladder (and produce no
+phantoms on this book), but they answer at 50–60 s per chunk at the median
+(6–11 s to the first token, 57–75 output tokens/s) and a few chunks per book
+outrun the 180 s timeout, so a book takes 4–6 minutes and ends incomplete.
+They stay disabled; `glm-5.3-flash` is the one to revisit if Workers AI gets
+faster, since it is the cheapest accurate reader measured.
+
 ## Priors (fitted `latency = ttft + output_tokens / tps` over every recorded call)
 
 | Model | calls | ttft p50 | ttft p90 | output tok/s | retry rate |
@@ -26,6 +42,9 @@ of the previous default ladder rather than alone (below).
 | gpt-5.6-luna | 314 | 0.6 s | 5.7 s | 100 | 0.20 |
 | claude-sonnet-5 | 49 | 1.4 s | 2.8 s | 155 | 0.15 |
 | gemini-2.5-flash-lite | 48 | 0.5 s | 1.5 s | 297 | 0.69 |
+| @cf/zai-org/glm-5.3 | 28 | 6.5 s | 14.5 s | 75 | 0.15 |
+| @cf/zai-org/glm-5.3-flash | 28 | 5.5 s | 10.1 s | 58 | 0.13 |
+| @cf/moonshotai/kimi-k2.7-code | 27 | 11.0 s | 31.0 s | 57 | 0.13 |
 
 Gemini 2.5 Flash spends most of its latency before the first token (it
 thinks), so a book takes 100–170 s with it at the head even at concurrency
