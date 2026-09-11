@@ -27,3 +27,39 @@ impl Usage {
         *self == Usage::default()
     }
 }
+
+/// USD for `usage` at `model`'s rates; `None` when the model is unpriced.
+pub fn cost_for_usage(model: &crate::models::Model, usage: &Usage) -> Option<f64> {
+    let r = model.rates?;
+    Some(
+        (usage.input_tokens as f64 * r.input
+            + usage.cache_creation_input_tokens as f64 * r.cache_write
+            + usage.cache_read_input_tokens as f64 * r.cache_read
+            + usage.output_tokens as f64 * r.output)
+            / 1e6,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn prices_every_token_class() {
+        let usage = Usage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_read_input_tokens: 1_000_000,
+            cache_creation_input_tokens: 1_000_000,
+        };
+        let m = crate::models::model("claude-haiku-4-5").unwrap();
+        let cost = cost_for_usage(m, &usage).unwrap();
+        assert!((cost - (1.0 + 5.0 + 0.10 + 1.25)).abs() < 1e-9, "{cost}");
+        let mut sum = Usage::default();
+        sum.add(&usage);
+        sum.add(&usage);
+        assert_eq!(sum.output_tokens, 2_000_000);
+        assert!(Usage::default().is_zero());
+    }
+}

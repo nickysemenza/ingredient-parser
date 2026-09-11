@@ -12,18 +12,25 @@
 //! request: native code uses reqwest, the browser hands it to a JavaScript
 //! callback.
 
+pub mod cache;
 pub mod chunk;
-mod cost;
+pub mod contract;
+pub mod cost;
 pub mod epub;
 mod error;
+pub mod gateway;
 pub mod lines;
 pub mod model;
+pub mod models;
 pub mod report;
+pub mod transport;
+pub mod validate;
 
-pub use cost::Usage;
+pub use cost::{Usage, cost_for_usage};
 pub use error::{Error, Result};
 pub use model::*;
 pub use report::*;
+pub use transport::{CancelToken, HttpRequest, HttpResponse, Transport, TransportError};
 
 #[cfg(all(test, feature = "typescript"))]
 mod typescript_tests {
