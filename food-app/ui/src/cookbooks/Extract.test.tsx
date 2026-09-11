@@ -38,6 +38,7 @@ const book: OpenedBook = {
     reasons: ["26 of 67 lines look like quantities (38.8%)"],
     quantity_lines: 26,
     ingredient_runs: 4,
+    solid_runs: 0,
     nav_recipe_titles: 4,
   },
   runs: [],
