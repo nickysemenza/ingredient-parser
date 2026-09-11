@@ -500,9 +500,13 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
         }
     }
 
-    if !lowered.auto_ignored.is_empty() {
+    // Only prose counts. Structural labels and page furniture are auto-ignored
+    // because the models are right to skip them, so flagging their chunk would
+    // buy a second opinion, and eventually a whole-book escalation, for lines
+    // that carry no recipe text.
+    if !lowered.dropped_prose.is_empty() {
         v.soft.push(Flag::UnassignedLines {
-            count: lowered.auto_ignored.len(),
+            count: lowered.dropped_prose.len(),
         });
     }
 
@@ -550,6 +554,7 @@ mod tests {
     use crate::contract::lower;
     use crate::epub::nav::Nav;
     use crate::epub::open::SpineDoc;
+    use rstest::rstest;
     use serde_json::{Value, json};
 
     fn book_and_chunk(html: &str) -> (BookLines, Chunk) {
@@ -864,6 +869,31 @@ mod tests {
             Flag::LowAmountParseRate { lines: 6, .. }
         ));
         assert_eq!(v.soft[1], Flag::IngredientLikeIgnored { count: 4 });
+    }
+
+    /// A chunk is flagged for the prose the model dropped, never for the
+    /// furniture and structural labels the crate auto-ignores on its behalf:
+    /// those would buy a second opinion, and a whole-book escalation, for
+    /// lines that carry no recipe text.
+    #[rstest]
+    #[case("<p>preparation</p><p>10 minutes</p><p>. . . . . .</p>", None)]
+    #[case("<p>Tomatoes ripen on the vine</p><p>and keep for a week</p>", Some(2))]
+    #[case("<p>preparation</p><p>Tomatoes ripen on the vine</p>", Some(1))]
+    fn only_dropped_prose_is_flagged_unassigned(
+        #[case] extra: &str,
+        #[case] expected: Option<usize>,
+    ) {
+        let html = format!("<p>Stew</p><p>2 cups beans</p><p>Simmer it.</p>{extra}");
+        let v = run(
+            &html,
+            json!({"items":[{"title":[0],"sections":[{"ingredients":[1],"steps":[2]}]}]}),
+        );
+        assert!(v.is_ok(), "{:?}", v.hard);
+        let flagged = v.soft.iter().find_map(|f| match f {
+            Flag::UnassignedLines { count } => Some(*count),
+            _ => None,
+        });
+        assert_eq!(flagged, expected, "{:?}", v.soft);
     }
 
     #[test]

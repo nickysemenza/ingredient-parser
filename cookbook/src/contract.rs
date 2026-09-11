@@ -400,6 +400,11 @@ pub struct Lowered {
     pub ignored: Vec<usize>,
     /// Lines the model left out that were quietly added to `ignored`.
     pub auto_ignored: Vec<usize>,
+    /// The subset of `auto_ignored` that carried text: prose the model
+    /// dropped. Structural labels and page furniture are not in here — the
+    /// crate expects the models to skip those, so leaving them out is not
+    /// something to flag or to re-read the book over.
+    pub dropped_prose: Vec<usize>,
 }
 
 /// An answer that cannot be lowered. The message is written for the model: it
@@ -763,6 +768,8 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
         }
         auto_ignored.extend(prose_missing.iter().map(|&i| chunk.global(i)));
     }
+    let mut dropped_prose: Vec<usize> = prose_missing.iter().map(|&i| chunk.global(i)).collect();
+    dropped_prose.sort_unstable();
     auto_ignored.sort_unstable();
     ignored.extend(auto_ignored.iter().copied());
     captions.sort_unstable();
@@ -772,6 +779,7 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
         chapter_headings,
         ignored,
         auto_ignored,
+        dropped_prose,
     })
 }
 
@@ -1363,7 +1371,30 @@ mod tests {
             json!({"items":[{"title":[0,1],"sections":[{"ingredients":[2,4],"steps":[5]}]}]});
         let lowered = lower(&chunk, &book, payload).unwrap();
         assert_eq!(lowered.auto_ignored, [3, 6]);
+        // Only "Paste" is dropped prose; "(V)" has two alphanumerics and is
+        // furniture, which the models are meant to skip.
+        assert_eq!(lowered.dropped_prose, [3]);
         assert!(lowered.ignored.contains(&3) && lowered.ignored.contains(&6));
+    }
+
+    /// Furniture and structural labels are auto-ignored, but they are not
+    /// dropped prose: the models are meant to skip them, so they must not
+    /// end up flagging the chunk.
+    #[test]
+    fn furniture_is_auto_ignored_without_counting_as_dropped_prose() {
+        const TIMED: &[&str] = &[
+            "Soup",
+            "preparation",
+            "10 minutes",
+            ". . . . . .",
+            "1 cup water",
+            "Mix everything.",
+        ];
+        let (book, chunk) = book_and_chunk(TIMED, 0);
+        let payload = json!({"items":[{"title":[0],"sections":[{"ingredients":[4],"steps":[5]}]}]});
+        let lowered = lower(&chunk, &book, payload).unwrap();
+        assert_eq!(lowered.auto_ignored, [1, 2, 3]);
+        assert_eq!(lowered.dropped_prose, [] as [usize; 0]);
     }
 
     #[test]
