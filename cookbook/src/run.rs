@@ -886,9 +886,20 @@ pub async fn run<T: Transport, C: ChunkCache>(
     let mut escalation = None;
     let mut exhausted = false;
     if input.options.whole_book_escalation && !settled_results.is_empty() {
+        // Parse-rate and prose-ingredient flags describe how a book prints
+        // its lists, which a stronger model cannot change; they do not
+        // count towards re-reading the whole book.
         let flagged = settled_results
             .iter()
-            .filter(|r| !r.report.flags.is_empty() || r.lowered.is_none())
+            .filter(|r| {
+                r.lowered.is_none()
+                    || r.report.flags.iter().any(|f| {
+                        !matches!(
+                            f,
+                            Flag::ProseIngredients { .. } | Flag::LowAmountParseRate { .. }
+                        )
+                    })
+            })
             .count();
         let fraction = flagged as f32 / settled_results.len() as f32;
         let low_recall = check.recall.is_some_and(|r| r < ESCALATION_RECALL_FLOOR);

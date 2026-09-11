@@ -140,16 +140,24 @@ fn nav_recipe_entries(book: &BookLines, nav: &Nav) -> Vec<(usize, String, usize)
             .map(|(_, l)| *l)
     };
     let mut out = Vec::new();
-    for entry in &nav.entries {
+    for (index, entry) in nav.entries.iter().enumerate() {
         let Some(line) = line_of(entry.order) else {
             continue;
         };
-        // A chapter whose first recipe shares its target line (an entry
-        // without a fragment) is a container, not that recipe.
+        if is_front_matter(&entry.label) {
+            continue;
+        }
+        // An entry with entries nested under it is a chapter or a section,
+        // not a recipe, whether or not the first of them shares its target
+        // line (an entry without a fragment).
         let container = nav
             .entries
-            .iter()
-            .any(|e| e.depth > entry.depth && line_of(e.order) == Some(line));
+            .get(index + 1)
+            .is_some_and(|next| next.depth > entry.depth)
+            || nav
+                .entries
+                .iter()
+                .any(|e| e.depth > entry.depth && line_of(e.order) == Some(line));
         if container {
             continue;
         }
@@ -169,6 +177,42 @@ fn nav_recipe_entries(book: &BookLines, nav: &Nav) -> Vec<(usize, String, usize)
         }
     }
     out
+}
+
+/// Contents entries that are never recipes whatever follows them.
+fn is_front_matter(label: &str) -> bool {
+    let l = label.trim().to_ascii_lowercase();
+    let l = l.trim_end_matches(['.', ':']);
+    matches!(
+        l,
+        "cover"
+            | "title page"
+            | "half title"
+            | "copyright"
+            | "copyright page"
+            | "contents"
+            | "table of contents"
+            | "dedication"
+            | "epigraph"
+            | "foreword"
+            | "preface"
+            | "introduction"
+            | "acknowledgments"
+            | "acknowledgements"
+            | "index"
+            | "glossary"
+            | "resources"
+            | "sources"
+            | "bibliography"
+            | "notes"
+            | "about the author"
+            | "about the authors"
+            | "also by the author"
+            | "conversion chart"
+            | "conversion charts"
+            | "measurement conversions"
+    ) || l.starts_with("also by ")
+        || l.starts_with("praise for ")
 }
 
 /// The nav entries that name recipes, as `(title, line)`.

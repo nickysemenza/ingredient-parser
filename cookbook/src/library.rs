@@ -364,7 +364,7 @@ pub fn problem_score(row: &BookRow) -> f32 {
         + row.phantoms.len() as f32 * 2.0
         + row.failed_chunks as f32 * 10.0
         + flagged
-        + row.unresolved_refs as f32 * 0.5
+        + row.unresolved_refs as f32 * 0.1
         + parse_loss
         + row.incomplete as u8 as f32 * 50.0
         + failed
@@ -591,7 +591,7 @@ impl LibraryReport {
         let _ = writeln!(out, "\n## Reading the signals\n");
         let _ = writeln!(
             out,
-            "Score = (1 − recall) × 100 + phantoms × 2 + failed chunks × 10 + flagged/chunks × 10 + unresolved refs × 0.5 + (1 − parse rate) × 20 + incomplete × 50 + failed × 100.\n"
+            "Score = (1 − recall) × 100 + phantoms × 2 + failed chunks × 10 + flagged/chunks × 10 + unresolved refs × 0.1 + (1 − parse rate) × 20 + incomplete × 50 + failed × 100.\n"
         );
         let _ = writeln!(out, "| Signal | Look in |\n|---|---|");
         for (signal, module) in SIGNAL_LEGEND {

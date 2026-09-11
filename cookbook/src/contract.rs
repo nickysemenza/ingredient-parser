@@ -446,6 +446,43 @@ fn unwrap_string_payload(payload: Value) -> Result<Value, Invalid> {
     }
 }
 
+/// `Doubanjiang: This spicy fermented bean paste…` → `Doubanjiang`; a
+/// paragraph without a lead-in keeps its first eight words.
+fn title_from_prose(text: &str) -> String {
+    let t = text.trim();
+    if let Some((lead, _)) = t.split_once(':')
+        && !lead.trim().is_empty()
+        && lead.len() <= 48
+    {
+        return lead.trim().to_string();
+    }
+    let words: Vec<&str> = t.split_whitespace().take(8).collect();
+    let mut short = words.join(" ");
+    if short.len() < t.len() {
+        short = short.trim_end_matches([',', ';', ':', '.']).to_string();
+        short.push('…');
+    }
+    short
+}
+
+/// Page furniture the models rightly skip: dot leaders and rules, one or
+/// two characters, a bare time ("10 minutes", "1 hr"), a table cell of
+/// symbols and a number ("* 6 * PLACE").
+fn is_furniture(text: &str) -> bool {
+    let t = text.trim();
+    let alnum = t.chars().filter(|c| c.is_alphanumeric()).count();
+    if alnum <= 2 {
+        return true;
+    }
+    static TIME: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i)^(about\s+)?\d+([–-]\d+)?\s*(minutes?|mins?|hours?|hrs?|h|min|seconds?)\.?$",
+        )
+        .unwrap_or_else(|e| unreachable!("{e}"))
+    });
+    TIME.is_match(t) || (t.starts_with('*') && t.split_whitespace().count() <= 4)
+}
+
 /// Lower a tool answer for `chunk` into text with global line indices.
 pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered, Invalid> {
     let mut payload: Payload = serde_json::from_value(unwrap_string_payload(payload)?)
@@ -500,7 +537,7 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
 
     let mut items = Vec::with_capacity(payload_items.len());
     for (index, mut item) in payload_items.into_iter().enumerate() {
-        let (title, title_lines, continues) = if item.title.is_empty() {
+        let (mut title, mut title_lines, continues) = if item.title.is_empty() {
             if index != 0 {
                 return Err(Invalid(format!(
                     "item {index} has no title; only the first item may continue the previous chunk's recipe"
@@ -532,7 +569,27 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
         dedupe_within_item(&mut item);
         normalize_sections(&mut item);
 
-        let description = take(&item.description, "description", index)?;
+        let mut description = take(&item.description, "description", index)?;
+        // An essay or technique the model titled by its opening paragraph (a
+        // glossary entry, a chapter introduction) keeps the paragraph as text
+        // and takes a short title from it; a recipe titled that way is a
+        // validation fault instead.
+        if matches!(item.kind, Kind::Essay | Kind::Technique)
+            && !continues
+            && title_lines.len() == 1
+            && crate::validate::is_prose(&title)
+        {
+            description.insert(
+                0,
+                Text {
+                    line: title_lines[0],
+                    text: title.clone(),
+                },
+            );
+            title = title_from_prose(&title);
+            title_lines.clear();
+            title_lines.push(description[0].line);
+        }
         let notes = take(&item.notes, "notes", index)?;
         let equipment = take(&item.equipment, "equipment", index)?;
         let yield_lines = take(&item.recipe_yield, "recipe_yield", index)?;
@@ -660,9 +717,10 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
         if line.clean.in_figure {
             // A caption the model skipped is still a caption.
             captions.push(global);
-        } else if is_structural_label(text, line.clean.heading.is_some()) {
-            // Method sub-headings ("MAKE THE PASTE"), bare labels, and
-            // headings carry no recipe text; leaving them out is harmless.
+        } else if is_structural_label(text, line.clean.heading.is_some()) || is_furniture(text) {
+            // Method sub-headings ("MAKE THE PASTE"), bare labels, headings,
+            // and page furniture (dot leaders, "10 minutes", "* 6 *") carry
+            // no recipe text; leaving them out is harmless.
             auto_ignored.push(global);
         } else {
             prose_missing.push(i);
@@ -1201,6 +1259,56 @@ mod tests {
             [None, Some("Paste")]
         );
         assert_eq!(item.notes[0].text, "A translation");
+    }
+
+    /// A glossary entry or chapter introduction offered as an essay title
+    /// keeps the paragraph as text under a short title.
+    #[test]
+    fn prose_titled_essays_take_a_short_title() {
+        let (book, chunk) = book_and_chunk(
+            &[
+                "Doubanjiang: This spicy fermented bean paste is the cornerstone of the pantry, and we buy it by the case from a shop in Chengdu.",
+                "Use it in mapo tofu and in the braises of the Sichuan chapter.",
+                "Rye Cake",
+                "2 cups rye",
+                "Bake.",
+            ],
+            0,
+        );
+        let lowered = lower(
+            &chunk,
+            &book,
+            json!({"items":[
+                {"kind":"essay","title":[0],"description":[1]},
+                {"title":[2],"sections":[{"ingredients":[3],"steps":[4]}]}]}),
+        )
+        .unwrap();
+        assert_eq!(lowered.items[0].title, "Doubanjiang");
+        assert_eq!(lowered.items[0].title_lines, [0]);
+        assert_eq!(lowered.items[0].description.len(), 2);
+        assert!(
+            lowered.items[0].description[0]
+                .text
+                .starts_with("Doubanjiang:")
+        );
+        assert_eq!(
+            title_from_prose(
+                "An unfussy, single-layer or loaf cake is my favorite category of dessert. The cakes are breezy."
+            ),
+            "An unfussy, single-layer or loaf cake is my…"
+        );
+    }
+
+    #[rstest]
+    #[case(". . . . . .", true)]
+    #[case("10 minutes", true)]
+    #[case("About 1 hr", true)]
+    #[case("* 6 * PLACE", true)]
+    #[case("—", true)]
+    #[case("Salt", false)]
+    #[case("10 minutes of whisking later, the sauce is glossy.", false)]
+    fn furniture_is_recognised(#[case] text: &str, #[case] expected: bool) {
+        assert_eq!(is_furniture(text), expected, "{text:?}");
     }
 
     #[test]
