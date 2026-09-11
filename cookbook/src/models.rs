@@ -197,15 +197,15 @@ static CATALOG: &[Model] = &[
         provider: Provider::Anthropic,
         route: Route::AnthropicMessages,
         enabled: true,
-        status: "Escalation candidate; the gateway refused it on 2026-09-11 (Wholesale Rate limited, code 2018)",
+        status: "Most accurate and fastest single reader measured (99% recall on Nothing Fancy in 19 s), at four times Gemini's price; its wholesale pool meters tokens per minute and refuses bursts with 429 code 2018",
         max_output_tokens: 16_000,
         rates: rates!(2.0, 10.0, 0.20, 2.50),
         priors: Priors {
-            ttft_ms_p50: 1400,
-            ttft_ms_p90: 2800,
-            output_tps: 155.0,
+            ttft_ms_p50: 2900,
+            ttft_ms_p90: 4100,
+            output_tps: 193.0,
             retry_rate: 0.15,
-            measured: "2026-09-11 six-book eval",
+            measured: "2026-09-11 Nothing Fancy probes (70 calls)",
         },
         pricing_checked: "2026-09-09",
         pricing_source: CLAUDE_PRICING,
@@ -231,18 +231,18 @@ static CATALOG: &[Model] = &[
     },
     // Workers AI models are priced and routable but disabled. Probed on
     // Nothing Fancy on 2026-09-11 (single model, no second opinion or
-    // escalation): the ones that answer take 50-60 s per chunk at the median
-    // and hit the 180 s transport timeout on a few chunks per book, so a
-    // book takes 4-6 minutes; the rest are refused with 402 "Insufficient
-    // wholesale credits" (gateway error 2021), i.e. not covered by unified
-    // billing on this account.
+    // escalation): they think before answering, so a chunk takes 50-120 s
+    // at the median and a few chunks per book hit the 180 s transport
+    // timeout; a book takes 4-9 minutes. Their priors fold the thinking time
+    // into `ttft_ms`, since the usage they report counts reasoning tokens as
+    // output while the estimate only predicts the visible answer.
     Model {
         id: "@cf/zai-org/glm-4.7-flash",
         label: "GLM 4.7 Flash",
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
-        status: "Disabled: 402 insufficient wholesale credits (not covered by unified billing)",
+        status: "Disabled: 0% recall on Nothing Fancy; 44 of 58 answers leave lines unassigned and 12 time out (464 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.06, 0.40, 0.006, 0.075),
         priors: UNMEASURED,
@@ -259,8 +259,8 @@ static CATALOG: &[Model] = &[
         max_output_tokens: 16_000,
         rates: rates!(0.15, 0.50, 0.03, 0.1875),
         priors: Priors {
-            ttft_ms_p50: 5500,
-            ttft_ms_p90: 10100,
+            ttft_ms_p50: 42000,
+            ttft_ms_p90: 83000,
             output_tps: 58.0,
             retry_rate: 0.13,
             measured: "2026-09-11 Nothing Fancy probe",
@@ -278,8 +278,8 @@ static CATALOG: &[Model] = &[
         max_output_tokens: 16_000,
         rates: rates!(1.40, 4.40, 0.26, 1.75),
         priors: Priors {
-            ttft_ms_p50: 6500,
-            ttft_ms_p90: 14500,
+            ttft_ms_p50: 50000,
+            ttft_ms_p90: 123000,
             output_tps: 75.0,
             retry_rate: 0.15,
             measured: "2026-09-11 Nothing Fancy probe",
@@ -293,10 +293,16 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
-        status: "Disabled: 402 insufficient wholesale credits (not covered by unified billing)",
+        status: "Disabled: 100% recall on Nothing Fancy at $0.22 with no phantoms, but 54 s per chunk at the median and a timeout on long chunks (278 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.44, 1.32, 0.014, 0.55),
-        priors: UNMEASURED,
+        priors: Priors {
+            ttft_ms_p50: 47000,
+            ttft_ms_p90: 88000,
+            output_tps: 71.0,
+            retry_rate: 0.06,
+            measured: "2026-09-11 Nothing Fancy probe",
+        },
         pricing_checked: "2026-09-09",
         pricing_source: CF_PRICING,
     },
@@ -306,10 +312,16 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
-        status: "Disabled: 402 insufficient wholesale credits (not covered by unified billing)",
+        status: "Disabled: 46% recall on Nothing Fancy; 28 of 49 answers invalid (no tool call, doubled lines), 122 s per chunk at the median, 6 timeouts (512 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.10, 0.30, 0.01, 0.125),
-        priors: UNMEASURED,
+        priors: Priors {
+            ttft_ms_p50: 115000,
+            ttft_ms_p90: 162000,
+            output_tps: 74.0,
+            retry_rate: 0.69,
+            measured: "2026-09-11 Nothing Fancy probe",
+        },
         pricing_checked: "2026-09-09",
         pricing_source: CF_PRICING,
     },
@@ -323,8 +335,8 @@ static CATALOG: &[Model] = &[
         max_output_tokens: 16_000,
         rates: rates!(0.95, 4.00, 0.19, 1.1875),
         priors: Priors {
-            ttft_ms_p50: 11000,
-            ttft_ms_p90: 31000,
+            ttft_ms_p50: 45000,
+            ttft_ms_p90: 108000,
             output_tps: 57.0,
             retry_rate: 0.13,
             measured: "2026-09-11 Nothing Fancy probe",

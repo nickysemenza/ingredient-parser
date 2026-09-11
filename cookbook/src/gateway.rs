@@ -180,27 +180,51 @@ pub enum CallFailure {
     },
 }
 
+/// Base pause before retrying a transient failure; doubles per retry.
+const TRANSIENT_BACKOFF_MS: u64 = 2_000;
+/// Longest pause worth taking inside a run.
+const MAX_TRANSIENT_WAIT_MS: u64 = 60_000;
+
+/// Base pause before retrying a wholesale-pool rate limit. The pool meters
+/// tokens per minute, so the retries have to spread across a minute:
+/// 5 s, 10 s, 20 s, 40 s.
+const WHOLESALE_BACKOFF_MS: u64 = 5_000;
+
+/// Pause before the `retry`th (0-based) retry of a transient failure:
+/// 2 s, 4 s, 8 s, …
+pub fn transient_backoff_ms(retry: u32) -> u64 {
+    (TRANSIENT_BACKOFF_MS << retry.min(5)).min(MAX_TRANSIENT_WAIT_MS)
+}
+
 impl CallFailure {
-    /// Rate limits and server errors are worth one retry after a pause;
-    /// anything else is the model's or the request's fault.
-    pub fn transient_delay_ms(&self) -> Option<u64> {
+    /// Rate limits and server errors are worth retrying after a pause:
+    /// `Retry-After` when the gateway sends one, else exponential backoff by
+    /// `retry` (0-based). Anything else is the model's or the request's
+    /// fault, and a wait over a minute is not worth taking.
+    pub fn transient_delay_ms(&self, retry: u32) -> Option<u64> {
         match self {
             CallFailure::Http {
                 status,
                 retry_after_secs,
                 ..
-            } if *status == 429 || (500..600).contains(status) => {
-                let secs = retry_after_secs.unwrap_or(2);
-                (secs <= 60).then_some(secs * 1000)
-            }
+            } if *status == 429 || (500..600).contains(status) => match retry_after_secs {
+                Some(secs) => (secs * 1000 <= MAX_TRANSIENT_WAIT_MS).then_some(secs * 1000),
+                None if self.is_wholesale_rate_limit() => {
+                    Some((WHOLESALE_BACKOFF_MS << retry.min(5)).min(MAX_TRANSIENT_WAIT_MS))
+                }
+                None => Some(transient_backoff_ms(retry)),
+            },
             _ => None,
         }
     }
 
-    /// Cloudflare's unified billing refuses a model for the account
-    /// ("Wholesale Rate limited", error 2018); retrying within the run is
-    /// pointless.
-    pub fn is_quota_exhausted(&self) -> bool {
+    /// Cloudflare's wholesale pool answered "Wholesale Rate limited" (gateway
+    /// error 2018). It means either that the account's unified-billing credit
+    /// is gone, in which case every call to the model fails for the rest of
+    /// the run, or that the pool is momentarily over capacity, in which case
+    /// a short pause clears it. The run tells them apart by whether the model
+    /// has answered at all.
+    pub fn is_wholesale_rate_limit(&self) -> bool {
         matches!(
             self,
             CallFailure::Http { status: 429, message, .. }
@@ -549,13 +573,36 @@ mod tests {
         r.headers.push(("retry-after".into(), "7".into()));
         let err = parse_response(Route::CompatChat, &r).unwrap_err();
         assert_eq!(err.status(), Some(429));
-        assert_eq!(err.transient_delay_ms(), Some(7000));
+        assert_eq!(err.transient_delay_ms(0), Some(7000));
         assert_eq!(err.request_id(), Some("log1"));
+        let no_hint =
+            parse_response(Route::CompatChat, &resp(429, json!({"error":"slow"}))).unwrap_err();
+        assert_eq!(no_hint.transient_delay_ms(0), Some(2000));
+        assert_eq!(
+            no_hint.transient_delay_ms(2),
+            Some(8000),
+            "backs off exponentially"
+        );
+        let wholesale = parse_response(
+            Route::CompatChat,
+            &resp(
+                429,
+                json!({"error":[{"code":2018,"message":"Wholesale Rate limited"}]}),
+            ),
+        )
+        .unwrap_err();
+        assert!(wholesale.is_wholesale_rate_limit());
+        assert_eq!(
+            wholesale.transient_delay_ms(0),
+            Some(5000),
+            "spread over a minute"
+        );
+        assert_eq!(wholesale.transient_delay_ms(3), Some(40000));
         let bad = resp(400, json!({"error":"bad"}));
         assert_eq!(
             parse_response(Route::CompatChat, &bad)
                 .unwrap_err()
-                .transient_delay_ms(),
+                .transient_delay_ms(0),
             None
         );
         let long = HttpResponse {
@@ -566,7 +613,7 @@ mod tests {
         assert_eq!(
             parse_response(Route::CompatChat, &long)
                 .unwrap_err()
-                .transient_delay_ms(),
+                .transient_delay_ms(0),
             None,
             "too long to wait"
         );

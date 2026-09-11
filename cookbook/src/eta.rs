@@ -336,7 +336,11 @@ mod tests {
                 .iter()
                 .any(|a| a.contains("2026-09-11 six-book eval") || a.contains("measured"))
         );
-        let unmeasured = cold_estimate(&one, &[model("@cf/zai-org/glm-5.3-flash").unwrap()], 16, 0);
+        let never_measured = crate::models::Model {
+            priors: crate::models::UNMEASURED,
+            ..model("gemini-2.5-flash").unwrap().clone()
+        };
+        let unmeasured = cold_estimate(&one, &[&never_measured], 16, 0);
         assert!(
             unmeasured
                 .assumptions

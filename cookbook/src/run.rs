@@ -19,7 +19,9 @@ use crate::cost::{Usage, cost_for_usage};
 use crate::crosscheck::{ExtractedTitle, crosscheck, titles_match};
 use crate::epub::nav::Nav;
 use crate::eta::{EtaTracker, RemainingInput, chunk_tokens};
-use crate::gateway::{CallFailure, CallMeta, CallResult, build_http, parse_response};
+use crate::gateway::{
+    CallFailure, CallMeta, CallResult, build_http, parse_response, transient_backoff_ms,
+};
 use crate::lines::BookLines;
 use crate::models::Model;
 use crate::report::{
@@ -37,7 +39,10 @@ const ATTEMPTS_PER_MODEL: usize = 2;
 pub const ESCALATION_FLAG_FRACTION: f32 = 0.25;
 /// Nav recall below which the whole book is re-run.
 pub const ESCALATION_RECALL_FLOOR: f32 = 0.85;
-const TRANSIENT_DEFAULT_MS: u64 = 2_000;
+/// Rate limits and server errors retried per model per chunk, on top of the
+/// answer attempts. Four wholesale-pool retries span 75 s of waiting, a full
+/// metering window.
+const TRANSIENT_RETRIES_PER_MODEL: u32 = 4;
 
 pub struct RunInput<'a> {
     pub book: &'a BookLines,
@@ -86,7 +91,11 @@ struct Shared<'a, T, C> {
     calls: Mutex<Vec<CallRecord>>,
     tracker: Mutex<EtaTracker>,
     in_flight: Mutex<HashMap<String, (u64, String)>>,
-    /// Models the gateway refuses for the rest of the run (quota exhausted).
+    /// Models that have answered at least once this run.
+    answered: Mutex<HashSet<&'static str>>,
+    /// "Wholesale Rate limited" refusals per model that has never answered.
+    refusals: Mutex<HashMap<&'static str, usize>>,
+    /// Models the gateway refuses for the rest of the run (credit exhausted).
     exhausted: Mutex<HashSet<&'static str>>,
 }
 
@@ -176,6 +185,10 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                         record.request_id = result.request_id.clone();
                         record.truncated = result.truncated;
                         if !record.cached {
+                            self.answered
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(model.id);
                             record.usage = result.usage;
                             record.cost_usd = cost_for_usage(model, &result.usage);
                             if !result.truncated {
@@ -199,11 +212,8 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                         Ok((result, record.cached))
                     }
                     Err(failure) => {
-                        if failure.is_quota_exhausted() {
-                            self.exhausted
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .insert(model.id);
+                        if failure.is_wholesale_rate_limit() {
+                            self.note_refusal(model);
                         }
                         record.request_id = failure.request_id().map(str::to_string);
                         record.outcome = CallOutcome::Transport {
@@ -223,6 +233,35 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
             .unwrap_or_else(|e| e.into_inner())
             .push(record);
         outcome
+    }
+
+    /// A "Wholesale Rate limited" refusal exhausts the model for the run only
+    /// once a whole concurrent wave of first calls has been refused and the
+    /// model has never answered: the pool being briefly over capacity refuses
+    /// a few calls out of a wave and clears with a pause.
+    fn note_refusal(&self, model: &Model) {
+        if self
+            .answered
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(model.id)
+        {
+            return;
+        }
+        let wave = self
+            .input
+            .options
+            .concurrency
+            .clamp(1, self.input.chunks.len().max(1));
+        let mut refusals = self.refusals.lock().unwrap_or_else(|e| e.into_inner());
+        let count = refusals.entry(model.id).or_insert(0);
+        *count += 1;
+        if *count >= wave {
+            self.exhausted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(model.id);
+        }
     }
 
     fn is_exhausted(&self, model: &Model) -> bool {
@@ -258,6 +297,7 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
             }
             let mut feedback: Option<String> = base_feedback.map(str::to_string);
             let mut attempt = 0;
+            let mut transient_retries = 0u32;
             while attempt < ATTEMPTS_PER_MODEL {
                 if self.cancel.is_cancelled() {
                     return Settled {
@@ -289,27 +329,36 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                             cached: false,
                         };
                     }
+                    // A timed-out call spends an answer attempt: a model that
+                    // needs the whole window twice is too slow for the chunk.
                     Err(CallError::Transport(
                         TransportError::Timeout | TransportError::Connect,
                     )) => {
-                        self.transport.sleep(TRANSIENT_DEFAULT_MS).await;
+                        self.transport.sleep(transient_backoff_ms(0)).await;
                         continue;
                     }
                     Err(CallError::Transport(TransportError::Other(_))) => break,
-                    Err(CallError::Call(failure)) => match failure.transient_delay_ms() {
-                        // The gateway will refuse this model for the rest of
-                        // the run; move down the ladder at once.
-                        _ if failure.is_quota_exhausted() => break,
-                        Some(delay) => {
-                            self.transport.sleep(delay).await;
-                            continue;
+                    // The gateway refuses this model for the rest of the run;
+                    // move down the ladder at once.
+                    Err(CallError::Call(_)) if self.is_exhausted(model) => break,
+                    Err(CallError::Call(failure)) => {
+                        match failure.transient_delay_ms(transient_retries) {
+                            // Rate limits and server errors are retried on their
+                            // own budget; they say nothing about the answer.
+                            Some(delay) if transient_retries < TRANSIENT_RETRIES_PER_MODEL => {
+                                transient_retries += 1;
+                                attempt -= 1;
+                                self.transport.sleep(delay).await;
+                                continue;
+                            }
+                            Some(_) => break,
+                            None if matches!(failure, CallFailure::Payload { .. }) => {
+                                feedback = Some("The previous answer was not a valid tool call. Answer only by calling the tool.".into());
+                                continue;
+                            }
+                            None => break,
                         }
-                        None if matches!(failure, CallFailure::Payload { .. }) => {
-                            feedback = Some("The previous answer was not a valid tool call. Answer only by calling the tool.".into());
-                            continue;
-                        }
-                        None => break,
-                    },
+                    }
                     Ok((result, cached)) => {
                         let Some(input) = result.input else {
                             self.note_invalid(chunk, vec!["no tool call in the answer".into()]);
@@ -627,6 +676,8 @@ pub async fn run<T: Transport, C: ChunkCache>(
         calls: Mutex::new(Vec::new()),
         tracker: Mutex::new(EtaTracker::new()),
         in_flight: Mutex::new(HashMap::new()),
+        answered: Mutex::new(HashSet::new()),
+        refusals: Mutex::new(HashMap::new()),
         exhausted: Mutex::new(HashSet::new()),
     };
     let shared = &shared;
@@ -1154,8 +1205,9 @@ mod tests {
         assert_eq!(transport.calls(), 6);
     }
 
-    /// A "Wholesale Rate limited" 429 means the gateway refuses the model for
-    /// the account: no pause, no retry, and no further chunk tries it.
+    /// A "Wholesale Rate limited" 429 on every call of the first wave, from a
+    /// model that has never answered, means the account's credit is gone: no
+    /// pause, no retry, and no further chunk tries the model.
     #[tokio::test]
     async fn quota_exhausted_models_are_skipped_for_the_rest_of_the_run() {
         let (book, nav, chunks) = book();
@@ -1198,6 +1250,53 @@ mod tests {
                 .iter()
                 .all(|c| c.report.final_model.as_deref() == Some("claude-haiku-4-5"))
         );
+    }
+
+    /// A "Wholesale Rate limited" 429 from a model that also answers is the
+    /// pool over capacity, not the credit gone: the call pauses and retries
+    /// on the same model without spending an answer attempt.
+    #[tokio::test]
+    async fn wholesale_rate_limits_that_clear_are_retried_on_the_same_model() {
+        let (book, nav, chunks) = book();
+        let (b, c) = (book.clone(), chunks.clone());
+        let refusals = std::sync::Arc::new(AtomicUsize::new(0));
+        let transport = ScriptedTransport::new(move |req, _| {
+            let (model_id, chunk_id, _) = request_meta(req).unwrap();
+            if model_id == "gemini-2.5-flash"
+                && chunk_id == "k001"
+                && refusals.fetch_add(1, Ordering::SeqCst) < 2
+            {
+                Ok(error_response(
+                    429,
+                    "{\"error\":[{\"code\":2018,\"message\":\"Wholesale Rate limited\"}]}",
+                ))
+            } else {
+                Ok(oracle_answer(req, &b, &c))
+            }
+        });
+        let opts = ExtractOptions {
+            concurrency: 4,
+            ..options(false, false)
+        };
+        let (out, _) = drive(
+            &transport,
+            &NoCache,
+            &book,
+            &nav,
+            &chunks,
+            ladder(&["gemini-2.5-flash", "claude-haiku-4-5"]),
+            &opts,
+        )
+        .await;
+        assert_eq!(*transport.sleeps_ms.lock().unwrap(), vec![5000, 10000]);
+        assert!(!out.incomplete);
+        assert!(
+            out.chunks
+                .iter()
+                .all(|c| c.report.final_model.as_deref() == Some("gemini-2.5-flash")),
+            "the refused model stays in use"
+        );
+        assert_eq!(out.chunks[1].report.attempts, 3);
     }
 
     #[tokio::test]

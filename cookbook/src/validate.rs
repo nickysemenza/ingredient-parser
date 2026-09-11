@@ -8,7 +8,7 @@
 use std::fmt;
 
 use crate::chunk::Chunk;
-use crate::contract::{Kind, Lowered};
+use crate::contract::{ChunkItem, Kind, Lowered};
 use crate::lines::{BookLines, looks_like_quantity_text, looks_like_yield};
 use crate::report::Flag;
 
@@ -142,6 +142,18 @@ fn is_reference_line(text: &str) -> bool {
 static PAGE_NUMBER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     regex::Regex::new(r"\bpage\s*\d{1,4}\b").unwrap_or_else(|e| unreachable!("{e}"))
 });
+
+/// A front-matter essay headed "Equipment" or "Special Equipment" (Dessert
+/// Person's chapter on bakeware) is a real item: the label words head an
+/// ingredient-free body of several paragraphs, where the recipe-note form is
+/// one label line and its payload.
+fn is_equipment_essay(item: &ChunkItem) -> bool {
+    let title = item.title.trim().trim_end_matches(':').to_lowercase();
+    matches!(item.kind, Kind::Essay | Kind::Technique)
+        && matches!(title.as_str(), "equipment" | "special equipment")
+        && item.ingredient_count() == 0
+        && item.description.len() + item.step_count() + item.notes.len() >= 3
+}
 
 /// `Do Ahead`, `NOTE:`, `Special Equipment: 9-inch pan` — a label, possibly
 /// with its payload on the same line.
@@ -349,7 +361,11 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 title: item.title.clone(),
             });
         }
-        if !item.continues && item.kind != Kind::Variation && is_label(&item.title) {
+        if !item.continues
+            && item.kind != Kind::Variation
+            && is_label(&item.title)
+            && !is_equipment_essay(item)
+        {
             v.hard.push(HardFault::TitleIsLabel {
                 local: item
                     .title_lines
@@ -611,6 +627,31 @@ mod tests {
         );
         assert!(
             matches!(v.hard[1], HardFault::TitleIsLabel { local: 5, .. }),
+            "{:?}",
+            v.hard
+        );
+        // A front-matter chapter on bakeware is an essay, not a mislabelled
+        // note; a one-line "Special Equipment" note still is.
+        let html = "<p>Equipment</p><p>Having the right bakeware matters.</p><p>Essential Equipment</p><p>Bowl scraper. Flexible.</p><p>Whisk. Balloon.</p><p>Special Equipment</p><p>Bakeware. Anodized aluminum.</p><p>8 × 8-inch metal baking pan</p><p>Three 8-inch metal cake pans</p>";
+        let v = run(
+            html,
+            json!({"items":[
+            {"kind":"essay","title":[0],"description":[1,2,3,4]},
+            {"kind":"essay","title":[5],"description":[6,7,8]}]}),
+        );
+        assert!(
+            !v.hard
+                .iter()
+                .any(|f| matches!(f, HardFault::TitleIsLabel { .. })),
+            "{:?}",
+            v.hard
+        );
+        let v = run(
+            "<p>Special Equipment</p><p>9-inch tart pan</p>",
+            json!({"items":[{"kind":"essay","title":[0],"description":[1]}]}),
+        );
+        assert!(
+            matches!(v.hard[0], HardFault::TitleIsLabel { local: 0, .. }),
             "{:?}",
             v.hard
         );

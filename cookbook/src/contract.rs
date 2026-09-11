@@ -408,15 +408,47 @@ pub struct Lowered {
 #[error("{0}")]
 pub struct Invalid(pub String);
 
-/// Lower a tool answer for `chunk` into text with global line indices.
-pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered, Invalid> {
-    // Some models hand the tool input back as a JSON string.
-    let payload = match payload {
-        Value::String(text) => serde_json::from_str::<Value>(&text)
-            .map_err(|e| Invalid(format!("the answer is a string, not a tool object: {e}")))?,
+/// Some models hand the tool input back as a JSON string: the whole object,
+/// or (Claude Sonnet 5) the whole object or just the item list as a string
+/// under `items`. Decode those into the object the schema describes.
+fn unwrap_string_payload(payload: Value) -> Result<Value, Invalid> {
+    fn parse(text: &str) -> Result<Value, Invalid> {
+        serde_json::from_str::<Value>(text)
+            .map_err(|e| Invalid(format!("the answer is a string, not a tool object: {e}")))
+    }
+    let mut payload = match payload {
+        Value::String(text) => parse(&text)?,
         other => other,
     };
-    let mut payload: Payload = serde_json::from_value(payload)
+    let Some(Value::String(text)) = payload.get("items") else {
+        return Ok(payload);
+    };
+    match parse(text)? {
+        items @ Value::Array(_) => {
+            payload["items"] = items;
+            Ok(payload)
+        }
+        Value::Object(mut inner) => {
+            // The outer object's other fields stand unless the inner one
+            // repeats them.
+            if let Value::Object(outer) = payload {
+                for (key, value) in outer {
+                    if key != "items" {
+                        inner.entry(key).or_insert(value);
+                    }
+                }
+            }
+            Ok(Value::Object(inner))
+        }
+        _ => Err(Invalid(
+            "`items` must be a list of items, not a string".into(),
+        )),
+    }
+}
+
+/// Lower a tool answer for `chunk` into text with global line indices.
+pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered, Invalid> {
+    let mut payload: Payload = serde_json::from_value(unwrap_string_payload(payload)?)
         .map_err(|e| Invalid(format!("the answer does not match the tool schema: {e}")))?;
     for item in &mut payload.items {
         payload.ignored.extend(std::mem::take(&mut item.ignored));
@@ -1111,10 +1143,14 @@ mod tests {
         assert_eq!(lowered.items[0].sections[1].ingredients[0].line, 6);
     }
 
-    /// A tool input handed back as a JSON string still lowers, and a
+    /// A tool input handed back as a JSON string (the whole object, or the
+    /// object or item list as a string under `items`) still lowers, and a
     /// paragraph-titled variation folds into the recipe's notes.
-    #[test]
-    fn string_payloads_and_prose_variations_lower() {
+    #[rstest]
+    #[case::whole_object(|p: Value| Value::String(p.to_string()))]
+    #[case::object_under_items(|p: Value| json!({"items": p.to_string()}))]
+    #[case::items_under_items(|p: Value| json!({"items": p["items"].to_string(), "ignored": []}))]
+    fn string_payloads_and_prose_variations_lower(#[case] encode: fn(Value) -> Value) {
         let (book, chunk) = book_and_chunk(
             &[
                 "Malted Brownies",
@@ -1127,7 +1163,7 @@ mod tests {
         let payload = json!({"items":[
             {"title":[0],"sections":[{"ingredients":[1],"steps":[2]}],"ignored":[]},
             {"kind":"variation","title":[3],"variation_of":[0]}]});
-        let lowered = lower(&chunk, &book, Value::String(payload.to_string())).unwrap();
+        let lowered = lower(&chunk, &book, encode(payload)).unwrap();
         assert_eq!(lowered.items.len(), 1);
         assert_eq!(lowered.items[0].notes.len(), 1);
         assert!(lowered.items[0].notes[0].text.starts_with("Mint:"));
