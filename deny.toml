@@ -38,13 +38,6 @@ allow = [
     "CDLA-Permissive-2.0",
     "OFL-1.1",
     "Ubuntu-font-1.0",
-    # `epub` (a transitive dep of recipe-epub, used only by the unpublished
-    # food-app/food-cli binaries, never by the published `ingredient` crate)
-    # is GPL-3.0-licensed. Allowed here so the scan reflects the real tree,
-    # but a GPL dependency in a binary you distribute carries copyleft
-    # obligations — worth a maintainer decision (replace it, or accept and
-    # document the obligation) rather than silently allow-listing forever.
-    "GPL-3.0",
 ]
 confidence-threshold = 0.8
 

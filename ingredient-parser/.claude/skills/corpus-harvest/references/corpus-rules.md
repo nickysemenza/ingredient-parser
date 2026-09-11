@@ -126,7 +126,7 @@ EPUB extraction (`scrape-epub`, `scan-cookbooks`) reads from the environment:
   ANTHROPIC_BASE_URL                                  (required)
   one of: ANTHROPIC_API_KEY | CF_AIG_TOKEN | AI_GATEWAY_API_KEY
 Default model: gemini-2.5-flash (override with --model; claude-*/gpt-* also work).
-Extraction is content-hash cached on disk ($TMPDIR/recipe-epub), so re-runs are free.
+Extraction is content-hash cached on disk by the `cookbook` crate, so re-runs are free.
 Do NOT hardcode secrets — read them from the environment. (Live gateway creds, if any,
 live in the user's MEMORY, not in the repo.) `parse-lines`, `parse-ingredient`, and the
 website `scrape <url>` path need NO credentials.

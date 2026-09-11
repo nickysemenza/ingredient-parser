@@ -16,7 +16,7 @@
 
 ## Before deleting a `pub` item
 
-`recipe-scraper`, `recipe-epub` and `recipe-types` are `publish = false` but have
+`recipe-scraper`, `cookbook` and `recipe-types` are `publish = false` but have
 external consumers. Zero callers in this repo does not prove a public API is
 unused. Preserve compatibility and check any consumer code supplied with the
 task before narrowing an API. See CONTRIBUTING.md.
@@ -26,6 +26,6 @@ task before narrowing an API. See CONTRIBUTING.md.
 - Use `cargo nextest run` for faster parallel test execution
 - Benchmarks require the `bench` feature: `cargo bench -p ingredient --features bench`
 
-## Cookbook extraction review
+## Cookbook extraction
 
-Use `food-cli` for headless inspection, saved-run replay, and evaluation. Read [docs/cookbook-review.md](docs/cookbook-review.md) before extracting books, refreshing model results, or assessing whole-book fidelity.
+The `cookbook` crate reads EPUBs and extracts recipes through the AI gateway; `food-cli` drives it headlessly. Read [docs/cookbook.md](docs/cookbook.md) before extracting books, replaying runs, or evaluating fidelity, and see `cargo run -p food-cli -- cookbook --help` for the verbs.

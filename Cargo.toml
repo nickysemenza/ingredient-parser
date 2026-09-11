@@ -9,8 +9,6 @@ members = [
     "recipe-parsing",
     "recipe-scraper",
     "recipe-scraper-fetcher",
-    "recipe-epub",
-    "recipe-epub-fixtures",
     "cookbook",
     "cookbook-fixtures",
     "food-cli",
@@ -47,8 +45,6 @@ recipe-types = { path = "recipe-types" }
 recipe-parsing = { path = "recipe-parsing" }
 recipe-scraper = { path = "recipe-scraper" }
 recipe-scraper-fetcher = { path = "recipe-scraper-fetcher" }
-recipe-epub = { path = "recipe-epub" }
-recipe-epub-fixtures = { path = "recipe-epub-fixtures" }
 cookbook = { path = "cookbook" }
 cookbook-fixtures = { path = "cookbook-fixtures" }
 # TypeScript type generation, shared so every crate emits one declaration per
