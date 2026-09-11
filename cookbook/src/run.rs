@@ -69,7 +69,9 @@ pub struct RunOutput {
     pub crosscheck: CrossCheck,
     pub escalation: Option<Escalation>,
     pub eta_trace: Vec<EtaSample>,
-    /// A chunk failed every model, or escalation ran out of ladder.
+    /// A chunk failed every model, so some of the book is missing. An
+    /// escalation with nowhere left to climb (`escalation.to_model` empty)
+    /// is not this: every chunk still came back.
     pub incomplete: bool,
     pub cancelled: bool,
 }
@@ -889,7 +891,6 @@ pub async fn run<T: Transport, C: ChunkCache>(
 
     // Phase 4: whole-book escalation.
     let mut escalation = None;
-    let mut exhausted = false;
     if input.options.whole_book_escalation && !settled_results.is_empty() {
         // Parse-rate and prose-ingredient flags describe how a book prints
         // its lists, which a stronger model cannot change; they do not
@@ -981,7 +982,6 @@ pub async fn run<T: Transport, C: ChunkCache>(
                     });
                 }
                 None => {
-                    exhausted = true;
                     escalation = Some(Escalation {
                         reason,
                         flagged_fraction: fraction,
@@ -1000,7 +1000,7 @@ pub async fn run<T: Transport, C: ChunkCache>(
         crosscheck: check,
         escalation,
         eta_trace,
-        incomplete: failed || exhausted,
+        incomplete: failed,
         cancelled: false,
     }
 }
@@ -1649,8 +1649,11 @@ mod tests {
             &options(false, true),
         )
         .await;
-        assert!(out.incomplete);
         assert_eq!(out.escalation.as_ref().unwrap().to_model, "");
+        assert!(
+            !out.incomplete,
+            "nowhere to escalate to is not a hole in the book: every chunk came back"
+        );
     }
 
     #[tokio::test]
