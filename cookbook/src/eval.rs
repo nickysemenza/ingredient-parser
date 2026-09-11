@@ -404,6 +404,43 @@ pub fn skeleton(book: &crate::Book, path: &str) -> Expectations {
     }
 }
 
+/// A skeleton seeded from a saved run of the same file: `not_recipes`
+/// candidates are the techniques and essays the run produced, and eight
+/// `samples` stubs are spread through the contents titles with every count
+/// left empty. The author fills the counts from the HTML, never from the
+/// run; the run only suggests where to look.
+pub fn skeleton_from_run(
+    book: &crate::Book,
+    path: &str,
+    extraction: &Extraction,
+) -> crate::error::Result<Expectations> {
+    if extraction.cookbook.source.sha256 != book.source().sha256 {
+        return Err(crate::Error::Config(format!(
+            "the run is of another file (sha256 {}…, the book is {}…)",
+            &extraction.cookbook.source.sha256[..8],
+            &book.source().sha256[..8]
+        )));
+    }
+    let mut key = skeleton(book, path);
+    key.not_recipes = non_recipe_titles(extraction);
+    let n = key.titles.len();
+    if n > 0 {
+        let want = 8.min(n);
+        key.samples = (0..want)
+            .map(|i| Sample {
+                title: key.titles[i * n / want].clone(),
+                sections: None,
+                ingredients: None,
+                steps: None,
+                notes_contain: Vec::new(),
+                refs: Vec::new(),
+                photos: None,
+            })
+            .collect();
+    }
+    Ok(key)
+}
+
 /// Items an answer key might want to list as not-recipes.
 pub fn non_recipe_titles(extraction: &Extraction) -> Vec<String> {
     extraction

@@ -135,6 +135,10 @@ pub enum Command {
     /// Write an answer-key skeleton for a book (titles from its contents).
     Expect {
         book: PathBuf,
+        /// Seed not_recipes and sample stubs from a saved run of this file,
+        /// and print its missing and phantom titles as hints.
+        #[arg(long)]
+        from_run: Option<PathBuf>,
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -482,17 +486,43 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             )
             .await
         }
-        Command::Expect { book, out } => {
+        Command::Expect {
+            book,
+            from_run,
+            out,
+        } => {
             let b = open(&book, &label_for(&book))?;
-            let skeleton = eval::skeleton(&b, &book.display().to_string());
+            let skeleton = match &from_run {
+                Some(run) => {
+                    let extraction = runs::load(run).map_err(|e| e.to_string())?;
+                    let check = &extraction.report.crosscheck;
+                    if !check.missing.is_empty() {
+                        eprintln!(
+                            "contents titles the run missed (a real recipe the model lost, or a contents entry that is not one): {}",
+                            check.missing.join(" | ")
+                        );
+                    }
+                    if !check.phantom.is_empty() {
+                        eprintln!(
+                            "titles the run made that are not in the contents (an unlisted recipe for titles or variants, or a heading or caption for not_recipes): {}",
+                            check.phantom.join(" | ")
+                        );
+                    }
+                    eval::skeleton_from_run(&b, &book.display().to_string(), &extraction)
+                        .map_err(|e| e.to_string())?
+                }
+                None => eval::skeleton(&b, &book.display().to_string()),
+            };
             let text = serde_json::to_string_pretty(&skeleton).map_err(|e| e.to_string())?;
             match out {
                 Some(path) => {
                     std::fs::write(&path, text).map_err(|e| e.to_string())?;
                     eprintln!(
-                        "wrote {} ({} contents titles); fill in samples and not_recipes by hand",
+                        "wrote {} ({} contents titles, {} not_recipes candidates, {} sample stubs); fill in the counts from the HTML",
                         path.display(),
-                        skeleton.titles.len()
+                        skeleton.titles.len(),
+                        skeleton.not_recipes.len(),
+                        skeleton.samples.len()
                     );
                 }
                 None => println!("{text}"),

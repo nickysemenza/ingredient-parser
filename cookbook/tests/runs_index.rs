@@ -1,6 +1,6 @@
 //! The run store's index: saved runs are listed without parsing every file,
 //! vanished files drop out, unknown files are picked up, and a broken index
-//! is rebuilt.
+//! is rebuilt. Also the answer-key skeleton a run seeds.
 
 #![cfg(not(target_arch = "wasm32"))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -79,4 +79,29 @@ async fn index_follows_the_directory() {
     assert_eq!(runs::list().unwrap().len(), 2);
     let rebuilt = std::fs::read_to_string(&index_path).unwrap();
     assert!(rebuilt.contains("\"version\":1"));
+}
+
+/// The skeleton takes the contents titles from the book, the not-recipe
+/// candidates from the run, spreads sample stubs through the titles with
+/// empty counts, and refuses a run of another file.
+#[tokio::test]
+async fn skeleton_from_run_seeds_candidates_and_stubs() {
+    let extraction = extraction("key").await;
+    let bytes = cookbook_fixtures::epub3_nav_pagebreaks().unwrap();
+    let book = Book::open(bytes, "key").unwrap();
+    let key = cookbook::eval::skeleton_from_run(&book, "book.epub", &extraction).unwrap();
+    assert!(!key.titles.is_empty());
+    assert_eq!(
+        key.not_recipes,
+        cookbook::eval::non_recipe_titles(&extraction)
+    );
+    assert_eq!(key.samples.len(), 8.min(key.titles.len()));
+    assert!(
+        key.samples
+            .iter()
+            .all(|s| s.ingredients.is_none() && s.steps.is_none())
+    );
+    assert!(key.titles.contains(&key.samples[0].title));
+    let other = Book::open(cookbook_fixtures::split_spine().unwrap(), "other").unwrap();
+    assert!(cookbook::eval::skeleton_from_run(&other, "other.epub", &extraction).is_err());
 }
