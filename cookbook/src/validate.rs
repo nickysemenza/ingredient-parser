@@ -28,12 +28,25 @@ pub enum HardFault {
     TitleIsProse { local: usize, title: String },
     /// Every "ingredient line" is a sentence: a procedure, not a list.
     IngredientsAreProse { title: String },
+    /// A title that names an ingredient group ("For the sauce").
+    TitleIsSectionHeading { local: usize, title: String },
 }
 
-/// An ingredient line this long that ends with a period is a paragraph.
+/// "For the sauce", "For serving", "To finish:" — group headings, not items.
+fn is_section_heading(text: &str) -> bool {
+    let lower = text.trim().to_lowercase();
+    (lower.starts_with("for the ")
+        || lower.starts_with("for ")
+        || lower.starts_with("to serve")
+        || lower.starts_with("to finish"))
+        && lower.split_whitespace().count() <= 8
+}
+
+/// An ingredient line this long is a paragraph, and a shorter one that
+/// ends with a period is a sentence.
 fn ingredient_line_is_prose(text: &str) -> bool {
     let t = text.trim();
-    t.len() > 100 && t.ends_with('.')
+    t.len() > 160 || (t.len() > 100 && t.ends_with('.'))
 }
 
 /// Titles longer than this are paragraphs.
@@ -115,6 +128,10 @@ impl fmt::Display for HardFault {
                 f,
                 "line {local} ({title:?}) is a printed label, not an item title; put it in notes or equipment with the lines it introduces"
             ),
+            HardFault::TitleIsSectionHeading { local, title } => write!(
+                f,
+                "line {local} ({title:?}) is an ingredient-group heading of the recipe it sits in; make it that recipe's section name, not an item"
+            ),
             HardFault::IngredientsAreProse { title } => write!(
                 f,
                 "item {title:?} lists only paragraphs as ingredient lines; a recipe needs a printed ingredient list, so mark this item technique or essay and put the paragraphs in steps or description"
@@ -180,6 +197,16 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
         }
         if !item.continues && is_prose(&item.title) {
             v.hard.push(HardFault::TitleIsProse {
+                local: item
+                    .title_lines
+                    .first()
+                    .map(|l| l - chunk.start)
+                    .unwrap_or(0),
+                title: item.title.clone(),
+            });
+        }
+        if !item.continues && is_section_heading(&item.title) {
+            v.hard.push(HardFault::TitleIsSectionHeading {
                 local: item
                     .title_lines
                     .first()
@@ -374,6 +401,11 @@ mod tests {
             "{:?}",
             v.hard
         );
+        assert!(is_section_heading("FOR PEPPERONI PIE"));
+        assert!(is_section_heading("For the green goddess butter"));
+        assert!(!is_section_heading(
+            "For All the Tea in China: a long essay title about trade and empire"
+        ));
         assert!(is_label("Special Equipment: Food processor"));
         assert!(!is_label("Special Butter Cake"));
         let intro = "An unfussy, single-layer or loaf cake is my favorite category of dessert. The cakes in this chapter are like a drapey jumpsuit, breezy and elegant.";
