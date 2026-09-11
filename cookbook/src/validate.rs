@@ -124,6 +124,10 @@ pub const LABELS: &[&str] = &[
     "notes",
     "tip",
     "tips",
+    "chef's tip",
+    "chef’s tip",
+    "cook's tip",
+    "cook’s tip",
     "variation",
     "variations",
     "special equipment",
@@ -162,6 +166,10 @@ const NOTE_LABELS: &[&str] = &[
     "notes",
     "tip",
     "tips",
+    "chef's tip",
+    "chef’s tip",
+    "cook's tip",
+    "cook’s tip",
     "variation",
     "variations",
     "ingredients",
@@ -712,6 +720,7 @@ mod tests {
         assert!(is_label("Try It With Som Tam Lao"));
         assert!(is_label("Wine: Soave Classico Superiore, Pieropan, 2000"));
         assert!(is_label("Wine. Qupé Central Coast Syrah, 1999"));
+        assert!(is_note_label("CHEF’S TIP"));
         assert!(is_prose("After a wary nibble, “It’s not that great.”"));
         assert!(!is_prose("“Nothing Fancy” Roast Chicken"));
         assert!(!is_prose("Mom’s Apple Pie"));

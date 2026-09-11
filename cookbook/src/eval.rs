@@ -135,17 +135,34 @@ pub fn score(expected: &Expectations, extraction: &Extraction) -> BookScore {
     let mut used = vec![false; recipes.len()];
     let mut matched = 0usize;
     let mut missing = Vec::new();
-    for title in &expected.titles {
-        match recipes
-            .iter()
-            .enumerate()
-            .find(|(i, r)| !used[*i] && titles_match(title, &r.title))
-        {
-            Some((i, _)) => {
+    // Exact titles pair off first so a lenient match never steals a recipe
+    // that another expected title names exactly.
+    let exact = |a: &str, b: &str| {
+        crate::crosscheck::normalize_title(a) == crate::crosscheck::normalize_title(b)
+    };
+    let mut found = vec![false; expected.titles.len()];
+    for lenient in [false, true] {
+        for (ti, title) in expected.titles.iter().enumerate() {
+            if found[ti] {
+                continue;
+            }
+            if let Some((i, _)) = recipes.iter().enumerate().find(|(i, r)| {
+                !used[*i]
+                    && if lenient {
+                        titles_match(title, &r.title)
+                    } else {
+                        exact(title, &r.title)
+                    }
+            }) {
                 used[i] = true;
+                found[ti] = true;
                 matched += 1;
             }
-            None => missing.push(title.clone()),
+        }
+    }
+    for (ti, title) in expected.titles.iter().enumerate() {
+        if !found[ti] {
+            missing.push(title.clone());
         }
     }
     let mut variant_hits = 0usize;

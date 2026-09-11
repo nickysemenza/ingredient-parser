@@ -476,11 +476,36 @@ fn is_furniture(text: &str) -> bool {
     }
     static TIME: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(
-            r"(?i)^(about\s+)?\d+([–-]\d+)?\s*(minutes?|mins?|hours?|hrs?|h|min|seconds?)\.?$",
+            r"(?i)^(about\s+)?\d+([–-]\d+)?\s*(minutes?|mins?|hours?|hrs?|h|min|seconds?)\b[^.]{0,24}$",
         )
         .unwrap_or_else(|e| unreachable!("{e}"))
     });
-    TIME.is_match(t) || (t.starts_with('*') && t.split_whitespace().count() <= 4)
+    // A bare timing or yield label whose value sits on the next line.
+    const LABEL_WORDS: &[&str] = &[
+        "preparation",
+        "prep",
+        "cooking",
+        "cook",
+        "marinating",
+        "chilling",
+        "resting",
+        "freezing",
+        "soaking",
+        "proving",
+        "proofing",
+        "baking",
+        "rising",
+        "difficulty",
+        "time",
+        "total",
+        "serves",
+        "makes",
+        "yield",
+    ];
+    let lower = t.trim_end_matches(':').to_ascii_lowercase();
+    TIME.is_match(t)
+        || LABEL_WORDS.contains(&lower.as_str())
+        || (t.starts_with('*') && t.split_whitespace().count() <= 4)
 }
 
 /// Lower a tool answer for `chunk` into text with global line indices.
@@ -1305,6 +1330,9 @@ mod tests {
     #[case("About 1 hr", true)]
     #[case("* 6 * PLACE", true)]
     #[case("—", true)]
+    #[case("preparation", true)]
+    #[case("Cooking:", true)]
+    #[case("3 minutes (per batch)", true)]
     #[case("Salt", false)]
     #[case("10 minutes of whisking later, the sauce is glossy.", false)]
     fn furniture_is_recognised(#[case] text: &str, #[case] expected: bool) {

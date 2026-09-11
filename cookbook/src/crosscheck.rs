@@ -100,9 +100,15 @@ pub fn titles_match(a: &str, b: &str) -> bool {
     // A dropped subtitle ("Sour Cherry Pie" / "Sour Cherry Pie: A Summer
     // Classic"), or a name printed inside a longer title ("Campagne Boule" /
     // "Pain de Campagne Campagne Boule", "Central Thai–style papaya salad" /
-    // "Som Tam Thai Central Thai–style papaya salad"). One word is too little:
-    // "Polenta" is not "Polenta with Fresh Corn".
-    if words >= 2 && long.starts_with(short.as_str()) {
+    // "Som Tam Thai Central Thai–style papaya salad"). A one-word name takes
+    // a subtitle of two or more words ("Ratatouille" / "Ratatouille Provençal
+    // vegetable stew"); callers match exact titles first, so "Polenta" is
+    // only taken for "Polenta with Fresh Corn" when no plain "Polenta" is
+    // left.
+    if long.starts_with(short.as_str())
+        && (words >= 2 || long.split(' ').count() >= 3)
+        && long[short.len()..].starts_with(' ')
+    {
         return true;
     }
     if words >= 2 && short.len() >= 12 && contains_tokens(long, short) {
@@ -252,14 +258,25 @@ pub fn crosscheck(
     let mut flags = Vec::new();
     let mut matched_nav: HashSet<usize> = HashSet::new();
     let mut matched_extracted: HashSet<usize> = HashSet::new();
-    for (ni, (title, _)) in nav_titles.iter().enumerate() {
-        if let Some((ei, _)) = extracted
-            .iter()
-            .enumerate()
-            .find(|(ei, e)| !matched_extracted.contains(ei) && titles_match(title, &e.title))
-        {
-            matched_nav.insert(ni);
-            matched_extracted.insert(ei);
+    // Exact titles pair off first so a lenient match never steals a recipe
+    // that another contents entry names exactly.
+    let exact = |a: &str, b: &str| normalize_title(a) == normalize_title(b);
+    for lenient in [false, true] {
+        for (ni, (title, _)) in nav_titles.iter().enumerate() {
+            if matched_nav.contains(&ni) {
+                continue;
+            }
+            if let Some((ei, _)) = extracted.iter().enumerate().find(|(ei, e)| {
+                !matched_extracted.contains(ei)
+                    && if lenient {
+                        titles_match(title, &e.title)
+                    } else {
+                        exact(title, &e.title)
+                    }
+            }) {
+                matched_nav.insert(ni);
+                matched_extracted.insert(ei);
+            }
         }
     }
     let mut missing = Vec::new();
@@ -330,7 +347,8 @@ mod tests {
     #[case("Polenta", "POLENTA", true)]
     #[case("Sour Cherry Pie", "Sour Cherry Pie: A Summer Classic", true)]
     #[case("Sour Cherry Pie", "Sour Cherry Pei", true)]
-    #[case("Polenta", "Polenta with Fresh Corn", false)]
+    #[case("Polenta", "Polenta with Fresh Corn", true)]
+    #[case("Ratatouille", "Ratatouille Provençal vegetable stew", true)]
     #[case("Campagne Boule", "Pain de Campagne Campagne Boule", true)]
     #[case(
         "CENTRAL THAI–STYLE PAPAYA SALAD",
