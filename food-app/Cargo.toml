@@ -12,11 +12,11 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
 recipe-parsing.workspace = true
-recipe-types.workspace = true
 recipe-scraper.workspace = true
 recipe-scraper-fetcher.workspace = true
-recipe-epub = { workspace = true, features = ["typescript"] }
-ingredient.workspace = true
+cookbook = { workspace = true, features = ["typescript", "test-support"] }
+recipe-types = { workspace = true, features = ["typescript"] }
+ingredient = { workspace = true, features = ["typescript"] }
 ingredient-corpus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -38,7 +38,8 @@ tauri-plugin-opener = "2"
 tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
-recipe-epub-fixtures.workspace = true
+cookbook-fixtures.workspace = true
+tempfile = "3"
 
 [lints]
 workspace = true
