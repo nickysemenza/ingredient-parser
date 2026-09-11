@@ -1611,6 +1611,7 @@ dependencies = [
 name = "food-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "cookbook",
  "cookbook-fixtures",

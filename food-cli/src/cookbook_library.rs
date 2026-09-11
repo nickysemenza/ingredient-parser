@@ -5,6 +5,7 @@
 //! sampled, and extracted a few at a time under a cost ceiling. Every
 //! outcome, including the books not touched, ends up as a row in the report.
 
+use anyhow::Context as _;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -60,7 +61,7 @@ pub async fn sweep(
     args: SweepArgs<'_>,
     transport: &(impl Transport + Sync),
     cache: &(impl ChunkCache + Sync),
-) -> Result<SweepOutcome, String> {
+) -> anyhow::Result<SweepOutcome> {
     let mut shas = ShaCache::open_default();
     let scanned = scan(args.dir, &mut shas);
     let _ = shas.save_default();
@@ -70,9 +71,8 @@ pub async fn sweep(
         scanned.duplicates.len(),
         scanned.unreadable.len()
     );
-    let ladder =
-        cookbook::models::resolve_ladder(&args.options.ladder).map_err(|e| e.to_string())?;
-    let classifier = ladder.first().copied().ok_or("the ladder is empty")?;
+    let ladder = cookbook::models::resolve_ladder(&args.options.ladder)?;
+    let classifier = ladder.first().copied().context("the ladder is empty")?;
     let cancel = CancelToken::new();
 
     // 1. Classify every distinct book by structure, in parallel; the model
@@ -84,14 +84,14 @@ pub async fn sweep(
         title: String,
         authors: Vec<String>,
     }
-    let structural: Vec<Result<Structural, String>> = {
+    let structural: Vec<anyhow::Result<Structural>> = {
         use rayon::prelude::*;
         scanned
             .books
             .par_iter()
             .map(|book| {
-                let bytes = std::fs::read(&book.path).map_err(|e| e.to_string())?;
-                let opened = Book::open(bytes, label_for(&book.path)).map_err(|e| e.to_string())?;
+                let bytes = std::fs::read(&book.path)?;
+                let opened = Book::open(bytes, label_for(&book.path))?;
                 let source = opened.source();
                 Ok(Structural {
                     classification: classify_structure(&opened).classification,
@@ -115,7 +115,12 @@ pub async fn sweep(
                     scanned.books.len(),
                     book.path.display()
                 );
-                statuses.insert(book.sha256.clone(), RowStatus::Failed { error });
+                statuses.insert(
+                    book.sha256.clone(),
+                    RowStatus::Failed {
+                        error: format!("{error:#}"),
+                    },
+                );
                 continue;
             }
         };
@@ -163,7 +168,7 @@ pub async fn sweep(
     // 2. Existing runs, `--only`, the sample, `--max-books`.
     let mut pending: Vec<Candidate> = Vec::new();
     for candidate in candidates {
-        let existing = runs::latest_for_sha(&candidate.sha256).map_err(|e| e.to_string())?;
+        let existing = runs::latest_for_sha(&candidate.sha256)?;
         if existing.is_some() && !args.force {
             statuses.insert(candidate.sha256.clone(), RowStatus::Existing);
             continue;
@@ -216,11 +221,9 @@ pub async fn sweep(
     let mut projected = (0.0f64, 0.0f64);
     let mut estimates: HashMap<String, (f64, f64, usize)> = HashMap::new();
     for c in &pending {
-        let bytes = std::fs::read(&c.path).map_err(|e| e.to_string())?;
-        let book = Book::open(bytes, label_for(&c.path)).map_err(|e| e.to_string())?;
-        let estimate = book
-            .estimate(&args.options, cache)
-            .map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(&c.path)?;
+        let book = Book::open(bytes, label_for(&c.path))?;
+        let estimate = book.estimate(&args.options, cache)?;
         projected.0 += estimate.cost_usd_low;
         projected.1 += estimate.cost_usd_high;
         estimates.insert(
@@ -247,8 +250,7 @@ pub async fn sweep(
                 },
             );
         }
-        let report =
-            build_report(Some(args.dir), Some(&scanned), &statuses).map_err(|e| e.to_string())?;
+        let report = build_report(Some(args.dir), Some(&scanned), &statuses)?;
         let written = args
             .out
             .map(|out| write_report(&report, Some(out)))
@@ -414,8 +416,7 @@ pub async fn sweep(
     }
 
     // 5. The report over everything.
-    let report =
-        build_report(Some(args.dir), Some(&scanned), &statuses).map_err(|e| e.to_string())?;
+    let report = build_report(Some(args.dir), Some(&scanned), &statuses)?;
     let written = write_report(&report, args.out)?;
     Ok(SweepOutcome {
         report,
@@ -518,27 +519,23 @@ fn label_for(path: &Path) -> String {
 pub fn write_report(
     report: &LibraryReport,
     out: Option<&Path>,
-) -> Result<(PathBuf, PathBuf), String> {
+) -> anyhow::Result<(PathBuf, PathBuf)> {
     let stem = match out {
         Some(p) => p.with_extension(""),
         None => cookbook::library::reports_dir()
-            .ok_or("no data directory for this platform")?
+            .context("no data directory for this platform")?
             .join(format!(
                 "library-{}",
                 jiff::Timestamp::now().strftime("%Y%m%dT%H%MZ")
             )),
     };
     if let Some(parent) = stem.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent)?;
     }
     let json_path = stem.with_extension("json");
     let md_path = stem.with_extension("md");
-    std::fs::write(
-        &json_path,
-        serde_json::to_string_pretty(report).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    std::fs::write(&md_path, report.render_markdown()).map_err(|e| e.to_string())?;
+    std::fs::write(&json_path, serde_json::to_string_pretty(report)?)?;
+    std::fs::write(&md_path, report.render_markdown())?;
     Ok((json_path, md_path))
 }
 
