@@ -86,6 +86,26 @@ fast, cheap second reader for retries and second opinions; Haiku 4.5 is the
 last resort. Every candidate is priced, so the estimate and the run report
 carry real costs.
 
+## Addendum: Gemini's thinking (2026-09-11, later)
+
+The 14 s first-token latency was Gemini 2.5 Flash's default dynamic
+thinking, not the gateway: one real chunk request took 11.8 s at the median
+on the compat route, 3.5 s with `reasoning_effort: "none"`, and the native
+route reported ~2,300 thought tokens per call that the compat usage never
+showed (so the crate's Gemini cost had been undercounting). Six-book eval
+by setting, full policy, `--no-cache`:
+
+| Gemini reasoning | Mean recall | Phantoms | Leaks | Cost | Max wall | Gemini p50 latency |
+|---|---|---|---|---|---|---|
+| default (dynamic) | 98.4% | 8 | 1 | $1.02 | 183 s | 15.4 s |
+| low (1,024-token budget) | **98.4%** | **7** | 1 | $1.14 | **122 s** | **7.4 s** |
+| none (also applied to Luna) | 94.6% | 12 | 4 | $3.07 | 67 s | 3.5 s |
+
+`gemini-2.5-flash` now carries `reasoning: Low` in the catalog; the ladder is
+unchanged. The native `generateContent` route was tried and produced
+malformed function calls two rounds in three, so the knob rides the compat
+route's `reasoning_effort`.
+
 ## What still misses the gate, and why
 
 The gate (`mean recall ≥ 97%`, `≤ 1 phantom per book`, no leaks, full
