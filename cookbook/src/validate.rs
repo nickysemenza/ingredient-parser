@@ -26,6 +26,14 @@ pub enum HardFault {
     TitleIsLabel { local: usize, title: String },
     /// A title that is a paragraph, not a name.
     TitleIsProse { local: usize, title: String },
+    /// Every "ingredient line" is a sentence: a procedure, not a list.
+    IngredientsAreProse { title: String },
+}
+
+/// An ingredient line this long that ends with a period is a paragraph.
+fn ingredient_line_is_prose(text: &str) -> bool {
+    let t = text.trim();
+    t.len() > 100 && t.ends_with('.')
 }
 
 /// Titles longer than this are paragraphs.
@@ -107,6 +115,10 @@ impl fmt::Display for HardFault {
                 f,
                 "line {local} ({title:?}) is a printed label, not an item title; put it in notes or equipment with the lines it introduces"
             ),
+            HardFault::IngredientsAreProse { title } => write!(
+                f,
+                "item {title:?} lists only paragraphs as ingredient lines; a recipe needs a printed ingredient list, so mark this item technique or essay and put the paragraphs in steps or description"
+            ),
             HardFault::TitleIsProse { local, title } => write!(
                 f,
                 "line {local} ({}…) is a paragraph, not a title; chapter introductions and untitled prose belong in ignored",
@@ -183,6 +195,18 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                     .first()
                     .map(|l| l - chunk.start)
                     .unwrap_or(0),
+                title: item.title.clone(),
+            });
+        }
+        if matches!(item.kind, Kind::Recipe | Kind::Variation)
+            && item.ingredient_count() > 0
+            && item
+                .sections
+                .iter()
+                .flat_map(|s| s.ingredients.iter())
+                .all(|l| ingredient_line_is_prose(&l.text))
+        {
+            v.hard.push(HardFault::IngredientsAreProse {
                 title: item.title.clone(),
             });
         }
@@ -363,6 +387,28 @@ mod tests {
             "{:?}",
             v.hard
         );
+    }
+
+    #[test]
+    fn prose_ingredient_lines_are_not_an_ingredient_list() {
+        let long = "For a batch of classic martinis, combine 2½ cups gin and ½ cup dry vermouth in a pitcher and stir with plenty of ice until very cold.";
+        let html = format!(
+            "<p>diy martini bar</p><p>{long}</p><p>Serve in chilled glasses with olives and a twist.</p>"
+        );
+        let v = run(
+            &html,
+            json!({"items":[{"title":[0],"sections":[{"ingredients":[1],"steps":[2]}]}]}),
+        );
+        assert!(
+            matches!(v.hard[0], HardFault::IngredientsAreProse { .. }),
+            "{:?}",
+            v.hard
+        );
+        let ok = run(
+            "<p>Gin Martini</p><p>2½ cups gin</p><p>Stir with ice until very cold and strain into glasses, garnishing each with an olive.</p>",
+            json!({"items":[{"title":[0],"sections":[{"ingredients":[1],"steps":[2]}]}]}),
+        );
+        assert!(ok.is_ok());
     }
 
     #[test]

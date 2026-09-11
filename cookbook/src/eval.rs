@@ -183,9 +183,12 @@ pub fn score(expected: &Expectations, extraction: &Extraction) -> BookScore {
             sample_failures.push(format!("{}: {steps} steps, expected {n}", s.title));
         }
         if let Some(names) = &s.sections {
+            // A shared method lives in an unnamed section with no ingredients;
+            // answer keys describe ingredient groups, so compare those only.
             let mut got: Vec<Option<String>> = r
                 .sections
                 .iter()
+                .filter(|x| !x.ingredients.is_empty())
                 .map(|x| x.name.as_ref().map(|n| n.to_lowercase()))
                 .collect();
             let mut want: Vec<Option<String>> = names

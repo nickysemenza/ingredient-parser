@@ -57,17 +57,32 @@ pub struct IndexList(pub Vec<usize>);
 
 impl<'de> Deserialize<'de> for IndexList {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Raw {
-            One(usize),
-            Many(Vec<usize>),
-            Null,
-        }
-        Ok(match Raw::deserialize(d)? {
-            Raw::One(i) => IndexList(vec![i]),
-            Raw::Many(v) => IndexList(v),
-            Raw::Null => IndexList(Vec::new()),
+        let raw = Value::deserialize(d)?;
+        let one = |v: &Value| -> Option<usize> {
+            match v {
+                Value::Number(n) => n.as_u64().map(|n| n as usize).or_else(|| {
+                    n.as_f64()
+                        .filter(|f| f.fract() == 0.0 && *f >= 0.0)
+                        .map(|f| f as usize)
+                }),
+                Value::String(s) => s.trim().parse::<usize>().ok(),
+                _ => None,
+            }
+        };
+        let bad = |v: &Value| {
+            serde::de::Error::custom(format!(
+                "expected a line number or a list of line numbers, got {v}"
+            ))
+        };
+        Ok(match &raw {
+            Value::Null => IndexList(Vec::new()),
+            Value::Array(items) => IndexList(
+                items
+                    .iter()
+                    .map(|v| one(v).ok_or_else(|| bad(v)))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            v => IndexList(vec![one(v).ok_or_else(|| bad(v))?]),
         })
     }
 }
@@ -410,6 +425,7 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
 
     let mut payload_items = payload.items;
     payload_items.sort_by_key(first_index);
+    fold_untitled_items(&mut payload_items);
 
     let mut items = Vec::with_capacity(payload_items.len());
     for (index, mut item) in payload_items.into_iter().enumerate() {
@@ -565,6 +581,46 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
 /// Unassigned prose lines tolerated per chunk (they are ignored and flagged);
 /// an unassigned quantity line always fails the answer.
 pub const MAX_AUTO_IGNORED: usize = 3;
+
+/// An untitled item after the first is a component the model split off (a
+/// pizza's per-pie blocks, a sauce printed under its dish): fold it into the
+/// item before it as extra sections, notes, and photos. Nothing is lost and
+/// the first item keeps its continuation meaning.
+fn fold_untitled_items(items: &mut Vec<PayloadItem>) {
+    let mut i = 1;
+    while i < items.len() {
+        if !items[i].title.is_empty() {
+            i += 1;
+            continue;
+        }
+        let orphan = items.remove(i);
+        let Some(prev) = items.get_mut(i - 1) else {
+            continue;
+        };
+        prev.sections.extend(orphan.sections);
+        prev.ingredients.extend(orphan.ingredients.iter().copied());
+        prev.steps.extend(orphan.steps.iter().copied());
+        prev.notes.extend(orphan.notes.iter().copied());
+        prev.notes.extend(orphan.description.iter().copied());
+        prev.equipment.extend(orphan.equipment.iter().copied());
+        prev.photos.extend(orphan.photos.iter().copied());
+        if prev.recipe_yield.is_empty() {
+            prev.recipe_yield = orphan.recipe_yield;
+        } else {
+            prev.notes.extend(orphan.recipe_yield.iter().copied());
+        }
+        prev.notes.extend(orphan.category.iter().copied());
+        prev.notes.extend(orphan.page.iter().copied());
+        for t in [
+            orphan.times.prep,
+            orphan.times.cook,
+            orphan.times.active,
+            orphan.times.total,
+        ] {
+            prev.notes.extend(t.iter().copied());
+        }
+    }
+}
 
 /// A line listed in two fields of the same item is a lossless duplicate:
 /// keep it in the field with higher precedence and drop the other.
@@ -929,12 +985,47 @@ mod tests {
     #[case::too_many_unassigned(json!({"items":[{"title":[0],"sections":[{"ingredients":[2,4]}]}],"ignored":[]}), "not assigned")]
     #[case::double_across_items(json!({"items":[{"title":[0],"sections":[{"ingredients":[2]}]},{"title":[3],"sections":[{"ingredients":[2,4]}]}],"ignored":[1,5,6]}), "assigned to both")]
     #[case::out_of_range(json!({"items":[{"title":[0],"sections":[{"ingredients":[9]}]}],"ignored":[1,2,3,4,5,6]}), "out of range")]
-    #[case::second_item_untitled(json!({"items":[{"title":[0],"sections":[{"ingredients":[2]}]},{"title":[],"sections":[{"ingredients":[4]}]}],"ignored":[1,3,5,6]}), "only the first item may continue")]
     #[case::continuation_without_hint(json!({"items":[{"title":[],"sections":[{"ingredients":[2]}]}],"ignored":[0,1,3,4,5,6]}), "no continuation title")]
     fn rejects_bad_coverage(#[case] payload: Value, #[case] message: &str) {
         let (book, chunk) = book_and_chunk(SOUP, 0);
         let err = lower(&chunk, &book, payload).unwrap_err();
         assert!(err.0.contains(message), "{err}");
+    }
+
+    #[test]
+    fn untitled_later_items_fold_into_their_predecessor() {
+        let (book, chunk) = book_and_chunk(SOUP, 0);
+        let payload = json!({"items":[
+            {"title":[0],"sections":[{"ingredients":[2]}]},
+            {"title":[],"description":[1],"sections":[{"name":[3],"ingredients":[4],"steps":[5]}]}],
+            "ignored":[6]});
+        let lowered = lower(&chunk, &book, payload).unwrap();
+        assert_eq!(lowered.items.len(), 1);
+        let item = &lowered.items[0];
+        assert_eq!(item.ingredient_count(), 2);
+        assert_eq!(
+            item.sections
+                .iter()
+                .map(|s| s.name.as_deref())
+                .collect::<Vec<_>>(),
+            [None, Some("Paste")]
+        );
+        assert_eq!(item.notes[0].text, "A translation");
+    }
+
+    #[test]
+    fn index_lists_accept_strings_and_whole_floats() {
+        let (book, chunk) = book_and_chunk(SOUP, 0);
+        let payload = json!({"items":[{"title":["0"],"page":1.0,"sections":[{"name":[3],"ingredients":["2",4],"steps":[5]}],"notes":[6]}]});
+        let lowered = lower(&chunk, &book, payload).unwrap();
+        assert_eq!(lowered.items[0].ingredient_count(), 2);
+        let bad = json!({"items":[{"title":[0.5],"sections":[{"ingredients":[2]}]}]});
+        assert!(
+            lower(&chunk, &book, bad)
+                .unwrap_err()
+                .0
+                .contains("line number")
+        );
     }
 
     #[test]

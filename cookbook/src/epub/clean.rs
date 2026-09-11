@@ -77,6 +77,11 @@ pub fn clean_document(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
     let mut in_cell = false;
     let mut in_caption = false;
     let mut transformed_ranges: Vec<(usize, usize)> = Vec::new();
+    // Links and images met inside the current table row; they attach to the
+    // row's rendered line once it exists.
+    let mut row_links: Vec<(String, String)> = Vec::new();
+    let mut row_images: Vec<ImageRef> = Vec::new();
+    let mut row_open_anchor: Option<(String, String)> = None;
 
     for edge in dom.tree.root().traverse() {
         match edge {
@@ -128,6 +133,28 @@ pub fn clean_document(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                             row_cells.push(String::new());
                             in_cell = true;
                         }
+                        "a" if table_depth > 0 => {
+                            if let Some(href) = e.attr("href")
+                                && is_internal_href(href)
+                            {
+                                row_open_anchor = Some((href.trim().to_string(), String::new()));
+                            }
+                        }
+                        "img" if table_depth > 0 => {
+                            if let Some(src) = e.attr("src")
+                                && let Some(path) = resolve_image_src(doc_path, src)
+                                && let Some(mime) = image_mime(&path)
+                            {
+                                let alt = e.attr("alt").map(str::trim).map(str::to_string);
+                                row_images.push(ImageRef {
+                                    path,
+                                    mime,
+                                    alt: alt.filter(|a| !a.is_empty()),
+                                    caption: None,
+                                    line: None,
+                                });
+                            }
+                        }
                         "caption" if table_depth > 0 => {
                             buf.push(SEP);
                             in_caption = true;
@@ -176,6 +203,9 @@ pub fn clean_document(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                             if let Some(cell) = row_cells.last_mut() {
                                 cell.push_str(t);
                             }
+                            if let Some((_, text)) = &mut row_open_anchor {
+                                text.push_str(t);
+                            }
                         } else if in_caption {
                             buf.push_str(t);
                         }
@@ -214,6 +244,11 @@ pub fn clean_document(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                         buf.push(SEP);
                     }
                     "td" | "th" if table_depth > 0 => in_cell = false,
+                    "a" if table_depth > 0 => {
+                        if let Some((href, text)) = row_open_anchor.take() {
+                            row_links.push((href, text));
+                        }
+                    }
                     "tr" if table_depth > 0 => {
                         let rendered = render_table_row(&row_cells);
                         if !rendered.is_empty() {
@@ -221,9 +256,18 @@ pub fn clean_document(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                             let start = buf.len();
                             buf.push_str(&rendered);
                             transformed_ranges.push((start, buf.len()));
+                            for (href, text) in row_links.drain(..) {
+                                links.push((start, href, text));
+                            }
+                            for img in row_images.drain(..) {
+                                images.push((start, img));
+                            }
                             buf.push(SEP);
                         }
                         row_cells.clear();
+                        row_links.clear();
+                        row_images.clear();
+                        row_open_anchor = None;
                         in_cell = false;
                     }
                     "caption" if table_depth > 0 => {
@@ -872,6 +916,25 @@ mod tests {
         assert_eq!(lines[0].links.len(), 1);
         assert_eq!(lines[0].links[0].href, "#here");
         assert!(lines[0].images.is_empty());
+    }
+
+    #[test]
+    fn table_rows_keep_their_links_and_images() {
+        let lines = clean_document(
+            "<table><tr><td><a href=\"chapter18_split_002.html#page_373\">Pastry Cream</a></td><td>200 g</td></tr>\
+             <tr><td><img src=\"../images/x.jpg\"/>Flour</td><td>500 g</td></tr></table>",
+            "OEBPS/text/c1.xhtml",
+        );
+        assert_eq!(lines[0].text, "Pastry Cream (200 g)");
+        assert_eq!(
+            lines[0].links,
+            [Link {
+                text: "Pastry Cream".into(),
+                href: "chapter18_split_002.html#page_373".into()
+            }]
+        );
+        assert_eq!(lines[1].images[0].path, "OEBPS/images/x.jpg");
+        assert!(lines[1].links.is_empty());
     }
 
     #[test]
