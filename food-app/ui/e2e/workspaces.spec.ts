@@ -6,30 +6,56 @@ const fixture = JSON.parse(
     "utf8",
   ),
 );
-async function openExtraction(page: Page) {
+interface FixtureItem {
+  kind: string;
+  id: string;
+  title: string;
+  sections?: { ingredients: { raw: string }[]; steps: { text: string }[] }[];
+}
+const extraction = fixture.extraction;
+const bookTitle: string = extraction.cookbook.source.title;
+const items: FixtureItem[] = extraction.cookbook.chapters.flatMap(
+  (chapter: { items: FixtureItem[] }) => chapter.items,
+);
+const recipe = items.find((item) => item.kind === "recipe")!;
+const ingredient = recipe.sections![0].ingredients[0].raw;
+const chapterTitle: string = extraction.cookbook.chapters[0].title;
+const model: string = extraction.report.usage_by_model[0].model;
+const chunkId: string = extraction.report.chunks[0].id;
+const savedRun = fixture.runs[0];
+
+async function openCookbooks(page: Page) {
+  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Library", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Extraction history", exact: true })
-    .click();
+  await expect(page.locator(".library-entry").first()).toBeVisible({
+    timeout: 15_000,
+  });
+}
+async function openSavedRun(page: Page) {
+  await openCookbooks(page);
   await page
     .locator(".run-history")
     .getByRole("button", { name: "Open", exact: true })
     .first()
     .click();
+  await expect(page.getByRole("heading", { name: bookTitle })).toBeVisible();
 }
-async function openSource(page: Page) {
-  await expect(
-    page.getByRole("heading", { name: "Library", exact: true }),
-  ).toBeVisible();
-  await page.locator(".workspace-heading summary").click();
-  await page
-    .getByRole("button", { name: "Cookbook EPUB…", exact: true })
-    .click();
-}
+const calls = (page: Page) =>
+  page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __calls: { command: string; args: Record<string, unknown> }[];
+        }
+      ).__calls ?? [],
+  );
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((data) => {
+    const pixel =
+      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
     (
       window as unknown as {
         __FIXTURE_INVOKE__: (
@@ -38,12 +64,17 @@ test.beforeEach(async ({ page }) => {
         ) => Promise<unknown>;
       }
     ).__FIXTURE_INVOKE__ = async (command, args) => {
-      const calls = window as unknown as {
+      const recorder = window as unknown as {
         __calls: { command: string; args: unknown }[];
       };
-      calls.__calls ??= [];
-      calls.__calls.push({ command, args });
-      if (command === "reveal_file" || command === "open_source_url")
+      recorder.__calls ??= [];
+      recorder.__calls.push({ command, args });
+      if (
+        command === "reveal_file" ||
+        command === "open_source_url" ||
+        command === "cancel_extraction" ||
+        command === "delete_run"
+      )
         return null;
       if (command === "parse_batch") return data.ingredients;
       if (command === "inspect_ingredient") {
@@ -55,125 +86,67 @@ test.beforeEach(async ({ page }) => {
         return inspection;
       }
       if (command === "dialog_open")
-        return args?.kind === "directory"
-          ? "fixture-library"
-          : args?.kind === "epub"
-            ? "fixture.epub"
-            : "fixture.json";
-      if (command === "cookbook_models")
-        return [
-          { id: "automatic", label: "Automatic", enabled: true, status: "Verified recovery" },
-          {
-            id: "gemini-2.5-flash",
-            label: "Gemini 2.5 Flash",
-            enabled: true,
-            status: "Baseline",
-          },
-        ];
-      if (command === "extraction_preview")
-        return {
-          total: 3,
-          cached: 0,
-          pending: 3,
-          lowUsd: 0,
-          highUsd: 0.01,
-          reservationUsd: 0.1,
-          basis: "Fixture estimate",
-          extraction: { usd: [0, 0.01], basis: "Fixture extraction", uncalibrated: true },
-          verification: { usd: [0, 0], basis: "Fixture verification", uncalibrated: false },
-        };
-      if (command === "cookbook_results") return { rows: [{
-        latest: { path: data.cookbook.path, title: "Fixture cookbook", model: "test-model", promptVersion: "v8", configurations: ["test-model / v8", "parent-model / v7"], createdAt: null, recipes: 3, completed: 2, total: 10, incomplete: true, reservedUsd: 0.1, newSpendUsd: null, unresolvedUsd: 0.1, qualityFlags: 1 },
-        runs: 2, failedChunks: 0, pendingChunks: 8, contentReviewFlags: 1, processingSuccessRate: 1, attempts: null, failedAttempts: null,
-      }], unreadable: [] };
-      if (command === "cookbook_runs")
-        return [
-          {
-            path: data.cookbook.path,
-            title: "Fixture cookbook",
-            model: data.cookbook.model,
-            promptVersion: "v5",
-            configurations: [],
-            createdAt: null,
-            recipes: 3,
-            completed: 3,
-            total: 3,
-            incomplete: false,
-            reservedUsd: 0,
-            newSpendUsd: null,
-            unresolvedUsd: 0,
-          },
-        ];
-      if (command === "open_run") return data.cookbook;
-      if (command === "inspect_book") return data.sourceOnly;
-      if (command === "save_review")
-        return {
-          ...data.cookbook,
-          review: [
-            ...data.cookbook.review.filter(
-              (r: { document: string }) => r.document !== args?.document,
-            ),
-            {
-              document: args?.document,
-              status: args?.status,
-              note: args?.note,
-            },
-          ],
-        };
-      if (command === "dialog_save") return "extracted-fixture.json";
-      if (command === "extract_run") {
-        const channel = args?.onProgress as {
-          onmessage: (data: unknown) => void;
-        };
-        channel.onmessage({
-          path: "extracted-fixture.json",
-          completed: 1,
-          total: 3,
-          recipes: 1,
-          reservedUsd: 0,
-          active: 2, failed: 0, elapsedSeconds: 4, estimatedUsd: 0, stopping: false,
-        });
-        const control = window as unknown as {
-          __holdExtraction?: boolean;
-          __finishExtraction?: () => void;
-        };
-        if (control.__holdExtraction) {
-          await new Promise<void>((resolve) => {
-            control.__finishExtraction = resolve;
-          });
-        }
-        return data.cookbook;
-      }
+        return args?.kind === "directory" ? "fixture-library" : "fixture.epub";
+      if (command === "dialog_save") return "fixture-run.json";
       if (command === "load_corpus") return data.corpus;
-      if (command === "scan_library") return data.library;
-      if (command === "run_stats") return data.stats;
-      if (command === "run_audit") return data.audit;
       if (command === "load_recipe") return data.webRecipe;
       if (command === "scale_web_recipe") {
         if (args?.factor !== 2)
           throw new Error("Only actual 2× web scaling fixture is available");
         return data.scaledWebRecipe;
       }
-      if (command === "replay_run")
-        return { ...data.cookbook, path: args?.out };
-      if (command === "load_cover") return null;
-      if (command === "load_images") return [];
-      if (command === "scale_recipe") {
-        if (args?.index !== 0 || args?.factor !== 2)
-          throw new Error(
-            "Only actual first recipe 2× scaling fixture is available",
-          );
-        return data.scaledCookbook;
+      if (command === "scan_library") return data.library;
+      if (command === "open_book") return data.book;
+      if (command === "estimate_book") return data.estimate;
+      if (command === "gateway_status")
+        return { ...data.gateway, configured: true, error: null };
+      if (command === "list_runs") return data.runs;
+      if (command === "open_run") return data.extraction;
+      if (command === "book_image")
+        return { path: String(args?.image), dataUrl: pixel };
+      if (command === "load_cover")
+        return { path: String(args?.path), dataUrl: pixel };
+      if (command === "extract_book") {
+        const channel = args?.onProgress as {
+          onmessage: (value: unknown) => void;
+        };
+        channel.onmessage({
+          phase: "extract",
+          done: 1,
+          total: 4,
+          in_flight: 2,
+          failed: 0,
+          cached: 1,
+          recipes_so_far: 2,
+          cost_so_far_usd: 0.0011,
+          elapsed_ms: 4200,
+          eta: {
+            remaining_low_ms: 8000,
+            remaining_high_ms: 64000,
+            projected_cost_usd: 0.0029,
+          },
+          active_models: [data.estimate.ladder[0]],
+        });
+        const control = window as unknown as {
+          __holdExtraction?: boolean;
+          __finishExtraction?: () => void;
+        };
+        if (control.__holdExtraction)
+          await new Promise<void>((resolve) => {
+            control.__finishExtraction = resolve;
+          });
+        return data.runs[0];
       }
       throw new Error(`Unimplemented fixture command: ${command}`);
     };
   }, fixture);
 });
+
 for (const size of [
   { width: 1440, height: 900 },
   { width: 800, height: 560 },
 ])
-  test(`review and inspect at ${size.width}×${size.height}`, async ({
+  test(`browse and inspect at ${size.width}×${size.height}`, async ({
     page,
   }) => {
     await page.setViewportSize(size);
@@ -199,137 +172,242 @@ for (const size of [
       fullPage: true,
     });
     await page.getByRole("button", { name: "Dark appearance" }).click();
-    await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-    await openExtraction(page);
-    await expect(
-      page.getByRole("region", { name: "Extraction feedback", exact: true }),
-    ).toBeVisible();
+    await openSavedRun(page);
+    await expect(page.locator(".book-tree")).toContainText(chapterTitle);
+    await expect(page.locator(".book-tree")).toContainText(recipe.title);
+    await expect(page.locator(".item-view .document-heading h2")).toHaveText(
+      recipe.title,
+    );
+    await expect(page.locator(".item-view .instructions")).toContainText(
+      recipe.sections![0].steps[0].text,
+    );
     await page.screenshot({
       path: `test-results/cookbook-${size.width}.png`,
       fullPage: true,
     });
-    const ingredient = page.locator(".ingredient-lines button:visible").first();
-    const clickedInput = await ingredient.innerText();
-    await ingredient.click();
+    await page
+      .locator(".item-view .ingredient-lines button:not(.chip)")
+      .filter({ hasText: ingredient })
+      .first()
+      .click();
     await expect(
       page.getByRole("region", { name: "Ingredient inspector" }),
     ).toBeVisible();
-    await expect(page.locator(".cookbooks .inspector-input")).toHaveText(
-      clickedInput,
+    await expect(page.locator(".run-inspector .inspector-input")).toHaveText(
+      ingredient,
     );
-    if (size.width === 800)
-      await page.screenshot({
-        path: "test-results/cookbook-focused-inspector.png",
-        fullPage: true,
-      });
-    if (size.width === 800) {
-      await expect(
-        page.getByRole("button", { name: "Back to source" }),
-      ).toBeVisible();
-      await page.getByRole("button", { name: "Back to source" }).click();
-    } else await page.getByRole("button", { name: "Close inspector" }).click();
-    await expect(page.getByRole("combobox", { name: "Review status", exact: true })).toHaveCount(0);
+    await page.screenshot({
+      path: `test-results/cookbook-inspector-${size.width}.png`,
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "Close inspector" }).click();
+    await expect(page.locator(".run-inspector")).toHaveCount(0);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
     ).toBe(true);
-    const calls = await page.evaluate(
-      () => (window as unknown as { __calls: { command: string }[] }).__calls,
+    expect((await calls(page)).some((c) => c.command === "extract_book")).toBe(
+      false,
     );
-    expect(calls.some((c) => c.command === "extract_run")).toBe(false);
     await page.getByRole("button", { name: "Light appearance" }).click();
     await page.screenshot({
       path: `test-results/cookbook-light-${size.width}.png`,
       fullPage: true,
     });
   });
-test("opening source is offline and extraction dialog traps focus", async ({
+
+test("the default library scan is offline and opens a book's estimate", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openSource(page);
-  await page.getByRole("button", { name: "Extraction…", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toBeVisible();
+  await openCookbooks(page);
+  const entry = fixture.library[0];
+  await expect(page.locator(".library-books")).toContainText(entry.title);
+  await page.getByRole("textbox", { name: "Find book" }).fill(entry.title);
+  await expect(page.locator(".library-entry")).toHaveCount(1);
+  await page.getByRole("button", { name: "Grid view" }).click();
+  await expect(page.getByRole("button", { name: "List view" })).toBeVisible();
+  await page.locator(".library-entry > button").first().click();
   await expect(
-    dialog.getByLabel("Cache only (no network requests)"),
-  ).not.toBeChecked();
-  await page.keyboard.press("Escape");
-  await expect(dialog).not.toBeVisible();
+    page.getByRole("region", { name: "Extraction estimate" }),
+  ).toContainText(fixture.estimate.assumptions[0]);
+  await expect(page.locator(".book-panel")).toContainText(
+    fixture.book.classified.reasons[0],
+  );
+  await expect(page.locator(".book-panel")).toContainText(
+    fixture.book.outline.chapters[0],
+  );
+  await expect(page.getByRole("button", { name: "Extract" })).toBeEnabled();
+  const recorded = await calls(page);
   expect(
-    await page.evaluate(() =>
-      (window as unknown as { __calls: { command: string }[] }).__calls.some(
-        (c) => c.command === "extract_run",
-      ),
-    ),
-  ).toBe(false);
+    recorded.find((c) => c.command === "scan_library")?.args.directory,
+  ).toBe("");
+  expect(recorded.find((c) => c.command === "open_book")?.args.path).toBe(
+    entry.path,
+  );
+  expect(recorded.some((c) => c.command === "extract_book")).toBe(false);
+  expect(recorded.some((c) => c.command === "dialog_open")).toBe(false);
+  await page.reload();
+  expect(
+    await page.evaluate(() => localStorage.getItem("v1:library-grid")),
+  ).toBe("true");
 });
 
-test("extraction saves automatically and preferences restore idle", async ({
+test("extraction reports progress, then opens the saved run it produced", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openSource(page);
-  await page.getByRole("button", { name: "Extraction…", exact: true }).click();
+  await openCookbooks(page);
+  await page.locator(".library-entry > button").first().click();
   await page.evaluate(() => {
-    (window as unknown as { __holdExtraction: boolean }).__holdExtraction = true;
+    (window as unknown as { __holdExtraction: boolean }).__holdExtraction =
+      true;
   });
   await page.getByRole("button", { name: "Extract", exact: true }).click();
-  await expect(page.locator(".cookbooks .progress")).toBeVisible();
+  const progress = page.getByRole("status", { name: "Extraction progress" });
+  await expect(progress).toContainText("1/4 chunks");
+  await expect(progress).toContainText("2 in flight");
+  await expect(progress).toContainText("1 cached");
+  await expect(progress).toContainText("$0.0011 so far");
+  await expect(progress).toContainText("~8.0 s–1 m 4 s left");
+  await expect(progress).toContainText(fixture.estimate.ladder[0]);
   await expect(
-    page.getByRole("button", { name: "Extraction…", exact: true }),
-  ).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "Save review", exact: true }),
+    page.getByRole("button", { name: "Extract", exact: true }),
   ).toHaveCount(0);
-  const calls = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          __calls: {
-            command: string;
-            args: { request?: { allowNetwork: boolean; out: string; resume: boolean; model: string; strategy: string } };
-          }[];
-        }
-      ).__calls,
-  );
-  const extraction = calls.find((c) => c.command === "extract_run");
-  expect(extraction?.args.request?.allowNetwork).toBe(true);
-  expect(extraction?.args.request?.model).toBe("automatic");
-  expect(extraction?.args.request?.resume).toBe(false);
-  expect(extraction?.args.request?.out).toBe("");
-  expect(extraction?.args.request?.strategy).toBe("indexed");
-  expect(calls.some((c) => c.command === "dialog_save")).toBe(false);
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+  await expect(page.locator(".status-bar")).toContainText("Extracting 1/4");
   await page.evaluate(() => {
-    (window as unknown as { __finishExtraction: () => void }).__finishExtraction();
+    (
+      window as unknown as { __finishExtraction: () => void }
+    ).__finishExtraction();
   });
-  await expect(
-    page.getByRole("button", { name: "Extraction…", exact: true }),
-  ).toBeEnabled();
-  await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "Library", exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: bookTitle })).toBeVisible();
+  await expect(page.locator(".book-tree")).toContainText(recipe.title);
+  const recorded = await calls(page);
+  expect(recorded.find((c) => c.command === "extract_book")?.args.path).toBe(
+    fixture.book.path,
+  );
   expect(
-    await page.evaluate(() =>
-      (
-        (window as unknown as { __calls?: { command: string }[] }).__calls ?? []
-      ).filter(
-        (c) => c.command !== "scan_library" && c.command !== "load_cover",
-      ),
-    ),
-  ).toHaveLength(0);
+    recorded.filter((c) => c.command === "open_run").at(-1)?.args.path,
+  ).toBe(savedRun.path);
 });
-test("source navigation requires no manual approval", async ({ page }) => {
+
+test("diagnostics report the chunk table, the call log and the crosscheck", async ({
+  page,
+}) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openExtraction(page);
-  await page.getByRole("option", { name: /Flatbread/ }).click();
-  await expect(page.locator(".document-heading h2")).toContainText("Flatbread");
-  await expect(page.getByRole("combobox", { name: "Review status" })).toHaveCount(0);
+  await openSavedRun(page);
+  await page.getByRole("tab", { name: "Diagnostics" }).click();
+  await expect(page.getByRole("region", { name: "Run summary" })).toContainText(
+    extraction.report.run_id,
+  );
+  await expect(page.getByRole("region", { name: "Run summary" })).toContainText(
+    `${extraction.report.crosscheck.matched}/${extraction.report.crosscheck.nav_titles} contents titles matched`,
+  );
+  await expect(page.getByRole("region", { name: "Chunks" })).toContainText(
+    chunkId,
+  );
+  await expect(
+    page.getByRole("region", { name: "Usage by model" }),
+  ).toContainText(model);
+  const log = page.getByRole("listbox", { name: "Model calls" });
+  await expect(log.getByRole("option").first()).toContainText(model);
+  await expect(log.getByRole("option")).toHaveCount(
+    extraction.report.calls.length,
+  );
+  await page.getByRole("region", { name: "Stage timings" }).isVisible();
+  await page.locator("details.card summary").click();
+  await expect(page.locator("details.card .json")).toContainText(
+    extraction.report.run_id,
+  );
+  await page.getByRole("tab", { name: "Recipes" }).click();
+  await expect(page.locator(".item-view")).toContainText(recipe.title);
+});
+
+test("a reference chip jumps to the recipe it names", async ({ page }) => {
+  await page.goto("/");
+  await openSavedRun(page);
+  const linked = items.find(
+    (item) =>
+      item.kind === "recipe" &&
+      item.sections?.some((section) =>
+        section.ingredients.some(
+          (line) => (line as { ref?: unknown }).ref !== null,
+        ),
+      ),
+  )!;
+  await page
+    .locator(".book-tree")
+    .getByRole("button", { name: new RegExp(linked.title) })
+    .click();
+  const chip = page.locator(".item-view .chip").first();
+  const target = (await chip.innerText()).trim();
+  await chip.click();
+  await expect(page.locator(".item-view .document-heading h2")).toHaveText(
+    target,
+  );
+});
+
+test("run history deletes a saved run after confirmation", async ({ page }) => {
+  page.on("dialog", (dialog) => void dialog.accept());
+  await page.goto("/");
+  await openCookbooks(page);
+  await expect(page.locator(".run-history")).toContainText(savedRun.book);
+  await page
+    .locator(".run-history")
+    .getByRole("button", { name: "Delete", exact: true })
+    .first()
+    .click();
+  await expect
+    .poll(async () =>
+      (await calls(page)).find((c) => c.command === "delete_run"),
+    )
+    .toBeTruthy();
+  const recorded = await calls(page);
+  expect(recorded.find((c) => c.command === "delete_run")?.args.path).toBe(
+    savedRun.path,
+  );
+  expect(recorded.some((c) => c.command === "extract_book")).toBe(false);
+});
+
+test("an unconfigured gateway blocks extraction and names its config file", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const host = window as unknown as {
+      __FIXTURE_INVOKE__: (
+        command: string,
+        args?: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
+    const original = host.__FIXTURE_INVOKE__;
+    host.__FIXTURE_INVOKE__ = async (command, args) => {
+      const value = await original(command, args);
+      if (command !== "gateway_status") return value;
+      return {
+        ...(value as object),
+        configured: false,
+        error: "CLOUDFLARE_AI_GATEWAY_BASE_URL is unset",
+      };
+    };
+  });
+  await page.goto("/");
+  await openCookbooks(page);
+  await page.locator(".library-entry > button").first().click();
+  await expect(page.getByRole("button", { name: "Extract" })).toBeDisabled();
+  await expect(page.locator(".book-panel")).toContainText(
+    "Gateway credentials are not configured",
+  );
+  await expect(page.locator(".book-panel")).toContainText(
+    fixture.gateway.configPath,
+  );
+  await expect(page.locator(".book-panel")).toContainText(
+    "CLOUDFLARE_AI_GATEWAY_BASE_URL is unset",
+  );
+  expect((await calls(page)).some((c) => c.command === "extract_book")).toBe(
+    false,
+  );
 });
 
 test("corpus scoring preserves field context during ingredient inspection", async ({
@@ -369,6 +447,7 @@ test("corpus scoring preserves field context during ingredient inspection", asyn
     regression.fields[0].actual,
   );
 });
+
 test("web recipe loads human sections and scales through the backend", async ({
   page,
 }) => {
@@ -394,128 +473,15 @@ test("web recipe loads human sections and scales through the backend", async ({
   await expect(page.locator(".web-recipe .ingredient-lines")).toContainText(
     fixture.scaledWebRecipe.sections[0].ingredients[0],
   );
-  await expect(page.locator(".web-recipe .instructions")).toContainText(
-    fixture.scaledWebRecipe.sections[0].instructions[0],
-  );
-  const calls = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          __calls: { command: string; args: Record<string, unknown> }[];
-        }
-      ).__calls,
-  );
-  expect(calls.find((c) => c.command === "open_source_url")?.args.url).toBe(
+  const recorded = await calls(page);
+  expect(recorded.find((c) => c.command === "open_source_url")?.args.url).toBe(
     fixture.webRecipe.url,
   );
-  expect(calls.find((c) => c.command === "scale_web_recipe")?.args.factor).toBe(
-    2,
-  );
-});
-test("library scan opens existing results or source and preserves grid preference", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page.locator(".workspace-heading summary").click();
-  await page.getByRole("button", { name: "Library folder…" }).click();
-  const book = fixture.library.find(
-    (book: { cookbook: boolean }) => book.cookbook,
-  );
-  expect(book).toBeTruthy();
-  await page.getByRole("textbox", { name: "Find book" }).fill(book.title);
-  await expect(page.locator(".library-books")).toContainText(book.title);
-  await page.getByRole("button", { name: "Grid view" }).click();
-  await expect(page.getByRole("button", { name: "List view" })).toBeVisible();
-  await page.locator(".library-entry > button").first().click();
-  await expect(
-    page.getByRole("button", { name: "Extraction…", exact: true }),
-  ).toBeVisible();
-  const calls = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          __calls: { command: string; args: Record<string, unknown> }[];
-        }
-      ).__calls,
-  );
   expect(
-    calls.find(
-      (c) => c.command === (book.runs?.length ? "open_run" : "inspect_book"),
-    )?.args.path,
-  ).toBe(book.runs?.[0]?.path ?? book.path);
-  expect(calls.some((c) => c.command === "extract_run")).toBe(false);
-  await page.reload();
-  expect(
-    await page.evaluate(() => localStorage.getItem("v1:library-grid")),
-  ).toBe("true");
+    recorded.find((c) => c.command === "scale_web_recipe")?.args.factor,
+  ).toBe(2);
 });
-test("saved run statistics, references, replay and scaling retain real evidence", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openExtraction(page);
-  await page
-    .locator('select[aria-label="Recipe scale"]:visible')
-    .selectOption("2");
-  await expect(page.locator(".ingredient-lines:visible")).toContainText(
-    fixture.scaledCookbook.sections[0].ingredients[0],
-  );
-  await page.getByText("Extraction tools", { exact: true }).click();
-  await page
-    .getByRole("button", { name: "Ingredient statistics", exact: true })
-    .click();
-  await expect(
-    page.getByRole("listbox", { name: "Ingredient statistics" }),
-  ).toBeVisible();
-  const stat = fixture.stats.names[0];
-  await page
-    .getByRole("textbox", { name: "Find ingredient name" })
-    .fill(stat.name);
-  await page
-    .getByRole("listbox", { name: "Ingredient statistics" })
-    .getByRole("option")
-    .first()
-    .click();
-  const example = page.locator(".stat-example button").first();
-  const input = await example.innerText();
-  await example.click();
-  await expect(page.locator(".tool-inspector .inspector-input")).toHaveText(
-    input,
-  );
-  await page.getByRole("button", { name: "Back to source" }).click();
-  await page.getByText("Extraction tools", { exact: true }).click();
-  await page
-    .getByRole("button", { name: "Reference graph", exact: true })
-    .click();
-  await expect(page.locator(".reference-graph")).toBeVisible();
-  const linked = fixture.cookbook.recipes[0];
-  await expect(
-    page.getByText(
-      "No cross-recipe references in this run. Select a recipe to review its source.",
-    ),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: `Open ${linked.title}`, exact: true })
-    .click();
-  await expect(page.locator(".document-heading h2")).toContainText(
-    linked.title,
-  );
-  await page.getByText("Extraction tools", { exact: true }).click();
-  await page.getByRole("button", { name: "Replay to new run…" }).click();
-  await expect
-    .poll(async () =>
-      page.evaluate(() =>
-        (window as unknown as { __calls: { command: string }[] }).__calls.some(
-          (c) => c.command === "replay_run",
-        ),
-      ),
-    )
-    .toBe(true);
-  await expect(page.locator(".document-heading h2")).toBeVisible();
-});
+
 test("parser failure evidence belongs to the selected failure input", async ({
   page,
 }) => {
@@ -538,361 +504,4 @@ test("parser failure evidence belongs to the selected failure input", async ({
     path: "test-results/parser-failure.png",
     fullPage: true,
   });
-});
-
-test("recent runs restore idle and reopen through the native bridge", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openExtraction(page);
-  await page.getByText("Extraction tools", { exact: true }).click();
-  await page
-    .getByRole("button", { name: "Reveal extraction in Finder", exact: true })
-    .click();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (
-            window as unknown as { __calls: { command: string }[] }
-          ).__calls.filter((call) => call.command === "reveal_file").length,
-      ),
-    )
-    .toBe(1);
-  await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "Library", exact: true }),
-  ).toBeVisible();
-  expect(
-    await page.evaluate(() =>
-      (
-        (window as unknown as { __calls?: { command: string }[] }).__calls ?? []
-      ).filter(
-        (c) => c.command !== "scan_library" && c.command !== "load_cover",
-      ),
-    ),
-  ).toEqual([]);
-  await page
-    .locator(".workspace-heading summary")
-    .filter({ hasText: /^Open/ })
-    .click();
-  await page.locator(".recent-run").first().click();
-  await expect(page.locator(".document-heading h2")).toBeVisible();
-  await page
-    .locator(".workspace-heading summary")
-    .filter({ hasText: /^Open/ })
-    .click();
-  await page.getByRole("button", { name: "Clear recent extractions" }).click();
-  await expect(page.locator(".recent-run")).toHaveCount(0);
-});
-
-test("legacy review shortcuts do not write or advance", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openExtraction(page);
-  const original = await page.locator(".document-heading h2").innerText();
-  await page.keyboard.press("Meta+Alt+KeyA");
-  await page.keyboard.press("Meta+Shift+Enter");
-  await expect(page.locator(".document-heading h2")).toHaveText(original);
-  await expect(page.getByRole("button", { name: "Save review" })).toHaveCount(0);
-  await expect(page.getByLabel("Extraction feedback")).toContainText("Not assessed");
-  expect(await page.evaluate(() => (window as unknown as { __calls: {command: string}[] }).__calls.filter(c => c.command === "save_review"))).toHaveLength(0);
-});
-
-test("model dropdown focus and selection update preflight without extracting", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    const host = window as unknown as {
-      __FIXTURE_INVOKE__: (
-        command: string,
-        args?: Record<string, unknown>,
-      ) => Promise<unknown>;
-    };
-    const original = host.__FIXTURE_INVOKE__;
-    host.__FIXTURE_INVOKE__ = async (command, args) => {
-      if (command === "cookbook_models")
-        return [
-          { id: "automatic", label: "Automatic", enabled: true, status: "Verified recovery" },
-          {
-            id: "gemini-2.5-flash",
-            label: "Baseline",
-            enabled: true,
-            status: "Test",
-          },
-          { id: "gpt-5.6-luna", label: "Luna", enabled: true, status: "Test" },
-        ];
-      if (command === "extraction_preview") {
-        const request = args?.request as { model: string };
-        return {
-          total: 3,
-          cached: 1,
-          pending: 2,
-          lowUsd: 0.001,
-          highUsd: request.model === "gpt-5.6-luna" ? 0.002 : 0.004,
-          reservationUsd: 0.1,
-          basis: "Fixture estimate",
-          extraction: { usd: [0.001, request.model === "gpt-5.6-luna" ? 0.002 : 0.004], basis: "Fixture extraction", uncalibrated: true },
-          verification: { usd: [0, 0], basis: "Fixture verification", uncalibrated: false },
-        };
-      }
-      return original(command, args);
-    };
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openSource(page);
-  await page.getByRole("button", { name: "Extraction…", exact: true }).click();
-  await page.getByText("Advanced options", { exact: true }).click();
-  const picker = page.getByRole("combobox", { name: "Model", exact: true });
-  await expect(picker).toHaveValue("automatic");
-  const concurrency = page.getByRole("combobox", { name: "Concurrent requests", exact: true });
-  await expect(concurrency).toHaveValue("4");
-  await concurrency.selectOption("8");
-  await expect(concurrency).toHaveValue("8");
-  await expect(page.getByText(/estimated additional cost/)).toContainText(
-    "<$0.01–<$0.01",
-  );
-  await page.screenshot({ path: "/tmp/cookbook-extraction-preview.png" });
-  await picker.focus();
-  await expect(picker).toBeFocused();
-  await picker.selectOption("gpt-5.6-luna");
-  await expect(picker).toHaveValue("gpt-5.6-luna");
-  await expect(page.getByText(/estimated additional cost/)).toContainText(
-    "<$0.01–<$0.01",
-  );
-  await expect(page.getByLabel("Spending limit (USD)")).toHaveValue("10");
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-});
-
-test("saved history opens, compares, reveals and exports without extraction", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    const host = window as unknown as {
-      __FIXTURE_INVOKE__: (
-        command: string,
-        args?: Record<string, unknown>,
-      ) => Promise<unknown>;
-      __historyActions: string[];
-    };
-    host.__historyActions = [];
-    const original = host.__FIXTURE_INVOKE__;
-    host.__FIXTURE_INVOKE__ = async (command, args) => {
-      if (command === "cookbook_runs")
-        return [
-          {
-            path: "fixture.json",
-            epubSha256: "same-book",
-            status: "complete",
-            title: "Fixture cookbook",
-            model: "gemini-2.5-flash",
-            promptVersion: "v5",
-            configurations: ["gemini-2.5-flash / v5", "gpt-5.6-luna / v5"],
-            createdAt: 1788950000,
-            recipes: 3,
-            completed: 3,
-            total: 3,
-            incomplete: false,
-            reservedUsd: 0.01,
-            newSpendUsd: 0.002,
-            unresolvedUsd: 0,
-          },
-        ].flatMap((row) => [row, { ...row, path: "second.json", status: "interrupted", incomplete: true }, { ...row, path: "other.json", epubSha256: "other-book" }]);
-      if (["export_run", "reveal_file", "run_diff"].includes(command)) {
-        host.__historyActions.push(command);
-        return command === "run_diff" ? { sameSource: true } : null;
-      }
-      return original(command, args);
-    };
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Extraction history", exact: true })
-    .click();
-  await expect(page.getByText(/Mixed: gemini/).first()).toBeVisible();
-  await expect(page.getByText(/0.0020 estimated new spend/).first()).toBeVisible();
-  await page.getByRole("button", { name: "Reveal", exact: true }).first().click();
-  await page.getByRole("button", { name: "Export", exact: true }).first().click();
-  await page
-    .locator(".run-history")
-    .getByRole("button", { name: "Open", exact: true })
-    .first().click();
-  await page
-    .getByRole("button", { name: "Extraction history", exact: true })
-    .click();
-  await page.getByRole("checkbox", { name: /Compare .*fixture.json/ }).check();
-  await expect(page.getByRole("checkbox", { name: /Compare .*other.json/ })).toBeDisabled();
-  await page.getByRole("checkbox", { name: /Compare .*second.json/ }).check();
-  await page.getByRole("button", { name: "Compare selected extractions", exact: true }).click();
-  const actions = await page.evaluate(
-    () =>
-      (window as unknown as { __historyActions: string[] }).__historyActions,
-  );
-  expect(actions).toEqual(["reveal_file", "export_run", "run_diff"]);
-});
-
-test("default library opens without a folder dialog", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Open saved run" }),
-  ).toHaveCount(0);
-
-  await expect(
-    page.getByRole("heading", { name: "Library", exact: true }),
-  ).toBeVisible();
-  const calls = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          __calls: { command: string; args: { directory?: string } }[];
-        }
-      ).__calls,
-  );
-  expect(calls.find((c) => c.command === "scan_library")?.args.directory).toBe(
-    "",
-  );
-  expect(calls.some((c) => c.command === "dialog_open")).toBe(false);
-});
-
-test("a library cookbook opens its latest extraction without file selection", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    const host = window as unknown as {
-      __FIXTURE_INVOKE__: (
-        command: string,
-        args?: Record<string, unknown>,
-      ) => Promise<unknown>;
-    };
-    const original = host.__FIXTURE_INVOKE__;
-    host.__FIXTURE_INVOKE__ = async (command, args) => {
-      const result = await original(command, args);
-      if (command !== "scan_library") return result;
-      const runs = await original("cookbook_runs", { book: null });
-      return (result as { cookbook: boolean }[]).map((book) => ({
-        ...book,
-        runs: book.cookbook ? runs : [],
-      }));
-    };
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page.locator(".library-entry > button").first().click();
-  await expect(
-    page.getByRole("region", { name: "Extraction feedback", exact: true }),
-  ).toBeVisible();
-  const calls = await page.evaluate(
-    () => (window as unknown as { __calls: { command: string }[] }).__calls,
-  );
-  expect(calls.some((call) => call.command === "open_run")).toBe(true);
-  expect(
-    calls.some(
-      (call) =>
-        call.command === "dialog_open" || call.command === "inspect_book",
-    ),
-  ).toBe(false);
-});
-
-test("extraction shows accounting and stops without losing its result", async ({ page }) => {
-  await page.addInitScript(() => {
-    const host = window as unknown as { __FIXTURE_INVOKE__: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
-    const original = host.__FIXTURE_INVOKE__;
-    let finish: ((result: unknown) => void) | undefined;
-    host.__FIXTURE_INVOKE__ = async (command, args) => {
-      if (command === "extract_run") {
-        const channel = args?.onProgress as { onmessage: (data: unknown) => void };
-        channel.onmessage({ path: "stopped.json", completed: 1, total: 8, recipes: 2, active: 4, failed: 0, elapsedSeconds: 12, estimatedUsd: 0.02, reservedUsd: 0.50, unresolvedUsd: 0.48, activeModels: ["GLM 5.3 Flash (extracting)", "Gemini 2.5 Flash (verifying)"], stopping: false });
-        return new Promise((resolve) => { finish = resolve; });
-      }
-      if (command === "cancel_extraction") {
-        const result = await original("open_run", { path: "stopped.json" });
-        finish?.({ ...(result as object), path: "stopped.json", incomplete: true, status: "cancelled" });
-        return null;
-      }
-      return original(command, args);
-    };
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openSource(page);
-  await page.getByRole("button", { name: "Extraction…", exact: true }).click();
-  await page.getByRole("button", { name: "Extract", exact: true }).click();
-  await expect(page.locator(".progress")).toContainText("4 active");
-  await expect(page.locator(".progress")).toContainText("12s");
-  await expect(page.locator(".progress")).toContainText("$0.0200 estimated");
-  await expect(page.locator(".progress")).toContainText("GLM 5.3 Flash (extracting)");
-  await expect(page.locator(".progress")).toContainText("Gemini 2.5 Flash (verifying)");
-  await expect(page.locator(".progress")).toContainText("$0.4800 reserved (not confirmed spend)");
-  await page.getByRole("button", { name: "Stop extraction", exact: true }).click();
-  await expect(page.locator(".run-heading")).toContainText("cancelled extraction");
-  await expect(page.getByRole("button", { name: "Stop extraction", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Extraction…", exact: true }).click();
-  await page.getByLabel("Resume this extraction").check();
-  await expect(page.getByRole("button", { name: "Resume extraction", exact: true })).toBeEnabled();
-});
-
-test("source checks expose suspect method text and navigate to its source", async ({ page }) => {
-  await page.addInitScript(() => {
-    const host = window as unknown as { __FIXTURE_INVOKE__: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
-    const original = host.__FIXTURE_INVOKE__;
-    host.__FIXTURE_INVOKE__ = async (command, args) => {
-      const value = await original(command, args);
-      if (command !== "open_run") return value;
-      const book = value as { documents: { path: string }[] };
-      return { ...book, feedback: { phase: "Incomplete", stopReason: "model stages exhausted", policy: ["GLM 5.3 Flash", "Gemini 2.5 Flash"], extractionUsd: 0.01, verificationUsd: 0.02, unresolvedUsd: 0, checks: [], findings: [{ category: "fidelity", source: book.documents[1].path, lines: [], model: "Gemini 2.5 Flash", resolved: false, message: "Possible method step stored in notes: Pour into molds and freeze until firm." }] } };
-    };
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openExtraction(page);
-  await page.locator(".source-checks summary").click();
-  await expect(page.locator(".source-checks")).toContainText("Unresolved · fidelity");
-  await expect(page.locator(".source-checks")).toContainText("Possible method step stored in notes");
-  const source = await page.locator(".source-checks button").textContent();
-  await page.locator(".source-checks button").click();
-  await expect(page.locator(".document-heading")).toContainText(source ?? "");
-});
-
-test("source checks distinguish processing errors from content warnings", async ({ page }) => {
-  await page.addInitScript(() => {
-    const host = window as unknown as { __FIXTURE_INVOKE__: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
-    const original = host.__FIXTURE_INVOKE__;
-    host.__FIXTURE_INVOKE__ = async (command, args) => {
-      const value = await original(command, args);
-      if (command !== "open_run") return value;
-      const book = value as { documents: { path: string }[] };
-      return { ...book, feedback: { phase: "Incomplete", stopReason: "verification budget exhausted", policy: ["GLM 5.3 Flash", "Gemini 2.5 Flash"], extractionUsd: 0.12, verificationUsd: 0.02, unresolvedUsd: 0.01, checks: ["Group 1 verified"], findings: [
-        { category: "processing", source: book.documents[0].path, lines: [], model: "GLM 5.3 Flash", resolved: true, message: "request timeout: response deadline exceeded" },
-        { category: "fidelity", source: book.documents[1].path, lines: [1], model: "Gemini 2.5 Flash", resolved: false, message: "Recipe has ingredients but no method." },
-      ] } };
-    };
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await openExtraction(page);
-  await page.locator(".source-checks summary").click();
-  await expect(page.locator(".source-checks")).toContainText("Recovered · processing");
-  await expect(page.locator(".source-checks")).toContainText("Unresolved · fidelity");
-  await expect(page.locator(".source-checks")).toContainText("request timeout: response deadline exceeded");
-});
-
-test("model results distinguish partial coverage and open the underlying extraction", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Cookbooks", exact: true }).click();
-  await page.getByRole("button", { name: "Model results", exact: true }).click();
-  const table = page.getByRole("table", { name: "Processing success by book and model" });
-  await expect(table).toContainText("100.0%");
-  await expect(table).toContainText("2/10 complete");
-  await expect(table).toContainText("8 pending");
-  await expect(table).toContainText("Mixed: test-model / v8, parent-model / v7");
-  await expect(table).toContainText("Unknown");
-  await page.getByRole("searchbox", { name: "Filter books or models" }).fill("absent");
-  await expect(page.getByText("No matching books or models.")).toBeVisible();
-  await page.getByRole("searchbox", { name: "Filter books or models" }).fill("parent-model");
-  await table.getByRole("button", { name: /Open Fixture cookbook/ }).click();
-  await expect(page.getByRole("heading", { name: "Extracted result", exact: true })).toBeVisible();
 });

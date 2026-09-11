@@ -26,17 +26,44 @@ pnpm --filter @ingredient-parser/desktop-ui desktop:build
 The bundle is written beneath `target/release/bundle/macos/`. No signing,
 notarization, or updater credentials are required for local development.
 
+## Cookbooks workspace
+
+The Cookbooks workspace is presentation over the `cookbook` crate; nothing in the
+frontend calls a model.
+
+- **Library** lists the EPUBs in the Calibre folder (or a folder you pick).
+  Covers load when an entry scrolls into view, never all at once. Each entry
+  shows its catalog cookbook hint and how many saved runs it has.
+- **Book** opens offline: the outline, the structural cookbook verdict with its
+  reasons, the runs of that exact file, and an estimate (chunks, cache hits,
+  tokens, cost range, time range, ladder, assumptions). **Extract** is disabled,
+  with the configuration file named, when gateway credentials are missing. A
+  running extraction reports settled chunks, in-flight and failed calls, cache
+  hits, recipes, cost, elapsed time, the ETA window, and the models answering;
+  **Cancel** stops it. The saved run opens when it finishes.
+- **Run** shows the chapter tree with per-item counts and kind badges, the
+  selected recipe (sections, parsed ingredient lines with confidence, steps,
+  notes, photos, provenance), and the ingredient inspector shared with the
+  Parser workspace. Reference chips jump to the item they name. The
+  **Diagnostics** tab carries the run summary and crosscheck, stage timings,
+  usage by model, the chunk table (failed and flagged first), the full call log,
+  unresolved references, the ETA trace, and the raw report.
+- **Run history** lists every saved run, newest first, and can open or delete
+  one. Deletion is the only write the workspace performs.
+
 ## Offline fixtures
 
 ```sh
-cargo run -p food-app --example create_review_fixture -- /tmp/food-app-qa
-pnpm --filter @ingredient-parser/desktop-ui desktop:build --debug
-"target/debug/bundle/macos/Ingredient Parser.app/Contents/MacOS/food-app" --review-run /tmp/food-app-qa/cookbook-run.json
+cargo run -p food-app --example create_run_fixture -- /tmp/food-app-qa
 ```
 
-The fixture generator creates a real EPUB using `recipe-epub-fixtures`, supplies
-an in-process mock extractor, and writes a durable run and review sidecar through
-the production APIs. No paid model calls are used.
+The generator writes a real EPUB, extracts it through the production pipeline
+with an in-process oracle transport (no paid model calls), saves the run under
+`/tmp/food-app-qa/runs` by pointing the run store there with `COOKBOOK_RUNS_DIR`,
+and writes `frontend-fixture.json`. The Playwright bridge answers every command
+from that bundle: `book`, `estimate`, `extraction`, `runs`, `library`,
+`gateway`, `ingredients`, `inspections`, `corpus`, `webRecipe`,
+`scaledWebRecipe`.
 
 ## Command bindings
 
@@ -54,35 +81,30 @@ cargo run -p food-app --example export_bindings -- --check
 pnpm --filter @ingredient-parser/desktop-ui lint
 pnpm --filter @ingredient-parser/desktop-ui test
 pnpm --filter @ingredient-parser/desktop-ui build
+cargo run -p food-app --example create_run_fixture -- /tmp/food-app-qa
 pnpm --filter @ingredient-parser/desktop-ui exec playwright install webkit
-cargo run -p food-app --example create_review_fixture -- /tmp/food-app-qa
 pnpm --filter @ingredient-parser/desktop-ui test:e2e
-cargo test -p food-app
+cargo run -p food-app --example export_bindings -- --check
+cargo nextest run -p food-app
 cargo clippy -p food-app --all-targets -- -D warnings
 ```
 
 Browser tests exercise interaction through a fixture-backed command bridge.
 Native macOS smoke testing separately verifies the actual command boundary,
-file dialogs, clipboard, startup run, and preference restoration. Imported source
-is rendered as text and controlled elements rather than executable HTML.
+file dialogs, clipboard, and preference restoration. Imported source is rendered
+as text and controlled elements rather than executable HTML.
 
 Recipe scale controls and JSON presentation are shared with the WASM demo in
 [`packages/recipe-ui`](../packages/recipe-ui/README.md). Execution remains native
 Rust in this app; the shared package contains presentation only.
 
-## Daily review controls
+## Native shell
 
-- **Open → Recent runs** reopens one of the last eight saved runs. Restoring the
-  list does not open files, extract content, or start network requests.
-- **Run tools → Reveal … in Finder** locates the source EPUB, saved run, or review
-  sidecar. Save a review first to create its sidecar.
+- **File → Open…** (Cmd–O) opens an EPUB anywhere on disk in the Cookbooks
+  workspace. **View → Parser / Cookbooks** (Cmd–1 / Cmd–2) switches workspaces.
+- **Run actions → Reveal in Finder** locates the saved run file.
 - **Open original recipe in browser** is available in a loaded web recipe's
   Recipe & source presentation.
-- **Review** in the macOS menu bar, or **Review actions** beside the review status,
-  exposes Cmd–Option–A (accepted), Cmd–Option–I (incorrect), Cmd–Option–U
-  (uncertain), and Cmd–Shift–Return (save and next unreviewed).
-- Save-and-next follows source order, wraps once, and clears filters when moving.
-  A failed save keeps the current document, decision, and notes intact.
-
-The native titlebar tracks the selected document and theme. The bottom status
-bar shows saved/unsaved state, extraction progress, and remaining review count.
+- The native titlebar tracks the open book and the theme. Quitting or closing
+  while an extraction runs asks first; the bottom status bar shows extraction
+  progress, cost so far, and the remaining ETA.
