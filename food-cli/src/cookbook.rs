@@ -138,6 +138,38 @@ pub enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Extract a library's cookbooks a few at a time and write the report.
+    Library {
+        dir: PathBuf,
+        /// Books extracted at once (each at --concurrency chunks, default 8).
+        #[arg(long, default_value_t = 2)]
+        books: usize,
+        /// Extract even when the store already holds a run of the same file.
+        #[arg(long)]
+        force: bool,
+        /// Stop starting books once the sweep's projected spend would pass this.
+        #[arg(long)]
+        max_cost: Option<f64>,
+        #[arg(long)]
+        max_books: Option<usize>,
+        /// A seeded sample of this many cookbooks, spread across authors.
+        #[arg(long)]
+        sample: Option<usize>,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Title or path substrings; a book must match one.
+        #[arg(long)]
+        only: Vec<String>,
+        /// Classify and estimate only; spend nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Write `<out>.json` and `<out>.md` (default: the library reports
+        /// directory, stamped).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[command(flatten)]
+        flags: RunFlags,
+    },
     /// The library report: every book's latest run, worst first, as JSON
     /// and Markdown.
     Report {
@@ -267,34 +299,6 @@ fn library_report(
         scanned
     });
     build_report(library, scanned.as_ref(), statuses).map_err(|e| e.to_string())
-}
-
-/// Write `<stem>.json` and `<stem>.md`; returns the two paths.
-fn write_library_report(
-    report: &cookbook::library::LibraryReport,
-    out: Option<&Path>,
-) -> Result<(PathBuf, PathBuf), String> {
-    let stem = match out {
-        Some(p) => p.with_extension(""),
-        None => cookbook::library::reports_dir()
-            .ok_or("no data directory for this platform")?
-            .join(format!(
-                "library-{}",
-                jiff::Timestamp::now().strftime("%Y%m%dT%H%MZ")
-            )),
-    };
-    if let Some(parent) = stem.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let json_path = stem.with_extension("json");
-    let md_path = stem.with_extension("md");
-    std::fs::write(
-        &json_path,
-        serde_json::to_string_pretty(report).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    std::fs::write(&md_path, report.render_markdown()).map_err(|e| e.to_string())?;
-    Ok((json_path, md_path))
 }
 
 fn print_library_report(report: &cookbook::library::LibraryReport, written: &(PathBuf, PathBuf)) {
@@ -495,9 +499,68 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             }
             Ok(0)
         }
+        Command::Library {
+            dir,
+            books,
+            force,
+            max_cost,
+            max_books,
+            sample,
+            seed,
+            only,
+            dry_run,
+            out,
+            flags,
+        } => {
+            if !dir.is_dir() {
+                return Err(format!("{} is not a directory", dir.display()));
+            }
+            let transport =
+                AnyTransport::Live(ReqwestTransport::from_env().map_err(|e| e.to_string())?);
+            let cache = FsChunkCache::open_default().map_err(|e| e.to_string())?;
+            let mut options = flags.options(&dir, true);
+            if flags.concurrency.is_none() {
+                options.concurrency = 8;
+            }
+            let outcome = crate::cookbook_library::sweep(
+                crate::cookbook_library::SweepArgs {
+                    dir: &dir,
+                    books,
+                    force,
+                    max_cost,
+                    max_books,
+                    sample,
+                    seed,
+                    only: &only,
+                    dry_run,
+                    options,
+                    out: out.as_deref(),
+                },
+                &transport,
+                &cache,
+            )
+            .await?;
+            if json {
+                emit(&json!(outcome.report), true);
+            } else if let (Some(written), false) = (&outcome.written, dry_run) {
+                print_library_report(&outcome.report, written);
+                println!(
+                    "this sweep spent ${:.2} (projected ${:.2}–${:.2})",
+                    outcome.cost_usd, outcome.projected_low_usd, outcome.projected_high_usd
+                );
+            } else {
+                println!(
+                    "dry run: {} books would be extracted for ${:.2}–${:.2}",
+                    outcome.report.rows.iter().filter(|r| matches!(&r.status, cookbook::library::RowStatus::Skipped { reason } if reason == "dry run")).count(),
+                    outcome.projected_low_usd,
+                    outcome.projected_high_usd
+                );
+            }
+            Ok(if outcome.cancelled { 130 } else { 0 })
+        }
         Command::Report { library, out } => {
             let report = library_report(library.as_deref(), &Default::default())?;
-            let written = write_library_report(&report, out.as_deref())?;
+            let written = crate::cookbook_library::write_report(&report, out.as_deref())?;
             if json {
                 emit(&json!(report), true);
             } else {
