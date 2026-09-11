@@ -414,10 +414,11 @@ pub mod runs {
         }
     }
 
-    /// Write a run to `<root>/<title-slug>--<run_id>.json` (or `out`).
+    /// Write a run to `<root>/<title-slug>--<run_id>.json` (or `out`). A run
+    /// saved into the store is added to its index.
     pub fn save(extraction: &Extraction, out: Option<&Path>) -> Result<PathBuf> {
-        let path = match out {
-            Some(p) => p.to_path_buf(),
+        let (path, indexed) = match out {
+            Some(p) => (p.to_path_buf(), false),
             None => {
                 let root = root()
                     .ok_or_else(|| Error::Config("no data directory for this platform".into()))?;
@@ -428,13 +429,24 @@ pub mod runs {
                 } else {
                     title
                 };
-                root.join(format!("{title}--{}.json", extraction.report.run_id))
+                (
+                    root.join(format!("{title}--{}.json", extraction.report.run_id)),
+                    true,
+                )
             }
         };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(&path, serde_json::to_string_pretty(extraction)?)?;
+        if indexed && let Some(root) = root() {
+            let _guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let mut index = read_index(&root).unwrap_or_default();
+            let summary = summarize(&path, extraction);
+            index.entries.retain(|e| e.path != summary.path);
+            index.entries.push(summary);
+            write_index(&root, &index)?;
+        }
         Ok(path)
     }
 
@@ -442,25 +454,81 @@ pub mod runs {
         Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
     }
 
-    /// Every run in the store, newest first.
+    /// `<root>/index.json`: one `RunSummary` per run file, so listing the
+    /// store does not parse every run (a Zuni run is 3 MB).
+    const INDEX_FILE: &str = "index.json";
+    const INDEX_VERSION: u32 = 1;
+    static INDEX_LOCK: Mutex<()> = Mutex::new(());
+
+    #[derive(Debug, Default, Serialize, Deserialize)]
+    struct Index {
+        version: u32,
+        entries: Vec<RunSummary>,
+    }
+
+    fn read_index(root: &Path) -> Option<Index> {
+        let text = std::fs::read_to_string(root.join(INDEX_FILE)).ok()?;
+        let index: Index = serde_json::from_str(&text).ok()?;
+        (index.version == INDEX_VERSION).then_some(index)
+    }
+
+    fn write_index(root: &Path, index: &Index) -> Result<()> {
+        let target = root.join(INDEX_FILE);
+        let tmp = root.join(format!("{INDEX_FILE}.{}.tmp", std::process::id()));
+        std::fs::write(&tmp, serde_json::to_string(index)?)?;
+        std::fs::rename(&tmp, &target)?;
+        Ok(())
+    }
+
+    /// Every run in the store, newest first. The index is reconciled with
+    /// the directory on every call: runs whose file is gone are dropped,
+    /// files the index does not know are summarized and added, and an
+    /// unreadable index is rebuilt.
     pub fn list() -> Result<Vec<RunSummary>> {
         let Some(root) = root() else {
             return Ok(Vec::new());
         };
-        let mut out = Vec::new();
         let Ok(entries) = std::fs::read_dir(&root) else {
-            return Ok(out);
+            return Ok(Vec::new());
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "json")
-                && let Ok(extraction) = load(&path)
-            {
-                out.push(summarize(&path, &extraction));
+        let on_disk: std::collections::BTreeSet<String> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "json"))
+            .filter(|p| p.file_name().is_some_and(|n| n != INDEX_FILE))
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        let _guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut index = read_index(&root).unwrap_or_default();
+        let before = index.entries.len();
+        index.entries.retain(|e| on_disk.contains(&e.path));
+        let mut changed = index.entries.len() != before || index.version != INDEX_VERSION;
+        let known: std::collections::HashSet<String> =
+            index.entries.iter().map(|e| e.path.clone()).collect();
+        for path in on_disk.iter().filter(|p| !known.contains(*p)) {
+            let path = Path::new(path);
+            if let Ok(extraction) = load(path) {
+                index.entries.push(summarize(path, &extraction));
+                changed = true;
             }
         }
+        if changed {
+            index.version = INDEX_VERSION;
+            write_index(&root, &index)?;
+        }
+        let mut out = index.entries;
         out.sort_by(|a, b| b.started_at.cmp(&a.started_at));
         Ok(out)
+    }
+
+    /// Runs of one exact file (by sha256), newest first.
+    pub fn for_sha(sha256: &str) -> Result<Vec<RunSummary>> {
+        Ok(list()?.into_iter().filter(|r| r.sha256 == sha256).collect())
+    }
+
+    /// The newest run of one exact file.
+    pub fn latest_for_sha(sha256: &str) -> Result<Option<RunSummary>> {
+        Ok(for_sha(sha256)?.into_iter().next())
     }
 
     /// Recipes and techniques, flattened, for quick listings.

@@ -15,8 +15,7 @@ export type LibraryBook = { path: string, title: string, authors: Array<string>,
  */
 cookbookHint: boolean,
 /**
- * Saved runs of this exact file, newest first (matched by file name until
- * the book is opened and hashed).
+ * Saved runs of this exact file (matched by its sha256), newest first.
  */
 runs: Array<RunSummary>, error: string | null, };
 export type OpenedBook = { path: string, outline: BookOutline, classified: Classified,

@@ -6,6 +6,7 @@ use base64::Engine;
 use cookbook::cache::ChunkCache;
 use cookbook::classify::{Classified, classify_structure, subject_hint};
 use cookbook::epub::open::Package;
+use cookbook::library::ShaCache;
 use cookbook::native::runs;
 pub use cookbook::native::runs::RunSummary;
 use cookbook::native::{FsChunkCache, ReqwestTransport};
@@ -302,8 +303,7 @@ pub struct LibraryBook {
     /// The catalog subjects mention cooking. The structural verdict comes
     /// with `open_book`.
     pub cookbook_hint: bool,
-    /// Saved runs of this exact file, newest first (matched by file name until
-    /// the book is opened and hashed).
+    /// Saved runs of this exact file (matched by its sha256), newest first.
     pub runs: Vec<RunSummary>,
     pub error: Option<String>,
 }
@@ -358,15 +358,19 @@ pub fn scan_library(directory: String) -> AppResult<Vec<LibraryBook>> {
         return Err(format!("{} is not a directory", directory.display()));
     }
     let history = runs::list().map_err(|e| e.to_string())?;
+    // Hashing 191 files reads them once; the cache keeps later scans to
+    // metadata reads.
+    let mut shas = ShaCache::open_default();
     let mut books: Vec<LibraryBook> = cookbook::library::find_epubs(&directory)
         .iter()
         .map(|path| {
             let display = path.to_string_lossy().into_owned();
+            let sha = shas.sha_for(path).ok();
             match Package::parse_file(path) {
                 Ok(package) => LibraryBook {
                     runs: history
                         .iter()
-                        .filter(|r| r.book == package.title)
+                        .filter(|r| sha.as_deref() == Some(r.sha256.as_str()))
                         .cloned()
                         .collect(),
                     cookbook_hint: subject_hint(&package.subjects),
@@ -395,6 +399,8 @@ pub fn scan_library(directory: String) -> AppResult<Vec<LibraryBook>> {
     books.sort_by(|a, b| {
         (!a.cookbook_hint, a.title.to_lowercase()).cmp(&(!b.cookbook_hint, b.title.to_lowercase()))
     });
+    // A cache that fails to persist only costs the next scan its hashing.
+    let _ = shas.save_default();
     Ok(books)
 }
 
@@ -464,11 +470,7 @@ fn book(path: &str) -> AppResult<(Arc<Book>, u64)> {
 }
 
 fn runs_of(sha256: &str) -> AppResult<Vec<RunSummary>> {
-    Ok(runs::list()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter(|r| r.sha256 == sha256)
-        .collect())
+    runs::for_sha(sha256).map_err(|e| e.to_string())
 }
 
 pub fn open_book(path: String) -> AppResult<OpenedBook> {
