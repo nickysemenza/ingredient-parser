@@ -1,0 +1,88 @@
+[package]
+name = "cookbook"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+publish = false
+description = "Extract a structured recipe tree from an EPUB cookbook via Cloudflare AI Gateway"
+
+# The core is runtime-agnostic and wasm32-clean: EPUB reading, cleaning, chunking,
+# the model contract, validation, orchestration, assembly, references, and
+# reports. Hosts supply the HTTP transport (`native` = reqwest + fs cache + run
+# store; `wasm` = a JavaScript callback). `typescript` adds ts-rs declarations
+# for the Tauri app; `wasm` adds tsify declarations for the wasm-pack `.d.ts`.
+[features]
+default = ["native"]
+native = [
+    "dep:reqwest",
+    "dep:tokio",
+    "dep:dotenvy",
+    "dep:httpdate",
+    "dep:directories",
+    "dep:walkdir",
+]
+wasm = [
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "dep:js-sys",
+    "dep:serde-wasm-bindgen",
+    "dep:tsify-next",
+    "jiff/js",
+    "ingredient/wasm",
+    "recipe-types/wasm",
+]
+typescript = ["dep:ts-rs", "ingredient/typescript", "recipe-types/typescript"]
+# Scripted/oracle transports for tests in this and downstream crates.
+test-support = []
+
+[dependencies]
+ingredient.workspace = true
+recipe-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+futures.workspace = true
+zip = { version = "8", default-features = false, features = ["deflate"] }
+roxmltree = "0.20"
+scraper = "0.27.0"
+ego-tree = "0.11"
+schemars = "1"
+backon = { version = "1", default-features = false }
+petgraph = "0.8"
+strsim = "0.11"
+unicode-normalization = "0.1"
+mime_guess = "2"
+jiff = { version = "0.2", default-features = false, features = ["std"] }
+rand = { version = "0.9", default-features = false, features = ["std", "std_rng"] }
+sha2 = "0.11"
+regex = "1.10"
+
+# native
+reqwest = { version = "0.13", features = ["json"], optional = true }
+tokio = { workspace = true, features = ["time"], optional = true }
+dotenvy = { workspace = true, optional = true }
+httpdate = { version = "1", optional = true }
+directories = { version = "6", optional = true }
+walkdir = { version = "2", optional = true }
+
+# wasm
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+tsify-next = { workspace = true, optional = true }
+
+# typescript
+ts-rs = { workspace = true, optional = true }
+
+[dev-dependencies]
+cookbook-fixtures.workspace = true
+rstest.workspace = true
+insta = { version = "1", features = ["json"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = "3"
+
+[lints]
+workspace = true
