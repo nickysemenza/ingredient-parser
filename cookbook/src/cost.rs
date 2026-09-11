@@ -14,6 +14,9 @@ pub struct Usage {
     pub output_tokens: u64,
     pub cache_read_input_tokens: u64,
     pub cache_creation_input_tokens: u64,
+    /// Thinking tokens, when the provider reports them; already inside
+    /// `output_tokens` for pricing.
+    pub reasoning_tokens: u64,
 }
 
 impl Usage {
@@ -22,6 +25,7 @@ impl Usage {
         self.output_tokens += other.output_tokens;
         self.cache_read_input_tokens += other.cache_read_input_tokens;
         self.cache_creation_input_tokens += other.cache_creation_input_tokens;
+        self.reasoning_tokens += other.reasoning_tokens;
     }
 
     pub fn is_zero(&self) -> bool {
@@ -53,6 +57,7 @@ mod tests {
             output_tokens: 1_000_000,
             cache_read_input_tokens: 1_000_000,
             cache_creation_input_tokens: 1_000_000,
+            reasoning_tokens: 0,
         };
         let m = crate::models::model("claude-haiku-4-5").unwrap();
         let cost = cost_for_usage(m, &usage).unwrap();

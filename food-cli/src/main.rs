@@ -3,6 +3,7 @@
 
 use clap::{Parser, Subcommand};
 mod cookbook;
+mod cookbook_library;
 
 // The corpus/diagnostic verbs live in the library half so tests and other
 // crates can call them; this binary is argument parsing, printing and exit

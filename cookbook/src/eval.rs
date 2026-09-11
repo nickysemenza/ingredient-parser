@@ -135,17 +135,34 @@ pub fn score(expected: &Expectations, extraction: &Extraction) -> BookScore {
     let mut used = vec![false; recipes.len()];
     let mut matched = 0usize;
     let mut missing = Vec::new();
-    for title in &expected.titles {
-        match recipes
-            .iter()
-            .enumerate()
-            .find(|(i, r)| !used[*i] && titles_match(title, &r.title))
-        {
-            Some((i, _)) => {
+    // Exact titles pair off first so a lenient match never steals a recipe
+    // that another expected title names exactly.
+    let exact = |a: &str, b: &str| {
+        crate::crosscheck::normalize_title(a) == crate::crosscheck::normalize_title(b)
+    };
+    let mut found = vec![false; expected.titles.len()];
+    for lenient in [false, true] {
+        for (ti, title) in expected.titles.iter().enumerate() {
+            if found[ti] {
+                continue;
+            }
+            if let Some((i, _)) = recipes.iter().enumerate().find(|(i, r)| {
+                !used[*i]
+                    && if lenient {
+                        titles_match(title, &r.title)
+                    } else {
+                        exact(title, &r.title)
+                    }
+            }) {
                 used[i] = true;
+                found[ti] = true;
                 matched += 1;
             }
-            None => missing.push(title.clone()),
+        }
+    }
+    for (ti, title) in expected.titles.iter().enumerate() {
+        if !found[ti] {
+            missing.push(title.clone());
         }
     }
     let mut variant_hits = 0usize;
@@ -172,10 +189,18 @@ pub fn score(expected: &Expectations, extraction: &Extraction) -> BookScore {
         .filter(|(i, _)| !used[*i])
         .map(|(_, r)| r.title.clone())
         .collect();
+    // Exact: an essay heading over a recipe ("My Favorite Bar Is a Baked
+    // Potato Bar") contains the recipe's own title, and the lenient match
+    // would call the recipe a leak.
     let not_recipe_leaks: Vec<String> = expected
         .not_recipes
         .iter()
-        .filter(|t| recipes.iter().any(|r| titles_match(t, &r.title)))
+        .filter(|t| {
+            let wanted = crate::crosscheck::normalize_title(t);
+            recipes
+                .iter()
+                .any(|r| crate::crosscheck::normalize_title(&r.title) == wanted)
+        })
         .cloned()
         .collect();
 
@@ -226,9 +251,11 @@ pub fn score(expected: &Expectations, extraction: &Extraction) -> BookScore {
             }
         }
         for needle in &s.notes_contain {
+            // A headnote is a note to the author of a key and a description
+            // to the crate; either place satisfies the expectation.
             let hit = r.notes.iter().any(|n| {
                 n.text.contains(needle) || n.label.as_deref().is_some_and(|l| l.contains(needle))
-            });
+            }) || r.meta.description.iter().any(|d| d.contains(needle));
             if !hit {
                 ok = false;
                 sample_failures.push(format!("{}: no note containing {needle:?}", s.title));
@@ -402,6 +429,43 @@ pub fn skeleton(book: &crate::Book, path: &str) -> Expectations {
         not_recipes: Vec::new(),
         samples: Vec::new(),
     }
+}
+
+/// A skeleton seeded from a saved run of the same file: `not_recipes`
+/// candidates are the techniques and essays the run produced, and eight
+/// `samples` stubs are spread through the contents titles with every count
+/// left empty. The author fills the counts from the HTML, never from the
+/// run; the run only suggests where to look.
+pub fn skeleton_from_run(
+    book: &crate::Book,
+    path: &str,
+    extraction: &Extraction,
+) -> crate::error::Result<Expectations> {
+    if extraction.cookbook.source.sha256 != book.source().sha256 {
+        return Err(crate::Error::Config(format!(
+            "the run is of another file (sha256 {}…, the book is {}…)",
+            &extraction.cookbook.source.sha256[..8],
+            &book.source().sha256[..8]
+        )));
+    }
+    let mut key = skeleton(book, path);
+    key.not_recipes = non_recipe_titles(extraction);
+    let n = key.titles.len();
+    if n > 0 {
+        let want = 8.min(n);
+        key.samples = (0..want)
+            .map(|i| Sample {
+                title: key.titles[i * n / want].clone(),
+                sections: None,
+                ingredients: None,
+                steps: None,
+                notes_contain: Vec::new(),
+                refs: Vec::new(),
+                photos: None,
+            })
+            .collect();
+    }
+    Ok(key)
 }
 
 /// Items an answer key might want to list as not-recipes.

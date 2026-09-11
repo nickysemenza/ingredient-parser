@@ -378,6 +378,63 @@ pub fn clean_document(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
             out[idx].images.push(img);
         }
     }
+    split_bullet_lists(out)
+}
+
+/// A paragraph that carries a whole ingredient list with bullets between the
+/// items ("• 1 tbsp butter • 1 red onion, thinly sliced • 7 oz chicken
+/// livers…", The Little Paris Kitchen) becomes one line per item, so the
+/// items read as quantity lines and the model can claim them one by one.
+/// Anchors, links and images stay on the first item; the split is marked
+/// `transformed`.
+fn split_bullet_lists(lines: Vec<CleanLine>) -> Vec<CleanLine> {
+    const MIN_ITEMS: usize = 3;
+    let mut out = Vec::with_capacity(lines.len());
+    for line in lines {
+        let bullets = line.text.matches('•').count();
+        if bullets < MIN_ITEMS || line.heading.is_some() {
+            out.push(line);
+            continue;
+        }
+        let items: Vec<String> = line
+            .text
+            .split('•')
+            .map(|s| s.trim().trim_end_matches([',', ';']).trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if items.len() < MIN_ITEMS
+            || items
+                .iter()
+                .filter(|i| crate::lines::looks_like_quantity_text(i))
+                .count()
+                * 2
+                < items.len()
+        {
+            out.push(line);
+            continue;
+        }
+        for (i, text) in items.into_iter().enumerate() {
+            let mut piece = CleanLine {
+                text,
+                block_tag: line.block_tag.clone(),
+                classes: line.classes.clone(),
+                anchors: Vec::new(),
+                links: Vec::new(),
+                images: Vec::new(),
+                heading: None,
+                in_figure: line.in_figure,
+                pagebreak: None,
+                transformed: true,
+            };
+            if i == 0 {
+                piece.anchors = line.anchors.clone();
+                piece.links = line.links.clone();
+                piece.images = line.images.clone();
+                piece.pagebreak = line.pagebreak.clone();
+            }
+            out.push(piece);
+        }
+    }
     out
 }
 
@@ -923,6 +980,35 @@ mod tests {
         assert_eq!(lines[1].pagebreak.as_deref(), Some("80"));
         assert_eq!(lines[2].pagebreak.as_deref(), Some("81"));
         assert!(lines[0].anchors.contains(&"page_79".to_string()));
+    }
+
+    /// A bullet-separated ingredient paragraph becomes one line per item;
+    /// prose with a stray bullet or two does not.
+    #[test]
+    fn bullet_ingredient_paragraphs_split_into_lines() {
+        let lines = clean_document(
+            "<h3 class=\"h3\">Salade de figues</h3><p class=\"serve\">Serves 4</p>\
+             <p class=\"centert\">• 1 tbsp butter • 1 red onion, thinly sliced • 7 oz chicken livers, cleaned • salt and pepper • <span class=\"entity\">⅔</span> cup walnuts</p>\
+             <p class=\"noindenty\">Heat the butter • then fry the onion.</p>",
+            "OEBPS/c01.xhtml",
+        );
+        let texts: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "Salade de figues",
+                "Serves 4",
+                "1 tbsp butter",
+                "1 red onion, thinly sliced",
+                "7 oz chicken livers, cleaned",
+                "salt and pepper",
+                "⅔ cup walnuts",
+                "Heat the butter • then fry the onion."
+            ]
+        );
+        assert!(lines[2].transformed && lines[6].transformed);
+        assert_eq!(lines[2].classes, ["centert"]);
+        assert!(!lines[7].transformed);
     }
 
     #[test]

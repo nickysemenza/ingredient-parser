@@ -8,7 +8,7 @@
 use std::fmt;
 
 use crate::chunk::Chunk;
-use crate::contract::{ChunkItem, Kind, Lowered};
+use crate::contract::{Kind, Lowered};
 use crate::lines::{BookLines, looks_like_quantity_text, looks_like_yield};
 use crate::report::Flag;
 
@@ -61,9 +61,18 @@ fn ingredient_line_is_prose(text: &str) -> bool {
 /// Titles longer than this are paragraphs.
 const MAX_TITLE_CHARS: usize = 120;
 
-fn is_prose(text: &str) -> bool {
+pub(crate) fn is_prose(text: &str) -> bool {
     let t = text.trim();
-    t.len() > MAX_TITLE_CHARS || (t.len() > 60 && t.ends_with('.'))
+    if t.len() > MAX_TITLE_CHARS || (t.len() > 60 && t.ends_with('.')) {
+        return true;
+    }
+    // A quoted sentence: `After a wary nibble, “It’s not that great.”`
+    // ends in a full stop inside its closing quote.
+    let unquoted = t.trim_end_matches(['”', '"', '’', '\'', ')']);
+    t.len() > 20
+        && unquoted.len() < t.len()
+        && unquoted.ends_with(['.', '!', '?'])
+        && t.contains(['“', '"', '‘'])
 }
 
 /// The line parses with an amount that carries a real unit (`400 g`, `2 cups`),
@@ -115,6 +124,10 @@ pub const LABELS: &[&str] = &[
     "notes",
     "tip",
     "tips",
+    "chef's tip",
+    "chef’s tip",
+    "cook's tip",
+    "cook’s tip",
     "variation",
     "variations",
     "special equipment",
@@ -143,16 +156,40 @@ static PAGE_NUMBER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new
     regex::Regex::new(r"\bpage\s*\d{1,4}\b").unwrap_or_else(|e| unreachable!("{e}"))
 });
 
-/// A front-matter essay headed "Equipment" or "Special Equipment" (Dessert
-/// Person's chapter on bakeware) is a real item: the label words head an
-/// ingredient-free body of several paragraphs, where the recipe-note form is
-/// one label line and its payload.
-fn is_equipment_essay(item: &ChunkItem) -> bool {
-    let title = item.title.trim().trim_end_matches(':').to_lowercase();
-    matches!(item.kind, Kind::Essay | Kind::Technique)
-        && matches!(title.as_str(), "equipment" | "special equipment")
-        && item.ingredient_count() == 0
-        && item.description.len() + item.step_count() + item.notes.len() >= 3
+/// Labels that head notes, never chapters: the subset of [`LABELS`] an
+/// essay must not be titled by.
+const NOTE_LABELS: &[&str] = &[
+    "do ahead",
+    "do-ahead",
+    "make ahead",
+    "note",
+    "notes",
+    "tip",
+    "tips",
+    "chef's tip",
+    "chef’s tip",
+    "cook's tip",
+    "cook’s tip",
+    "variation",
+    "variations",
+    "ingredients",
+    "method",
+    "directions",
+    "instructions",
+    "serves",
+    "makes",
+    "yield",
+    "yields",
+];
+
+/// `Do Ahead`, `NOTE: …`, `Serves 4`: a note label, with or without payload.
+fn is_note_label(text: &str) -> bool {
+    let lower = text.trim().trim_end_matches(':').to_lowercase();
+    NOTE_LABELS.contains(&lower.as_str())
+        || NOTE_LABELS
+            .iter()
+            .any(|l| lower.starts_with(&format!("{l}:")))
+        || looks_like_yield(text)
 }
 
 /// `Do Ahead`, `NOTE:`, `Special Equipment: 9-inch pan` — a label, possibly
@@ -163,13 +200,14 @@ pub fn is_label(text: &str) -> bool {
         || LABELS.iter().any(|l| lower.starts_with(&format!("{l}:")))
         || PREFIX_LABELS
             .iter()
-            .any(|l| lower.starts_with(l) && lower[l.len()..].starts_with([' ', ':']))
+            .any(|l| lower.starts_with(l) && lower[l.len()..].starts_with([' ', ':', '.']))
         || is_metadata_label(text)
         || looks_like_yield(text)
 }
 
 /// Labels that run into their payload without a colon ("Flavor Profile
-/// SPICY, SOUR", "Try It With Som Tam", "Wine Aligoté 2000").
+/// SPICY, SOUR", "Try It With Som Tam", "Wine Aligoté 2000", "Wine. Qupé
+/// Central Coast Syrah, 1999").
 const PREFIX_LABELS: &[&str] = &[
     "flavor profile",
     "try it with",
@@ -343,7 +381,12 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
         }
         // Judged per printed line: a name plus a French subtitle is long
         // but not prose.
+        // An essay or technique may be titled by its first paragraph or a
+        // label-shaped heading ("WINE BY CHAYLEE PRIETE WINE DIRECTOR");
+        // only a recipe titled that way is wrong.
+        let recipe_like = matches!(item.kind, Kind::Recipe | Kind::Variation);
         if !item.continues
+            && recipe_like
             && let Some(&line) = item.title_lines.iter().find(|&&l| is_prose(book.text(l)))
         {
             v.hard.push(HardFault::TitleIsProse {
@@ -361,10 +404,16 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 title: item.title.clone(),
             });
         }
+        // A recipe titled by any label is wrong; an essay or technique is
+        // wrong only under a note label ("Do Ahead", "Tip"), since a chapter
+        // may legitimately be headed "Equipment" or "Wine".
         if !item.continues
             && item.kind != Kind::Variation
-            && is_label(&item.title)
-            && !is_equipment_essay(item)
+            && (if item.kind == Kind::Recipe {
+                is_label(&item.title)
+            } else {
+                is_note_label(&item.title)
+            })
         {
             v.hard.push(HardFault::TitleIsLabel {
                 local: item
@@ -630,28 +679,30 @@ mod tests {
             "{:?}",
             v.hard
         );
-        // A front-matter chapter on bakeware is an essay, not a mislabelled
-        // note; a one-line "Special Equipment" note still is.
-        let html = "<p>Equipment</p><p>Having the right bakeware matters.</p><p>Essential Equipment</p><p>Bowl scraper. Flexible.</p><p>Whisk. Balloon.</p><p>Special Equipment</p><p>Bakeware. Anodized aluminum.</p><p>8 × 8-inch metal baking pan</p><p>Three 8-inch metal cake pans</p>";
+        // Essays may carry label-shaped or paragraph titles; recipes may not.
+        let html = "<p>Equipment</p><p>Having the right bakeware matters.</p><p>WINE BY CHAYLEE PRIETE WINE DIRECTOR</p><p>We pour what we like.</p><p>Doubanjiang: This spicy fermented bean paste is the cornerstone of the pantry, and we buy it by the case from a shop in Chengdu.</p><p>Special Equipment</p><p>2 cups flour</p><p>Mix.</p>";
         let v = run(
             html,
             json!({"items":[
-            {"kind":"essay","title":[0],"description":[1,2,3,4]},
-            {"kind":"essay","title":[5],"description":[6,7,8]}]}),
+            {"kind":"essay","title":[0],"description":[1]},
+            {"kind":"essay","title":[2],"description":[3]},
+            {"kind":"essay","title":[4]},
+            {"kind":"recipe","title":[5],"sections":[{"ingredients":[6],"steps":[7]}]}]}),
         );
-        assert!(
-            !v.hard
+        assert_eq!(
+            v.hard
                 .iter()
-                .any(|f| matches!(f, HardFault::TitleIsLabel { .. })),
+                .filter(|f| matches!(
+                    f,
+                    HardFault::TitleIsLabel { .. } | HardFault::TitleIsProse { .. }
+                ))
+                .count(),
+            1,
             "{:?}",
             v.hard
         );
-        let v = run(
-            "<p>Special Equipment</p><p>9-inch tart pan</p>",
-            json!({"items":[{"kind":"essay","title":[0],"description":[1]}]}),
-        );
         assert!(
-            matches!(v.hard[0], HardFault::TitleIsLabel { local: 0, .. }),
+            matches!(v.hard[0], HardFault::TitleIsLabel { local: 5, .. }),
             "{:?}",
             v.hard
         );
@@ -668,6 +719,11 @@ mod tests {
         assert!(is_label("Flavor Profile SPICY, SOUR, SWEET"));
         assert!(is_label("Try It With Som Tam Lao"));
         assert!(is_label("Wine: Soave Classico Superiore, Pieropan, 2000"));
+        assert!(is_label("Wine. Qupé Central Coast Syrah, 1999"));
+        assert!(is_note_label("CHEF’S TIP"));
+        assert!(is_prose("After a wary nibble, “It’s not that great.”"));
+        assert!(!is_prose("“Nothing Fancy” Roast Chicken"));
+        assert!(!is_prose("Mom’s Apple Pie"));
         assert!(is_label("SERVES 6 TO 12 AS PART OF A MEAL"));
         assert!(is_label("serves 4 to 6"));
         assert!(!is_label("Winemaker's Chicken"));
@@ -682,8 +738,17 @@ mod tests {
             json!({"items":[{"kind":"essay","title":[0]},{"title":[1],"sections":[{"ingredients":[2],"steps":[3]}]}]}),
         );
         assert!(
+            v.hard.is_empty(),
+            "an essay may open with its paragraph: {:?}",
+            v.hard
+        );
+        let v = run(
+            &html,
+            json!({"items":[{"title":[0],"sections":[{"ingredients":[2],"steps":[3]}],"ignored":[1]}]}),
+        );
+        assert!(
             matches!(v.hard[0], HardFault::TitleIsProse { local: 0, .. }),
-            "{:?}",
+            "a recipe may not: {:?}",
             v.hard
         );
     }

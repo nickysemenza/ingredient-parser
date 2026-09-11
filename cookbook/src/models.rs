@@ -58,6 +58,62 @@ pub struct Priors {
     pub measured: &'static str,
 }
 
+/// How much a model may think before answering. `Default` sends nothing and
+/// leaves the provider's default (Gemini 2.5 Flash thinks for ~2,300 tokens
+/// and 8–10 s per chunk); `Off` sends `reasoning_effort: "none"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
+#[serde(rename_all = "snake_case")]
+pub enum Reasoning {
+    #[default]
+    Default,
+    Off,
+    Low,
+    Medium,
+    High,
+}
+
+impl Reasoning {
+    /// The `reasoning_effort` value to send, `None` for the provider default.
+    pub fn effort(self) -> Option<&'static str> {
+        match self {
+            Reasoning::Default => None,
+            Reasoning::Off => Some("none"),
+            Reasoning::Low => Some("low"),
+            Reasoning::Medium => Some("medium"),
+            Reasoning::High => Some("high"),
+        }
+    }
+}
+
+impl std::str::FromStr for Reasoning {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "default" => Ok(Reasoning::Default),
+            "none" | "off" => Ok(Reasoning::Off),
+            "low" => Ok(Reasoning::Low),
+            "medium" => Ok(Reasoning::Medium),
+            "high" => Ok(Reasoning::High),
+            other => Err(format!(
+                "unknown reasoning setting {other:?}; use default, none, low, medium or high"
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for Reasoning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.effort().unwrap_or("default"))
+    }
+}
+
+/// The setting a run uses for `model`: the option wins over the catalog.
+pub fn effective_reasoning(model: &Model, options: &crate::report::ExtractOptions) -> Reasoning {
+    options.reasoning.unwrap_or(model.reasoning)
+}
+
 pub const UNMEASURED: Priors = Priors {
     ttft_ms_p50: 2_500,
     ttft_ms_p90: 6_000,
@@ -77,6 +133,8 @@ pub struct Model {
     /// Disabled models stay priced and routable but are never chosen
     /// automatically.
     pub enabled: bool,
+    /// How much the model may think; see [`Reasoning`].
+    pub reasoning: Reasoning,
     pub status: &'static str,
     pub max_output_tokens: u32,
     pub rates: Option<Rates>,
@@ -114,6 +172,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::GoogleAiStudio,
         route: Route::CompatChat,
         enabled: false,
+        reasoning: Reasoning::Default,
         status: "Disabled: 53% recall on Nothing Fancy (2026-09-11)",
         max_output_tokens: 16_000,
         rates: rates!(0.10, 0.40, 0.01, 0.125),
@@ -133,15 +192,16 @@ static CATALOG: &[Model] = &[
         provider: Provider::GoogleAiStudio,
         route: Route::CompatChat,
         enabled: true,
-        status: "Ladder head: 98% recall on the six-book eval; slow first token",
+        reasoning: Reasoning::Low,
+        status: "Ladder head: 98% recall on the six-book eval at low reasoning (its default thinking doubled every call's latency for the same recall; no thinking lost 4 points)",
         max_output_tokens: 16_000,
         rates: rates!(0.30, 2.50, 0.03, 0.375),
         priors: Priors {
-            ttft_ms_p50: 13900,
-            ttft_ms_p90: 27000,
+            ttft_ms_p50: 4500,
+            ttft_ms_p90: 6000,
             output_tps: 148.0,
             retry_rate: 0.23,
-            measured: "2026-09-11 six-book eval",
+            measured: "2026-09-11 six-book eval, reasoning low",
         },
         pricing_checked: "2026-09-09",
         pricing_source: GEMINI_PRICING,
@@ -152,6 +212,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::GoogleAiStudio,
         route: Route::CompatChat,
         enabled: false,
+        reasoning: Reasoning::Default,
         status: "Disabled: not served by the gateway (Google answers 400 Missing Authorization, 2026-09-11)",
         max_output_tokens: 16_000,
         rates: rates!(0.30, 2.50, 0.03, 0.375),
@@ -165,6 +226,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::GoogleAiStudio,
         route: Route::CompatChat,
         enabled: false,
+        reasoning: Reasoning::Default,
         status: "Disabled: not served by the gateway (Google answers 400 Missing Authorization, 2026-09-11)",
         max_output_tokens: 16_000,
         rates: rates!(0.75, 3.75, 0.075, 0.9375),
@@ -178,6 +240,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::Anthropic,
         route: Route::AnthropicMessages,
         enabled: true,
+        reasoning: Reasoning::Default,
         status: "Ladder fallback: fast, recovers flagged chunks",
         max_output_tokens: 16_000,
         rates: rates!(1.0, 5.0, 0.10, 1.25),
@@ -197,6 +260,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::Anthropic,
         route: Route::AnthropicMessages,
         enabled: true,
+        reasoning: Reasoning::Default,
         status: "Most accurate and fastest single reader measured (99% recall on Nothing Fancy in 19 s), at four times Gemini's price; its wholesale pool meters tokens per minute and refuses bursts with 429 code 2018",
         max_output_tokens: 16_000,
         rates: rates!(2.0, 10.0, 0.20, 2.50),
@@ -216,6 +280,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::OpenAi,
         route: Route::OpenAiResponses,
         enabled: true,
+        reasoning: Reasoning::Default,
         status: "Ladder candidate: 95% recall alone, fastest and cheapest",
         max_output_tokens: 16_000,
         rates: rates!(0.20, 1.20, 0.02, 0.25),
@@ -242,6 +307,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
+        reasoning: Reasoning::Default,
         status: "Disabled: 0% recall on Nothing Fancy; 44 of 58 answers leave lines unassigned and 12 time out (464 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.06, 0.40, 0.006, 0.075),
@@ -255,6 +321,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
+        reasoning: Reasoning::Default,
         status: "Disabled: 98% recall on Nothing Fancy at $0.07, but 49 s per chunk at the median and timeouts on long chunks (277 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.15, 0.50, 0.03, 0.1875),
@@ -274,6 +341,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
+        reasoning: Reasoning::Default,
         status: "Disabled: 99% recall on Nothing Fancy but $0.82 per book, 57 s per chunk at the median and timeouts on long chunks (333 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(1.40, 4.40, 0.26, 1.75),
@@ -293,6 +361,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
+        reasoning: Reasoning::Default,
         status: "Disabled: 100% recall on Nothing Fancy at $0.22 with no phantoms, but 54 s per chunk at the median and a timeout on long chunks (278 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.44, 1.32, 0.014, 0.55),
@@ -312,6 +381,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
+        reasoning: Reasoning::Default,
         status: "Disabled: 46% recall on Nothing Fancy; 28 of 49 answers invalid (no tool call, doubled lines), 122 s per chunk at the median, 6 timeouts (512 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.10, 0.30, 0.01, 0.125),
@@ -331,6 +401,7 @@ static CATALOG: &[Model] = &[
         provider: Provider::WorkersAi,
         route: Route::CompatChat,
         enabled: false,
+        reasoning: Reasoning::Default,
         status: "Disabled: 95% recall on Nothing Fancy, 53 s per chunk at the median, timeouts and a 402 on long chunks (272 s per book)",
         max_output_tokens: 16_000,
         rates: rates!(0.95, 4.00, 0.19, 1.1875),

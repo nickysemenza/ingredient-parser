@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::contract::{CONTRACT_VERSION, ChunkRequest};
 use crate::cost::Usage;
-use crate::models::{Model, Provider};
+use crate::models::{Model, Provider, Reasoning};
 use crate::transport::{HttpRequest, HttpResponse};
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -75,8 +75,13 @@ pub fn build_http(
     request: &ChunkRequest,
     max_tokens: u32,
     meta: &CallMeta<'_>,
+    reasoning: Reasoning,
 ) -> HttpRequest {
     let max_tokens = max_tokens.min(model.max_output_tokens);
+    // Google's and OpenAI's chat endpoints take `reasoning_effort` (the
+    // gateway's compat layer forwards it; "none" turns Gemini's thinking off);
+    // the Responses API nests it. Anthropic has no equivalent here.
+    let effort = reasoning.effort();
     let cache_header = if meta.gateway_cache {
         (
             "cf-aig-cache-ttl".to_string(),
@@ -118,15 +123,21 @@ pub fn build_http(
                 "messages": [{"role": "user", "content": request.user}],
             })
         }
-        Route::OpenAiResponses => json!({
-            "model": model.id,
-            "store": false,
-            "instructions": request.system,
-            "input": request.user,
-            "max_output_tokens": max_tokens,
-            "tools": [{"type": "function", "name": request.tool_name, "description": TOOL_DESCRIPTION, "parameters": request.tool_schema, "strict": false}],
-            "tool_choice": {"type": "function", "name": request.tool_name},
-        }),
+        Route::OpenAiResponses => {
+            let mut body = json!({
+                "model": model.id,
+                "store": false,
+                "instructions": request.system,
+                "input": request.user,
+                "max_output_tokens": max_tokens,
+                "tools": [{"type": "function", "name": request.tool_name, "description": TOOL_DESCRIPTION, "parameters": request.tool_schema, "strict": false}],
+                "tool_choice": {"type": "function", "name": request.tool_name},
+            });
+            if let Some(effort) = effort {
+                body["reasoning"] = json!({"effort": effort});
+            }
+            body
+        }
         Route::CompatChat | Route::OpenAiChat => {
             let wire_model = match model.provider {
                 Provider::GoogleAiStudio | Provider::WorkersAi => {
@@ -146,7 +157,7 @@ pub fn build_http(
             } else {
                 "max_tokens"
             };
-            json!({
+            let mut body = json!({
                 "model": wire_model,
                 token_param: max_tokens,
                 "messages": [
@@ -155,7 +166,13 @@ pub fn build_http(
                 ],
                 "tools": [{"type": "function", "function": {"name": request.tool_name, "description": TOOL_DESCRIPTION, "parameters": request.tool_schema}}],
                 "tool_choice": {"type": "function", "function": {"name": request.tool_name}},
-            })
+            });
+            if let (Some(effort), Provider::GoogleAiStudio | Provider::OpenAi) =
+                (effort, model.provider)
+            {
+                body["reasoning_effort"] = json!(effort);
+            }
+            body
         }
     };
     HttpRequest {
@@ -241,6 +258,26 @@ impl CallFailure {
     /// the run, or that the pool is momentarily over capacity, in which case
     /// a short pause clears it. The run tells them apart by whether the model
     /// has answered at all.
+    /// The provider's own account is out of money ("You have no credits
+    /// remaining", "insufficient_quota"): every call to the model fails
+    /// until someone tops it up, so the run drops the model at once.
+    pub fn is_credit_exhausted(&self) -> bool {
+        match self {
+            CallFailure::Http {
+                status: 402 | 429,
+                message,
+                ..
+            } => {
+                let m = message.to_ascii_lowercase();
+                m.contains("no credits")
+                    || m.contains("insufficient_quota")
+                    || m.contains("insufficient credits")
+                    || m.contains("exceeded your current quota")
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_wholesale_rate_limit(&self) -> bool {
         matches!(
             self,
@@ -367,6 +404,7 @@ fn anthropic_usage(value: &Value) -> Usage {
         output_tokens: u["output_tokens"].as_u64().unwrap_or(0),
         cache_read_input_tokens: u["cache_read_input_tokens"].as_u64().unwrap_or(0),
         cache_creation_input_tokens: u["cache_creation_input_tokens"].as_u64().unwrap_or(0),
+        reasoning_tokens: 0,
     }
 }
 
@@ -383,6 +421,9 @@ fn openai_usage(value: &Value) -> Usage {
         output_tokens: u["completion_tokens"].as_u64().unwrap_or(0),
         cache_read_input_tokens: cached,
         cache_creation_input_tokens: 0,
+        reasoning_tokens: u["completion_tokens_details"]["reasoning_tokens"]
+            .as_u64()
+            .unwrap_or(0),
     }
 }
 
@@ -402,6 +443,9 @@ fn responses_usage(value: &Value) -> Usage {
         output_tokens: u["output_tokens"].as_u64().unwrap_or(0),
         cache_read_input_tokens: cached,
         cache_creation_input_tokens: written,
+        reasoning_tokens: u["output_tokens_details"]["reasoning_tokens"]
+            .as_u64()
+            .unwrap_or(0),
     }
 }
 
@@ -442,6 +486,25 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_effort_goes_where_each_route_expects_it() {
+        let gemini = model("gemini-2.5-flash").unwrap();
+        let off = build_http(gemini, &request(), 50_000, &meta(), Reasoning::Off);
+        assert_eq!(off.body["reasoning_effort"], "none");
+        let default = build_http(gemini, &request(), 50_000, &meta(), Reasoning::Default);
+        assert!(
+            default.body.get("reasoning_effort").is_none(),
+            "cached bodies stay valid"
+        );
+        let luna = model("gpt-5.6-luna").unwrap();
+        let low = build_http(luna, &request(), 50_000, &meta(), Reasoning::Low);
+        assert_eq!(low.body["reasoning"]["effort"], "low");
+        let haiku = model("claude-haiku-4-5").unwrap();
+        let high = build_http(haiku, &request(), 50_000, &meta(), Reasoning::High);
+        assert!(high.body.get("reasoning_effort").is_none());
+        assert!(high.body.get("reasoning").is_none());
+    }
+
+    #[test]
     fn gateway_cache_is_a_ttl_or_a_skip() {
         let m = model("claude-haiku-4-5").unwrap();
         let cached = build_http(
@@ -452,6 +515,7 @@ mod tests {
                 gateway_cache: true,
                 ..meta()
             },
+            Reasoning::Default,
         );
         assert!(
             cached
@@ -460,14 +524,14 @@ mod tests {
                 .any(|(n, v)| n == "cf-aig-cache-ttl" && v == &GATEWAY_CACHE_TTL_SECS.to_string())
         );
         assert!(!cached.headers.iter().any(|(n, _)| n == "cf-aig-skip-cache"));
-        let fresh = build_http(m, &request(), 50_000, &meta());
+        let fresh = build_http(m, &request(), 50_000, &meta(), Reasoning::Default);
         assert!(!fresh.headers.iter().any(|(n, _)| n == "cf-aig-cache-ttl"));
     }
 
     #[test]
     fn anthropic_request_forces_the_tool() {
         let m = model("claude-haiku-4-5").unwrap();
-        let req = build_http(m, &request(), 50_000, &meta());
+        let req = build_http(m, &request(), 50_000, &meta(), Reasoning::Default);
         assert_eq!(req.path, "/anthropic/v1/messages");
         assert!(
             req.headers
@@ -510,7 +574,7 @@ mod tests {
     #[test]
     fn compat_request_prefixes_the_provider() {
         let m = model("gemini-2.5-flash").unwrap();
-        let req = build_http(m, &request(), 1000, &meta());
+        let req = build_http(m, &request(), 1000, &meta(), Reasoning::Default);
         assert_eq!(req.path, "/compat/chat/completions");
         assert_eq!(req.body["model"], "google-ai-studio/gemini-2.5-flash");
         assert_eq!(req.body["max_tokens"], 1000);
@@ -520,7 +584,7 @@ mod tests {
     #[test]
     fn responses_request_for_luna() {
         let m = model("gpt-5.6-luna").unwrap();
-        let req = build_http(m, &request(), 1000, &meta());
+        let req = build_http(m, &request(), 1000, &meta(), Reasoning::Default);
         assert_eq!(req.path, "/openai/responses");
         assert_eq!(req.body["max_output_tokens"], 1000);
         assert_eq!(req.body["tools"][0]["name"], "emit_items");
@@ -550,7 +614,8 @@ mod tests {
                 input_tokens: 10,
                 output_tokens: 5,
                 cache_read_input_tokens: 3,
-                cache_creation_input_tokens: 2
+                cache_creation_input_tokens: 2,
+                reasoning_tokens: 0
             }
         );
         assert_eq!(out.request_id.as_deref(), Some("log1"));
@@ -576,14 +641,15 @@ mod tests {
                 input_tokens: 60,
                 output_tokens: 7,
                 cache_read_input_tokens: 40,
-                cache_creation_input_tokens: 0
+                cache_creation_input_tokens: 0,
+                reasoning_tokens: 0
             }
         );
 
         let responses = resp(
             200,
             json!({"status":"incomplete","output":[{"type":"function_call","arguments":"{\"items\":[]}"}],
-            "usage":{"input_tokens":100,"output_tokens":9,"input_tokens_details":{"cached_tokens":10,"cache_write_tokens":5}}}),
+            "usage":{"input_tokens":100,"output_tokens":9,"input_tokens_details":{"cached_tokens":10,"cache_write_tokens":5},"output_tokens_details":{"reasoning_tokens":4}}}),
         );
         let out = parse_response(Route::OpenAiResponses, &responses).unwrap();
         assert!(out.truncated);
@@ -593,7 +659,8 @@ mod tests {
                 input_tokens: 85,
                 output_tokens: 9,
                 cache_read_input_tokens: 10,
-                cache_creation_input_tokens: 5
+                cache_creation_input_tokens: 5,
+                reasoning_tokens: 4
             }
         );
 
@@ -624,6 +691,13 @@ mod tests {
             Some(8000),
             "backs off exponentially"
         );
+        let broke = parse_response(
+            Route::OpenAiChat,
+            &resp(429, json!({"error":{"message":"You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/"}})),
+        )
+        .unwrap_err();
+        assert!(broke.is_credit_exhausted());
+        assert!(!broke.is_wholesale_rate_limit());
         let wholesale = parse_response(
             Route::CompatChat,
             &resp(

@@ -15,8 +15,7 @@ export type LibraryBook = { path: string, title: string, authors: Array<string>,
  */
 cookbookHint: boolean,
 /**
- * Saved runs of this exact file, newest first (matched by file name until
- * the book is opened and hashed).
+ * Saved runs of this exact file (matched by its sha256), newest first.
  */
 runs: Array<RunSummary>, error: string | null, };
 export type OpenedBook = { path: string, outline: BookOutline, classified: Classified,
@@ -39,7 +38,12 @@ score: number,
 /**
  * `structure` or the model id that decided.
  */
-method: string, reasons: Array<string>, quantity_lines: number, ingredient_runs: number, nav_recipe_titles: number, };
+method: string, reasons: Array<string>, quantity_lines: number, ingredient_runs: number,
+/**
+ * Runs of three or more quantity-like lines: ingredient lists proper,
+ * as opposed to chapter numbers, addresses and tables.
+ */
+solid_runs: number, nav_recipe_titles: number, };
 export type Classification = "cookbook" | "not_cookbook" | "ambiguous";
 export type BookOutline = { source: BookSource, cover: ImageRef | null,
 /**
@@ -284,7 +288,12 @@ whole_book_escalation: boolean, max_output_tokens: number,
  * Let AI Gateway answer a repeated request from its cache (30-day TTL).
  * Off for evaluation runs, which must measure the model, not the cache.
  */
-gateway_cache: boolean, };
+gateway_cache: boolean,
+/**
+ * Override every model's catalog reasoning setting; `None` keeps each
+ * model's own.
+ */
+reasoning: Reasoning | null, };
 export type StageTiming = { stage: Phase, ms: number, };
 export type CallRecord = { seq: number, chunk_id: string, model: string,
 /**
@@ -305,7 +314,12 @@ started_ms: number, latency_ms: number, cached: boolean, status: number | null, 
 cost_usd: number | null, truncated: boolean, outcome: CallOutcome, };
 export type CallPurpose = "extract" | "retry" | "second_opinion" | "escalation" | "classify";
 export type CallOutcome = { "outcome": "ok" } | { "outcome": "invalid", faults: Array<string>, } | { "outcome": "transport", kind: string, message: string, };
-export type Usage = { input_tokens: number, output_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number, };
+export type Usage = { input_tokens: number, output_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number,
+/**
+ * Thinking tokens, when the provider reports them; already inside
+ * `output_tokens` for pricing.
+ */
+reasoning_tokens: number, };
 export type ChunkReport = { id: string,
 /**
  * Global line range, end exclusive.
@@ -328,3 +342,4 @@ export type Escalation = { reason: string, flagged_fraction: number, from_model:
 export type UnresolvedRef = { item_id: string, line: number, text: string, attempted: Array<RefMethod>, };
 export type ModelUsage = { model: string, calls: number, usage: Usage, cost_usd: number | null, };
 export type EtaSample = { elapsed_ms: number, remaining_low_ms: number, remaining_high_ms: number, };
+export type Reasoning = "default" | "off" | "low" | "medium" | "high";

@@ -11,6 +11,7 @@ use clap::{Args, Subcommand};
 use cookbook::cache::{ChunkCache, NoCache};
 use cookbook::classify::{Classification, classify_structure};
 use cookbook::eval::{self, Expectations};
+use cookbook::models::Reasoning;
 use cookbook::native::runs::{self, RunSummary};
 use cookbook::native::{DumpTransport, FsChunkCache, ReplayTransport, ReqwestTransport};
 use cookbook::{
@@ -46,6 +47,10 @@ pub enum Command {
         /// Include the printed-page map.
         #[arg(long)]
         pages: bool,
+        /// Print the first N quantity-like lines and where the ingredient
+        /// runs start: what the structural classifier saw.
+        #[arg(long)]
+        quantities: Option<usize>,
     },
     /// Cost and time before spending anything.
     Estimate {
@@ -134,6 +139,54 @@ pub enum Command {
     /// Write an answer-key skeleton for a book (titles from its contents).
     Expect {
         book: PathBuf,
+        /// Seed not_recipes and sample stubs from a saved run of this file,
+        /// and print its missing and phantom titles as hints.
+        #[arg(long)]
+        from_run: Option<PathBuf>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Extract a library's cookbooks a few at a time and write the report.
+    Library {
+        dir: PathBuf,
+        /// Books extracted at once (each at --concurrency chunks, default 8).
+        #[arg(long, default_value_t = 2)]
+        books: usize,
+        /// Extract even when the store already holds a run of the same file.
+        #[arg(long)]
+        force: bool,
+        /// Stop starting books once the sweep's projected spend would pass this.
+        #[arg(long)]
+        max_cost: Option<f64>,
+        #[arg(long)]
+        max_books: Option<usize>,
+        /// A seeded sample of this many cookbooks, spread across authors.
+        #[arg(long)]
+        sample: Option<usize>,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Title or path substrings; a book must match one.
+        #[arg(long)]
+        only: Vec<String>,
+        /// Classify and estimate only; spend nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Write `<out>.json` and `<out>.md` (default: the library reports
+        /// directory, stamped).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[command(flatten)]
+        flags: RunFlags,
+    },
+    /// The library report: every book's latest run, worst first, as JSON
+    /// and Markdown.
+    Report {
+        /// Join the run store to this library directory for paths and the
+        /// books that have no run yet.
+        #[arg(long)]
+        library: Option<PathBuf>,
+        /// Write `<out>.json` and `<out>.md` (default: the library reports
+        /// directory, stamped).
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -164,6 +217,9 @@ pub struct RunFlags {
     /// Label in reports and gateway metadata (default: the file name).
     #[arg(long)]
     pub label: Option<String>,
+    /// Override every model's thinking setting: default, none, low, medium, high.
+    #[arg(long)]
+    pub reasoning: Option<Reasoning>,
 }
 
 impl RunFlags {
@@ -183,6 +239,7 @@ impl RunFlags {
             whole_book_escalation: !self.no_escalation,
             max_output_tokens: default.max_output_tokens,
             gateway_cache: use_cache,
+            reasoning: self.reasoning,
         }
     }
 }
@@ -236,6 +293,81 @@ fn label_for(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// The report over the run store, joined to `library` when given.
+fn library_report(
+    library: Option<&Path>,
+    statuses: &std::collections::HashMap<String, cookbook::library::RowStatus>,
+) -> Result<cookbook::library::LibraryReport, String> {
+    use cookbook::library::{ShaCache, build_report, scan};
+    let scanned = library.map(|dir| {
+        let mut shas = ShaCache::open_default();
+        let scanned = scan(dir, &mut shas);
+        // A cache that fails to persist only costs the next scan its hashing.
+        let _ = shas.save_default();
+        scanned
+    });
+    build_report(library, scanned.as_ref(), statuses).map_err(|e| e.to_string())
+}
+
+fn print_library_report(report: &cookbook::library::LibraryReport, written: &(PathBuf, PathBuf)) {
+    let t = &report.totals;
+    println!(
+        "{} books · {} with runs · mean recall {} · {} missing · {} phantoms · {} failed chunks · ${:.2}",
+        t.books,
+        t.with_runs,
+        t.mean_recall
+            .map(|r| format!("{:.1}%", r * 100.0))
+            .unwrap_or_else(|| "n/a".into()),
+        t.missing,
+        t.phantoms,
+        t.failed_chunks,
+        t.cost_usd
+    );
+    let rows: Vec<Vec<String>> = report
+        .rows
+        .iter()
+        .filter(|r| r.run.is_some())
+        .take(10)
+        .map(|r| {
+            vec![
+                r.title.chars().take(40).collect(),
+                r.recall
+                    .map(|x| format!("{:.0}%", x * 100.0))
+                    .unwrap_or_else(|| "-".into()),
+                r.missing.len().to_string(),
+                r.phantoms.len().to_string(),
+                r.failed_chunks.to_string(),
+                format!("{}/{}", r.flagged_chunks, r.chunks),
+                r.unresolved_refs.to_string(),
+                format!("{:.0}", r.problem_score),
+            ]
+        })
+        .collect();
+    if !rows.is_empty() {
+        println!(
+            "{}",
+            terminal_table(
+                &[
+                    "worst books",
+                    "recall",
+                    "missing",
+                    "phantom",
+                    "failed",
+                    "flagged",
+                    "refs",
+                    "score"
+                ],
+                &rows
+            )
+        );
+    }
+    println!(
+        "written {} and {}",
+        written.0.display(),
+        written.1.display()
+    );
+}
+
 fn emit(value: &Value, json: bool) {
     if json {
         println!(
@@ -255,13 +387,17 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             lines,
             nav,
             pages,
+            quantities,
         } => inspect(
             &book,
-            chunks,
-            chunk.as_deref(),
-            lines.as_deref(),
-            nav,
-            pages,
+            InspectFlags {
+                list_chunks: chunks,
+                chunk: chunk.as_deref(),
+                lines: lines.as_deref(),
+                nav,
+                pages,
+                quantities,
+            },
             json,
         ),
         Command::Estimate {
@@ -358,20 +494,115 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             )
             .await
         }
-        Command::Expect { book, out } => {
+        Command::Expect {
+            book,
+            from_run,
+            out,
+        } => {
             let b = open(&book, &label_for(&book))?;
-            let skeleton = eval::skeleton(&b, &book.display().to_string());
+            let skeleton = match &from_run {
+                Some(run) => {
+                    let extraction = runs::load(run).map_err(|e| e.to_string())?;
+                    let check = &extraction.report.crosscheck;
+                    if !check.missing.is_empty() {
+                        eprintln!(
+                            "contents titles the run missed (a real recipe the model lost, or a contents entry that is not one): {}",
+                            check.missing.join(" | ")
+                        );
+                    }
+                    if !check.phantom.is_empty() {
+                        eprintln!(
+                            "titles the run made that are not in the contents (an unlisted recipe for titles or variants, or a heading or caption for not_recipes): {}",
+                            check.phantom.join(" | ")
+                        );
+                    }
+                    eval::skeleton_from_run(&b, &book.display().to_string(), &extraction)
+                        .map_err(|e| e.to_string())?
+                }
+                None => eval::skeleton(&b, &book.display().to_string()),
+            };
             let text = serde_json::to_string_pretty(&skeleton).map_err(|e| e.to_string())?;
             match out {
                 Some(path) => {
                     std::fs::write(&path, text).map_err(|e| e.to_string())?;
                     eprintln!(
-                        "wrote {} ({} contents titles); fill in samples and not_recipes by hand",
+                        "wrote {} ({} contents titles, {} not_recipes candidates, {} sample stubs); fill in the counts from the HTML",
                         path.display(),
-                        skeleton.titles.len()
+                        skeleton.titles.len(),
+                        skeleton.not_recipes.len(),
+                        skeleton.samples.len()
                     );
                 }
                 None => println!("{text}"),
+            }
+            Ok(0)
+        }
+        Command::Library {
+            dir,
+            books,
+            force,
+            max_cost,
+            max_books,
+            sample,
+            seed,
+            only,
+            dry_run,
+            out,
+            flags,
+        } => {
+            if !dir.is_dir() {
+                return Err(format!("{} is not a directory", dir.display()));
+            }
+            let transport =
+                AnyTransport::Live(ReqwestTransport::from_env().map_err(|e| e.to_string())?);
+            let cache = FsChunkCache::open_default().map_err(|e| e.to_string())?;
+            let mut options = flags.options(&dir, true);
+            if flags.concurrency.is_none() {
+                options.concurrency = 8;
+            }
+            let outcome = crate::cookbook_library::sweep(
+                crate::cookbook_library::SweepArgs {
+                    dir: &dir,
+                    books,
+                    force,
+                    max_cost,
+                    max_books,
+                    sample,
+                    seed,
+                    only: &only,
+                    dry_run,
+                    options,
+                    out: out.as_deref(),
+                },
+                &transport,
+                &cache,
+            )
+            .await?;
+            if json {
+                emit(&json!(outcome.report), true);
+            } else if let (Some(written), false) = (&outcome.written, dry_run) {
+                print_library_report(&outcome.report, written);
+                println!(
+                    "this sweep spent ${:.2} (projected ${:.2}–${:.2})",
+                    outcome.cost_usd, outcome.projected_low_usd, outcome.projected_high_usd
+                );
+            } else {
+                println!(
+                    "dry run: {} books would be extracted for ${:.2}–${:.2}",
+                    outcome.report.rows.iter().filter(|r| matches!(&r.status, cookbook::library::RowStatus::Skipped { reason } if reason == "dry run")).count(),
+                    outcome.projected_low_usd,
+                    outcome.projected_high_usd
+                );
+            }
+            Ok(if outcome.cancelled { 130 } else { 0 })
+        }
+        Command::Report { library, out } => {
+            let report = library_report(library.as_deref(), &Default::default())?;
+            let written = crate::cookbook_library::write_report(&report, out.as_deref())?;
+            if json {
+                emit(&json!(report), true);
+            } else {
+                print_library_report(&report, &written);
             }
             Ok(0)
         }
@@ -407,6 +638,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
                             m.id.to_string(),
                             m.provider.as_str().to_string(),
                             if m.enabled { "yes".into() } else { "no".into() },
+                            m.reasoning.to_string(),
                             r,
                             format!(
                                 "{:.1}s / {:.0} tok/s ({})",
@@ -425,6 +657,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
                             "model",
                             "provider",
                             "enabled",
+                            "reasoning",
                             "$/M in / out",
                             "priors",
                             "status"
@@ -466,6 +699,7 @@ fn line_json(book: &Book, idx: usize) -> Value {
         "classes": l.clean.classes,
         "heading": l.clean.heading,
         "in_figure": l.clean.in_figure,
+        "transformed": l.clean.transformed,
         "anchors": l.clean.anchors,
         "links": l.clean.links.iter().map(|k| json!({"text": k.text, "href": k.href})).collect::<Vec<_>>(),
         "images": l.clean.images.iter().map(|i| &i.path).collect::<Vec<_>>(),
@@ -474,16 +708,75 @@ fn line_json(book: &Book, idx: usize) -> Value {
     })
 }
 
-fn inspect(
-    path: &Path,
+struct InspectFlags<'a> {
     list_chunks: bool,
-    chunk: Option<&str>,
-    lines: Option<&str>,
+    chunk: Option<&'a str>,
+    lines: Option<&'a str>,
     nav: bool,
     pages: bool,
-    json: bool,
-) -> Result<i32, String> {
+    quantities: Option<usize>,
+}
+
+fn inspect(path: &Path, flags: InspectFlags<'_>, json: bool) -> Result<i32, String> {
+    let InspectFlags {
+        list_chunks,
+        chunk,
+        lines,
+        nav,
+        pages,
+        quantities,
+    } = flags;
     let book = open(path, &label_for(path))?;
+    if let Some(n) = quantities {
+        let lines = book.lines();
+        let quantity: Vec<usize> = (0..lines.len())
+            .filter(|&i| lines.quantity_like(i))
+            .collect();
+        let runs: Vec<usize> = (0..lines.len())
+            .filter(|&i| lines.ingredient_run_start(i))
+            .collect();
+        let solid: Vec<usize> = (0..lines.len())
+            .filter(|&i| lines.solid_run_start(i) && !(i > 0 && lines.quantity_like(i - 1)))
+            .collect();
+        if json {
+            emit(
+                &json!({
+                    "lines": lines.len(),
+                    "quantity_lines": quantity.len(),
+                    "ingredient_runs": runs.len(),
+                    "solid_runs": solid.len(),
+                    "sample": quantity.iter().take(n).map(|&i| json!({"line": i, "text": lines.text(i)})).collect::<Vec<_>>(),
+                    "run_starts": runs.iter().take(n).map(|&i| json!({"line": i, "text": lines.text(i)})).collect::<Vec<_>>(),
+                }),
+                true,
+            );
+        } else {
+            println!(
+                "{} lines · {} quantity-like · {} ingredient runs · {} solid runs (3+ in a row)",
+                lines.len(),
+                quantity.len(),
+                runs.len(),
+                solid.len()
+            );
+            for &i in quantity.iter().take(n) {
+                let marks = format!(
+                    "{}{}",
+                    if lines.ingredient_run_start(i) {
+                        "run "
+                    } else {
+                        "    "
+                    },
+                    if lines.solid_run_start(i) {
+                        "solid "
+                    } else {
+                        "      "
+                    }
+                );
+                println!("{i:>6} {marks} {}", lines.text(i));
+            }
+        }
+        return Ok(0);
+    }
     if let Some(id) = chunk {
         let c = book
             .chunks()

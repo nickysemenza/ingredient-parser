@@ -24,7 +24,7 @@ use crate::gateway::{
     transient_backoff_ms,
 };
 use crate::lines::BookLines;
-use crate::models::Model;
+use crate::models::{Model, effective_reasoning};
 use crate::report::{
     CallOutcome, CallPurpose, CallRecord, Chosen, ChunkReport, ChunkStatus, CrossCheck, Escalation,
     EtaSample, ExtractOptions, Flag, Phase, Progress, SecondOpinion,
@@ -131,7 +131,13 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
             purpose: purpose_str(purpose),
             gateway_cache: self.input.options.gateway_cache,
         };
-        let http = build_http(model, request, self.input.options.max_output_tokens, &meta);
+        let http = build_http(
+            model,
+            request,
+            self.input.options.max_output_tokens,
+            &meta,
+            effective_reasoning(model, self.input.options),
+        );
         let key = cache_key(CONTRACT_VERSION, model.id, model.route.as_str(), &http.body);
         let started_ms = self.now_ms();
         let seq = self.seq.fetch_add(1, Ordering::SeqCst);
@@ -221,7 +227,12 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                         Ok((result, record.cached))
                     }
                     Err(failure) => {
-                        if failure.is_wholesale_rate_limit() {
+                        if failure.is_credit_exhausted() {
+                            self.exhausted
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(model.id);
+                        } else if failure.is_wholesale_rate_limit() {
                             self.note_refusal(model);
                         }
                         record.request_id = failure.request_id().map(str::to_string);
@@ -880,9 +891,20 @@ pub async fn run<T: Transport, C: ChunkCache>(
     let mut escalation = None;
     let mut exhausted = false;
     if input.options.whole_book_escalation && !settled_results.is_empty() {
+        // Parse-rate and prose-ingredient flags describe how a book prints
+        // its lists, which a stronger model cannot change; they do not
+        // count towards re-reading the whole book.
         let flagged = settled_results
             .iter()
-            .filter(|r| !r.report.flags.is_empty() || r.lowered.is_none())
+            .filter(|r| {
+                r.lowered.is_none()
+                    || r.report.flags.iter().any(|f| {
+                        !matches!(
+                            f,
+                            Flag::ProseIngredients { .. } | Flag::LowAmountParseRate { .. }
+                        )
+                    })
+            })
             .count();
         let fraction = flagged as f32 / settled_results.len() as f32;
         let low_recall = check.recall.is_some_and(|r| r < ESCALATION_RECALL_FLOOR);
@@ -1258,6 +1280,49 @@ mod tests {
             out.chunks
                 .iter()
                 .all(|c| c.report.final_model.as_deref() == Some("claude-haiku-4-5"))
+        );
+    }
+
+    /// The provider's own account being out of credit drops the model at
+    /// once, whatever the concurrency, with no pause.
+    #[tokio::test]
+    async fn credit_exhausted_models_are_dropped_at_once() {
+        let (book, nav, chunks) = book();
+        let (b, c) = (book.clone(), chunks.clone());
+        let transport = ScriptedTransport::new(move |req, _| {
+            let (model_id, _, _) = request_meta(req).unwrap();
+            if model_id == "gemini-2.5-flash" {
+                Ok(error_response(
+                    429,
+                    "{\"error\":{\"message\":\"You have no credits remaining. Add credits to continue.\"}}",
+                ))
+            } else {
+                Ok(oracle_answer(req, &b, &c))
+            }
+        });
+        let opts = ExtractOptions {
+            concurrency: 4,
+            ..options(false, false)
+        };
+        let (out, _) = drive(
+            &transport,
+            &NoCache,
+            &book,
+            &nav,
+            &chunks,
+            ladder(&["gemini-2.5-flash", "claude-haiku-4-5"]),
+            &opts,
+        )
+        .await;
+        assert!(transport.sleeps_ms.lock().unwrap().is_empty());
+        assert!(!out.incomplete);
+        assert!(
+            out.calls
+                .iter()
+                .filter(|c| c.model == "gemini-2.5-flash")
+                .count()
+                <= 4,
+            "at most the first wave"
         );
     }
 

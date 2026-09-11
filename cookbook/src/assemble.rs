@@ -64,9 +64,16 @@ pub fn assemble(
             if item.continues
                 && index == 0
                 && previous_chunk_ok
-                && let Some(last) = merged.last_mut().filter(|m| m.item.kind == Kind::Recipe)
+                && let Some(last) = merged.last_mut().filter(|m| continues_into(&m.item, &item))
             {
                 merge_into(&mut last.item, item);
+                if !matches!(last.item.kind, Kind::Recipe | Kind::Variation)
+                    && last.item.ingredient_count() > 0
+                {
+                    // The headnote half was read as an essay because its
+                    // ingredients sat in the next chunk.
+                    last.item.kind = Kind::Recipe;
+                }
                 continue;
             }
             item.title = crate::crosscheck::strip_photo_pointers(&item.title);
@@ -77,7 +84,7 @@ pub fn assemble(
                 });
                 item = recipe;
             }
-            if item.kind == Kind::Recipe && is_formula_table(book, &item) {
+            if is_formula_table(book, &item) {
                 // A baker's formula printed for comparison, with no method:
                 // kept as prose, not offered as a recipe.
                 item.kind = Kind::Essay;
@@ -131,6 +138,8 @@ pub fn assemble(
         }
         previous_chunk_ok = true;
     }
+
+    merge_nav_titled_essays(book, nav, &mut merged);
 
     // Spans, in book order; every item owns its lines up to the next item.
     let mut spans: Vec<Span> = merged
@@ -413,7 +422,8 @@ fn split_group_heading(book: &BookLines, item: &ChunkItem) -> Option<(ChunkItem,
         // No headings ("my favorite bar is a baked potato bar" over prose,
         // then "Baked Potato Bar"): the last title-like line before the
         // ingredients, with at least one paragraph between it and the title.
-        // Upper-case lines are subtitles or labels, never the real title.
+        // Upper-case lines are subtitles or labels, never the real title;
+        // neither is a quoted sentence from the headnote.
         None => (title + 2..first_ingredient).rev().find(|&i| {
             book.title_like(i)
                 && !named.contains(&i)
@@ -421,6 +431,7 @@ fn split_group_heading(book: &BookLines, item: &ChunkItem) -> Option<(ChunkItem,
                 && book.text(i).split_whitespace().count() >= 2
                 && book.text(i).chars().any(|c| c.is_lowercase())
                 && !crate::validate::is_label(book.text(i))
+                && !crate::validate::is_prose(book.text(i))
         })?,
     };
     if !(title + 1..sub).all(|i| described.contains(&i)) {
@@ -499,7 +510,8 @@ fn prose_recipe_to_technique(mut item: ChunkItem) -> ChunkItem {
 /// only table rows as ingredients is a formula listed for comparison, not
 /// something to cook from.
 fn is_formula_table(book: &BookLines, item: &ChunkItem) -> bool {
-    item.kind == Kind::Recipe
+    // A formula printed as a variation of a base recipe is still a formula.
+    matches!(item.kind, Kind::Recipe | Kind::Variation)
         && !item.continues
         && item.step_count() <= 2
         && item.recipe_yield.is_none()
@@ -520,6 +532,87 @@ fn parent_index(merged: &[Merged], item: &ChunkItem) -> Option<usize> {
         return Some(p);
     }
     merged.iter().rposition(|m| m.item.kind == Kind::Recipe)
+}
+
+/// The contents list a title as a recipe, the model read it as an essay
+/// (its headnote), and the very next item, titled by a line the contents do
+/// not know (a sidebar heading like "TO CORKSCREW A LEG of LAMB"), holds the
+/// ingredients: one recipe, titled as the contents say. Only when the
+/// contents name enough recipes to be trusted.
+fn merge_nav_titled_essays(book: &BookLines, nav: &Nav, merged: &mut Vec<Merged>) {
+    let nav_lines: HashSet<usize> = crate::crosscheck::nav_recipe_titles(book, nav)
+        .into_iter()
+        .map(|(_, line)| line)
+        .collect();
+    let nav_usable = nav_lines.len() >= crate::crosscheck::MIN_NAV_TITLES;
+    let mut i = 0;
+    while i + 1 < merged.len() {
+        let (a, b) = (&merged[i].item, &merged[i + 1].item);
+        let a_title = a.title_lines.first().copied();
+        let b_title = b.title_lines.first().copied();
+        // Either the contents vouch for the essay's title, or the essay is a
+        // headnote-sized stub and the recipe's title is an imperative
+        // technique heading ("TO CORKSCREW A LEG of LAMB"), the sidebar a
+        // recipe is printed with.
+        let contents_vouch = nav_usable
+            && a_title.is_some_and(|l| nav_lines.contains(&l))
+            && b_title.is_some_and(|l| !nav_lines.contains(&l));
+        let sidebar_titled = a.description.len() <= 5
+            && a.step_count() == 0
+            && is_imperative_heading(&b.title)
+            && !is_imperative_heading(&a.title);
+        let joins = matches!(a.kind, Kind::Essay | Kind::Technique)
+            && b.kind == Kind::Recipe
+            && !b.continues
+            && b.ingredient_count() > 0
+            && b_title.is_some_and(|l| {
+                book.lines
+                    .get(l)
+                    .is_some_and(|line| line.clean.heading.is_none())
+            })
+            && b.first == a.last + 1
+            && (contents_vouch || sidebar_titled);
+        if !joins {
+            i += 1;
+            continue;
+        }
+        let Merged {
+            item: mut sidebar,
+            variation_notes,
+        } = merged.remove(i + 1);
+        let target = &mut merged[i];
+        // The sidebar heading reads as part of the headnote.
+        if let Some(line) = b_title {
+            sidebar.description.insert(
+                0,
+                Text {
+                    line,
+                    text: sidebar.title.clone(),
+                },
+            );
+        }
+        sidebar.continues = true;
+        merge_into(&mut target.item, sidebar);
+        target.item.kind = Kind::Recipe;
+        target.variation_notes.extend(variation_notes);
+        i += 1;
+    }
+}
+
+/// `TO CORKSCREW A LEG of LAMB`, `HOW TO LINE A LOAF PAN`: a technique
+/// heading, never the name of a dish.
+fn is_imperative_heading(title: &str) -> bool {
+    let lower = title.trim().to_ascii_lowercase();
+    lower.starts_with("to ") || lower.starts_with("how to ")
+}
+
+/// Whether the first, untitled item of a chunk continues `last`: any recipe
+/// or variation (the model's kind for a titled recipe with a subtitle), or
+/// an essay or technique whose title the continuation hint names, which is
+/// the headnote half of a recipe cut before its ingredient list.
+fn continues_into(last: &ChunkItem, continuation: &ChunkItem) -> bool {
+    matches!(last.kind, Kind::Recipe | Kind::Variation)
+        || crate::crosscheck::titles_match(&last.title, &continuation.title)
 }
 
 /// Fold a continuation into the recipe it continues: unnamed sections merge
