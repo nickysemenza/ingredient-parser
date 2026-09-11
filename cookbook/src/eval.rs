@@ -234,9 +234,11 @@ pub fn score(expected: &Expectations, extraction: &Extraction) -> BookScore {
             }
         }
         for needle in &s.notes_contain {
+            // A headnote is a note to the author of a key and a description
+            // to the crate; either place satisfies the expectation.
             let hit = r.notes.iter().any(|n| {
                 n.text.contains(needle) || n.label.as_deref().is_some_and(|l| l.contains(needle))
-            });
+            }) || r.meta.description.iter().any(|d| d.contains(needle));
             if !hit {
                 ok = false;
                 sample_failures.push(format!("{}: no note containing {needle:?}", s.title));
