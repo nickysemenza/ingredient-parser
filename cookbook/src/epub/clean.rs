@@ -704,16 +704,28 @@ fn render_table_row(cells: &[String]) -> String {
         [only] => only.clone(),
         _ => {
             let kinds: Vec<CellKind> = cells.iter().map(|c| classify_cell(c)).collect();
-            let measures: Vec<usize> = kinds
+            let measures: Vec<&str> = cells
                 .iter()
-                .enumerate()
+                .zip(&kinds)
                 .filter(|(_, k)| matches!(k, CellKind::Measure))
-                .map(|(i, _)| i)
+                .map(|(c, _)| c.as_str())
                 .collect();
-            if let [w] = measures.as_slice()
-                && matches!(kinds[0], CellKind::Text)
-            {
-                format!("{} ({})", cells[0], cells[*w])
+            if !measures.is_empty() && matches!(kinds[0], CellKind::Text) {
+                // `name (750 g | 5¾ cups)`: every measure column, in order;
+                // bare ratio cells (baker's %) are derivable and dropped.
+                let extra: Vec<&str> = cells
+                    .iter()
+                    .zip(&kinds)
+                    .skip(1)
+                    .filter(|(_, k)| matches!(k, CellKind::Text))
+                    .map(|(c, _)| c.as_str())
+                    .collect();
+                let mut out = format!("{} ({})", cells[0], measures.join(" | "));
+                if !extra.is_empty() {
+                    out.push(' ');
+                    out.push_str(&extra.join(" "));
+                }
+                out
             } else {
                 cells.join(" ")
             }
@@ -755,6 +767,13 @@ enum CellKind {
 }
 
 fn classify_cell(cell: &str) -> CellKind {
+    let trimmed = cell.trim();
+    if let Some(number) = trimmed.strip_suffix('%')
+        && number.trim().replace(',', "").parse::<f64>().is_ok()
+    {
+        // A baker's percentage column.
+        return CellKind::Number;
+    }
     let parsed = ingredient::from_str(cell);
     if parsed
         .amounts

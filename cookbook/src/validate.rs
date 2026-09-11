@@ -9,7 +9,7 @@ use std::fmt;
 
 use crate::chunk::Chunk;
 use crate::contract::{Kind, Lowered};
-use crate::lines::{BookLines, looks_like_quantity_text};
+use crate::lines::{BookLines, looks_like_quantity_text, looks_like_yield};
 use crate::report::Flag;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +64,15 @@ fn is_prose(text: &str) -> bool {
     t.len() > MAX_TITLE_CHARS || (t.len() > 60 && t.ends_with('.'))
 }
 
+/// The line parses with an amount that carries a real unit (`400 g`, `2 cups`),
+/// so it is an ingredient line rather than a count, a year, or an address.
+fn has_unit_amount(text: &str) -> bool {
+    ingredient::from_str(text)
+        .amounts
+        .iter()
+        .any(|m| !matches!(m.unit(), ingredient::unit::Unit::Whole))
+}
+
 /// A title line that reads as a quantity, or a short line wedged between two
 /// quantity lines ("Salt" in the middle of a list), is an ingredient.
 fn title_line_is_ingredient(book: &BookLines, line: usize, title: &str) -> bool {
@@ -110,6 +119,11 @@ pub const LABELS: &[&str] = &[
     "makes",
     "yield",
     "yields",
+    "wine",
+    "wine pairing",
+    "pairing",
+    "to drink",
+    "serve with",
 ];
 
 fn is_reference_line(text: &str) -> bool {
@@ -325,14 +339,21 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
             });
         }
         if matches!(item.kind, Kind::Technique | Kind::Essay) {
-            let quantities = item
+            // Unit-bearing quantities ("100 grams flour"), not street numbers
+            // or chart figures, next to a printed method.
+            let prose: Vec<&str> = item
                 .description
                 .iter()
                 .chain(item.notes.iter())
                 .chain(item.sections.iter().flat_map(|s| s.steps.iter()))
-                .filter(|t| looks_like_quantity_text(&t.text) && t.text.len() <= 120)
+                .map(|t| t.text.as_str())
+                .collect();
+            let quantities = prose
+                .iter()
+                .filter(|t| t.len() <= 120 && has_unit_amount(t))
                 .count();
-            if quantities >= 3 {
+            let method = item.step_count() > 0 || prose.iter().any(|t| t.len() > 100);
+            if quantities >= 3 && method {
                 v.hard.push(HardFault::NotARecipeWithIngredients {
                     title: item.title.clone(),
                     quantities,
@@ -347,12 +368,7 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
     }
 
     if lowered.items.is_empty() {
-        let has_yield = (chunk.start..chunk.end).any(|i| {
-            let upper = book.text(i).trim().to_ascii_uppercase();
-            upper.starts_with("SERVES ")
-                || upper.starts_with("MAKES ")
-                || upper.starts_with("YIELD")
-        });
+        let has_yield = (chunk.start..chunk.end).any(|i| looks_like_yield(book.text(i)));
         let quantities = (chunk.start..chunk.end)
             .filter(|&i| looks_like_quantity_text(book.text(i)))
             .count();
@@ -640,7 +656,8 @@ mod tests {
 
     #[test]
     fn recipes_need_ingredients_but_techniques_do_not() {
-        let html = "<p>Tempering Chocolate</p><p>Melt two thirds of the chocolate gently over a water bath until smooth.</p>";
+        // Quantities hidden in the method: the model misplaced the list.
+        let html = "<p>Tempering Chocolate</p><p>200 g dark chocolate, chopped</p>";
         let recipe = run(
             html,
             json!({"items":[{"kind":"recipe","title":[0],"sections":[{"steps":[1]}]}]}),
@@ -649,6 +666,17 @@ mod tests {
             recipe.hard[0],
             HardFault::RecipeWithoutIngredients { .. }
         ));
+        // No quantity anywhere: lowering already made it a technique.
+        let html = "<p>Tempering Chocolate</p><p>Melt two thirds of the chocolate gently over a water bath until smooth.</p>";
+        let (book, chunk) = book_and_chunk(html);
+        let lowered = lower(
+            &chunk,
+            &book,
+            json!({"items":[{"kind":"recipe","title":[0],"sections":[{"steps":[1]}]}]}),
+        )
+        .unwrap();
+        assert_eq!(lowered.items[0].kind, Kind::Technique);
+        assert!(validate(&chunk, &book, &lowered).is_ok());
         let technique = run(
             html,
             json!({"items":[{"kind":"technique","title":[0],"sections":[{"steps":[1]}]}]}),

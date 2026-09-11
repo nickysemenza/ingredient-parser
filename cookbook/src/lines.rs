@@ -270,6 +270,16 @@ impl BookLines {
     }
 }
 
+/// A printed yield line: `SERVES 4`, `Makes 12`, `Yield: 2 loaves`,
+/// `FOR 4 SERVINGS:`.
+pub fn looks_like_yield(text: &str) -> bool {
+    let upper = text.trim().to_ascii_uppercase();
+    upper.starts_with("SERVES ")
+        || upper.starts_with("MAKES ")
+        || upper.starts_with("YIELD")
+        || (upper.starts_with("FOR ") && upper.contains("SERVING"))
+}
+
 /// Leader characters that introduce list lines, never titles.
 const LEADERS: &str = "•·*-–—▪◦";
 

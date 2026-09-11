@@ -69,6 +69,18 @@ pub fn assemble(
                 merge_into(&mut last.item, item);
                 continue;
             }
+            if let Some((section, recipe)) = split_group_heading(book, &item) {
+                merged.push(Merged {
+                    item: section,
+                    variation_notes: Vec::new(),
+                });
+                item = recipe;
+            }
+            if item.kind == Kind::Recipe && is_formula_table(book, &item) {
+                // A baker's formula printed for comparison, with no method:
+                // kept as prose, not offered as a recipe.
+                item.kind = Kind::Essay;
+            }
             if item.continues && item.kind == Kind::Recipe && item.ingredient_count() == 0 {
                 // Nothing to continue into and no ingredient list of its own:
                 // the hint named a sidebar, not a recipe.
@@ -363,6 +375,87 @@ pub fn split_note_label(text: &str) -> (Option<String>, String) {
 
 /// The recipe a variation belongs to: the one whose title line it names,
 /// else the nearest preceding recipe.
+/// `<h1>Doughnuts</h1>` + two paragraphs + `<h2>Sugared Doughnuts</h2>` +
+/// ingredients: the model titled the recipe by the section heading. The
+/// heading one level down, sitting between the title and the first
+/// ingredient with only description lines before it, is the recipe's real
+/// title; the higher heading becomes an essay over those paragraphs.
+fn split_group_heading(book: &BookLines, item: &ChunkItem) -> Option<(ChunkItem, ChunkItem)> {
+    if item.kind != Kind::Recipe || item.continues {
+        return None;
+    }
+    let &title = item.title_lines.first()?;
+    let level = book.lines.get(title)?.clean.heading?;
+    let first_ingredient = item
+        .sections
+        .iter()
+        .flat_map(|s| s.ingredients.iter().map(|t| t.line))
+        .min()?;
+    let named: HashSet<usize> = item
+        .sections
+        .iter()
+        .flat_map(|s| s.name_lines.iter().copied())
+        .collect();
+    let sub = (title + 1..first_ingredient).find(|&i| {
+        book.lines.get(i).and_then(|l| l.clean.heading) == Some(level + 1) && !named.contains(&i)
+    })?;
+    let described: HashSet<usize> = item.description.iter().map(|t| t.line).collect();
+    if !(title + 1..sub).all(|i| described.contains(&i)) {
+        return None;
+    }
+    let mut section = ChunkItem {
+        kind: Kind::Essay,
+        title: book.text(title).to_string(),
+        title_lines: vec![title],
+        continues: false,
+        variation_of: Vec::new(),
+        description: item
+            .description
+            .iter()
+            .filter(|t| t.line < sub)
+            .cloned()
+            .collect(),
+        recipe_yield: None,
+        times: None,
+        equipment: Vec::new(),
+        category: None,
+        page: None,
+        sections: Vec::new(),
+        notes: Vec::new(),
+        photos: Vec::new(),
+        first: title,
+        last: sub - 1,
+    };
+    section.last = section
+        .description
+        .iter()
+        .map(|t| t.line)
+        .max()
+        .unwrap_or(title)
+        .max(title);
+    let mut recipe = item.clone();
+    recipe.title = book.text(sub).to_string();
+    recipe.title_lines = vec![sub];
+    recipe.description.retain(|t| t.line > sub);
+    recipe.first = sub;
+    Some((section, recipe))
+}
+
+/// A recipe with no method, no yield, and only table rows as ingredients is a
+/// formula listed for comparison, not something to cook from.
+fn is_formula_table(book: &BookLines, item: &ChunkItem) -> bool {
+    item.kind == Kind::Recipe
+        && !item.continues
+        && item.step_count() == 0
+        && item.recipe_yield.is_none()
+        && item.ingredient_count() > 0
+        && item
+            .sections
+            .iter()
+            .flat_map(|s| s.ingredients.iter())
+            .all(|t| book.lines.get(t.line).is_some_and(|l| l.clean.transformed))
+}
+
 fn parent_index(merged: &[Merged], item: &ChunkItem) -> Option<usize> {
     if let Some(&line) = item.variation_of.first()
         && let Some(p) = merged

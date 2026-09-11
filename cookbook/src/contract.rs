@@ -420,16 +420,22 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
                 if i >= n {
                     return Err(Invalid(format!("line {i} is out of range (0..{n}) in {field}")));
                 }
-                if let Some((previous, previous_owner)) = used.insert(i, (field, owner)) {
+                if let Some(&(previous, previous_owner)) = used.get(&i) {
                     if previous == field && previous_owner == owner {
                         // The same line listed twice under one field of one
                         // item (two sections' ingredients): keep the first.
+                        return Ok(None);
+                    }
+                    if owner == usize::MAX && previous_owner != usize::MAX {
+                        // Also listed under captions or ignored: the item's
+                        // use wins.
                         return Ok(None);
                     }
                     return Err(Invalid(format!(
                         "line {i} is assigned to both {previous} and {field}; every line belongs to exactly one field"
                     )));
                 }
+                used.insert(i, (field, owner));
                 Ok(Some(Text {
                     line: chunk.global(i),
                     text: book.text(chunk.global(i)).to_string(),
@@ -560,6 +566,28 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
             first,
             last,
         });
+    }
+    // A recipe with no ingredient list and no quantity anywhere in its own
+    // text is prose the model mislabelled; keep it as what it is. When it
+    // does hold quantities the model misplaced an ingredient list and
+    // validation asks again.
+    for item in &mut items {
+        if item.kind == Kind::Recipe && !item.continues && item.ingredient_count() == 0 {
+            let any_quantity = item
+                .description
+                .iter()
+                .chain(item.notes.iter())
+                .chain(item.equipment.iter())
+                .chain(item.sections.iter().flat_map(|s| s.steps.iter()))
+                .any(|t| crate::lines::looks_like_quantity_text(&t.text));
+            if !any_quantity {
+                item.kind = if item.step_count() > 0 {
+                    Kind::Technique
+                } else {
+                    Kind::Essay
+                };
+            }
+        }
     }
     let mut captions: Vec<usize> = take(&payload.captions, "captions", usize::MAX)?
         .into_iter()

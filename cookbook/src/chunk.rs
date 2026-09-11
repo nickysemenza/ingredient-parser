@@ -14,7 +14,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::lines::BookLines;
+use crate::lines::{BookLines, looks_like_yield};
 
 /// Target chunk size in characters. Large enough that one long recipe stays
 /// whole; small enough that the model's index-only answer stays far below the
@@ -135,8 +135,13 @@ pub fn chunk(book: &BookLines, opts: &ChunkOptions) -> Vec<Chunk> {
             }
         }
     }
+    // A heading straight after an ingredient line or a yield line heads an
+    // ingredient group ("PASTE", "FISH"), not a recipe: never cut there.
+    let after_list = |i: usize| -> bool {
+        i > 0 && (book.quantity_like(i - 1) || looks_like_yield(book.text(i - 1)))
+    };
     let candidate = |i: usize| -> Option<Boundary> {
-        if protected[i] {
+        if protected[i] || after_list(i) {
             return None;
         }
         if nav_lines.contains(&i) {
@@ -196,7 +201,8 @@ pub fn chunk(book: &BookLines, opts: &ChunkOptions) -> Vec<Chunk> {
             heading_pending = false;
         }
         if is_title {
-            let strong = book.lines[i].clean.heading.is_some() || nav_lines.contains(&i);
+            let strong =
+                nav_lines.contains(&i) || (book.lines[i].clean.heading.is_some() && !after_list(i));
             if strong {
                 last_title = Some(book.text(i).to_string());
                 heading_pending = true;
