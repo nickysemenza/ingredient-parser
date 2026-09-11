@@ -159,6 +159,13 @@ pub struct PayloadItem {
     pub notes: IndexList,
     /// Caption lines of this item's photos.
     pub photos: IndexList,
+    /// Some models put ingredient lines at item level; they fold into the
+    /// unnamed main section.
+    #[schemars(skip)]
+    pub ingredients: IndexList,
+    /// Some models put steps at item level; they fold into the main section.
+    #[schemars(skip)]
+    pub steps: IndexList,
 }
 
 /// Explicitly printed timing lines, one line per field. A line that combines
@@ -585,6 +592,8 @@ fn dedupe_within_item(item: &mut PayloadItem) {
     keep(&mut item.description);
     keep(&mut item.notes);
     keep(&mut item.photos);
+    keep(&mut item.ingredients);
+    keep(&mut item.steps);
 }
 
 /// Items sort by their title line; an untitled continuation sorts by its
@@ -664,6 +673,13 @@ fn move_combined_metadata_to_notes(item: &mut PayloadItem) {
 /// is one shared method and lives in the main section. Sections are then
 /// ordered by source position.
 fn normalize_sections(item: &mut PayloadItem) {
+    if !item.ingredients.is_empty() || !item.steps.is_empty() {
+        item.sections.push(PayloadSection {
+            name: IndexList::default(),
+            ingredients: std::mem::take(&mut item.ingredients),
+            steps: std::mem::take(&mut item.steps),
+        });
+    }
     let mut ingredients: Vec<usize> = item
         .sections
         .iter_mut()
@@ -913,7 +929,6 @@ mod tests {
     #[case::too_many_unassigned(json!({"items":[{"title":[0],"sections":[{"ingredients":[2,4]}]}],"ignored":[]}), "not assigned")]
     #[case::double_across_items(json!({"items":[{"title":[0],"sections":[{"ingredients":[2]}]},{"title":[3],"sections":[{"ingredients":[2,4]}]}],"ignored":[1,5,6]}), "assigned to both")]
     #[case::out_of_range(json!({"items":[{"title":[0],"sections":[{"ingredients":[9]}]}],"ignored":[1,2,3,4,5,6]}), "out of range")]
-    #[case::recipe_level_ingredients(json!({"items":[{"title":[0],"ingredients":[2]}],"ignored":[1,3,4,5,6]}), "does not match the tool schema")]
     #[case::second_item_untitled(json!({"items":[{"title":[0],"sections":[{"ingredients":[2]}]},{"title":[],"sections":[{"ingredients":[4]}]}],"ignored":[1,3,5,6]}), "only the first item may continue")]
     #[case::continuation_without_hint(json!({"items":[{"title":[],"sections":[{"ingredients":[2]}]}],"ignored":[0,1,3,4,5,6]}), "no continuation title")]
     fn rejects_bad_coverage(#[case] payload: Value, #[case] message: &str) {
@@ -942,6 +957,20 @@ mod tests {
         assert_eq!(item.title, "Soup – A translation");
         assert_eq!(item.notes.iter().map(|t| t.line).collect::<Vec<_>>(), [6]);
         assert!(item.photos.is_empty(), "a step beats a photo caption claim");
+    }
+
+    #[test]
+    fn item_level_ingredients_and_steps_fold_into_the_main_section() {
+        let (book, chunk) = book_and_chunk(SOUP, 0);
+        let payload = json!({"items":[{"title":[0],"ingredients":[2,4],"steps":[5],"sections":[{"name":[3]}]}],"ignored":[1,6]});
+        let item = lower(&chunk, &book, payload).unwrap().items.remove(0);
+        assert_eq!(item.ingredient_count(), 2);
+        assert_eq!(item.step_count(), 1);
+        let schema = tool_schema(7).to_string();
+        assert!(
+            !schema.contains("\"steps\":{\"type\":\"array\"},\"title\""),
+            "item-level fields stay out of the schema"
+        );
     }
 
     #[test]

@@ -2,6 +2,13 @@
 //! EPUB 2 `toc.ncx` (`navMap` and `pageList`). Entries carry the document and
 //! fragment they point at; mapping those to lines happens in `lines`.
 
+/// Publisher NCX and OPF files carry DOCTYPE declarations, which roxmltree
+/// rejects unless told otherwise.
+const XML_OPTIONS: roxmltree::ParsingOptions = roxmltree::ParsingOptions {
+    allow_dtd: true,
+    nodes_limit: u32::MAX,
+};
+
 use scraper::{ElementRef, Html};
 use serde::{Deserialize, Serialize};
 
@@ -151,8 +158,12 @@ fn walk_ol(ol: ElementRef<'_>, depth: u8, base: &str, out: &mut Vec<NavEntry>) {
 
 pub(crate) fn parse_ncx(xml: &str, ncx_path: &str) -> Nav {
     let mut nav = Nav::default();
-    let Ok(doc) = roxmltree::Document::parse(xml) else {
-        return nav;
+    let doc = match roxmltree::Document::parse_with_options(xml, XML_OPTIONS) {
+        Ok(doc) => doc,
+        Err(e) => {
+            tracing::warn!(path = ncx_path, error = %e, "unreadable toc.ncx");
+            return nav;
+        }
     };
     let base = dir_of(ncx_path);
     if let Some(map) = doc.descendants().find(|n| n.has_tag_name("navMap")) {

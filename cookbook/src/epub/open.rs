@@ -11,6 +11,13 @@ use std::io::{Cursor, Read};
 use sha2::{Digest, Sha256};
 use zip::ZipArchive;
 
+/// Publisher NCX and OPF files carry DOCTYPE declarations, which roxmltree
+/// rejects unless told otherwise.
+const XML_OPTIONS: roxmltree::ParsingOptions = roxmltree::ParsingOptions {
+    allow_dtd: true,
+    nodes_limit: u32::MAX,
+};
+
 use crate::error::{Error, Result};
 use crate::model::ImageRef;
 
@@ -156,10 +163,11 @@ fn read_entry(archive: &mut ZipArchive<Cursor<&[u8]>>, path: &str) -> Option<Vec
 
 fn rootfile_path(container: &[u8]) -> Result<String> {
     let text = String::from_utf8_lossy(container);
-    let doc = roxmltree::Document::parse(&text).map_err(|e| Error::Xml {
-        path: "META-INF/container.xml".into(),
-        message: e.to_string(),
-    })?;
+    let doc =
+        roxmltree::Document::parse_with_options(&text, XML_OPTIONS).map_err(|e| Error::Xml {
+            path: "META-INF/container.xml".into(),
+            message: e.to_string(),
+        })?;
     doc.descendants()
         .find(|n| n.has_tag_name("rootfile"))
         .and_then(|n| n.attribute("full-path"))
@@ -168,10 +176,11 @@ fn rootfile_path(container: &[u8]) -> Result<String> {
 }
 
 fn parse_opf(opf_path: &str, xml: &str) -> Result<Package> {
-    let doc = roxmltree::Document::parse(xml).map_err(|e| Error::Xml {
-        path: opf_path.to_string(),
-        message: e.to_string(),
-    })?;
+    let doc =
+        roxmltree::Document::parse_with_options(xml, XML_OPTIONS).map_err(|e| Error::Xml {
+            path: opf_path.to_string(),
+            message: e.to_string(),
+        })?;
     let root = doc.root_element();
     let version = root.attribute("version").unwrap_or("2.0").to_string();
     let opf_dir = opf_path.rfind('/').map(|i| &opf_path[..i]).unwrap_or("");

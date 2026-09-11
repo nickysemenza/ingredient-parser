@@ -24,6 +24,16 @@ pub enum HardFault {
     TitleIsReference { local: usize, title: String },
     /// A title that is a printed label ("Do Ahead", "Special Equipment: …").
     TitleIsLabel { local: usize, title: String },
+    /// A title that is a paragraph, not a name.
+    TitleIsProse { local: usize, title: String },
+}
+
+/// Titles longer than this are paragraphs.
+const MAX_TITLE_CHARS: usize = 120;
+
+fn is_prose(text: &str) -> bool {
+    let t = text.trim();
+    t.len() > MAX_TITLE_CHARS || (t.len() > 60 && t.ends_with('.'))
 }
 
 /// Words a cross-reference line carries.
@@ -97,6 +107,11 @@ impl fmt::Display for HardFault {
                 f,
                 "line {local} ({title:?}) is a printed label, not an item title; put it in notes or equipment with the lines it introduces"
             ),
+            HardFault::TitleIsProse { local, title } => write!(
+                f,
+                "line {local} ({}…) is a paragraph, not a title; chapter introductions and untitled prose belong in ignored",
+                title.chars().take(60).collect::<String>()
+            ),
         }
     }
 }
@@ -151,6 +166,16 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 title: item.title.clone(),
             });
         }
+        if !item.continues && is_prose(&item.title) {
+            v.hard.push(HardFault::TitleIsProse {
+                local: item
+                    .title_lines
+                    .first()
+                    .map(|l| l - chunk.start)
+                    .unwrap_or(0),
+                title: item.title.clone(),
+            });
+        }
         if !item.continues && is_label(&item.title) {
             v.hard.push(HardFault::TitleIsLabel {
                 local: item
@@ -161,7 +186,7 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 title: item.title.clone(),
             });
         }
-        if item.kind == Kind::Recipe && item.ingredient_count() == 0 {
+        if item.kind == Kind::Recipe && item.ingredient_count() == 0 && !item.continues {
             v.hard.push(HardFault::RecipeWithoutIngredients {
                 title: item.title.clone(),
             });
@@ -327,6 +352,44 @@ mod tests {
         );
         assert!(is_label("Special Equipment: Food processor"));
         assert!(!is_label("Special Butter Cake"));
+        let intro = "An unfussy, single-layer or loaf cake is my favorite category of dessert. The cakes in this chapter are like a drapey jumpsuit, breezy and elegant.";
+        let html = format!("<p>{intro}</p><p>Rye Cake</p><p>2 cups rye</p><p>Bake.</p>");
+        let v = run(
+            &html,
+            json!({"items":[{"kind":"essay","title":[0]},{"title":[1],"sections":[{"ingredients":[2],"steps":[3]}]}]}),
+        );
+        assert!(
+            matches!(v.hard[0], HardFault::TitleIsProse { local: 0, .. }),
+            "{:?}",
+            v.hard
+        );
+    }
+
+    #[test]
+    fn a_continuation_may_carry_only_steps() {
+        let doc = SpineDoc {
+            index: 0,
+            path: "c.xhtml".into(),
+            xhtml: "<html><body><p>Knead the dough well.</p><p>Bake until brown.</p></body></html>"
+                .into(),
+        };
+        let book = BookLines::build(&[doc], &Nav::default());
+        let chunk = Chunk {
+            id: "k001".into(),
+            index: 1,
+            start: 0,
+            end: 2,
+            chars: 0,
+            title_hint: Some("Bagels".into()),
+            boundary: Boundary::Hard,
+        };
+        let lowered = lower(
+            &chunk,
+            &book,
+            json!({"items":[{"title":[],"sections":[{"steps":[0,1]}]}]}),
+        )
+        .unwrap();
+        assert!(validate(&chunk, &book, &lowered).is_ok());
     }
 
     #[test]
