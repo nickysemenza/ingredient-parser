@@ -1722,7 +1722,10 @@ mod tests {
                 .iter()
                 .any(|f| matches!(f, Flag::UnassignedLines { count: 1 }))),
             "{:?}",
-            out.chunks.iter().map(|r| &r.report.flags).collect::<Vec<_>>()
+            out.chunks
+                .iter()
+                .map(|r| &r.report.flags)
+                .collect::<Vec<_>>()
         );
         assert!(out.escalation.is_none());
         assert_eq!(transport.calls_with_purpose("escalation"), 0);

@@ -198,8 +198,7 @@ fn is_contents_run(book: &BookLines, idx: usize) -> bool {
             !text.is_empty() && l.clean.links.len() == 1 && l.clean.links[0].text.trim() == text
         })
     };
-    whole_line_link(idx)
-        && (whole_line_link(idx + 1) || (idx > 0 && whole_line_link(idx - 1)))
+    whole_line_link(idx) && (whole_line_link(idx + 1) || (idx > 0 && whole_line_link(idx - 1)))
 }
 
 /// Contents entries that are never recipes whatever follows them.
