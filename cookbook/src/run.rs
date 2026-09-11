@@ -894,7 +894,13 @@ pub async fn run<T: Transport, C: ChunkCache>(
     if input.options.whole_book_escalation && !settled_results.is_empty() {
         // Parse-rate and prose-ingredient flags describe how a book prints
         // its lists, which a stronger model cannot change; they do not
-        // count towards re-reading the whole book.
+        // count towards re-reading the whole book. Nor do unassigned lines:
+        // most of them are the structural labels and page furniture that
+        // `lower` ignores on the model's behalf, the rest at most three
+        // prose lines (a quantity line left unassigned fails the answer
+        // outright), and the chunk's own second opinion already re-reads
+        // them. Each still flags its chunk; they just do not add up to a
+        // whole-book re-read.
         let flagged = settled_results
             .iter()
             .filter(|r| {
@@ -902,7 +908,9 @@ pub async fn run<T: Transport, C: ChunkCache>(
                     || r.report.flags.iter().any(|f| {
                         !matches!(
                             f,
-                            Flag::ProseIngredients { .. } | Flag::LowAmountParseRate { .. }
+                            Flag::ProseIngredients { .. }
+                                | Flag::LowAmountParseRate { .. }
+                                | Flag::UnassignedLines { .. }
                         )
                     })
             })
@@ -1654,6 +1662,70 @@ mod tests {
             !out.incomplete,
             "nowhere to escalate to is not a hole in the book: every chunk came back"
         );
+    }
+
+    /// Unassigned lines flag their chunk, and the chunk's own second opinion
+    /// re-reads it, but they never add up to a whole-book re-read: they are
+    /// mostly the page furniture `lower` ignores on the model's behalf, which
+    /// a stronger model would skip just the same.
+    #[tokio::test]
+    async fn unassigned_lines_alone_do_not_escalate() {
+        let mut html = String::new();
+        for name in ["Apple Pie", "Bean Soup", "Corn Bread", "Duck Rice"] {
+            html.push_str(&format!("<h2 class=\"t\">{name}</h2><p>10 minutes</p>"));
+            for i in 0..5 {
+                html.push_str(&format!(
+                    "<p class=\"i\">{} cups ingredient {i} for {name}</p>",
+                    i + 1
+                ));
+            }
+            html.push_str(&format!("<p class=\"s\">Cook everything for {name} until done and serve it warm to the table.</p>"));
+        }
+        let doc = SpineDoc {
+            index: 0,
+            path: "c.xhtml".into(),
+            xhtml: format!("<html><body>{html}</body></html>"),
+        };
+        let nav = Nav::default();
+        let book = BookLines::build(&[doc], &nav);
+        let chunks = make_chunks(
+            &book,
+            &ChunkOptions {
+                budget: 200,
+                slack: 400,
+            },
+        );
+        assert_eq!(chunks.len(), 4, "{chunks:?}");
+        // Every line claimed but the bare timing, which `lower` auto-ignores.
+        let transport = ScriptedTransport::new(move |_req, _| {
+            Ok(tool_response(
+                Route::CompatChat,
+                &json!({"items":[{"title":[0],"sections":[{"ingredients":[2,3,4,5,6],"steps":[7]}]}]}),
+                Usage::default(),
+                false,
+            ))
+        });
+        let (out, _) = drive(
+            &transport,
+            &NoCache,
+            &book,
+            &nav,
+            &chunks,
+            ladder(&["gemini-2.5-flash", "claude-haiku-4-5"]),
+            &options(false, true),
+        )
+        .await;
+        assert!(
+            out.chunks.iter().all(|r| r
+                .report
+                .flags
+                .iter()
+                .any(|f| matches!(f, Flag::UnassignedLines { count: 1 }))),
+            "{:?}",
+            out.chunks.iter().map(|r| &r.report.flags).collect::<Vec<_>>()
+        );
+        assert!(out.escalation.is_none());
+        assert_eq!(transport.calls_with_purpose("escalation"), 0);
     }
 
     #[tokio::test]
