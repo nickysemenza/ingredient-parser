@@ -63,7 +63,16 @@ const MAX_TITLE_CHARS: usize = 120;
 
 fn is_prose(text: &str) -> bool {
     let t = text.trim();
-    t.len() > MAX_TITLE_CHARS || (t.len() > 60 && t.ends_with('.'))
+    if t.len() > MAX_TITLE_CHARS || (t.len() > 60 && t.ends_with('.')) {
+        return true;
+    }
+    // A quoted sentence: `After a wary nibble, “It’s not that great.”`
+    // ends in a full stop inside its closing quote.
+    let unquoted = t.trim_end_matches(['”', '"', '’', '\'', ')']);
+    t.len() > 20
+        && unquoted.len() < t.len()
+        && unquoted.ends_with(['.', '!', '?'])
+        && t.contains(['“', '"', '‘'])
 }
 
 /// The line parses with an amount that carries a real unit (`400 g`, `2 cups`),
@@ -163,13 +172,14 @@ pub fn is_label(text: &str) -> bool {
         || LABELS.iter().any(|l| lower.starts_with(&format!("{l}:")))
         || PREFIX_LABELS
             .iter()
-            .any(|l| lower.starts_with(l) && lower[l.len()..].starts_with([' ', ':']))
+            .any(|l| lower.starts_with(l) && lower[l.len()..].starts_with([' ', ':', '.']))
         || is_metadata_label(text)
         || looks_like_yield(text)
 }
 
 /// Labels that run into their payload without a colon ("Flavor Profile
-/// SPICY, SOUR", "Try It With Som Tam", "Wine Aligoté 2000").
+/// SPICY, SOUR", "Try It With Som Tam", "Wine Aligoté 2000", "Wine. Qupé
+/// Central Coast Syrah, 1999").
 const PREFIX_LABELS: &[&str] = &[
     "flavor profile",
     "try it with",
@@ -668,6 +678,10 @@ mod tests {
         assert!(is_label("Flavor Profile SPICY, SOUR, SWEET"));
         assert!(is_label("Try It With Som Tam Lao"));
         assert!(is_label("Wine: Soave Classico Superiore, Pieropan, 2000"));
+        assert!(is_label("Wine. Qupé Central Coast Syrah, 1999"));
+        assert!(is_prose("After a wary nibble, “It’s not that great.”"));
+        assert!(!is_prose("“Nothing Fancy” Roast Chicken"));
+        assert!(!is_prose("Mom’s Apple Pie"));
         assert!(is_label("SERVES 6 TO 12 AS PART OF A MEAL"));
         assert!(is_label("serves 4 to 6"));
         assert!(!is_label("Winemaker's Chicken"));
