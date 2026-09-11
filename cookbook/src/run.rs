@@ -498,6 +498,9 @@ fn flag_feedback(chunk: &Chunk, flags: &[Flag]) -> String {
             Flag::RecipeWithoutSteps { title } => format!("Recipe {title:?} has ingredients but no steps while long paragraphs were ignored; its method is probably among them."),
             Flag::Truncated => "The previous answer was cut off; keep every field as short index lists.".to_string(),
             Flag::CaptionAsTitle { line } => format!("Line {} is a caption, not a title.", line.saturating_sub(chunk.start)),
+            Flag::UnassignedLines { count } => {
+                format!("{count} lines were left out of the previous answer; assign every line.")
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")

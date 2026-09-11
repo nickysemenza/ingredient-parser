@@ -228,13 +228,31 @@ pub struct SecondOpinion {
 #[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
 #[serde(tag = "flag", rename_all = "snake_case")]
 pub enum Flag {
-    LowAmountParseRate { rate: f32, lines: usize },
-    IngredientLikeIgnored { count: usize },
-    RecipeWithoutSteps { title: String },
-    MissingNavTitle { title: String, line: usize },
-    PhantomTitle { title: String },
+    LowAmountParseRate {
+        rate: f32,
+        lines: usize,
+    },
+    IngredientLikeIgnored {
+        count: usize,
+    },
+    RecipeWithoutSteps {
+        title: String,
+    },
+    MissingNavTitle {
+        title: String,
+        line: usize,
+    },
+    PhantomTitle {
+        title: String,
+    },
     Truncated,
-    CaptionAsTitle { line: usize },
+    CaptionAsTitle {
+        line: usize,
+    },
+    /// The model left a few prose lines out; they were ignored.
+    UnassignedLines {
+        count: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

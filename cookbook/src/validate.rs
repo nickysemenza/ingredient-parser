@@ -20,6 +20,58 @@ pub enum HardFault {
     RecipeWithoutIngredients { title: String },
     /// No items, but the chunk prints a yield and several quantities.
     EmptyWithYield { quantities: usize },
+    /// A title line that points at another recipe ("… (this page)", "… page 42").
+    TitleIsReference { local: usize, title: String },
+    /// A title that is a printed label ("Do Ahead", "Special Equipment: …").
+    TitleIsLabel { local: usize, title: String },
+}
+
+/// Words a cross-reference line carries.
+const REFERENCE_MARKERS: &[&str] = &[
+    "this page",
+    "see page",
+    "(page ",
+    "opposite page",
+    "see recipe",
+    "recipe follows",
+];
+/// Labels that head notes and metadata, never items.
+pub const LABELS: &[&str] = &[
+    "do ahead",
+    "do-ahead",
+    "make ahead",
+    "note",
+    "notes",
+    "tip",
+    "tips",
+    "variation",
+    "variations",
+    "special equipment",
+    "equipment",
+    "ingredients",
+    "method",
+    "directions",
+    "instructions",
+    "serves",
+    "makes",
+    "yield",
+    "yields",
+];
+
+fn is_reference_line(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    REFERENCE_MARKERS.iter().any(|m| lower.contains(m)) || PAGE_NUMBER.is_match(&lower)
+}
+
+static PAGE_NUMBER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"\bpage\s*\d{1,4}\b").unwrap_or_else(|e| unreachable!("{e}"))
+});
+
+/// `Do Ahead`, `NOTE:`, `Special Equipment: 9-inch pan` — a label, possibly
+/// with its payload on the same line.
+pub fn is_label(text: &str) -> bool {
+    let lower = text.trim().trim_end_matches(':').to_lowercase();
+    LABELS.contains(&lower.as_str()) || LABELS.iter().any(|l| lower.starts_with(&format!("{l}:")))
 }
 
 impl fmt::Display for HardFault {
@@ -36,6 +88,14 @@ impl fmt::Display for HardFault {
             HardFault::EmptyWithYield { quantities } => write!(
                 f,
                 "no items were returned, yet the source prints a serves/makes line and {quantities} quantity lines; extract that recipe"
+            ),
+            HardFault::TitleIsReference { local, title } => write!(
+                f,
+                "line {local} ({title:?}) refers to another recipe; it is an ingredient, step, or note of the item it sits in, not a title"
+            ),
+            HardFault::TitleIsLabel { local, title } => write!(
+                f,
+                "line {local} ({title:?}) is a printed label, not an item title; put it in notes or equipment with the lines it introduces"
             ),
         }
     }
@@ -81,6 +141,26 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 v.soft.push(Flag::CaptionAsTitle { line });
             }
         }
+        if !item.continues && is_reference_line(&item.title) {
+            v.hard.push(HardFault::TitleIsReference {
+                local: item
+                    .title_lines
+                    .first()
+                    .map(|l| l - chunk.start)
+                    .unwrap_or(0),
+                title: item.title.clone(),
+            });
+        }
+        if !item.continues && is_label(&item.title) {
+            v.hard.push(HardFault::TitleIsLabel {
+                local: item
+                    .title_lines
+                    .first()
+                    .map(|l| l - chunk.start)
+                    .unwrap_or(0),
+                title: item.title.clone(),
+            });
+        }
         if item.kind == Kind::Recipe && item.ingredient_count() == 0 {
             v.hard.push(HardFault::RecipeWithoutIngredients {
                 title: item.title.clone(),
@@ -123,6 +203,12 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 lines: ingredient_lines.len(),
             });
         }
+    }
+
+    if !lowered.auto_ignored.is_empty() {
+        v.soft.push(Flag::UnassignedLines {
+            count: lowered.auto_ignored.len(),
+        });
     }
 
     // Soft: quantity-like lines the model threw away.
@@ -203,14 +289,44 @@ mod tests {
             json!({"items":[{"title":[0],"sections":[{"ingredients":[2],"steps":[3]}]}],"ignored":[1]}),
         );
         assert_eq!(
-            v.hard,
-            [HardFault::TitleIsCaption {
+            v.hard[0],
+            HardFault::TitleIsCaption {
                 local: 0,
                 title: "Sour Cherry Pie, this page".into()
-            }]
+            }
+        );
+        assert!(
+            v.hard
+                .iter()
+                .any(|f| matches!(f, HardFault::TitleIsReference { .. })),
+            "a caption naming a page is also a reference line"
         );
         assert!(v.feedback().contains("photo caption"));
         assert_eq!(v.soft, [Flag::CaptionAsTitle { line: 0 }]);
+    }
+
+    #[test]
+    fn reference_lines_and_labels_are_not_titles() {
+        let html = "<p>Tomato Tart</p><p>2 cups flour</p><p>Flaky All-Butter Pie Dough (this page) ①</p><p>8 ounces feta</p><p>Bake it.</p><p>Do Ahead</p><p>Keeps two days.</p>";
+        let v = run(
+            html,
+            json!({"items":[
+            {"title":[0],"sections":[{"ingredients":[1]}]},
+            {"title":[2],"sections":[{"ingredients":[3],"steps":[4]}]},
+            {"kind":"essay","title":[5],"description":[6]}]}),
+        );
+        assert!(
+            matches!(v.hard[0], HardFault::TitleIsReference { local: 2, .. }),
+            "{:?}",
+            v.hard
+        );
+        assert!(
+            matches!(v.hard[1], HardFault::TitleIsLabel { local: 5, .. }),
+            "{:?}",
+            v.hard
+        );
+        assert!(is_label("Special Equipment: Food processor"));
+        assert!(!is_label("Special Butter Cake"));
     }
 
     #[test]

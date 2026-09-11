@@ -215,10 +215,28 @@ impl BookLines {
     /// quantity-like line is inside an ingredient list ("Kosher salt" after
     /// "¼ cup olive oil"), never a title.
     pub fn title_like(&self, idx: usize) -> bool {
-        self.lines
-            .get(idx)
-            .is_some_and(|l| looks_like_title_with(l, self.quantity_like(idx)))
-            && !(idx > 0 && self.quantity_like(idx - 1))
+        self.lines.get(idx).is_some_and(|l| {
+            looks_like_title_with(l, self.quantity_like(idx))
+                && (l.clean.heading.is_some() || !self.in_ingredient_list(idx))
+        })
+    }
+
+    /// Inside an ingredient list: one of the three lines before `idx` is a
+    /// quantity line and none after it reads as a sentence. Trailing
+    /// unquantified lines ("Flaky salt, for sprinkling") and cross-reference
+    /// lines ("Pastry Cream (this page)") live there, and are never titles.
+    fn in_ingredient_list(&self, idx: usize) -> bool {
+        let mut any_quantity = false;
+        for i in idx.saturating_sub(3)..idx {
+            let Some(l) = self.lines.get(i) else { continue };
+            let text = l.text();
+            if text.len() > 100 || text.ends_with('.') || l.clean.heading.is_some() {
+                any_quantity = false;
+                continue;
+            }
+            any_quantity |= self.quantity_like(i);
+        }
+        any_quantity
     }
 
     /// Cached [`looks_like_quantity_line`].
@@ -269,7 +287,12 @@ fn looks_like_title_with(line: &Line, quantity_like: bool) -> bool {
         return false;
     }
     let lower = t.to_ascii_lowercase();
-    if lower.starts_with("serves") || lower.starts_with("makes") || lower.starts_with("yield") {
+    if lower.starts_with("serves")
+        || lower.starts_with("makes")
+        || lower.starts_with("yield")
+        || crate::validate::is_label(t)
+        || lower.contains("(this page)")
+    {
         return false;
     }
     match t.chars().next() {

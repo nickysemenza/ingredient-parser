@@ -22,6 +22,8 @@ pub mod crosscheck;
 pub mod epub;
 mod error;
 pub mod eta;
+#[cfg(feature = "native")]
+pub mod eval;
 pub mod gateway;
 pub mod library;
 pub mod lines;

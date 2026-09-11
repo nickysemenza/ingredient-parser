@@ -148,8 +148,11 @@ pub fn chunk(book: &BookLines, opts: &ChunkOptions) -> Vec<Chunk> {
     for (i, &is_title) in title_like.iter().enumerate() {
         let line_len = book.text(i).len() + 1;
         if i > start && len >= opts.budget {
+            // A contents target is a real title; a guessed boundary may sit
+            // mid-recipe, so carry the last title in case the model needs it.
             let cut = match candidate(i) {
-                Some(kind) => Some((kind, None)),
+                Some(Boundary::NavTarget) => Some((Boundary::NavTarget, None)),
+                Some(kind) => Some((kind, last_title.clone())),
                 None if len >= opts.budget + opts.slack => {
                     Some((Boundary::Hard, last_title.clone()))
                 }
@@ -286,7 +289,9 @@ mod tests {
         );
         covers_every_line(&chunks, book.len());
         assert_eq!(book.text(chunks[1].start), "Recipe C");
-        assert!(chunks.iter().all(|c| c.title_hint.is_none()));
+        // Guessed boundaries carry the last title as a hint; the model only
+        // uses it when the chunk really starts mid-recipe.
+        assert_eq!(chunks[1].title_hint.as_deref(), Some("Recipe B"));
     }
 
     #[test]

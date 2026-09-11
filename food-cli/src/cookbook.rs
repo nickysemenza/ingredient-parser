@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Subcommand};
 use cookbook::cache::{ChunkCache, NoCache};
 use cookbook::classify::{Classification, classify_structure};
+use cookbook::eval::{self, Expectations};
 use cookbook::native::runs::{self, RunSummary};
 use cookbook::native::{DumpTransport, FsChunkCache, ReplayTransport, ReqwestTransport};
 use cookbook::{
@@ -100,6 +101,38 @@ pub enum Command {
         n: usize,
         #[arg(long, default_value_t = 1)]
         seed: u64,
+    },
+    /// Score extractions against hand-authored answer keys; exit 4 when the
+    /// gate fails.
+    Eval {
+        /// Directory of `<slug>.json` answer keys (default: the data dir).
+        #[arg(long)]
+        expectations: Option<PathBuf>,
+        /// Only these slugs.
+        #[arg(long)]
+        book: Vec<String>,
+        /// Resolve relative `book` paths here, by file name if needed.
+        #[arg(long)]
+        library: Option<PathBuf>,
+        /// Answer from `<dir>/<slug>` dumps instead of the network.
+        #[arg(long)]
+        replay: Option<PathBuf>,
+        /// Record each book's requests under `<dir>/<slug>`.
+        #[arg(long)]
+        dump: Option<PathBuf>,
+        /// Write the full report here.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        no_cache: bool,
+        #[command(flatten)]
+        flags: RunFlags,
+    },
+    /// Write an answer-key skeleton for a book (titles from its contents).
+    Expect {
+        book: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Saved runs, newest first.
     Runs {
@@ -296,6 +329,46 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             n,
             seed,
         } => sample(&runs, library.as_deref(), n, seed, json),
+        Command::Eval {
+            expectations,
+            book,
+            library,
+            replay,
+            dump,
+            out,
+            no_cache,
+            flags,
+        } => {
+            evaluate(
+                expectations.as_deref(),
+                &book,
+                library.as_deref(),
+                replay.as_deref(),
+                dump.as_deref(),
+                out.as_deref(),
+                no_cache,
+                &flags,
+                json,
+            )
+            .await
+        }
+        Command::Expect { book, out } => {
+            let b = open(&book, &label_for(&book))?;
+            let skeleton = eval::skeleton(&b, &book.display().to_string());
+            let text = serde_json::to_string_pretty(&skeleton).map_err(|e| e.to_string())?;
+            match out {
+                Some(path) => {
+                    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+                    eprintln!(
+                        "wrote {} ({} contents titles); fill in samples and not_recipes by hand",
+                        path.display(),
+                        skeleton.titles.len()
+                    );
+                }
+                None => println!("{text}"),
+            }
+            Ok(0)
+        }
         Command::Runs { book, limit } => {
             let mut list = runs::list().map_err(|e| e.to_string())?;
             if let Some(filter) = &book {
@@ -1093,4 +1166,267 @@ fn sample(
         }
     }
     Ok(0)
+}
+
+/// Exit code when the evaluation gate fails.
+pub const EXIT_GATE_FAILED: i32 = 4;
+
+fn resolve_book(spec: &str, base: &Path, library: Option<&Path>) -> Result<PathBuf, String> {
+    let direct = PathBuf::from(spec);
+    if direct.is_absolute() && direct.exists() {
+        return Ok(direct);
+    }
+    let relative = base.join(spec);
+    if relative.exists() {
+        return Ok(relative);
+    }
+    if let Some(lib) = library {
+        let name = direct
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if let Some(found) = cookbook::library::find_epubs(lib)
+            .into_iter()
+            .find(|p| p.file_name().is_some_and(|n| n.to_string_lossy() == name))
+        {
+            return Ok(found);
+        }
+    }
+    Err(format!(
+        "cannot find book {spec:?} (tried {}, and --library)",
+        relative.display()
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn evaluate(
+    expectations: Option<&Path>,
+    only: &[String],
+    library: Option<&Path>,
+    replay: Option<&Path>,
+    dump: Option<&Path>,
+    out: Option<&Path>,
+    no_cache: bool,
+    flags: &RunFlags,
+    json: bool,
+) -> Result<i32, String> {
+    let dir = match expectations {
+        Some(d) => d.to_path_buf(),
+        None => runs::expectations_dir().ok_or("no data directory for this platform")?,
+    };
+    let mut keys: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
+        .map_err(|e| format!("read {}: {e}", dir.display()))?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .map(|p| {
+            (
+                p.file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                p,
+            )
+        })
+        .filter(|(slug, _)| only.is_empty() || only.iter().any(|o| o == slug))
+        .collect();
+    keys.sort();
+    if keys.is_empty() {
+        return Err(format!("no answer keys in {}", dir.display()));
+    }
+    let mut scores = Vec::new();
+    let mut ladder_used: Vec<String> = Vec::new();
+    for (slug, path) in &keys {
+        let expected: Expectations =
+            serde_json::from_str(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+        let book_path = resolve_book(&expected.book, &dir, library)?;
+        let book = open(&book_path, slug)?;
+        if let Some(sha) = &expected.sha256
+            && sha != &book.source().sha256
+        {
+            eprintln!("{slug}: warning: EPUB sha256 differs from the answer key");
+        }
+        let options = ExtractOptions {
+            label: slug.clone(),
+            ..flags.options(&book_path)
+        };
+        eprintln!(
+            "== {slug}: {} ({} chunks)",
+            book.source().title,
+            book.chunks().len()
+        );
+        let extraction = match replay {
+            Some(replay_dir) => {
+                let transport = AnyTransport::Replay(
+                    ReplayTransport::load(replay_dir.join(slug))
+                        .map_err(|e| format!("{slug}: {e}"))?,
+                );
+                extract_quiet(&book, &options, &transport, &NoCache).await?
+            }
+            None => {
+                let live = ReqwestTransport::from_env().map_err(|e| e.to_string())?;
+                let transport = match dump {
+                    Some(d) => {
+                        let d = d.join(slug);
+                        std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+                        std::fs::copy(&book_path, d.join("book.epub"))
+                            .map_err(|e| e.to_string())?;
+                        AnyTransport::Dump(DumpTransport::new(live, &d).map_err(|e| e.to_string())?)
+                    }
+                    None => AnyTransport::Live(live),
+                };
+                let cache = cache(no_cache)?;
+                extract_quiet(&book, &options, &transport, &cache).await?
+            }
+        };
+        let saved = runs::save(&extraction, None).map_err(|e| e.to_string())?;
+        eprintln!("   saved {}", saved.display());
+        ladder_used = extraction.report.estimate.ladder.clone();
+        let score = eval::score(&expected, &extraction);
+        eprintln!(
+            "   recall {:.0}% ({}/{}), phantoms {}, samples {}, ${:.3}, {:.0}s{}",
+            score.title_recall * 100.0,
+            score.matched,
+            score.titles,
+            score.phantoms.len(),
+            score
+                .sample_pass
+                .map(|p| format!("{:.0}%", p * 100.0))
+                .unwrap_or_else(|| "-".into()),
+            score.cost_usd,
+            score.wall_ms as f64 / 1000.0,
+            if score.escalated { " (escalated)" } else { "" }
+        );
+        scores.push(score);
+    }
+    let report = eval::summarize(ladder_used, scores);
+    if let Some(path) = out {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(
+            path,
+            serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    if json {
+        emit(&json!(report), true);
+    } else {
+        let rows: Vec<Vec<String>> = report
+            .books
+            .iter()
+            .map(|b| {
+                vec![
+                    b.book.rsplit('/').next().unwrap_or(&b.book).to_string(),
+                    format!("{:.0}%", b.title_recall * 100.0),
+                    b.phantoms.len().to_string(),
+                    b.not_recipe_leaks.len().to_string(),
+                    b.sample_pass
+                        .map(|p| format!("{:.0}%", p * 100.0))
+                        .unwrap_or_else(|| "-".into()),
+                    format!("{:.0}%", b.line_coverage * 100.0),
+                    format!("${:.3}", b.cost_usd),
+                    format!("{:.0}s", b.wall_ms as f64 / 1000.0),
+                    b.eta_error
+                        .map(|e| format!("{:.0}%", e * 100.0))
+                        .unwrap_or_else(|| "-".into()),
+                    if b.escalated { "yes".into() } else { "".into() },
+                ]
+            })
+            .collect();
+        println!(
+            "{}",
+            terminal_table(
+                &[
+                    "book",
+                    "recall",
+                    "phantom",
+                    "leaks",
+                    "samples",
+                    "coverage",
+                    "cost",
+                    "wall",
+                    "eta err",
+                    "escalated"
+                ],
+                &rows
+            )
+        );
+        for b in &report.books {
+            for m in &b.missing {
+                println!(
+                    "  {}: missing {m:?}",
+                    b.book.rsplit('/').next().unwrap_or(&b.book)
+                );
+            }
+            for p in &b.phantoms {
+                println!(
+                    "  {}: phantom {p:?}",
+                    b.book.rsplit('/').next().unwrap_or(&b.book)
+                );
+            }
+            for f in &b.sample_failures {
+                println!(
+                    "  {}: sample {f}",
+                    b.book.rsplit('/').next().unwrap_or(&b.book)
+                );
+            }
+        }
+        println!(
+            "ladder {} · mean recall {:.1}% · {} phantoms · samples {} · ${:.3} · max {:.0}s · gate {}",
+            report.ladder.join(" → "),
+            report.mean_recall * 100.0,
+            report.total_phantoms,
+            report
+                .mean_sample_pass
+                .map(|p| format!("{:.0}%", p * 100.0))
+                .unwrap_or_else(|| "-".into()),
+            report.total_cost_usd,
+            report.max_wall_ms as f64 / 1000.0,
+            if report.gate.pass {
+                "PASS".to_string()
+            } else {
+                format!("FAIL ({})", report.gate.reasons.join("; "))
+            }
+        );
+    }
+    Ok(if report.gate.pass {
+        0
+    } else {
+        EXIT_GATE_FAILED
+    })
+}
+
+/// Extract with progress on stderr but no run summary.
+async fn extract_quiet(
+    book: &Book,
+    options: &ExtractOptions,
+    transport: &AnyTransport,
+    cache: &impl ChunkCache,
+) -> Result<Extraction, String> {
+    let bar = if std::io::stderr().is_terminal() {
+        indicatif::ProgressBar::new(book.chunks().len() as u64)
+    } else {
+        indicatif::ProgressBar::hidden()
+    };
+    let progress = |p: Progress| {
+        bar.set_position(p.done as u64);
+        bar.set_message(format!(
+            "{:?} · ${:.3} · {}–{}s left",
+            p.phase,
+            p.cost_so_far_usd,
+            p.eta.remaining_low_ms / 1000,
+            p.eta.remaining_high_ms / 1000
+        ));
+    };
+    let result = book
+        .extract(options, transport, cache, &CancelToken::new(), progress)
+        .await;
+    bar.finish_and_clear();
+    match result {
+        Ok(e) => Ok(e),
+        Err(cookbook::Error::Cancelled(_)) => Err("cancelled".into()),
+        Err(e) => Err(e.to_string()),
+    }
 }

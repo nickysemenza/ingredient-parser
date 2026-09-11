@@ -354,6 +354,17 @@ pub mod runs {
 
     pub const RUNS_DIR_VAR: &str = "COOKBOOK_RUNS_DIR";
 
+    /// Where hand-authored answer keys live:
+    /// `<data dir>/ingredient-parser/cookbook/expectations/<slug>.json`.
+    pub fn expectations_dir() -> Option<PathBuf> {
+        directories::BaseDirs::new().map(|b| {
+            b.data_dir()
+                .join("ingredient-parser")
+                .join("cookbook")
+                .join("expectations")
+        })
+    }
+
     pub fn root() -> Option<PathBuf> {
         if let Ok(dir) = std::env::var(RUNS_DIR_VAR)
             && !dir.trim().is_empty()

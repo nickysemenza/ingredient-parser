@@ -351,9 +351,7 @@ impl Ctx<'_, '_> {
             }
         }
         if refs.is_empty()
-            && (attempted.contains(&RefMethod::Anchor)
-                || attempted.contains(&RefMethod::Page)
-                || has_marker)
+            && (attempted.contains(&RefMethod::Anchor) || attempted.contains(&RefMethod::Page))
         {
             self.unresolved.push(UnresolvedRef {
                 item_id: self.self_id.to_string(),

@@ -8,7 +8,7 @@
 //! duplicated silently. The tool schema is derived from [`Payload`] and bounded
 //! to the chunk's line count on every request.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use recipe_types::RecipeTimes;
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
@@ -49,20 +49,85 @@ pub enum Kind {
     Essay,
 }
 
+/// A list of line numbers. Deserializes from a bare integer or `null` too,
+/// because some models answer `"page": 33` where the schema says `[33]`.
+#[derive(Debug, Default, Clone, PartialEq, Eq, JsonSchema)]
+#[schemars(transparent)]
+pub struct IndexList(pub Vec<usize>);
+
+impl<'de> Deserialize<'de> for IndexList {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            One(usize),
+            Many(Vec<usize>),
+            Null,
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::One(i) => IndexList(vec![i]),
+            Raw::Many(v) => IndexList(v),
+            Raw::Null => IndexList(Vec::new()),
+        })
+    }
+}
+
+impl std::ops::Deref for IndexList {
+    type Target = Vec<usize>;
+
+    fn deref(&self) -> &Vec<usize> {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for IndexList {
+    fn deref_mut(&mut self) -> &mut Vec<usize> {
+        &mut self.0
+    }
+}
+
+impl<'a> IntoIterator for &'a IndexList {
+    type Item = &'a usize;
+    type IntoIter = std::slice::Iter<'a, usize>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut IndexList {
+    type Item = &'a mut usize;
+    type IntoIter = std::slice::IterMut<'a, usize>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }
+}
+
+impl IntoIterator for IndexList {
+    type Item = usize;
+    type IntoIter = std::vec::IntoIter<usize>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 /// The tool input. Every leaf is a list of zero-based line numbers of the
-/// chunk shown to the model.
+/// chunk shown to the model. Unknown top-level fields are ignored: any lines
+/// they carried show up as unassigned and are handled there.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct Payload {
     /// Every titled item in the chunk, in source order.
     pub items: Vec<PayloadItem>,
     /// Photo captions that belong to no item. A caption naming another recipe
     /// is a caption, never a title.
-    pub captions: Vec<usize>,
+    pub captions: IndexList,
     /// Chapter or part headings.
-    pub chapter_headings: Vec<usize>,
+    pub chapter_headings: IndexList,
     /// Navigation, running heads, filler, and unrelated prose.
-    pub ignored: Vec<usize>,
+    pub ignored: IndexList,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -71,29 +136,29 @@ pub struct PayloadItem {
     pub kind: Kind,
     /// The item's complete printed name and subtitle. Empty only for the
     /// first item when it continues a recipe cut at the previous chunk.
-    pub title: Vec<usize>,
+    pub title: IndexList,
     /// For a variation: the title line(s) of the recipe it varies.
-    pub variation_of: Vec<usize>,
+    pub variation_of: IndexList,
     /// Headnote paragraphs.
-    pub description: Vec<usize>,
+    pub description: IndexList,
     /// Every line of the serves/makes statement.
-    pub recipe_yield: Vec<usize>,
+    pub recipe_yield: IndexList,
     pub times: PayloadTimes,
     /// Equipment lists and their headings.
-    pub equipment: Vec<usize>,
+    pub equipment: IndexList,
     /// A printed category line.
     #[schemars(length(max = 1))]
-    pub category: Vec<usize>,
+    pub category: IndexList,
     /// A printed page number line.
     #[schemars(length(max = 1))]
-    pub page: Vec<usize>,
+    pub page: IndexList,
     /// The authored ingredient groups and their steps.
     pub sections: Vec<PayloadSection>,
     /// Tips, do-ahead, storage, serving suggestions, dietary flags,
     /// parenthetical group notes, and combined metadata lines.
-    pub notes: Vec<usize>,
+    pub notes: IndexList,
     /// Caption lines of this item's photos.
-    pub photos: Vec<usize>,
+    pub photos: IndexList,
 }
 
 /// Explicitly printed timing lines, one line per field. A line that combines
@@ -102,13 +167,13 @@ pub struct PayloadItem {
 #[serde(default, deny_unknown_fields)]
 pub struct PayloadTimes {
     #[schemars(length(max = 1))]
-    pub prep: Vec<usize>,
+    pub prep: IndexList,
     #[schemars(length(max = 1))]
-    pub cook: Vec<usize>,
+    pub cook: IndexList,
     #[schemars(length(max = 1))]
-    pub active: Vec<usize>,
+    pub active: IndexList,
     #[schemars(length(max = 1))]
-    pub total: Vec<usize>,
+    pub total: IndexList,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -116,11 +181,11 @@ pub struct PayloadTimes {
 pub struct PayloadSection {
     /// The printed component heading ("For the filling"); empty for the main
     /// or only group.
-    pub name: Vec<usize>,
-    pub ingredients: Vec<usize>,
+    pub name: IndexList,
+    pub ingredients: IndexList,
     /// Method paragraphs in order. A shared method belongs to the unnamed
     /// main section.
-    pub steps: Vec<usize>,
+    pub steps: IndexList,
 }
 
 const SYSTEM_PROMPT: &str = "\
@@ -154,7 +219,10 @@ navigation, running heads, filler, and prose that belongs to no titled item.
 
 Only the first item may continue a recipe cut before this chunk: then its title is [] and \
 the continuation title given in the message applies. Every other item needs its own title \
-line. Never invent a title from a caption, a link, or a neighbouring recipe. If nothing here \
+line. Never invent a title from a caption, a link, or a neighbouring recipe. A line naming \
+another recipe with \"this page\" or a page number is an ingredient, step, or note, never a \
+title; a bare label such as \"Do Ahead\", \"Note\", or \"Special Equipment:\" is not a title \
+either. If nothing here \
 belongs to a titled item, return items=[] and list every line under ignored or \
 chapter_headings.";
 
@@ -294,6 +362,8 @@ pub struct Lowered {
     pub captions: Vec<usize>,
     pub chapter_headings: Vec<usize>,
     pub ignored: Vec<usize>,
+    /// Lines the model left out that were quietly added to `ignored`.
+    pub auto_ignored: Vec<usize>,
 }
 
 /// An answer that cannot be lowered. The message is written for the model: it
@@ -357,7 +427,7 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
                 .join(" ");
             (text, lines.into_iter().map(|t| t.line).collect(), false)
         };
-        for &i in &item.variation_of {
+        for &i in item.variation_of.iter() {
             if i >= n {
                 return Err(Invalid(format!(
                     "variation_of line {i} is out of range (0..{n})"
@@ -365,6 +435,7 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
             }
         }
         move_combined_metadata_to_notes(&mut item);
+        dedupe_within_item(&mut item);
         normalize_sections(&mut item);
 
         let description = take(&item.description, "description")?;
@@ -456,25 +527,72 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
         .into_iter()
         .map(|t| t.line)
         .collect();
-    let ignored: Vec<usize> = take(&payload.ignored, "ignored")?
+    let mut ignored: Vec<usize> = take(&payload.ignored, "ignored")?
         .into_iter()
         .map(|t| t.line)
         .collect();
-    if used.len() != n {
-        let missing: Vec<usize> = (0..n).filter(|i| !used.contains_key(i)).collect();
-        return Err(Invalid(format!(
-            "lines {missing:?} are not assigned to any field; put every line in an item field, captions, chapter_headings, or ignored"
-        )));
+    let missing: Vec<usize> = (0..n).filter(|i| !used.contains_key(i)).collect();
+    let mut auto_ignored = Vec::new();
+    if !missing.is_empty() {
+        let losable = missing.len() <= MAX_AUTO_IGNORED
+            && missing
+                .iter()
+                .all(|&i| !crate::lines::looks_like_quantity_text(book.text(chunk.global(i))));
+        if !losable {
+            return Err(Invalid(format!(
+                "lines {missing:?} are not assigned to any field; put every line in an item field, captions, chapter_headings, or ignored"
+            )));
+        }
+        auto_ignored = missing.iter().map(|&i| chunk.global(i)).collect();
+        ignored.extend(auto_ignored.iter().copied());
     }
     Ok(Lowered {
         items,
         captions,
         chapter_headings,
         ignored,
+        auto_ignored,
     })
 }
 
+/// Unassigned prose lines tolerated per chunk (they are ignored and flagged);
+/// an unassigned quantity line always fails the answer.
+pub const MAX_AUTO_IGNORED: usize = 3;
+
+/// A line listed in two fields of the same item is a lossless duplicate:
+/// keep it in the field with higher precedence and drop the other.
+fn dedupe_within_item(item: &mut PayloadItem) {
+    let mut seen: HashSet<usize> = HashSet::new();
+    let mut keep = |list: &mut IndexList| list.retain(|i| seen.insert(*i));
+    keep(&mut item.title);
+    for s in &mut item.sections {
+        keep(&mut s.name);
+    }
+    for s in &mut item.sections {
+        keep(&mut s.ingredients);
+    }
+    for s in &mut item.sections {
+        keep(&mut s.steps);
+    }
+    keep(&mut item.recipe_yield);
+    keep(&mut item.times.prep);
+    keep(&mut item.times.cook);
+    keep(&mut item.times.active);
+    keep(&mut item.times.total);
+    keep(&mut item.equipment);
+    keep(&mut item.category);
+    keep(&mut item.page);
+    keep(&mut item.description);
+    keep(&mut item.notes);
+    keep(&mut item.photos);
+}
+
+/// Items sort by their title line; an untitled continuation sorts by its
+/// first claimed line.
 fn first_index(item: &PayloadItem) -> usize {
+    if let Some(&t) = item.title.iter().min() {
+        return t;
+    }
     [
         &item.title,
         &item.description,
@@ -599,7 +717,7 @@ fn normalize_sections(item: &mut PayloadItem) {
             .collect();
         steps.sort_unstable();
         if let Some(main) = item.sections.iter_mut().find(|s| s.name.is_empty()) {
-            main.steps = steps;
+            main.steps = IndexList(steps);
         }
     }
     item.sections
@@ -791,8 +909,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case::unassigned(json!({"items":[{"title":[0],"sections":[{"ingredients":[2]}]}],"ignored":[1,3,4,5]}), "not assigned")]
-    #[case::double(json!({"items":[{"title":[0],"sections":[{"ingredients":[2],"steps":[2]}]}],"ignored":[1,3,4,5,6]}), "assigned to both")]
+    #[case::unassigned_quantity(json!({"items":[{"title":[0],"sections":[{"ingredients":[2]}]}],"ignored":[1,3,5,6]}), "not assigned")]
+    #[case::too_many_unassigned(json!({"items":[{"title":[0],"sections":[{"ingredients":[2,4]}]}],"ignored":[]}), "not assigned")]
+    #[case::double_across_items(json!({"items":[{"title":[0],"sections":[{"ingredients":[2]}]},{"title":[3],"sections":[{"ingredients":[2,4]}]}],"ignored":[1,5,6]}), "assigned to both")]
     #[case::out_of_range(json!({"items":[{"title":[0],"sections":[{"ingredients":[9]}]}],"ignored":[1,2,3,4,5,6]}), "out of range")]
     #[case::recipe_level_ingredients(json!({"items":[{"title":[0],"ingredients":[2]}],"ignored":[1,3,4,5,6]}), "does not match the tool schema")]
     #[case::second_item_untitled(json!({"items":[{"title":[0],"sections":[{"ingredients":[2]}]},{"title":[],"sections":[{"ingredients":[4]}]}],"ignored":[1,3,5,6]}), "only the first item may continue")]
@@ -801,6 +920,37 @@ mod tests {
         let (book, chunk) = book_and_chunk(SOUP, 0);
         let err = lower(&chunk, &book, payload).unwrap_err();
         assert!(err.0.contains(message), "{err}");
+    }
+
+    #[test]
+    fn a_few_dropped_prose_lines_are_ignored_and_reported() {
+        let (book, chunk) = book_and_chunk(SOUP, 0);
+        // Lines 3 ("Paste") and 6 ("(V)") are left out. ("A translation"
+        // parses as a quantity — "a" is one — so it would not be losable.)
+        let payload =
+            json!({"items":[{"title":[0,1],"sections":[{"ingredients":[2,4],"steps":[5]}]}]});
+        let lowered = lower(&chunk, &book, payload).unwrap();
+        assert_eq!(lowered.auto_ignored, [3, 6]);
+        assert!(lowered.ignored.contains(&3) && lowered.ignored.contains(&6));
+    }
+
+    #[test]
+    fn duplicates_within_an_item_keep_the_stronger_field() {
+        let (book, chunk) = book_and_chunk(SOUP, 0);
+        let payload = json!({"items":[{"title":[0,1],"notes":[1,6],"sections":[{"ingredients":[2,4],"steps":[5]}],"photos":[5]}],"ignored":[3]});
+        let item = lower(&chunk, &book, payload).unwrap().items.remove(0);
+        assert_eq!(item.title, "Soup – A translation");
+        assert_eq!(item.notes.iter().map(|t| t.line).collect::<Vec<_>>(), [6]);
+        assert!(item.photos.is_empty(), "a step beats a photo caption claim");
+    }
+
+    #[test]
+    fn bare_integers_and_stray_root_fields_are_tolerated() {
+        let (book, chunk) = book_and_chunk(SOUP, 0);
+        let payload = json!({"items":[{"title":0,"page":1,"sections":[{"name":3,"ingredients":[2,4],"steps":5}],"notes":6}],"stray":[1]});
+        let lowered = lower(&chunk, &book, payload).unwrap();
+        assert_eq!(lowered.items[0].page.as_ref().map(|t| t.line), Some(1));
+        assert_eq!(lowered.items[0].step_count(), 1);
     }
 
     #[test]
