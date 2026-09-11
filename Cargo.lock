@@ -2609,6 +2609,9 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
+ "ts-rs",
+ "tsify-next",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -4271,6 +4274,9 @@ name = "recipe-types"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "ts-rs",
+ "tsify-next",
+ "wasm-bindgen",
 ]
 
 [[package]]

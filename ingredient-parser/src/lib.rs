@@ -270,7 +270,9 @@ pub fn parse_line(input: &str, options: ParseOptions) -> ParseExecution {
 static DEFAULT_PARSER: LazyLock<IngredientParser> = LazyLock::new(IngredientParser::new);
 
 /// How confident the parser is in a result, derived from how it was reached.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
 #[serde(rename_all = "lowercase")]
 pub enum Confidence {
     /// A structured parse with at least one amount.

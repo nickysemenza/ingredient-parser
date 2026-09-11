@@ -83,6 +83,8 @@ pub struct RecipeYield {
 /// minutes are derived and may be `None` where the prose couldn't be parsed
 /// confidently, so a present string does NOT imply a present count.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
 pub struct RecipeTimes {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active: Option<String>,

@@ -47,6 +47,12 @@ recipe-scraper = { path = "recipe-scraper" }
 recipe-scraper-fetcher = { path = "recipe-scraper-fetcher" }
 recipe-epub = { path = "recipe-epub" }
 recipe-epub-fixtures = { path = "recipe-epub-fixtures" }
+# TypeScript type generation, shared so every crate emits one declaration per
+# type: ts-rs for the Tauri app (`typescript` features), tsify for the wasm-pack
+# `.d.ts` (`wasm` features).
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
+tsify-next = { version = "0.5", features = ["js"] }
+wasm-bindgen = "0.2.100"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
