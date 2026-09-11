@@ -26,6 +26,7 @@ miette.workspace = true # rich --explain diagnostics with source carets
 terminal_size = "0.4"
 tabled.workspace = true # pretty CLI tables
 tracing.workspace = true
+rayon = "1" # classify a library's books in parallel
 tracing-subscriber = { version = "0.3", features = ["env-filter"] } # surface extractor warns (chunk skips, escalation) via RUST_LOG
 
 [dev-dependencies]

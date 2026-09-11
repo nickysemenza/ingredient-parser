@@ -21,6 +21,7 @@ native = [
     "dep:httpdate",
     "dep:directories",
     "dep:walkdir",
+    "dep:rayon",
 ]
 wasm = [
     "dep:wasm-bindgen",
@@ -66,6 +67,7 @@ dotenvy = { workspace = true, optional = true }
 httpdate = { version = "1", optional = true }
 directories = { version = "6", optional = true }
 walkdir = { version = "2", optional = true }
+rayon = { version = "1", optional = true } # hash and open a library's EPUBs in parallel
 
 # wasm
 wasm-bindgen = { workspace = true, optional = true }

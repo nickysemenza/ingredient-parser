@@ -75,15 +75,39 @@ pub async fn sweep(
     let classifier = ladder.first().copied().ok_or("the ladder is empty")?;
     let cancel = CancelToken::new();
 
-    // 1. Classify every distinct book; the model only sees the ambiguous ones.
+    // 1. Classify every distinct book by structure, in parallel; the model
+    //    only sees the ambiguous ones, one at a time.
     let mut statuses: HashMap<String, RowStatus> = HashMap::new();
     let mut candidates: Vec<Candidate> = Vec::new();
-    for (i, book) in scanned.books.iter().enumerate() {
-        let opened = match std::fs::read(&book.path)
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| Book::open(bytes, label_for(&book.path)).map_err(|e| e.to_string()))
-        {
-            Ok(b) => b,
+    struct Structural {
+        classification: Classification,
+        title: String,
+        authors: Vec<String>,
+    }
+    let structural: Vec<Result<Structural, String>> = {
+        use rayon::prelude::*;
+        scanned
+            .books
+            .par_iter()
+            .map(|book| {
+                let bytes = std::fs::read(&book.path).map_err(|e| e.to_string())?;
+                let opened = Book::open(bytes, label_for(&book.path)).map_err(|e| e.to_string())?;
+                let source = opened.source();
+                Ok(Structural {
+                    classification: classify_structure(&opened).classification,
+                    title: source.title.clone(),
+                    authors: source.authors.clone(),
+                })
+            })
+            .collect()
+    };
+    for (i, (book, structural)) in scanned.books.iter().zip(structural).enumerate() {
+        let Structural {
+            mut classification,
+            title,
+            authors,
+        } = match structural {
+            Ok(v) => v,
             Err(error) => {
                 eprintln!(
                     "[skip {}/{}] {}: {error}",
@@ -95,17 +119,20 @@ pub async fn sweep(
                 continue;
             }
         };
-        let mut verdict = classify_structure(&opened);
-        if verdict.classification == Classification::Ambiguous {
-            verdict = classify(&opened, classifier, transport, cache, &cancel).await;
+        if classification == Classification::Ambiguous
+            && let Ok(bytes) = std::fs::read(&book.path)
+            && let Ok(opened) = Book::open(bytes, label_for(&book.path))
+        {
+            classification = classify(&opened, classifier, transport, cache, &cancel)
+                .await
+                .classification;
         }
-        let title = opened.source().title.clone();
-        match verdict.classification {
+        match classification {
             Classification::Cookbook => candidates.push(Candidate {
                 path: book.path.clone(),
                 sha256: book.sha256.clone(),
                 title,
-                authors: opened.source().authors.clone(),
+                authors,
             }),
             Classification::NotCookbook => {
                 statuses.insert(book.sha256.clone(), RowStatus::NotCookbook);

@@ -84,34 +84,52 @@ impl ShaCache {
         self.save(Self::default_path().as_deref())
     }
 
-    /// The file's sha256, hashing it only when its size or mtime changed.
-    pub fn sha_for(&mut self, path: &std::path::Path) -> std::io::Result<String> {
-        let meta = std::fs::metadata(path)?;
-        let modified_ms = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let key = path.to_string_lossy().into_owned();
-        if let Some(entry) = self.entries.get(&key)
-            && entry.len == meta.len()
-            && entry.modified_ms == modified_ms
-        {
-            return Ok(entry.sha256.clone());
-        }
-        let sha256 = crate::epub::open::sha256_hex(&std::fs::read(path)?);
+    /// The remembered sha256 when the file's size and mtime still match.
+    fn cached_sha(&self, path: &std::path::Path) -> Option<String> {
+        let meta = std::fs::metadata(path).ok()?;
+        let entry = self.entries.get(path.to_string_lossy().as_ref())?;
+        (entry.len == meta.len() && entry.modified_ms == modified_ms(&meta))
+            .then(|| entry.sha256.clone())
+    }
+
+    fn remember(&mut self, path: &std::path::Path, len: u64, modified_ms: u128, sha256: String) {
         self.entries.insert(
-            key,
+            path.to_string_lossy().into_owned(),
             ShaEntry {
-                len: meta.len(),
+                len,
                 modified_ms,
-                sha256: sha256.clone(),
+                sha256,
             },
         );
         self.dirty = true;
+    }
+
+    /// The file's sha256, hashing it only when its size or mtime changed.
+    pub fn sha_for(&mut self, path: &std::path::Path) -> std::io::Result<String> {
+        if let Some(sha) = self.cached_sha(path) {
+            return Ok(sha);
+        }
+        let (len, modified_ms, sha256) = hash_file(path)?;
+        self.remember(path, len, modified_ms, sha256.clone());
         Ok(sha256)
     }
+}
+
+#[cfg(feature = "native")]
+fn modified_ms(meta: &std::fs::Metadata) -> u128 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
+/// `(len, mtime ms, sha256)` of a file, read once.
+#[cfg(feature = "native")]
+fn hash_file(path: &std::path::Path) -> std::io::Result<(u64, u128, String)> {
+    let meta = std::fs::metadata(path)?;
+    let sha256 = crate::epub::open::sha256_hex(&std::fs::read(path)?);
+    Ok((meta.len(), modified_ms(&meta), sha256))
 }
 
 /// One distinct EPUB in a library.
@@ -134,14 +152,39 @@ pub struct LibraryScan {
     pub unreadable: Vec<(std::path::PathBuf, String)>,
 }
 
-/// Find, hash and deduplicate every EPUB under `dir`.
+/// Find, hash and deduplicate every EPUB under `dir`. Files the cache does
+/// not know are hashed in parallel.
 #[cfg(feature = "native")]
 pub fn scan(dir: &std::path::Path, shas: &mut ShaCache) -> LibraryScan {
+    use rayon::prelude::*;
+    let paths = find_epubs(dir);
+    let hashed: Vec<std::io::Result<String>> = {
+        let known: Vec<Option<String>> = paths.iter().map(|p| shas.cached_sha(p)).collect();
+        let fresh: Vec<Option<std::io::Result<(u64, u128, String)>>> = paths
+            .par_iter()
+            .zip(known.par_iter())
+            .map(|(path, known)| known.is_none().then(|| hash_file(path)))
+            .collect();
+        paths
+            .iter()
+            .zip(known)
+            .zip(fresh)
+            .map(|((path, known), fresh)| match (known, fresh) {
+                (Some(sha), _) => Ok(sha),
+                (None, Some(Ok((len, modified_ms, sha256)))) => {
+                    shas.remember(path, len, modified_ms, sha256.clone());
+                    Ok(sha256)
+                }
+                (None, Some(Err(e))) => Err(e),
+                (None, None) => Err(std::io::Error::other("unreachable: not cached, not hashed")),
+            })
+            .collect()
+    };
     let mut out = LibraryScan::default();
     let mut seen: std::collections::HashMap<String, std::path::PathBuf> =
         std::collections::HashMap::new();
-    for path in find_epubs(dir) {
-        match shas.sha_for(&path) {
+    for (path, hashed) in paths.into_iter().zip(hashed) {
+        match hashed {
             Ok(sha256) => {
                 if let Some(kept) = seen.get(&sha256) {
                     out.duplicates.push((path, kept.clone()));
