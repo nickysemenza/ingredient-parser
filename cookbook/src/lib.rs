@@ -12,8 +12,11 @@
 //! request: native code uses reqwest, the browser hands it to a JavaScript
 //! callback.
 
+pub mod chunk;
 mod cost;
+pub mod epub;
 mod error;
+pub mod lines;
 pub mod model;
 pub mod report;
 
