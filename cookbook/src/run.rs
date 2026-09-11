@@ -227,7 +227,12 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                         Ok((result, record.cached))
                     }
                     Err(failure) => {
-                        if failure.is_wholesale_rate_limit() {
+                        if failure.is_credit_exhausted() {
+                            self.exhausted
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(model.id);
+                        } else if failure.is_wholesale_rate_limit() {
                             self.note_refusal(model);
                         }
                         record.request_id = failure.request_id().map(str::to_string);
@@ -1275,6 +1280,49 @@ mod tests {
             out.chunks
                 .iter()
                 .all(|c| c.report.final_model.as_deref() == Some("claude-haiku-4-5"))
+        );
+    }
+
+    /// The provider's own account being out of credit drops the model at
+    /// once, whatever the concurrency, with no pause.
+    #[tokio::test]
+    async fn credit_exhausted_models_are_dropped_at_once() {
+        let (book, nav, chunks) = book();
+        let (b, c) = (book.clone(), chunks.clone());
+        let transport = ScriptedTransport::new(move |req, _| {
+            let (model_id, _, _) = request_meta(req).unwrap();
+            if model_id == "gemini-2.5-flash" {
+                Ok(error_response(
+                    429,
+                    "{\"error\":{\"message\":\"You have no credits remaining. Add credits to continue.\"}}",
+                ))
+            } else {
+                Ok(oracle_answer(req, &b, &c))
+            }
+        });
+        let opts = ExtractOptions {
+            concurrency: 4,
+            ..options(false, false)
+        };
+        let (out, _) = drive(
+            &transport,
+            &NoCache,
+            &book,
+            &nav,
+            &chunks,
+            ladder(&["gemini-2.5-flash", "claude-haiku-4-5"]),
+            &opts,
+        )
+        .await;
+        assert!(transport.sleeps_ms.lock().unwrap().is_empty());
+        assert!(!out.incomplete);
+        assert!(
+            out.calls
+                .iter()
+                .filter(|c| c.model == "gemini-2.5-flash")
+                .count()
+                <= 4,
+            "at most the first wave"
         );
     }
 

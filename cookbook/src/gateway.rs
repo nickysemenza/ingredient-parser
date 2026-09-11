@@ -258,6 +258,26 @@ impl CallFailure {
     /// the run, or that the pool is momentarily over capacity, in which case
     /// a short pause clears it. The run tells them apart by whether the model
     /// has answered at all.
+    /// The provider's own account is out of money ("You have no credits
+    /// remaining", "insufficient_quota"): every call to the model fails
+    /// until someone tops it up, so the run drops the model at once.
+    pub fn is_credit_exhausted(&self) -> bool {
+        match self {
+            CallFailure::Http {
+                status: 402 | 429,
+                message,
+                ..
+            } => {
+                let m = message.to_ascii_lowercase();
+                m.contains("no credits")
+                    || m.contains("insufficient_quota")
+                    || m.contains("insufficient credits")
+                    || m.contains("exceeded your current quota")
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_wholesale_rate_limit(&self) -> bool {
         matches!(
             self,
@@ -671,6 +691,13 @@ mod tests {
             Some(8000),
             "backs off exponentially"
         );
+        let broke = parse_response(
+            Route::OpenAiChat,
+            &resp(429, json!({"error":{"message":"You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/"}})),
+        )
+        .unwrap_err();
+        assert!(broke.is_credit_exhausted());
+        assert!(!broke.is_wholesale_rate_limit());
         let wholesale = parse_response(
             Route::CompatChat,
             &resp(
