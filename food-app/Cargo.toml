@@ -21,7 +21,6 @@ ingredient-corpus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
-tracing.workspace = true
 tracing-subscriber = "0.3"
 dotenvy.workspace = true
 ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }

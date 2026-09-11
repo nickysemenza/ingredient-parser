@@ -4,6 +4,7 @@
 //! (`CLOUDFLARE_AI_GATEWAY_BASE_URL`, `AI_GATEWAY_API_KEY`); everything else
 //! runs offline.
 
+use anyhow::Context as _;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
@@ -272,18 +273,16 @@ impl Transport for AnyTransport {
     }
 }
 
-fn open(path: &Path, label: &str) -> Result<Book, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    Book::open(bytes, label).map_err(|e| format!("open {}: {e}", path.display()))
+fn open(path: &Path, label: &str) -> anyhow::Result<Book> {
+    let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    Book::open(bytes, label).with_context(|| format!("open {}", path.display()))
 }
 
-fn cache(no_cache: bool) -> Result<Box<dyn ChunkCache>, String> {
+fn cache(no_cache: bool) -> anyhow::Result<Box<dyn ChunkCache>> {
     if no_cache {
         Ok(Box::new(NoCache))
     } else {
-        Ok(Box::new(
-            FsChunkCache::open_default().map_err(|e| e.to_string())?,
-        ))
+        Ok(Box::new(FsChunkCache::open_default()?))
     }
 }
 
@@ -297,7 +296,7 @@ fn label_for(path: &Path) -> String {
 fn library_report(
     library: Option<&Path>,
     statuses: &std::collections::HashMap<String, cookbook::library::RowStatus>,
-) -> Result<cookbook::library::LibraryReport, String> {
+) -> anyhow::Result<cookbook::library::LibraryReport> {
     use cookbook::library::{ShaCache, build_report, scan};
     let scanned = library.map(|dir| {
         let mut shas = ShaCache::open_default();
@@ -306,7 +305,7 @@ fn library_report(
         let _ = shas.save_default();
         scanned
     });
-    build_report(library, scanned.as_ref(), statuses).map_err(|e| e.to_string())
+    Ok(build_report(library, scanned.as_ref(), statuses)?)
 }
 
 fn print_library_report(report: &cookbook::library::LibraryReport, written: &(PathBuf, PathBuf)) {
@@ -378,7 +377,7 @@ fn emit(value: &Value, json: bool) {
 }
 
 /// Run one command. Returns the process exit code.
-pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
+pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
     match command {
         Command::Inspect {
             book,
@@ -407,9 +406,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
         } => {
             let b = open(&book, &label_for(&book))?;
             let cache = cache(no_cache)?;
-            let estimate = b
-                .estimate(&flags.options(&book, !no_cache), &cache)
-                .map_err(|e| e.to_string())?;
+            let estimate = b.estimate(&flags.options(&book, !no_cache), &cache)?;
             if json {
                 emit(&json!(estimate), true);
             } else {
@@ -425,19 +422,17 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             flags,
         } => {
             let b = open(&book, &label_for(&book))?;
-            let live = ReqwestTransport::from_env().map_err(|e| e.to_string())?;
+            let live = ReqwestTransport::from_env()?;
             let transport = match &dump {
                 Some(dir) => {
-                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-                    std::fs::copy(&book, dir.join("book.epub"))
-                        .map_err(|e| format!("copy epub into dump: {e}"))?;
+                    std::fs::create_dir_all(dir)?;
+                    std::fs::copy(&book, dir.join("book.epub")).context("copy epub into dump")?;
                     let manifest = json!({"book": book.display().to_string(), "sha256": b.source().sha256, "label": b.source().label, "started_at": jiff::Timestamp::now().to_string()});
                     std::fs::write(
                         dir.join("manifest.json"),
                         serde_json::to_string_pretty(&manifest).unwrap_or_default(),
-                    )
-                    .map_err(|e| e.to_string())?;
-                    AnyTransport::Dump(DumpTransport::new(live, dir).map_err(|e| e.to_string())?)
+                    )?;
+                    AnyTransport::Dump(DumpTransport::new(live, dir)?)
                 }
                 None => AnyTransport::Live(live),
             };
@@ -448,8 +443,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
         Command::Replay { dump, out, flags } => {
             let book = dump.join("book.epub");
             let b = open(&book, &label_for(&dump))?;
-            let transport =
-                AnyTransport::Replay(ReplayTransport::load(&dump).map_err(|e| e.to_string())?);
+            let transport = AnyTransport::Replay(ReplayTransport::load(&dump)?);
             let options = flags.options(&book, true);
             run_and_report(&b, &options, &transport, &NoCache, out.as_deref(), json).await
         }
@@ -502,7 +496,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             let b = open(&book, &label_for(&book))?;
             let skeleton = match &from_run {
                 Some(run) => {
-                    let extraction = runs::load(run).map_err(|e| e.to_string())?;
+                    let extraction = runs::load(run)?;
                     let check = &extraction.report.crosscheck;
                     if !check.missing.is_empty() {
                         eprintln!(
@@ -516,15 +510,14 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
                             check.phantom.join(" | ")
                         );
                     }
-                    eval::skeleton_from_run(&b, &book.display().to_string(), &extraction)
-                        .map_err(|e| e.to_string())?
+                    eval::skeleton_from_run(&b, &book.display().to_string(), &extraction)?
                 }
                 None => eval::skeleton(&b, &book.display().to_string()),
             };
-            let text = serde_json::to_string_pretty(&skeleton).map_err(|e| e.to_string())?;
+            let text = serde_json::to_string_pretty(&skeleton)?;
             match out {
                 Some(path) => {
-                    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+                    std::fs::write(&path, text)?;
                     eprintln!(
                         "wrote {} ({} contents titles, {} not_recipes candidates, {} sample stubs); fill in the counts from the HTML",
                         path.display(),
@@ -551,11 +544,10 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             flags,
         } => {
             if !dir.is_dir() {
-                return Err(format!("{} is not a directory", dir.display()));
+                anyhow::bail!("{} is not a directory", dir.display());
             }
-            let transport =
-                AnyTransport::Live(ReqwestTransport::from_env().map_err(|e| e.to_string())?);
-            let cache = FsChunkCache::open_default().map_err(|e| e.to_string())?;
+            let transport = AnyTransport::Live(ReqwestTransport::from_env()?);
+            let cache = FsChunkCache::open_default()?;
             let mut options = flags.options(&dir, true);
             if flags.concurrency.is_none() {
                 options.concurrency = 8;
@@ -607,7 +599,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             Ok(0)
         }
         Command::Runs { book, limit } => {
-            let mut list = runs::list().map_err(|e| e.to_string())?;
+            let mut list = runs::list()?;
             if let Some(filter) = &book {
                 let f = filter.to_lowercase();
                 list.retain(|r| {
@@ -675,15 +667,18 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
     }
 }
 
-fn parse_range(spec: &str, len: usize) -> Result<(usize, usize), String> {
+fn parse_range(spec: &str, len: usize) -> anyhow::Result<(usize, usize)> {
     let (a, b) = spec
         .split_once("..")
-        .ok_or_else(|| format!("--lines wants A..B, got {spec:?}"))?;
-    let a: usize = a.trim().parse().map_err(|_| format!("bad start {a:?}"))?;
+        .with_context(|| format!("--lines wants A..B, got {spec:?}"))?;
+    let a: usize = a
+        .trim()
+        .parse()
+        .with_context(|| format!("bad start {a:?}"))?;
     let b: usize = if b.trim().is_empty() {
         len
     } else {
-        b.trim().parse().map_err(|_| format!("bad end {b:?}"))?
+        b.trim().parse().with_context(|| format!("bad end {b:?}"))?
     };
     Ok((a.min(len), b.min(len)))
 }
@@ -717,7 +712,7 @@ struct InspectFlags<'a> {
     quantities: Option<usize>,
 }
 
-fn inspect(path: &Path, flags: InspectFlags<'_>, json: bool) -> Result<i32, String> {
+fn inspect(path: &Path, flags: InspectFlags<'_>, json: bool) -> anyhow::Result<i32> {
     let InspectFlags {
         list_chunks,
         chunk,
@@ -782,7 +777,7 @@ fn inspect(path: &Path, flags: InspectFlags<'_>, json: bool) -> Result<i32, Stri
             .chunks()
             .iter()
             .find(|c| c.id == id)
-            .ok_or_else(|| format!("no chunk {id}; there are {}", book.chunks().len()))?;
+            .with_context(|| format!("no chunk {id}; there are {}", book.chunks().len()))?;
         if json {
             emit(&json!({"chunk": c, "text": c.text(book.lines())}), true);
         } else {
@@ -969,7 +964,7 @@ async fn run_and_report(
     cache: &impl ChunkCache,
     out: Option<&Path>,
     json: bool,
-) -> Result<i32, String> {
+) -> anyhow::Result<i32> {
     let bar = if std::io::stderr().is_terminal() {
         indicatif::ProgressBar::new(book.chunks().len() as u64)
     } else {
@@ -1012,9 +1007,9 @@ async fn run_and_report(
             );
             return Ok(130);
         }
-        Err(e) => return Err(e.to_string()),
+        Err(e) => return Err(e.into()),
     };
-    let path = runs::save(&extraction, out).map_err(|e| e.to_string())?;
+    let path = runs::save(&extraction, out)?;
     if json {
         emit(&json!(extraction), true);
         eprintln!("saved {}", path.display());
@@ -1186,8 +1181,8 @@ fn explain(
     title: Option<&str>,
     book: Option<&Path>,
     json: bool,
-) -> Result<i32, String> {
-    let extraction = runs::load(run).map_err(|e| e.to_string())?;
+) -> anyhow::Result<i32> {
+    let extraction = runs::load(run)?;
     let (chapter, item) = extraction
         .cookbook
         .chapters
@@ -1200,7 +1195,7 @@ fn explain(
                         || i.name().to_lowercase().contains(&t.to_lowercase())
                 })
         })
-        .ok_or_else(|| "no item matches; pass --recipe ID or --title SUBSTRING".to_string())?;
+        .context("no item matches; pass --recipe ID or --title SUBSTRING")?;
     let span = item.span();
     let chunk = extraction
         .report
@@ -1251,7 +1246,7 @@ fn explain(
     if let Some(path) = book {
         let b = open(path, &label_for(path))?;
         if b.source().sha256 != extraction.cookbook.source.sha256 {
-            return Err("that EPUB is not the one this run extracted (sha256 differs)".into());
+            anyhow::bail!("that EPUB is not the one this run extracted (sha256 differs)");
         }
         let claimed = claimed_lines(item);
         let lines: Vec<Value> = (span.start..span.end.min(b.lines().len()))
@@ -1389,7 +1384,7 @@ fn sample(
     n: usize,
     seed: u64,
     json: bool,
-) -> Result<i32, String> {
+) -> anyhow::Result<i32> {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     if let Some(dir) = library {
         let mut books: Vec<Value> = Vec::new();
@@ -1425,7 +1420,7 @@ fn sample(
     }
     let mut cards: Vec<Value> = Vec::new();
     for path in run_paths {
-        let extraction = runs::load(path).map_err(|e| e.to_string())?;
+        let extraction = runs::load(path)?;
         for r in extraction.cookbook.recipes() {
             cards.push(json!({
                 "book": extraction.cookbook.source.title,
@@ -1478,7 +1473,7 @@ fn sample(
 /// Exit code when the evaluation gate fails.
 pub const EXIT_GATE_FAILED: i32 = 4;
 
-fn resolve_book(spec: &str, base: &Path, library: Option<&Path>) -> Result<PathBuf, String> {
+fn resolve_book(spec: &str, base: &Path, library: Option<&Path>) -> anyhow::Result<PathBuf> {
     let direct = PathBuf::from(spec);
     if direct.is_absolute() && direct.exists() {
         return Ok(direct);
@@ -1499,10 +1494,10 @@ fn resolve_book(spec: &str, base: &Path, library: Option<&Path>) -> Result<PathB
             return Ok(found);
         }
     }
-    Err(format!(
+    anyhow::bail!(
         "cannot find book {spec:?} (tried {}, and --library)",
         relative.display()
-    ))
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1516,13 +1511,13 @@ async fn evaluate(
     no_cache: bool,
     flags: &RunFlags,
     json: bool,
-) -> Result<i32, String> {
+) -> anyhow::Result<i32> {
     let dir = match expectations {
         Some(d) => d.to_path_buf(),
-        None => runs::expectations_dir().ok_or("no data directory for this platform")?,
+        None => runs::expectations_dir().context("no data directory for this platform")?,
     };
     let mut keys: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
-        .map_err(|e| format!("read {}: {e}", dir.display()))?
+        .with_context(|| format!("read {}", dir.display()))?
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "json"))
@@ -1538,14 +1533,13 @@ async fn evaluate(
         .collect();
     keys.sort();
     if keys.is_empty() {
-        return Err(format!("no answer keys in {}", dir.display()));
+        anyhow::bail!("no answer keys in {}", dir.display());
     }
     let mut scores = Vec::new();
     let mut ladder_used: Vec<String> = Vec::new();
     for (slug, path) in &keys {
-        let expected: Expectations =
-            serde_json::from_str(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
-                .map_err(|e| format!("{}: {e}", path.display()))?;
+        let expected: Expectations = serde_json::from_str(&std::fs::read_to_string(path)?)
+            .with_context(|| path.display().to_string())?;
         let book_path = resolve_book(&expected.book, &dir, library)?;
         let book = open(&book_path, slug)?;
         if let Some(sha) = &expected.sha256
@@ -1566,19 +1560,18 @@ async fn evaluate(
             Some(replay_dir) => {
                 let transport = AnyTransport::Replay(
                     ReplayTransport::load(replay_dir.join(slug))
-                        .map_err(|e| format!("{slug}: {e}"))?,
+                        .with_context(|| slug.to_string())?,
                 );
                 extract_quiet(&book, &options, &transport, &NoCache).await?
             }
             None => {
-                let live = ReqwestTransport::from_env().map_err(|e| e.to_string())?;
+                let live = ReqwestTransport::from_env()?;
                 let transport = match dump {
                     Some(d) => {
                         let d = d.join(slug);
-                        std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
-                        std::fs::copy(&book_path, d.join("book.epub"))
-                            .map_err(|e| e.to_string())?;
-                        AnyTransport::Dump(DumpTransport::new(live, &d).map_err(|e| e.to_string())?)
+                        std::fs::create_dir_all(&d)?;
+                        std::fs::copy(&book_path, d.join("book.epub"))?;
+                        AnyTransport::Dump(DumpTransport::new(live, &d)?)
                     }
                     None => AnyTransport::Live(live),
                 };
@@ -1586,7 +1579,7 @@ async fn evaluate(
                 extract_quiet(&book, &options, &transport, &cache).await?
             }
         };
-        let saved = runs::save(&extraction, None).map_err(|e| e.to_string())?;
+        let saved = runs::save(&extraction, None)?;
         eprintln!("   saved {}", saved.display());
         ladder_used = extraction.report.estimate.ladder.clone();
         let score = eval::score(&expected, &extraction);
@@ -1609,13 +1602,9 @@ async fn evaluate(
     let report = eval::summarize(ladder_used, scores);
     if let Some(path) = out {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(
-            path,
-            serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+        std::fs::write(path, serde_json::to_string_pretty(&report)?)?;
     }
     if json {
         emit(&json!(report), true);
@@ -1711,7 +1700,7 @@ async fn extract_quiet(
     options: &ExtractOptions,
     transport: &AnyTransport,
     cache: &impl ChunkCache,
-) -> Result<Extraction, String> {
+) -> anyhow::Result<Extraction> {
     let bar = if std::io::stderr().is_terminal() {
         indicatif::ProgressBar::new(book.chunks().len() as u64)
     } else {
@@ -1733,7 +1722,7 @@ async fn extract_quiet(
     bar.finish_and_clear();
     match result {
         Ok(e) => Ok(e),
-        Err(cookbook::Error::Cancelled(_)) => Err("cancelled".into()),
-        Err(e) => Err(e.to_string()),
+        Err(cookbook::Error::Cancelled(_)) => anyhow::bail!("cancelled"),
+        Err(e) => Err(e.into()),
     }
 }

@@ -44,6 +44,12 @@ async fn index_follows_the_directory() {
 
     let index_path = dir.path().join("index.json");
     assert!(index_path.exists(), "save writes the index");
+    // Two saves with no listing in between must both survive: the index a
+    // save writes has to be one a later save accepts.
+    let written: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&index_path).unwrap()).unwrap();
+    assert_eq!(written["version"], 1);
+    assert_eq!(written["entries"].as_array().unwrap().len(), 2);
     let listed = runs::list().unwrap();
     assert_eq!(listed.len(), 2);
     assert_eq!(

@@ -444,7 +444,12 @@ pub fn skeleton_from_run(
     if extraction.cookbook.source.sha256 != book.source().sha256 {
         return Err(crate::Error::Config(format!(
             "the run is of another file (sha256 {}…, the book is {}…)",
-            &extraction.cookbook.source.sha256[..8],
+            extraction
+                .cookbook
+                .source
+                .sha256
+                .get(..8)
+                .unwrap_or(&extraction.cookbook.source.sha256),
             &book.source().sha256[..8]
         )));
     }

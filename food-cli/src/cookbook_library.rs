@@ -5,6 +5,7 @@
 //! sampled, and extracted a few at a time under a cost ceiling. Every
 //! outcome, including the books not touched, ends up as a row in the report.
 
+use anyhow::Context as _;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -60,7 +61,7 @@ pub async fn sweep(
     args: SweepArgs<'_>,
     transport: &(impl Transport + Sync),
     cache: &(impl ChunkCache + Sync),
-) -> Result<SweepOutcome, String> {
+) -> anyhow::Result<SweepOutcome> {
     let mut shas = ShaCache::open_default();
     let scanned = scan(args.dir, &mut shas);
     let _ = shas.save_default();
@@ -70,9 +71,8 @@ pub async fn sweep(
         scanned.duplicates.len(),
         scanned.unreadable.len()
     );
-    let ladder =
-        cookbook::models::resolve_ladder(&args.options.ladder).map_err(|e| e.to_string())?;
-    let classifier = ladder.first().copied().ok_or("the ladder is empty")?;
+    let ladder = cookbook::models::resolve_ladder(&args.options.ladder)?;
+    let classifier = ladder.first().copied().context("the ladder is empty")?;
     let cancel = CancelToken::new();
 
     // 1. Classify every distinct book by structure, in parallel; the model
@@ -84,14 +84,14 @@ pub async fn sweep(
         title: String,
         authors: Vec<String>,
     }
-    let structural: Vec<Result<Structural, String>> = {
+    let structural: Vec<anyhow::Result<Structural>> = {
         use rayon::prelude::*;
         scanned
             .books
             .par_iter()
             .map(|book| {
-                let bytes = std::fs::read(&book.path).map_err(|e| e.to_string())?;
-                let opened = Book::open(bytes, label_for(&book.path)).map_err(|e| e.to_string())?;
+                let bytes = std::fs::read(&book.path)?;
+                let opened = Book::open(bytes, label_for(&book.path))?;
                 let source = opened.source();
                 Ok(Structural {
                     classification: classify_structure(&opened).classification,
@@ -115,7 +115,12 @@ pub async fn sweep(
                     scanned.books.len(),
                     book.path.display()
                 );
-                statuses.insert(book.sha256.clone(), RowStatus::Failed { error });
+                statuses.insert(
+                    book.sha256.clone(),
+                    RowStatus::Failed {
+                        error: format!("{error:#}"),
+                    },
+                );
                 continue;
             }
         };
@@ -163,7 +168,7 @@ pub async fn sweep(
     // 2. Existing runs, `--only`, the sample, `--max-books`.
     let mut pending: Vec<Candidate> = Vec::new();
     for candidate in candidates {
-        let existing = runs::latest_for_sha(&candidate.sha256).map_err(|e| e.to_string())?;
+        let existing = runs::latest_for_sha(&candidate.sha256)?;
         if existing.is_some() && !args.force {
             statuses.insert(candidate.sha256.clone(), RowStatus::Existing);
             continue;
@@ -216,11 +221,9 @@ pub async fn sweep(
     let mut projected = (0.0f64, 0.0f64);
     let mut estimates: HashMap<String, (f64, f64, usize)> = HashMap::new();
     for c in &pending {
-        let bytes = std::fs::read(&c.path).map_err(|e| e.to_string())?;
-        let book = Book::open(bytes, label_for(&c.path)).map_err(|e| e.to_string())?;
-        let estimate = book
-            .estimate(&args.options, cache)
-            .map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(&c.path)?;
+        let book = Book::open(bytes, label_for(&c.path))?;
+        let estimate = book.estimate(&args.options, cache)?;
         projected.0 += estimate.cost_usd_low;
         projected.1 += estimate.cost_usd_high;
         estimates.insert(
@@ -247,8 +250,7 @@ pub async fn sweep(
                 },
             );
         }
-        let report =
-            build_report(Some(args.dir), Some(&scanned), &statuses).map_err(|e| e.to_string())?;
+        let report = build_report(Some(args.dir), Some(&scanned), &statuses)?;
         let written = args
             .out
             .map(|out| write_report(&report, Some(out)))
@@ -293,23 +295,30 @@ pub async fn sweep(
                     *k += 1;
                     *k
                 };
-                if let Some(max) = args.max_cost {
-                    let projected = spent.lock().unwrap_or_else(|e| e.into_inner()).projected();
-                    if projected + estimate.1 > max {
-                        eprintln!(
-                            "[skip {n}/{total}] {} · would pass --max-cost (${projected:.2} + ${:.2})",
-                            c.title, estimate.1
-                        );
-                        return (
-                            c.sha256,
-                            RowStatus::Skipped {
-                                reason: "budget".into(),
-                            },
-                            0.0,
-                        );
-                    }
+                // Check and reserve under one lock: two books admitted
+                // back-to-back must each see the other's reservation.
+                let projected = spent
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .admit(&c.sha256, estimate.1, args.max_cost);
+                if let Err(projected) = projected {
+                    eprintln!(
+                        "[skip {n}/{total}] {} · would pass --max-cost (${projected:.2} + ${:.2})",
+                        c.title, estimate.1
+                    );
+                    return (
+                        c.sha256,
+                        RowStatus::Skipped {
+                            reason: "budget".into(),
+                        },
+                        0.0,
+                    );
                 }
                 if cancel.is_cancelled() {
+                    spent
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .release(&c.sha256);
                     return (
                         c.sha256,
                         RowStatus::Skipped {
@@ -322,15 +331,21 @@ pub async fn sweep(
                     "[start {n}/{total}] {} · {} chunks · est ${:.2}–${:.2}",
                     c.title, estimate.2, estimate.0, estimate.1
                 );
-                let bytes = match std::fs::read(&c.path) {
+                let opened = std::fs::read(&c.path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|bytes| {
+                        Book::open(bytes, label_for(&c.path)).map_err(|e| e.to_string())
+                    });
+                let book = match opened {
                     Ok(b) => b,
-                    Err(e) => return (c.sha256, RowStatus::Failed { error: e.to_string() }, 0.0),
+                    Err(error) => {
+                        spent
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .release(&c.sha256);
+                        return (c.sha256, RowStatus::Failed { error }, 0.0);
+                    }
                 };
-                let book = match Book::open(bytes, label_for(&c.path)) {
-                    Ok(b) => b,
-                    Err(e) => return (c.sha256, RowStatus::Failed { error: e.to_string() }, 0.0),
-                };
-                spent.lock().unwrap_or_else(|e| e.into_inner()).start(&c.sha256);
                 let progress = {
                     let spent = Arc::clone(&spent);
                     let sha = c.sha256.clone();
@@ -338,14 +353,13 @@ pub async fn sweep(
                         spent
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
-                            .in_flight
-                            .insert(sha.clone(), p.cost_so_far_usd);
+                            .observe(&sha, p.cost_so_far_usd);
                     }
                 };
                 let started = std::time::Instant::now();
                 let result = book.extract(&options, transport, cache, &cancel, progress).await;
                 let mut ledger = spent.lock().unwrap_or_else(|e| e.into_inner());
-                ledger.in_flight.remove(&c.sha256);
+                ledger.release(&c.sha256);
                 match result {
                     Ok(extraction) => {
                         let cost = extraction.report.total_cost_usd;
@@ -402,8 +416,7 @@ pub async fn sweep(
     }
 
     // 5. The report over everything.
-    let report =
-        build_report(Some(args.dir), Some(&scanned), &statuses).map_err(|e| e.to_string())?;
+    let report = build_report(Some(args.dir), Some(&scanned), &statuses)?;
     let written = write_report(&report, args.out)?;
     Ok(SweepOutcome {
         report,
@@ -415,21 +428,44 @@ pub async fn sweep(
     })
 }
 
-/// Money spent so far: finished books plus the live cost of the ones in
-/// flight.
+/// Money spent so far: finished books plus, for each book in flight, the
+/// larger of its reserved estimate and its live cost.
 #[derive(Default)]
 struct Spend {
     finished: f64,
-    in_flight: BTreeMap<String, f64>,
+    /// `sha → (reserved estimate, live cost)`.
+    in_flight: BTreeMap<String, (f64, f64)>,
 }
 
 impl Spend {
-    fn start(&mut self, sha: &str) {
-        self.in_flight.insert(sha.to_string(), 0.0);
+    /// Admit a book under the ceiling, reserving its high estimate, or
+    /// refuse it with the projection that would have been exceeded.
+    fn admit(&mut self, sha: &str, estimate_high: f64, max: Option<f64>) -> Result<f64, f64> {
+        let projected = self.projected();
+        if max.is_some_and(|m| projected + estimate_high > m) {
+            return Err(projected);
+        }
+        self.in_flight.insert(sha.to_string(), (estimate_high, 0.0));
+        Ok(projected)
+    }
+
+    fn observe(&mut self, sha: &str, live_cost: f64) {
+        if let Some(entry) = self.in_flight.get_mut(sha) {
+            entry.1 = live_cost;
+        }
+    }
+
+    fn release(&mut self, sha: &str) {
+        self.in_flight.remove(sha);
     }
 
     fn projected(&self) -> f64 {
-        self.finished + self.in_flight.values().sum::<f64>()
+        self.finished
+            + self
+                .in_flight
+                .values()
+                .map(|(reserved, live)| reserved.max(*live))
+                .sum::<f64>()
     }
 }
 
@@ -483,27 +519,23 @@ fn label_for(path: &Path) -> String {
 pub fn write_report(
     report: &LibraryReport,
     out: Option<&Path>,
-) -> Result<(PathBuf, PathBuf), String> {
+) -> anyhow::Result<(PathBuf, PathBuf)> {
     let stem = match out {
         Some(p) => p.with_extension(""),
         None => cookbook::library::reports_dir()
-            .ok_or("no data directory for this platform")?
+            .context("no data directory for this platform")?
             .join(format!(
                 "library-{}",
                 jiff::Timestamp::now().strftime("%Y%m%dT%H%MZ")
             )),
     };
     if let Some(parent) = stem.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent)?;
     }
     let json_path = stem.with_extension("json");
     let md_path = stem.with_extension("md");
-    std::fs::write(
-        &json_path,
-        serde_json::to_string_pretty(report).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    std::fs::write(&md_path, report.render_markdown()).map_err(|e| e.to_string())?;
+    std::fs::write(&json_path, serde_json::to_string_pretty(report)?)?;
+    std::fs::write(&md_path, report.render_markdown())?;
     Ok((json_path, md_path))
 }
 
@@ -519,6 +551,21 @@ mod tests {
             title: title.to_string(),
             authors: vec![author.to_string()],
         }
+    }
+
+    /// Two $5 books under a $6 ceiling: the second sees the first's
+    /// reservation and is refused; live cost above the estimate counts.
+    #[test]
+    fn budget_reservations_are_visible_to_the_next_admission() {
+        let mut spend = Spend::default();
+        assert_eq!(spend.admit("a", 5.0, Some(6.0)), Ok(0.0));
+        assert_eq!(spend.admit("b", 5.0, Some(6.0)), Err(5.0));
+        spend.observe("a", 5.5);
+        assert!((spend.projected() - 5.5).abs() < 1e-9);
+        spend.release("a");
+        spend.finished += 5.5;
+        assert_eq!(spend.admit("b", 0.4, Some(6.0)), Ok(5.5));
+        assert!(spend.admit("c", 1.0, None).is_ok(), "no ceiling admits");
     }
 
     /// One book per author before a second from anyone; the same seed

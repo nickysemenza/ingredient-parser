@@ -61,13 +61,28 @@ pub struct Priors {
 /// How much a model may think before answering. `Default` sends nothing and
 /// leaves the provider's default (Gemini 2.5 Flash thinks for ~2,300 tokens
 /// and 8–10 s per chunk); `Off` sends `reasoning_effort: "none"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
+    Serialize,
+    Deserialize,
+    strum::EnumString,
+    strum::Display,
+)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
+#[strum(ascii_case_insensitive, serialize_all = "lowercase")]
 pub enum Reasoning {
     #[default]
     Default,
+    /// Parsed from `none` or `off`; printed and sent as `none`.
+    #[strum(serialize = "none", serialize = "off", to_string = "none")]
     Off,
     Low,
     Medium,
@@ -85,27 +100,27 @@ impl Reasoning {
             Reasoning::High => Some("high"),
         }
     }
-}
 
-impl std::str::FromStr for Reasoning {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "default" => Ok(Reasoning::Default),
-            "none" | "off" => Ok(Reasoning::Off),
-            "low" => Ok(Reasoning::Low),
-            "medium" => Ok(Reasoning::Medium),
-            "high" => Ok(Reasoning::High),
-            other => Err(format!(
-                "unknown reasoning setting {other:?}; use default, none, low, medium or high"
-            )),
-        }
+    #[cfg(test)]
+    fn parses(s: &str) -> Option<Reasoning> {
+        s.parse().ok()
     }
 }
 
-impl std::fmt::Display for Reasoning {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.effort().unwrap_or("default"))
+#[cfg(test)]
+mod reasoning_tests {
+    use super::Reasoning;
+
+    #[test]
+    fn reasoning_parses_aliases_case_insensitively_and_prints_the_wire_value() {
+        assert_eq!(Reasoning::parses("none"), Some(Reasoning::Off));
+        assert_eq!(Reasoning::parses("OFF"), Some(Reasoning::Off));
+        assert_eq!(Reasoning::parses("Low"), Some(Reasoning::Low));
+        assert_eq!(Reasoning::parses("default"), Some(Reasoning::Default));
+        assert_eq!(Reasoning::parses("maximum"), None);
+        assert_eq!(Reasoning::Off.to_string(), "none");
+        assert_eq!(Reasoning::Default.to_string(), "default");
+        assert_eq!(Reasoning::High.to_string(), "high");
     }
 }
 

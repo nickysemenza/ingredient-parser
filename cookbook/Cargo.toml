@@ -17,8 +17,6 @@ default = ["native"]
 native = [
     "dep:reqwest",
     "dep:tokio",
-    "dep:dotenvy",
-    "dep:httpdate",
     "dep:directories",
     "dep:walkdir",
     "dep:rayon",
@@ -42,6 +40,7 @@ ingredient.workspace = true
 recipe-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+strum = { version = "0.27", features = ["derive"] } # Reasoning: FromStr and Display
 thiserror.workspace = true
 tracing.workspace = true
 futures.workspace = true
@@ -50,21 +49,17 @@ roxmltree = "0.20"
 scraper = "0.27.0"
 ego-tree = "0.11"
 schemars = "1"
-backon = { version = "1", default-features = false }
 petgraph = "0.8"
 strsim = "0.11"
 unicode-normalization = "0.1"
 mime_guess = "2"
 jiff = { version = "0.2", default-features = false, features = ["std"] }
-rand = { version = "0.9", default-features = false, features = ["std", "std_rng"] }
 sha2 = "0.11"
 regex = "1.10"
 
 # native
 reqwest = { version = "0.13", features = ["json"], optional = true }
 tokio = { workspace = true, features = ["time"], optional = true }
-dotenvy = { workspace = true, optional = true }
-httpdate = { version = "1", optional = true }
 directories = { version = "6", optional = true }
 walkdir = { version = "2", optional = true }
 rayon = { version = "1", optional = true } # hash and open a library's EPUBs in parallel
