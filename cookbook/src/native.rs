@@ -445,6 +445,7 @@ pub mod runs {
             let summary = summarize(&path, extraction);
             index.entries.retain(|e| e.path != summary.path);
             index.entries.push(summary);
+            index.version = INDEX_VERSION;
             write_index(&root, &index)?;
         }
         Ok(path)

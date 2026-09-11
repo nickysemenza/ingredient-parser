@@ -63,3 +63,7 @@ required-features = ["bench"]
 
 [lints]
 workspace = true
+
+# the tsify derive expands to `::wasm_bindgen` paths.
+[package.metadata.cargo-machete]
+ignored = ["wasm-bindgen"]

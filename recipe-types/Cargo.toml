@@ -19,3 +19,7 @@ serde = { workspace = true }
 ts-rs = { workspace = true, optional = true }
 tsify-next = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
+
+# the tsify derive expands to `::wasm_bindgen` paths.
+[package.metadata.cargo-machete]
+ignored = ["wasm-bindgen"]

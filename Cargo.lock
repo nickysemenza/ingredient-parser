@@ -331,15 +331,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "backon"
-version = "1.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cffb0e931875b666fc4fcb20fee52e9bbd1ef836fd9e9e04ec21555f9f85f7ef"
-dependencies = [
- "fastrand",
-]
-
-[[package]]
 name = "backtrace"
 version = "0.3.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -798,21 +789,17 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 name = "cookbook"
 version = "0.1.0"
 dependencies = [
- "backon",
  "cookbook",
  "cookbook-fixtures",
  "directories",
- "dotenvy",
  "ego-tree",
  "futures",
- "httpdate",
  "ingredient",
  "insta",
  "jiff",
  "js-sys",
  "mime_guess",
  "petgraph",
- "rand",
  "rayon",
  "recipe-types",
  "regex",
@@ -826,6 +813,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "strsim",
+ "strum",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -1615,7 +1603,6 @@ dependencies = [
  "tauri-plugin-window-state",
  "tempfile",
  "tokio",
- "tracing",
  "tracing-subscriber",
  "ts-rs",
 ]
@@ -1640,12 +1627,10 @@ dependencies = [
  "rayon",
  "recipe-scraper-fetcher",
  "rstest",
- "serde",
  "serde_json",
  "tabled",
  "terminal_size",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -2262,12 +2247,6 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
-
-[[package]]
-name = "httpdate"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hybrid-array"
@@ -5023,6 +5002,27 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "subtle"

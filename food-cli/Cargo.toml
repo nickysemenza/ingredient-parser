@@ -15,7 +15,6 @@ rand = "0.9"
 jiff = "0.2"
 tokio = { workspace = true, features = ["full"] }
 futures.workspace = true
-serde.workspace = true # corpus-row deserialization for `corpus shadow`
 serde_json.workspace = true
 ingredient.workspace = true
 ingredient-corpus.workspace = true # corpus schema, loader, and both amount-rendering lenses
@@ -25,7 +24,6 @@ maud = "0.27"  # compile-time, auto-escaping HTML for the corpus table
 miette.workspace = true # rich --explain diagnostics with source carets
 terminal_size = "0.4"
 tabled.workspace = true # pretty CLI tables
-tracing.workspace = true
 rayon = "1" # classify a library's books in parallel
 tracing-subscriber = { version = "0.3", features = ["env-filter"] } # surface extractor warns (chunk skips, escalation) via RUST_LOG
 

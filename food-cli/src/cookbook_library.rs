@@ -293,23 +293,30 @@ pub async fn sweep(
                     *k += 1;
                     *k
                 };
-                if let Some(max) = args.max_cost {
-                    let projected = spent.lock().unwrap_or_else(|e| e.into_inner()).projected();
-                    if projected + estimate.1 > max {
-                        eprintln!(
-                            "[skip {n}/{total}] {} · would pass --max-cost (${projected:.2} + ${:.2})",
-                            c.title, estimate.1
-                        );
-                        return (
-                            c.sha256,
-                            RowStatus::Skipped {
-                                reason: "budget".into(),
-                            },
-                            0.0,
-                        );
-                    }
+                // Check and reserve under one lock: two books admitted
+                // back-to-back must each see the other's reservation.
+                let projected = spent
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .admit(&c.sha256, estimate.1, args.max_cost);
+                if let Err(projected) = projected {
+                    eprintln!(
+                        "[skip {n}/{total}] {} · would pass --max-cost (${projected:.2} + ${:.2})",
+                        c.title, estimate.1
+                    );
+                    return (
+                        c.sha256,
+                        RowStatus::Skipped {
+                            reason: "budget".into(),
+                        },
+                        0.0,
+                    );
                 }
                 if cancel.is_cancelled() {
+                    spent
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .release(&c.sha256);
                     return (
                         c.sha256,
                         RowStatus::Skipped {
@@ -322,15 +329,21 @@ pub async fn sweep(
                     "[start {n}/{total}] {} · {} chunks · est ${:.2}–${:.2}",
                     c.title, estimate.2, estimate.0, estimate.1
                 );
-                let bytes = match std::fs::read(&c.path) {
+                let opened = std::fs::read(&c.path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|bytes| {
+                        Book::open(bytes, label_for(&c.path)).map_err(|e| e.to_string())
+                    });
+                let book = match opened {
                     Ok(b) => b,
-                    Err(e) => return (c.sha256, RowStatus::Failed { error: e.to_string() }, 0.0),
+                    Err(error) => {
+                        spent
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .release(&c.sha256);
+                        return (c.sha256, RowStatus::Failed { error }, 0.0);
+                    }
                 };
-                let book = match Book::open(bytes, label_for(&c.path)) {
-                    Ok(b) => b,
-                    Err(e) => return (c.sha256, RowStatus::Failed { error: e.to_string() }, 0.0),
-                };
-                spent.lock().unwrap_or_else(|e| e.into_inner()).start(&c.sha256);
                 let progress = {
                     let spent = Arc::clone(&spent);
                     let sha = c.sha256.clone();
@@ -338,14 +351,13 @@ pub async fn sweep(
                         spent
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
-                            .in_flight
-                            .insert(sha.clone(), p.cost_so_far_usd);
+                            .observe(&sha, p.cost_so_far_usd);
                     }
                 };
                 let started = std::time::Instant::now();
                 let result = book.extract(&options, transport, cache, &cancel, progress).await;
                 let mut ledger = spent.lock().unwrap_or_else(|e| e.into_inner());
-                ledger.in_flight.remove(&c.sha256);
+                ledger.release(&c.sha256);
                 match result {
                     Ok(extraction) => {
                         let cost = extraction.report.total_cost_usd;
@@ -415,21 +427,44 @@ pub async fn sweep(
     })
 }
 
-/// Money spent so far: finished books plus the live cost of the ones in
-/// flight.
+/// Money spent so far: finished books plus, for each book in flight, the
+/// larger of its reserved estimate and its live cost.
 #[derive(Default)]
 struct Spend {
     finished: f64,
-    in_flight: BTreeMap<String, f64>,
+    /// `sha → (reserved estimate, live cost)`.
+    in_flight: BTreeMap<String, (f64, f64)>,
 }
 
 impl Spend {
-    fn start(&mut self, sha: &str) {
-        self.in_flight.insert(sha.to_string(), 0.0);
+    /// Admit a book under the ceiling, reserving its high estimate, or
+    /// refuse it with the projection that would have been exceeded.
+    fn admit(&mut self, sha: &str, estimate_high: f64, max: Option<f64>) -> Result<f64, f64> {
+        let projected = self.projected();
+        if max.is_some_and(|m| projected + estimate_high > m) {
+            return Err(projected);
+        }
+        self.in_flight.insert(sha.to_string(), (estimate_high, 0.0));
+        Ok(projected)
+    }
+
+    fn observe(&mut self, sha: &str, live_cost: f64) {
+        if let Some(entry) = self.in_flight.get_mut(sha) {
+            entry.1 = live_cost;
+        }
+    }
+
+    fn release(&mut self, sha: &str) {
+        self.in_flight.remove(sha);
     }
 
     fn projected(&self) -> f64 {
-        self.finished + self.in_flight.values().sum::<f64>()
+        self.finished
+            + self
+                .in_flight
+                .values()
+                .map(|(reserved, live)| reserved.max(*live))
+                .sum::<f64>()
     }
 }
 
@@ -519,6 +554,21 @@ mod tests {
             title: title.to_string(),
             authors: vec![author.to_string()],
         }
+    }
+
+    /// Two $5 books under a $6 ceiling: the second sees the first's
+    /// reservation and is refused; live cost above the estimate counts.
+    #[test]
+    fn budget_reservations_are_visible_to_the_next_admission() {
+        let mut spend = Spend::default();
+        assert_eq!(spend.admit("a", 5.0, Some(6.0)), Ok(0.0));
+        assert_eq!(spend.admit("b", 5.0, Some(6.0)), Err(5.0));
+        spend.observe("a", 5.5);
+        assert!((spend.projected() - 5.5).abs() < 1e-9);
+        spend.release("a");
+        spend.finished += 5.5;
+        assert_eq!(spend.admit("b", 0.4, Some(6.0)), Ok(5.5));
+        assert!(spend.admit("c", 1.0, None).is_ok(), "no ceiling admits");
     }
 
     /// One book per author before a second from anyone; the same seed
