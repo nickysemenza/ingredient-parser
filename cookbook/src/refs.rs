@@ -102,7 +102,7 @@ pub fn resolve(
         .map(|(o, i)| (normalize_title(i.title()), i.title().to_string(), o))
         .filter(|(n, _, _)| !n.is_empty())
         .collect();
-    titles.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    titles.sort_by_key(|(normalized, _, _)| std::cmp::Reverse(normalized.len()));
     let index = Index {
         book,
         ids,

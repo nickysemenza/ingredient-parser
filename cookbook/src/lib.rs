@@ -40,7 +40,9 @@ pub mod run;
 pub mod test_support;
 pub mod transport;
 pub mod validate;
-#[cfg(feature = "wasm")]
+// The JavaScript boundary only makes sense on wasm32; a native build with
+// every feature on (coverage) must not compile it.
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 pub mod wasm;
 
 pub use cost::{Usage, cost_for_usage};

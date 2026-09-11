@@ -85,6 +85,8 @@ export function describeFlag(flag: Flag): string {
       return `caption read as a title (line ${flag.line})`;
     case "unassigned_lines":
       return `${flag.count} unassigned lines`;
+    case "prose_ingredients":
+      return `ingredients written as prose: ${flag.title}`;
   }
 }
 export interface ItemCounts {
