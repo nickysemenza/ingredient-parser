@@ -24,7 +24,7 @@ use crate::gateway::{
     transient_backoff_ms,
 };
 use crate::lines::BookLines;
-use crate::models::Model;
+use crate::models::{Model, effective_reasoning};
 use crate::report::{
     CallOutcome, CallPurpose, CallRecord, Chosen, ChunkReport, ChunkStatus, CrossCheck, Escalation,
     EtaSample, ExtractOptions, Flag, Phase, Progress, SecondOpinion,
@@ -131,7 +131,13 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
             purpose: purpose_str(purpose),
             gateway_cache: self.input.options.gateway_cache,
         };
-        let http = build_http(model, request, self.input.options.max_output_tokens, &meta);
+        let http = build_http(
+            model,
+            request,
+            self.input.options.max_output_tokens,
+            &meta,
+            effective_reasoning(model, self.input.options),
+        );
         let key = cache_key(CONTRACT_VERSION, model.id, model.route.as_str(), &http.body);
         let started_ms = self.now_ms();
         let seq = self.seq.fetch_add(1, Ordering::SeqCst);

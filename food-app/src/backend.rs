@@ -676,6 +676,7 @@ fn bindings() -> Vec<(String, Vec<String>)> {
         entry::<cookbook::UnresolvedRef>(&cfg),
         entry::<cookbook::ModelUsage>(&cfg),
         entry::<cookbook::EtaSample>(&cfg),
+        entry::<cookbook::models::Reasoning>(&cfg),
     ]
 }
 

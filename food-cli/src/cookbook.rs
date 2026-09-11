@@ -11,6 +11,7 @@ use clap::{Args, Subcommand};
 use cookbook::cache::{ChunkCache, NoCache};
 use cookbook::classify::{Classification, classify_structure};
 use cookbook::eval::{self, Expectations};
+use cookbook::models::Reasoning;
 use cookbook::native::runs::{self, RunSummary};
 use cookbook::native::{DumpTransport, FsChunkCache, ReplayTransport, ReqwestTransport};
 use cookbook::{
@@ -164,6 +165,9 @@ pub struct RunFlags {
     /// Label in reports and gateway metadata (default: the file name).
     #[arg(long)]
     pub label: Option<String>,
+    /// Override every model's thinking setting: default, none, low, medium, high.
+    #[arg(long)]
+    pub reasoning: Option<Reasoning>,
 }
 
 impl RunFlags {
@@ -183,6 +187,7 @@ impl RunFlags {
             whole_book_escalation: !self.no_escalation,
             max_output_tokens: default.max_output_tokens,
             gateway_cache: use_cache,
+            reasoning: self.reasoning,
         }
     }
 }
@@ -407,6 +412,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
                             m.id.to_string(),
                             m.provider.as_str().to_string(),
                             if m.enabled { "yes".into() } else { "no".into() },
+                            m.reasoning.to_string(),
                             r,
                             format!(
                                 "{:.1}s / {:.0} tok/s ({})",
@@ -425,6 +431,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
                             "model",
                             "provider",
                             "enabled",
+                            "reasoning",
                             "$/M in / out",
                             "priors",
                             "status"

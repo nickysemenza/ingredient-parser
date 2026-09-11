@@ -55,6 +55,9 @@ pub struct ExtractOptions {
     /// Let AI Gateway answer a repeated request from its cache (30-day TTL).
     /// Off for evaluation runs, which must measure the model, not the cache.
     pub gateway_cache: bool,
+    /// Override every model's catalog reasoning setting; `None` keeps each
+    /// model's own.
+    pub reasoning: Option<crate::models::Reasoning>,
 }
 
 impl Default for ExtractOptions {
@@ -67,6 +70,7 @@ impl Default for ExtractOptions {
             whole_book_escalation: true,
             max_output_tokens: 16_000,
             gateway_cache: true,
+            reasoning: None,
         }
     }
 }

@@ -199,7 +199,13 @@ impl Book {
                     purpose: "extract",
                     gateway_cache: options.gateway_cache,
                 };
-                let http = build_http(primary, &request, options.max_output_tokens, &meta);
+                let http = build_http(
+                    primary,
+                    &request,
+                    options.max_output_tokens,
+                    &meta,
+                    models::effective_reasoning(primary, options),
+                );
                 cache
                     .get(&cache_key(
                         CONTRACT_VERSION,
@@ -216,11 +222,10 @@ impl Book {
     pub fn estimate(&self, options: &ExtractOptions, cache: &impl ChunkCache) -> Result<Estimate> {
         let ladder = models::resolve_ladder(&options.ladder)?;
         let hits = self.cache_hits(&ladder, options, cache);
-        Ok(eta::cold_estimate(
-            &self.chunks,
+        Ok(with_reasoning_assumptions(
+            eta::cold_estimate(&self.chunks, &ladder, options.concurrency, hits),
             &ladder,
-            options.concurrency,
-            hits,
+            options,
         ))
     }
 
@@ -237,7 +242,11 @@ impl Book {
         let started = Timestamp::now();
         let ladder = models::resolve_ladder(&options.ladder)?;
         let hits = self.cache_hits(&ladder, options, cache);
-        let estimate = eta::cold_estimate(&self.chunks, &ladder, options.concurrency, hits);
+        let estimate = with_reasoning_assumptions(
+            eta::cold_estimate(&self.chunks, &ladder, options.concurrency, hits),
+            &ladder,
+            options,
+        );
         let input = RunInput {
             book: &self.lines,
             nav: &self.nav,
@@ -378,4 +387,22 @@ mod typescript_tests {
         assert!(line.contains("parsed: Ingredient"), "{line}");
         assert!(line.contains("ref: RecipeRef | null"), "{line}");
     }
+}
+
+/// Name each model's non-default reasoning setting in the estimate, so the
+/// run report records how much thinking a run allowed.
+fn with_reasoning_assumptions(
+    mut estimate: Estimate,
+    ladder: &[&'static Model],
+    options: &ExtractOptions,
+) -> Estimate {
+    for model in ladder {
+        let setting = models::effective_reasoning(model, options);
+        if setting != models::Reasoning::Default {
+            estimate
+                .assumptions
+                .push(format!("{}: reasoning {setting}", model.id));
+        }
+    }
+    estimate
 }
