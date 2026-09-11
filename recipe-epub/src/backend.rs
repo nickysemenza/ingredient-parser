@@ -687,6 +687,7 @@ impl GatewayClient {
         let known = *usage != Usage::default();
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).push(
             crate::review::store::CallRecord {
+                telemetry: None,
                 failure: result.as_ref().err().map(|failure| match &failure.error {
                     EpubError::Request(details) => json!(details),
                     _ => json!({"kind":"validation", "message":failure.error.to_string()}),
@@ -1225,14 +1226,18 @@ fn decode_responses_response(text: &str) -> ToolResponse {
     let cached = value["usage"]["input_tokens_details"]["cached_tokens"]
         .as_u64()
         .unwrap_or(0);
+    let cache_written = value["usage"]["input_tokens_details"]["cache_write_tokens"]
+        .as_u64()
+        .unwrap_or(0);
+    let input_tokens = value["usage"]["input_tokens"].as_u64().unwrap_or(0);
     let usage = Usage {
-        input_tokens: value["usage"]["input_tokens"]
-            .as_u64()
-            .unwrap_or(0)
-            .saturating_sub(cached),
+        // Responses reports cache reads and writes as subsets of input_tokens.
+        // Preserve malformed overlapping detail as separately chargeable rather
+        // than letting it underflow ordinary input or silently discard usage.
+        input_tokens: input_tokens.saturating_sub(cached.saturating_add(cache_written)),
         output_tokens: value["usage"]["output_tokens"].as_u64().unwrap_or(0),
+        cache_creation_input_tokens: cache_written,
         cache_read_input_tokens: cached,
-        ..Usage::default()
     };
     let reason = (value["status"] == "incomplete").then(|| "length".to_owned());
     let args = value["output"]
@@ -1278,6 +1283,27 @@ pub(crate) enum Backend {
     OpenAi(OpenAiExtractor),
 }
 
+/// Native transport for caller-owned, durably budgeted recovery adapters.
+pub struct RecoveryBackend(Backend);
+
+impl RecoveryBackend {
+    /// Configure the existing catalog model and Gateway credentials.
+    pub fn from_env(options: &Options, source: &str) -> Result<Self, EpubError> {
+        Backend::from_env(options, source).map(Self)
+    }
+
+    /// Dispatch once after reserving the action's cost. No retries or model
+    /// admission occur here; interrupted charges must remain reserved.
+    pub async fn recovery_call(&self, action: &crate::recovery::Action) -> ToolResponse {
+        self.0.recovery_call(action).await
+    }
+
+    /// Take reported usage without counting reasoning tokens twice.
+    pub fn recovery_usage(&self, key: &str) -> Option<serde_json::Value> {
+        self.0.recovery_usage(key)
+    }
+}
+
 impl Backend {
     pub(crate) fn take_calls(&self, chunk: &Chunk) -> Vec<crate::review::store::CallRecord> {
         let conn = match self {
@@ -1311,7 +1337,10 @@ impl Backend {
         }
     }
 
-    pub(crate) fn recovery_usage(&self, key: &str) -> Option<serde_json::Value> {
+    /// Take provider-reported usage for an exact recovery request. Native
+    /// adapters persist this alongside the normalized usage without adding
+    /// reasoning tokens a second time.
+    pub fn recovery_usage(&self, key: &str) -> Option<serde_json::Value> {
         let conn = match self {
             Self::Claude(e) => &e.conn,
             Self::OpenAi(e) => &e.conn,
@@ -1321,7 +1350,11 @@ impl Backend {
             .unwrap_or_else(|e| e.into_inner())
             .remove(key)
     }
-    pub(crate) async fn recovery_call(&self, action: &crate::recovery::Action) -> ToolResponse {
+    /// Dispatch one structured recovery action with its operation output limit.
+    /// The caller must durably reserve its cost before calling and preserve
+    /// unknown charges on interruption. This method does not retry or admit
+    /// verifier models; those decisions belong to the portable policy.
+    pub async fn recovery_call(&self, action: &crate::recovery::Action) -> ToolResponse {
         self.call_tool(
             ToolCall {
                 system: &action.request.system,
@@ -1329,7 +1362,7 @@ impl Backend {
                 tool_name: &action.request.tool_name,
                 tool_desc: "Return the requested structured result",
                 schema: action.request.tool_schema.clone(),
-                max_tokens: 16000,
+                max_tokens: action.output_limit,
             },
             &CallMeta {
                 id: &action.key,
@@ -1651,19 +1684,34 @@ mod tests {
     }
 
     #[test]
-    fn responses_usage_counts_cached_input_once_and_preserves_truncation() {
-        let raw = json!({"status":"incomplete", "usage":{"input_tokens":100, "output_tokens":30, "input_tokens_details":{"cached_tokens":80}, "output_tokens_details":{"reasoning_tokens":20}}, "output":[{"type":"function_call", "arguments":"{\"recipes\":[]}"}]}).to_string();
+    fn responses_usage_separates_cache_reads_writes_and_preserves_truncation() {
+        let raw = json!({"status":"incomplete", "usage":{"input_tokens":100, "output_tokens":30, "input_tokens_details":{"cached_tokens":30, "cache_write_tokens":50}, "output_tokens_details":{"reasoning_tokens":20}}, "output":[{"type":"function_call", "arguments":"{\"recipes\":[]}"}]}).to_string();
         let (input, usage, reason) = decode_responses_response(&raw).unwrap();
         assert_eq!(input, Some(json!({"recipes":[]})));
         assert_eq!(usage.input_tokens, 20);
-        assert_eq!(usage.cache_read_input_tokens, 80);
+        assert_eq!(usage.cache_read_input_tokens, 30);
+        assert_eq!(usage.cache_creation_input_tokens, 50);
         assert_eq!(usage.output_tokens, 30); // Includes reasoning; never add it again.
         assert_eq!(reason.as_deref(), Some("length"));
+        let cost = crate::accounting::cost_for_usage("gpt-5.6-luna", &usage).unwrap();
+        assert!((cost - 0.000_053_1).abs() < f64::EPSILON);
         let mut value: serde_json::Value = serde_json::from_str(&raw).unwrap();
         value["output"][0]["arguments"] = json!("{");
         let error = decode_responses_response(&value.to_string()).unwrap_err();
         assert_eq!(error.usage, usage);
         assert!(error.truncated);
+    }
+
+    #[test]
+    fn responses_usage_keeps_overlapping_cache_details_conservative() {
+        let raw = json!({"usage":{"input_tokens":100, "output_tokens":30, "input_tokens_details":{"cached_tokens":80, "cache_write_tokens":50}}, "output":[{"type":"function_call", "arguments":"{\"recipes\":[]}"}]}).to_string();
+        let (_, usage, _) = decode_responses_response(&raw).unwrap();
+
+        // The provider detail is internally inconsistent. Do not invent a
+        // negative ordinary-input value or discard a billed cache category.
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.cache_read_input_tokens, 80);
+        assert_eq!(usage.cache_creation_input_tokens, 50);
     }
 
     #[test]

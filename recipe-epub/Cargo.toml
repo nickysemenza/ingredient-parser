@@ -6,6 +6,30 @@ rust-version.workspace = true
 license = "MIT"
 publish = false
 
+[[example]]
+name = "paid_verifier_evaluation"
+required-features = ["native"]
+
+[[example]]
+name = "paid_throughput_evaluation"
+required-features = ["native"]
+
+[[example]]
+name = "benchmark_recovery_plan"
+required-features = ["native"]
+
+[[example]]
+name = "paid_source_roles_evaluation"
+required-features = ["native"]
+
+[[example]]
+name = "paid_extraction_comparison"
+required-features = ["native"]
+
+[[example]]
+name = "evaluate_frozen_audit"
+required-features = ["native"]
+
 # Extract recipes from EPUB cookbooks: an LLM segments + labels structure
 # (title / ingredient lines / instruction steps); the core `ingredient` parser
 # (via recipe-parsing) still parses each ingredient line.
@@ -18,9 +42,11 @@ publish = false
 # extraction transport through `extract_chunks_with`.
 [features]
 default = ["native"]
-native = ["dep:reqwest", "dep:tokio", "dep:walkdir", "dep:fs2", "dep:dotenvy", "dep:httpdate"]
+typescript = ["dep:ts-rs"]
+native = ["dep:reqwest", "dep:tokio", "dep:walkdir", "dep:fs2", "dep:dotenvy", "dep:httpdate", "dep:unicode-casefold", "dep:unicode-normalization"]
 
 [dependencies]
+ts-rs = { version = "12.0.1", optional = true }
 httpdate = { version = "1", optional = true }
 dotenvy = { workspace = true, optional = true }
 fs2 = { version = "0.4", optional = true }
@@ -32,10 +58,13 @@ ingredient.workspace = true
 recipe-types.workspace = true  # plain data shapes (RecipeMeta/CookbookRecipe/…)
 recipe-parsing.workspace = true  # shared parsed shapes and section execution
 serde.workspace = true
-serde_json.workspace = true
+# Frozen reservation bounds must survive JSON persistence without f64 drift.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 tracing.workspace = true
 futures.workspace = true
+unicode-casefold = { version = "0.2", optional = true }
+unicode-normalization = { version = "0.1", optional = true }
 # Native-only: HTTP client + async runtime for the live LLM extractors. Excluded
 # from the wasm build, which proxies the LLM call through JS instead.
 reqwest = { version = "0.13", features = ["json"], optional = true }  # default TLS is rustls in 0.13
@@ -47,6 +76,7 @@ recipe-epub-fixtures.workspace = true
 rstest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 zip = "8"  # build tiny in-memory EPUB fixtures (epub itself reads via zip 3)
+tempfile = "3"
 
 [lints]
 workspace = true

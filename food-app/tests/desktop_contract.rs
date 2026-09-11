@@ -93,6 +93,8 @@ impl Fixture {
             cache_dir: Some(self.path("empty-cache")),
             chunks: Vec::new(),
             budget_usd: 0.0,
+            strategy: recipe_epub::hybrid::HybridStrategy::Indexed,
+            concurrency: Some(4),
         }
     }
 }

@@ -79,6 +79,8 @@ test.beforeEach(async ({ page }) => {
           highUsd: 0.01,
           reservationUsd: 0.1,
           basis: "Fixture estimate",
+          extraction: { usd: [0, 0.01], basis: "Fixture extraction", uncalibrated: true },
+          verification: { usd: [0, 0], basis: "Fixture verification", uncalibrated: false },
         };
       if (command === "cookbook_results") return { rows: [{
         latest: { path: data.cookbook.path, title: "Fixture cookbook", model: "test-model", promptVersion: "v8", configurations: ["test-model / v8", "parent-model / v7"], createdAt: null, recipes: 3, completed: 2, total: 10, incomplete: true, reservedUsd: 0.1, newSpendUsd: null, unresolvedUsd: 0.1, qualityFlags: 1 },
@@ -289,7 +291,7 @@ test("extraction saves automatically and preferences restore idle", async ({
         window as unknown as {
           __calls: {
             command: string;
-            args: { request?: { allowNetwork: boolean; out: string; resume: boolean; model: string } };
+            args: { request?: { allowNetwork: boolean; out: string; resume: boolean; model: string; strategy: string } };
           }[];
         }
       ).__calls,
@@ -299,6 +301,7 @@ test("extraction saves automatically and preferences restore idle", async ({
   expect(extraction?.args.request?.model).toBe("automatic");
   expect(extraction?.args.request?.resume).toBe(false);
   expect(extraction?.args.request?.out).toBe("");
+  expect(extraction?.args.request?.strategy).toBe("indexed");
   expect(calls.some((c) => c.command === "dialog_save")).toBe(false);
   await page.evaluate(() => {
     (window as unknown as { __finishExtraction: () => void }).__finishExtraction();
@@ -630,6 +633,8 @@ test("model dropdown focus and selection update preflight without extracting", a
           highUsd: request.model === "gpt-5.6-luna" ? 0.002 : 0.004,
           reservationUsd: 0.1,
           basis: "Fixture estimate",
+          extraction: { usd: [0.001, request.model === "gpt-5.6-luna" ? 0.002 : 0.004], basis: "Fixture extraction", uncalibrated: true },
+          verification: { usd: [0, 0], basis: "Fixture verification", uncalibrated: false },
         };
       }
       return original(command, args);
@@ -642,8 +647,12 @@ test("model dropdown focus and selection update preflight without extracting", a
   await page.getByText("Advanced options", { exact: true }).click();
   const picker = page.getByRole("combobox", { name: "Model", exact: true });
   await expect(picker).toHaveValue("automatic");
+  const concurrency = page.getByRole("combobox", { name: "Concurrent requests", exact: true });
+  await expect(concurrency).toHaveValue("4");
+  await concurrency.selectOption("8");
+  await expect(concurrency).toHaveValue("8");
   await expect(page.getByText(/estimated additional cost/)).toContainText(
-    "$0.0010–$0.0040",
+    "<$0.01–<$0.01",
   );
   await page.screenshot({ path: "/tmp/cookbook-extraction-preview.png" });
   await picker.focus();
@@ -651,7 +660,7 @@ test("model dropdown focus and selection update preflight without extracting", a
   await picker.selectOption("gpt-5.6-luna");
   await expect(picker).toHaveValue("gpt-5.6-luna");
   await expect(page.getByText(/estimated additional cost/)).toContainText(
-    "$0.0010–$0.0020",
+    "<$0.01–<$0.01",
   );
   await expect(page.getByLabel("Spending limit (USD)")).toHaveValue("10");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();

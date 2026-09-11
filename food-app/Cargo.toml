@@ -15,7 +15,7 @@ recipe-parsing.workspace = true
 recipe-types.workspace = true
 recipe-scraper.workspace = true
 recipe-scraper-fetcher.workspace = true
-recipe-epub.workspace = true
+recipe-epub = { workspace = true, features = ["typescript"] }
 ingredient.workspace = true
 ingredient-corpus.workspace = true
 serde.workspace = true

@@ -2,10 +2,16 @@
 //! Loading and rendering never start extraction; every write has an explicit path.
 use base64::Engine;
 use ingredient::{IngredientParser, ParseOptions, TraceDetail};
+use recipe_epub::hybrid::HybridStrategy;
+use recipe_epub::review::preflight::CostEstimate;
 use recipe_epub::review::{ReviewDecision, ReviewDecisions, ReviewRun, RunOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+};
 use ts_rs::TS;
 
 type AppResult<T> = Result<T, String>;
@@ -190,6 +196,15 @@ pub struct CookbookResult {
     pub recipes: Vec<CookbookRecipe>,
     pub chunks: Vec<CookbookChunk>,
     pub review: Vec<ReviewNote>,
+    /// Typed AI audit evidence; human decisions remain in the sidecar.
+    #[serde(default)]
+    pub hybrid_audits: Vec<recipe_epub::hybrid::AuditResult>,
+    #[serde(default)]
+    pub applied_corrections: Vec<recipe_epub::hybrid::AppliedCorrection>,
+    /// Source-context expansion requests remain separate from AI findings and
+    /// applied corrections; they never establish acceptance by themselves.
+    #[serde(default)]
+    pub audit_context_expansions: Vec<recipe_epub::recovery::AuditContextExpansion>,
     /// Original library payload, preserved for source inspection and export.
     pub run: Value,
 }
@@ -206,6 +221,16 @@ pub struct ExtractionRequest {
     pub cache_dir: Option<String>,
     pub chunks: Vec<String>,
     pub budget_usd: f64,
+    /// Shared extraction contract name; indexed preserves the legacy default.
+    #[serde(default = "default_strategy")]
+    pub strategy: HybridStrategy,
+    #[serde(default)]
+    #[ts(optional)]
+    pub concurrency: Option<u8>,
+}
+
+fn default_strategy() -> HybridStrategy {
+    HybridStrategy::Indexed
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -652,6 +677,23 @@ fn result(run: &ReviewRun, path: Option<&str>) -> AppResult<CookbookResult> {
                 note: d.note,
             })
             .collect(),
+        hybrid_audits: run.hybrid_audits.clone(),
+        applied_corrections: run
+            .recovery
+            .as_ref()
+            .into_iter()
+            .flat_map(|state| state.groups.iter())
+            .flat_map(|group| group.candidates.iter())
+            .flat_map(|candidate| candidate.hybrid_correction_history.iter().cloned())
+            .collect(),
+        audit_context_expansions: run
+            .recovery
+            .as_ref()
+            .into_iter()
+            .flat_map(|state| state.groups.iter())
+            .flat_map(|group| group.candidates.iter())
+            .flat_map(|candidate| candidate.audit_context_expansions.iter().cloned())
+            .collect(),
         run: serde_json::to_value(run).map_err(|e| e.to_string())?,
     })
 }
@@ -678,6 +720,11 @@ pub struct ExtractionPreview {
     pub pending: usize,
     pub low_usd: Option<f64>,
     pub high_usd: Option<f64>,
+    pub extraction: CostEstimate,
+    pub verification: CostEstimate,
+    #[serde(default)]
+    #[ts(optional)]
+    pub warm_ms: Option<f64>,
     pub reservation_usd: Option<f64>,
     pub basis: String,
 }
@@ -801,13 +848,111 @@ fn shared_request(request: ExtractionRequest) -> recipe_epub::review::Extraction
             cache_dir: request.cache_dir.map(Into::into),
             chunks: request.chunks,
             budget_usd: request.budget_usd,
-            concurrency: 4,
+            concurrency: usize::from(request.concurrency.unwrap_or(4).clamp(1, 8)),
+            strategy: request.strategy,
         },
     }
 }
+
+// v4 includes navigation-document semantics in the bound inspection identity.
+const INSPECTION_CONTRACT_VERSION: &str = "cookbook-inspection-v4";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InspectionIdentity {
+    path: PathBuf,
+    file_id: String,
+    length: u64,
+    modified_nanos: u128,
+    source_hash: String,
+    contract: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct CachedInspection {
+    identity: InspectionIdentity,
+    run: ReviewRun,
+}
+
+static INSPECTIONS: OnceLock<Mutex<HashMap<PathBuf, CachedInspection>>> = OnceLock::new();
+
+fn inspect_book_cached(path: &Path, model: &str) -> AppResult<ReviewRun> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|e| format!("Cannot inspect {}: {e}", path.display()))?;
+    let modified_nanos = metadata
+        .modified()
+        .map_err(|e| format!("Cannot inspect {}: {e}", path.display()))?
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    #[cfg(unix)]
+    let file_id = {
+        use std::os::unix::fs::MetadataExt;
+        format!("{}:{}", metadata.dev(), metadata.ino())
+    };
+    #[cfg(not(unix))]
+    let file_id = String::new();
+    let bytes =
+        std::fs::read(&canonical).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    let source_hash = recipe_epub::review::hash(&bytes);
+    let metadata_identity = InspectionIdentity {
+        path: canonical.clone(),
+        file_id,
+        length: metadata.len(),
+        modified_nanos,
+        source_hash,
+        contract: INSPECTION_CONTRACT_VERSION,
+    };
+    let cache = INSPECTIONS.get_or_init(|| Mutex::new(HashMap::new()));
+    {
+        let entries = cache
+            .lock()
+            .map_err(|_| "Inspection cache is unavailable".to_owned())?;
+        if let Some(existing) = entries.get(&canonical)
+            && existing.identity == metadata_identity
+        {
+            let mut run = existing.run.clone();
+            // Source inspection is model-independent; only the requested run
+            // configuration changes when the dropdown changes.
+            run.model = model.into();
+            run.source = path.to_string_lossy().into_owned();
+            return Ok(run);
+        }
+    }
+    let candidate = recipe_epub::review::ReviewRun::inspect(&bytes, &path.to_string_lossy(), model)
+        .map_err(|e| e.to_string())?;
+    let mut entries = cache
+        .lock()
+        .map_err(|_| "Inspection cache is unavailable".to_owned())?;
+    if entries.len() >= 8
+        && !entries.contains_key(&canonical)
+        && let Some(evicted) = entries.keys().next().cloned()
+    {
+        entries.remove(&evicted);
+    }
+    entries.insert(
+        canonical,
+        CachedInspection {
+            identity: metadata_identity,
+            run: candidate.clone(),
+        },
+    );
+    Ok(candidate)
+}
+
 pub fn extraction_preview(request: ExtractionRequest) -> AppResult<ExtractionPreview> {
+    let started = std::time::Instant::now();
     let request = shared_request(request);
-    let run = recipe_epub::review::prepare(&request).map_err(|e| e.to_string())?;
+    let initial_model = if request.model == recipe_epub::recovery::AUTOMATIC {
+        recipe_epub::recovery::ORDER[0]
+    } else {
+        &request.model
+    };
+    let fresh = inspect_book_cached(&request.book, initial_model)?;
+    let run =
+        recipe_epub::review::prepare_from_inspection(&request, fresh).map_err(|e| e.to_string())?;
     let plan =
         recipe_epub::review::preflight::plan(&run, &request.options).map_err(|e| e.to_string())?;
     Ok(ExtractionPreview {
@@ -819,6 +964,9 @@ pub fn extraction_preview(request: ExtractionRequest) -> AppResult<ExtractionPre
         pending: plan.pending,
         low_usd: plan.estimated_low_usd,
         high_usd: plan.estimated_high_usd,
+        extraction: plan.extraction,
+        verification: plan.verification,
+        warm_ms: Some(started.elapsed().as_secs_f64() * 1000.0),
         reservation_usd: plan.reservation_usd,
         basis: plan.basis.into(),
     })
@@ -828,13 +976,12 @@ pub fn export_run(path: String, out: String) -> AppResult<()> {
 }
 
 pub fn inspect_book(path: String, model: Option<String>) -> AppResult<CookbookResult> {
-    let run = recipe_epub::review::store::inspect(
+    let run = inspect_book_cached(
         Path::new(&path),
         model
             .as_deref()
             .unwrap_or(recipe_epub::models::DEFAULT_MODEL),
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
     result(&run, None)
 }
 pub fn open_run(path: String) -> AppResult<CookbookResult> {
@@ -989,6 +1136,16 @@ pub fn load_images(run_path: Option<String>, book_path: String) -> AppResult<Vec
 pub fn bindings_source() -> String {
     let declarations = [
         ModelChoice::decl(&ts_rs::Config::default()),
+        recipe_epub::hybrid::HybridStrategy::decl(&ts_rs::Config::default()),
+        recipe_epub::hybrid::SourceSpan::decl(&ts_rs::Config::default()),
+        recipe_epub::hybrid::FieldAssignment::decl(&ts_rs::Config::default()),
+        recipe_epub::hybrid::AssignmentIssue::decl(&ts_rs::Config::default()),
+        recipe_epub::hybrid::TextOverride::decl(&ts_rs::Config::default()),
+        recipe_epub::hybrid::AuditCorrection::decl(&ts_rs::Config::default()),
+        recipe_epub::hybrid::AppliedCorrection::decl(&ts_rs::Config::default()),
+        recipe_epub::hybrid::AuditResult::decl(&ts_rs::Config::default()),
+        recipe_epub::recovery::AuditContextExpansion::decl(&ts_rs::Config::default()),
+        CostEstimate::decl(&ts_rs::Config::default()),
         ExtractionPreview::decl(&ts_rs::Config::default()),
         SavedRun::decl(&ts_rs::Config::default()),
         ModelBookResult::decl(&ts_rs::Config::default()),
@@ -1204,6 +1361,83 @@ mod tests {
         );
         assert!(save_review(path, document, "invalid".into(), String::new()).is_err());
     }
+
+    #[test]
+    fn inspection_cache_reuses_source_across_models_and_invalidates_hash_changes() {
+        let fixture = Fixture::new();
+        let book = fixture.book();
+        let first = inspect_book(book.clone(), Some("gemini-2.5-flash".into())).unwrap();
+        let second = inspect_book(book.clone(), Some("@cf/zai-org/glm-5.3-flash".into())).unwrap();
+        assert_eq!(first.source_hash, second.source_hash);
+        assert_eq!(
+            serde_json::to_value(&first.documents).unwrap(),
+            serde_json::to_value(&second.documents).unwrap()
+        );
+        assert_eq!(second.model, "@cf/zai-org/glm-5.3-flash");
+        let canonical = std::path::Path::new(&book).canonicalize().unwrap();
+        INSPECTIONS
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_mut(&canonical)
+            .unwrap()
+            .identity
+            .source_hash = "stale-cache-hash".into();
+        let refreshed = inspect_book(book.clone(), Some("gemini-2.5-flash".into())).unwrap();
+        assert_eq!(first.source_hash, refreshed.source_hash);
+
+        let mut bytes = std::fs::read(&book).unwrap();
+        let marker = b"Lemon dressing";
+        let offset = bytes
+            .windows(marker.len())
+            .position(|window| window == marker)
+            .expect("fixture title");
+        bytes[offset] = b'M';
+        std::fs::write(&book, bytes).unwrap();
+        let changed = inspect_book(book, Some("gemini-2.5-flash".into())).unwrap();
+        assert_ne!(first.source_hash, changed.source_hash);
+    }
+
+    #[test]
+    fn warm_preview_p95_stays_below_half_second_over_one_hundred_options() {
+        let fixture = Fixture::new();
+        let book = fixture.book();
+        let mut request = ExtractionRequest {
+            book,
+            out: String::new(),
+            model: "gemini-2.5-flash".into(),
+            resume: false,
+            from: None,
+            allow_network: false,
+            refresh: false,
+            cache_dir: Some(fixture.path("empty-cache")),
+            chunks: vec![],
+            budget_usd: 0.0,
+            strategy: default_strategy(),
+            concurrency: Some(4),
+        };
+        // Prime source inspection and the planner before measuring option changes.
+        extraction_preview(request.clone()).unwrap();
+        let mut samples = Vec::with_capacity(100);
+        for index in 0..100 {
+            request.model = if index % 2 == 0 {
+                "gemini-2.5-flash".into()
+            } else {
+                "@cf/zai-org/glm-5.3-flash".into()
+            };
+            let started = std::time::Instant::now();
+            extraction_preview(request.clone()).unwrap();
+            samples.push(started.elapsed());
+        }
+        samples.sort_unstable();
+        let p95 = samples[94];
+        assert!(
+            p95 < std::time::Duration::from_millis(500),
+            "warm preview p95 was {p95:?}"
+        );
+    }
+
     #[test]
     fn cache_only_extraction_is_durable_without_credentials_and_cannot_overwrite() {
         let fixture = Fixture::new();
@@ -1220,6 +1454,8 @@ mod tests {
             cache_dir: Some(fixture.path("empty-cache")),
             chunks: vec![],
             budget_usd: 0.0,
+            strategy: default_strategy(),
+            concurrency: Some(4),
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         let run = rt.block_on(extract_run(request.clone(), |_| {})).unwrap();

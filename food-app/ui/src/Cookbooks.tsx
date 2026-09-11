@@ -1,5 +1,5 @@
 import { ModelResults } from "./ModelResults";
-import type { ModelChoice, ExtractionPreview, SavedRun } from "./generated";
+import type { CostEstimate, ModelChoice, ExtractionPreview, SavedRun } from "./generated";
 import { RecipeScale } from "@ingredient-parser/recipe-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -19,6 +19,7 @@ import {
   savePath,
   type CookbookRecipe,
   type CookbookResult,
+  type AuditCorrection,
   type ExtractionProgress,
   type IngredientInspection,
   type Json,
@@ -40,10 +41,43 @@ import {
   type ReviewAction,
   type WorkspaceStatus,
 } from "./shell";
+import { schedulePreview } from "./preview";
 const titleOf = (doc: SourceDocument) =>
   doc.blocks.find((b) => /^h[123]$/.test(b.tag))?.text ??
   doc.blocks.find((b) => b.text)?.text ??
   doc.path;
+const correctionText = (correction: AuditCorrection) => {
+  const spans = "spans" in correction ? correction.spans :
+    "span" in correction ? [correction.span] :
+    "at" in correction ? [correction.at] :
+    "from" in correction ? correction.from.spans : [];
+  const fallbackChunk =
+    correction.kind === "move_assignment" || correction.kind === "move_spans"
+      ? correction.from.owner_chunk
+      : correction.kind === "restore_span" || correction.kind === "replace_bounded_text"
+        ? correction.assignment.owner_chunk
+        : correction.kind === "merge_sections"
+          ? correction.owner_chunk
+          : undefined;
+  const source = spans.length
+    ? `source chunk ${spans.map((span) => `${span.chunk + 1}:${span.start + 1}-${span.end + 1}`).join(", ")}`
+    : typeof fallbackChunk === "number"
+      ? `source chunk ${fallbackChunk + 1}`
+      : "source chunk unresolved (legacy correction)";
+  if (correction.kind === "replace_bounded_text")
+    return `${correction.reason} · ${correction.before} → ${correction.after} · ${source}`;
+  return `${correction.reason} · ${correction.kind.replaceAll("_", " ")} · ${source}`;
+};
+export const auditStatus = (
+  audits: CookbookResult["hybridAudits"],
+  status: string,
+  incomplete: boolean,
+) =>
+  audits.length === 0
+    ? "not assessed"
+    : status === "complete" && !incomplete
+      ? "accepted"
+      : "findings";
 export function Cookbooks({
   onError,
   onBusy,
@@ -65,6 +99,10 @@ export function Cookbooks({
   reviewAction: ReviewAction;
   onStatus: (status: WorkspaceStatus) => void;
 }) {
+  const money = (value: number) =>
+    value < 0.005 ? "<$0.01" : `$${value.toFixed(2)}`;
+  const range = (usd: CostEstimate["usd"]) =>
+    usd ? `${money(usd[0])}–${money(usd[1])}` : "unknown";
   const recent = useRecentRuns();
   const [book, setBook] = useState<CookbookResult | null>(null);
   const [library, setLibrary] = useState<LibraryBook[]>([]);
@@ -109,18 +147,28 @@ export function Cookbooks({
   const [showExtraction, setShowExtraction] = useState(false);
   const [allowNetwork, setAllowNetwork] = useState(true);
   const [budget, setBudget] = useState(10);
+  const [concurrency, setConcurrency] = useState(4);
   const [refresh, setRefresh] = useState(false);
   const [model, setModel] = useStored("v2:extraction-model", "automatic");
+  const [strategy, setStrategy] = useStored<"indexed" | "hybrid">(
+    "v1:extraction-strategy",
+    "indexed",
+    ["indexed", "hybrid"],
+  );
   const [chunkSelection, setChunkSelection] = useState<string[]>([]);
   const [inspectPath, setInspectPath] = useStored("v1:book-path", "");
   const [showPath, setShowPath] = useState(false);
   const [size, setSize] = useState({ width: 1200, height: 800 });
   const work = useRef<HTMLDivElement>(null);
   const operation = useRef(0);
+  const previewGeneration = useRef(0);
   const running = useRef(false);
   const didStartup = useRef(false);
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
   const doc = book?.documents[selected];
+  const audits = book?.hybridAudits ?? [];
+  const appliedCorrections = book?.appliedCorrections ?? [];
+  const contextExpansions = book?.auditContextExpansions ?? [];
   const dirty = false;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
   useEffect(() => {
@@ -346,29 +394,36 @@ export function Cookbooks({
   useEffect(() => {
     if (!showExtraction || !book) return;
     let active = true;
+    const generation = ++previewGeneration.current;
     setPreview(null);
     setPreviewError("");
-    void api
-      .preview({
-        book: book.source,
-        out: resumeRun ? (book.path ?? "") : "",
-        model: model || book.model,
-        resume: resumeRun,
-        from: refresh ? book.path : null,
-        allowNetwork,
-        refresh,
-        cacheDir: null,
-        chunks: chunkSelection,
-        budgetUsd: budget,
-      })
-      .then((value) => {
-        if (active) setPreview(value);
-      })
-      .catch((e) => {
-        if (active) setPreviewError(String(e));
-      });
+    const dispose = schedulePreview(
+      () =>
+        api.preview({
+          book: book.source,
+          out: resumeRun ? (book.path ?? "") : "",
+          model: model || book.model,
+          resume: resumeRun,
+          from: refresh ? book.path : null,
+          allowNetwork,
+          refresh,
+          cacheDir: null,
+          chunks: chunkSelection,
+          budgetUsd: budget,
+          strategy,
+          concurrency,
+        }),
+      (value) => {
+        if (active && generation === previewGeneration.current) setPreview(value);
+      },
+      (e) => {
+        if (active && generation === previewGeneration.current)
+          setPreviewError(String(e));
+      },
+    );
     return () => {
       active = false;
+      dispose();
     };
   }, [
     showExtraction,
@@ -379,6 +434,8 @@ export function Cookbooks({
     refresh,
     chunkSelection,
     budget,
+    strategy,
+    concurrency,
   ]);
   useEffect(() => {
     if (!showHistory) return;
@@ -415,6 +472,8 @@ export function Cookbooks({
             cacheDir: null,
             chunks: chunkSelection,
             budgetUsd: budget,
+            strategy,
+            concurrency,
           },
           setProgress,
         ),
@@ -679,6 +738,10 @@ export function Cookbooks({
             <p className="caption run-counts">
               {book.recipes.length} recipes · {book.documents.length} documents
               {book.path && ` · ${book.status || (book.incomplete ? "Incomplete" : "Complete")} extraction`}
+              {book.run && typeof book.run === "object" && !Array.isArray(book.run) && "strategy" in book.run && ` · ${String(book.run.strategy)} strategy`}
+              {audits.length > 0 && ` · AI audit: ${auditStatus(audits, book.status, book.incomplete)}`}
+              {!!audits.reduce((count, audit) => count + audit.corrections.length, 0) && ` · ${audits.reduce((count, audit) => count + audit.corrections.length, 0)} proposed corrections`}
+              {!!appliedCorrections.length && ` · ${appliedCorrections.length} applied corrections`}
             </p>
           </div>
           <div className="actions">
@@ -996,6 +1059,10 @@ export function Cookbooks({
       {book?.path && !showLibrary && !showHistory && !showResults && (
         <section className="source-checks" aria-label="Extraction feedback">
           <h2>Extraction feedback</h2>
+          {audits.length > 0 && <p><strong>AI audit: {auditStatus(audits, book.status, book.incomplete)}</strong> · {audits.length} audit pass{audits.length === 1 ? "" : "es"}</p>}
+          {contextExpansions.length > 0 && <details><summary>Expanded audit context ({contextExpansions.length})</summary><ul>{contextExpansions.map((expansion, index) => <li key={`${expansion.group}-${index}`}>{expansion.reason} · group {expansion.group + 1}</li>)}</ul><p className="caption">Context expansion is audit evidence only; it does not establish acceptance or apply corrections.</p></details>}
+          {audits.some((audit) => audit.corrections.length > 0) && <details><summary>Proposed corrections ({audits.reduce((count, audit) => count + audit.corrections.length, 0)})</summary><ul>{audits.flatMap((audit) => audit.corrections).map((correction, index) => <li key={index}>{correctionText(correction)}</li>)}</ul></details>}
+          {appliedCorrections.length > 0 && <details><summary>Applied corrections ({appliedCorrections.length})</summary><ul>{appliedCorrections.map((entry, index) => <li key={index}>{entry.reason} · {correctionText(entry.correction)}</li>)}</ul></details>}
           {book.feedback ? <>
             <p><strong>{book.feedback.phase}</strong> · {book.feedback.stopReason || (book.feedback.phase === "Complete" ? "All automated checks passed" : "Checking source coverage and fidelity")}</p>
             <p className="caption">Extraction/recovery: ${book.feedback.extractionUsd.toFixed(4)} · Verification: ${book.feedback.verificationUsd.toFixed(4)} · ${book.feedback.unresolvedUsd.toFixed(4)} unresolved reservations</p>
@@ -1145,6 +1212,18 @@ export function Cookbooks({
               ))}
             </select>
           </label>
+          <label>
+            Extraction strategy
+            <select
+              aria-label="Extraction strategy"
+              value={strategy}
+              disabled={resumeRun}
+              onChange={(e) => setStrategy(e.target.value as "indexed" | "hybrid")}
+            >
+              <option value="indexed">Indexed (default)</option>
+              <option value="hybrid">Hybrid (experimental)</option>
+            </select>
+          </label>
           {allowNetwork && (
             <label>
               Spending limit (USD)
@@ -1158,6 +1237,20 @@ export function Cookbooks({
               />
             </label>
           )}
+          <label>
+            Concurrent requests
+            <select
+              aria-label="Concurrent requests"
+              value={concurrency}
+              onChange={(e) => setConcurrency(Number(e.target.value))}
+            >
+              {Array.from({ length: 8 }, (_, index) => index + 1).map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
 
             <label className="check-label">
               <input
@@ -1209,10 +1302,19 @@ export function Cookbooks({
                   {preview.cached} reused · {preview.pending} pending ·
                   estimated additional cost{" "}
                   {preview.lowUsd !== null && preview.highUsd !== null
-                    ? `$${preview.lowUsd.toFixed(4)}–$${preview.highUsd.toFixed(4)}`
+                    ? range([preview.lowUsd, preview.highUsd])
                     : "unknown"}
                 </p>
                 <p className="caption">{preview.basis}</p>
+                {(preview.extraction.uncalibrated || preview.verification.uncalibrated) && (
+                  <p className="caption">Estimate is uncalibrated; compatible completed samples are insufficient.</p>
+                )}
+                {(["extraction", "verification"] as const).map((operation) => (
+                  <p className="caption" key={operation}>
+                    {operation === "extraction" ? "Extraction" : "Verification"} {range(preview[operation].usd)}
+                    {preview[operation].basis && ` · ${preview[operation].basis}`}
+                  </p>
+                ))}
                 <p className="caption">
                   Conservative reservation:{" "}
                   {preview.reservationUsd === null

@@ -1,11 +1,22 @@
 //! Headless cookbook review. Rendering is owned by the binary; exit 3 denotes incomplete extraction,
 //! exit 4 denotes expectation mismatches, and exit 1 denotes an operational error.
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
 use recipe_epub::review::{ReviewRun, RunOptions};
 use std::path::PathBuf;
 
+/// Extraction contracts exposed by the shared engine. Keep the CLI default
+/// indexed until the hybrid admission gates are met.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum Strategy {
+    Indexed,
+    Hybrid,
+}
+
 #[derive(Subcommand)]
 pub enum Command {
+    /// Prepare, execute, and report frozen native extraction experiments.
+    #[command(subcommand)]
+    Experiment(ExperimentCommand),
     /// List registered cookbook extraction runs.
     Runs {
         #[arg(long)]
@@ -52,8 +63,11 @@ pub enum Command {
         chunk: Vec<String>,
         #[arg(long, default_value_t = 10.0)]
         budget_usd: f64,
-        #[arg(long, default_value_t = 4, value_parser = clap::value_parser!(u8).range(1..=4))]
+        #[arg(long, default_value_t = 4, value_parser = clap::value_parser!(u8).range(1..=8))]
         concurrency: u8,
+        /// Extraction contract. Hybrid is opt-in while it is evaluated.
+        #[arg(long, value_enum, default_value_t = Strategy::Indexed)]
+        strategy: Strategy,
     },
     /// Inspect a saved run or select one source chunk.
     Show {
@@ -88,10 +102,117 @@ pub enum Command {
         run: PathBuf,
         #[arg(long)]
         attribution: bool,
+        /// Run the paid AI audit workflow (requires an output child run).
+        #[arg(long)]
+        ai: bool,
+        /// Apply source-supported corrections and perform one bounded re-audit.
+        #[arg(long, requires = "ai")]
+        correct: bool,
+        /// Child run path for AI audit/correction output.
+        #[arg(long, requires = "ai")]
+        out: Option<PathBuf>,
+        #[arg(long, requires = "ai")]
+        allow_network: bool,
+        #[arg(long, default_value_t = 4.0)]
+        budget_usd: f64,
+        #[arg(long, default_value = recipe_epub::recovery::AUTOMATIC)]
+        model: String,
     },
     /// Compare saved extraction and parser outputs.
     #[command(alias = "compare")]
     Diff { before: PathBuf, after: PathBuf },
+}
+
+#[derive(Subcommand)]
+pub enum ExperimentCommand {
+    Prepare {
+        /// Operation to freeze. Extraction remains the default; audit creates a child-run plan.
+        #[arg(long, value_enum, default_value_t = ExperimentOperationArg::Extraction)]
+        operation: ExperimentOperationArg,
+        #[arg(long)]
+        state: Option<PathBuf>,
+        #[arg(long)]
+        expectations: PathBuf,
+        #[arg(long)]
+        indexed_source: Option<PathBuf>,
+        #[arg(long)]
+        parent_run: Option<PathBuf>,
+        #[arg(long)]
+        group: Vec<usize>,
+        #[arg(long, default_value = recipe_epub::recovery::AUTOMATIC)]
+        reviewer_model: String,
+        #[arg(long)]
+        correct: bool,
+        #[arg(long)]
+        budget_usd: Option<f64>,
+        #[arg(long)]
+        output_dir: PathBuf,
+    },
+    Run {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        indexed_source: Option<PathBuf>,
+        #[arg(long, value_enum)]
+        contract: Option<ExperimentContractArg>,
+        #[arg(long)]
+        output_dir: PathBuf,
+        #[arg(long)]
+        ledger: PathBuf,
+        #[arg(long)]
+        expectations: Option<PathBuf>,
+        #[arg(long)]
+        parent_run: Option<PathBuf>,
+        #[arg(long)]
+        child_run: Option<PathBuf>,
+        /// Explicitly authorize paid provider dispatch; omitted runs offline.
+        #[arg(long)]
+        dispatch: bool,
+    },
+    Report {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        evidence_dir: PathBuf,
+        #[arg(long)]
+        ledger: PathBuf,
+    },
+    #[command(name = "ledger")]
+    Ledger {
+        #[command(subcommand)]
+        command: LedgerCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LedgerCommand {
+    Status {
+        #[arg(long)]
+        ledger: PathBuf,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ExperimentContractArg {
+    Legacy,
+    Indexed,
+    Hybrid,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ExperimentOperationArg {
+    Extraction,
+    Audit,
+}
+
+impl From<ExperimentContractArg> for recipe_epub::experiment::ExperimentContract {
+    fn from(value: ExperimentContractArg) -> Self {
+        match value {
+            ExperimentContractArg::Legacy => Self::Legacy,
+            ExperimentContractArg::Indexed => Self::Indexed,
+            ExperimentContractArg::Hybrid => Self::Hybrid,
+        }
+    }
 }
 
 pub async fn execute(
@@ -99,6 +220,148 @@ pub async fn execute(
 ) -> Result<(serde_json::Value, i32), Box<dyn std::error::Error>> {
     let mut code = 0;
     let value = match command {
+        Command::Experiment(experiment) => match experiment {
+            ExperimentCommand::Prepare {
+                operation,
+                state,
+                expectations,
+                indexed_source,
+                parent_run,
+                group,
+                reviewer_model,
+                correct,
+                budget_usd,
+                output_dir,
+            } => match operation {
+                ExperimentOperationArg::Extraction => {
+                    let state = state
+                        .clone()
+                        .ok_or("experiment prepare --state is required for extraction")?;
+                    serde_json::to_value(recipe_epub::experiment::prepare(
+                        recipe_epub::experiment::ExperimentPrepareRequest {
+                            state,
+                            expectations: expectations.clone(),
+                            indexed_source: indexed_source.clone(),
+                            output_dir: output_dir.clone(),
+                        },
+                    )?)?
+                }
+                ExperimentOperationArg::Audit => {
+                    if indexed_source.is_some() {
+                        return Err(
+                            "experiment prepare --indexed-source is only valid for extraction"
+                                .into(),
+                        );
+                    }
+                    let parent_run = parent_run
+                        .clone()
+                        .ok_or("experiment prepare --parent-run is required for audit")?;
+                    if state.is_some() {
+                        return Err(
+                            "experiment prepare --state is only valid for extraction".into()
+                        );
+                    }
+                    let budget_usd = budget_usd
+                        .filter(|value| value.is_finite() && *value >= 0.0)
+                        .ok_or("experiment prepare --budget-usd must be finite and non-negative for audit")?;
+                    serde_json::to_value(recipe_epub::experiment::prepare_audit_experiment(
+                        recipe_epub::experiment::AuditExperimentPrepareRequest {
+                            parent_run,
+                            expectations: expectations.clone(),
+                            groups: group.clone(),
+                            reviewer_model: reviewer_model.clone(),
+                            correct: *correct,
+                            budget_usd,
+                            output_dir: output_dir.clone(),
+                        },
+                    )?)?
+                }
+            },
+            ExperimentCommand::Run {
+                manifest,
+                indexed_source,
+                contract,
+                output_dir,
+                ledger,
+                expectations,
+                parent_run,
+                child_run,
+                dispatch,
+            } => {
+                let manifest_value: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(manifest)?)?;
+                match manifest_value
+                    .get("operation")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    Some("audit_child") => {
+                        if indexed_source.is_some() || contract.is_some() || expectations.is_some()
+                        {
+                            return Err(
+                                "audit experiment run does not accept extraction inputs".into()
+                            );
+                        }
+                        let parent_run = parent_run
+                            .clone()
+                            .ok_or("experiment run --parent-run is required for audit")?;
+                        let child_run = child_run
+                            .clone()
+                            .ok_or("experiment run --child-run is required for audit")?;
+                        serde_json::to_value(
+                            recipe_epub::experiment::run_audit_experiment(
+                                recipe_epub::experiment::AuditExperimentRunRequest {
+                                    manifest: manifest.clone(),
+                                    parent_run,
+                                    child_run,
+                                    output_dir: output_dir.clone(),
+                                    ledger: ledger.clone(),
+                                    dispatch: *dispatch,
+                                },
+                            )
+                            .await?,
+                        )?
+                    }
+                    None => {
+                        let indexed_source = indexed_source
+                            .clone()
+                            .ok_or("experiment run --indexed-source is required for extraction")?;
+                        let contract = contract
+                            .ok_or("experiment run --contract is required for extraction")?;
+                        let expectations = expectations
+                            .clone()
+                            .ok_or("experiment run --expectations is required for extraction")?;
+                        serde_json::to_value(
+                            recipe_epub::experiment::run(
+                                recipe_epub::experiment::ExperimentRunRequest {
+                                    manifest: manifest.clone(),
+                                    indexed_source,
+                                    contract: contract.into(),
+                                    output_dir: output_dir.clone(),
+                                    ledger: ledger.clone(),
+                                    expectations,
+                                    dispatch: *dispatch,
+                                },
+                            )
+                            .await?,
+                        )?
+                    }
+                    Some(operation) => {
+                        return Err(format!(
+                            "unsupported experiment manifest operation: {operation}"
+                        )
+                        .into());
+                    }
+                }
+            }
+            ExperimentCommand::Report {
+                manifest,
+                evidence_dir,
+                ledger,
+            } => recipe_epub::experiment::report(manifest, evidence_dir, ledger)?,
+            ExperimentCommand::Ledger {
+                command: LedgerCommand::Status { ledger },
+            } => serde_json::to_value(recipe_epub::experiment::ledger_status(ledger)?)?,
+        },
         Command::Runs { book, .. } => {
             serde_json::to_value(recipe_epub::review::store::list(book.as_deref())?)?
         }
@@ -157,6 +420,7 @@ pub async fn execute(
             chunk,
             budget_usd,
             concurrency,
+            strategy,
             dry_run,
         } => {
             let request = recipe_epub::review::ExtractionRequest {
@@ -172,6 +436,10 @@ pub async fn execute(
                     chunks: chunk.clone(),
                     budget_usd: *budget_usd,
                     concurrency: usize::from(*concurrency),
+                    strategy: match strategy {
+                        Strategy::Indexed => recipe_epub::hybrid::HybridStrategy::Indexed,
+                        Strategy::Hybrid => recipe_epub::hybrid::HybridStrategy::Hybrid,
+                    },
                 },
             };
             if *dry_run {
@@ -248,16 +516,84 @@ pub async fn execute(
 
             result
         }
-        Command::Audit { run, attribution } => {
-            let run = ReviewRun::read(run)?;
-            if *attribution {
-                recipe_epub::review::source_audit(&run)
+        Command::Audit {
+            run,
+            attribution,
+            ai,
+            correct,
+            out,
+            allow_network,
+            budget_usd,
+            model,
+        } => {
+            if *ai {
+                if !*allow_network {
+                    return Err("AI audit requires --allow-network".into());
+                }
+                let out = out.clone().ok_or("AI audit requires --out <child-run>")?;
+                let request = recipe_epub::review::AuditRequest {
+                    run: run.clone(),
+                    out,
+                    model: model.clone(),
+                    correct: *correct,
+                    options: RunOptions {
+                        allow_network: true,
+                        budget_usd: *budget_usd,
+                        concurrency: 4,
+                        strategy: recipe_epub::hybrid::HybridStrategy::Hybrid,
+                        ..Default::default()
+                    },
+                };
+                let control = recipe_epub::review::ExtractionControl::default();
+                let audit =
+                    recipe_epub::review::audit_to_run_controlled(request, &control, |run| {
+                        eprintln!(
+                            "AI audit: {} · {} recipes",
+                            run.execution_status.as_deref().unwrap_or("running"),
+                            run.recipes.len()
+                        );
+                    });
+                tokio::pin!(audit);
+                let outcome = tokio::select! {
+                    result = &mut audit => result?,
+                    signal = tokio::signal::ctrl_c() => {
+                        signal?;
+                        control.cancel();
+                        eprintln!("Stopping AI audit; waiting for active requests to save.");
+                        audit.await?
+                    }
+                };
+                if outcome.run.incomplete() {
+                    code = 3;
+                }
+                run_summary(&outcome.run, Some(&outcome.path))
             } else {
-                serde_json::json!({"epub_sha256":run.epub_sha256,"quality_issues":recipe_epub::review::quality::issues(&run)})
+                let run = ReviewRun::read(run)?;
+                if *correct {
+                    return Err("--correct requires --ai".into());
+                }
+                if *attribution {
+                    recipe_epub::review::source_audit(&run)
+                } else {
+                    serde_json::json!({"epub_sha256":run.epub_sha256,"quality_issues":recipe_epub::review::quality::issues(&run)})
+                }
             }
         }
         Command::Diff { before, after } => {
-            recipe_epub::review::diff(&ReviewRun::read(before)?, &ReviewRun::read(after)?)?
+            let before_run = ReviewRun::read(before)?;
+            let after_run = ReviewRun::read(after)?;
+            let mut value = recipe_epub::review::diff(&before_run, &after_run)?;
+            value["before_audit_status"] = serde_json::json!(audit_status(&before_run));
+            value["after_audit_status"] = serde_json::json!(audit_status(&after_run));
+            value["before_hybrid_audits"] = serde_json::to_value(&before_run.hybrid_audits)?;
+            value["after_hybrid_audits"] = serde_json::to_value(&after_run.hybrid_audits)?;
+            let (before_applied, before_issues) = applied_audit_evidence(&before_run);
+            let (after_applied, after_issues) = applied_audit_evidence(&after_run);
+            value["before_applied_corrections"] = before_applied;
+            value["after_applied_corrections"] = after_applied;
+            value["before_unresolved_assignment_issues"] = before_issues;
+            value["after_unresolved_assignment_issues"] = after_issues;
+            value
         }
     };
     Ok((value, code))
@@ -279,7 +615,38 @@ fn select(
 }
 
 fn run_summary(run: &ReviewRun, path: Option<&std::path::Path>) -> serde_json::Value {
-    serde_json::json!({"extraction_feedback":run.recovery,"quality_issues":recipe_epub::review::quality::issues(run),"status":run.status(),"run":path,"source":run.source,"epub_sha256":run.epub_sha256,"chunks":run.chunks.len(),"completed_chunks":run.chunks.iter().filter(|c|c.output.is_some()).count(),"recipes":run.recipes.len(),"cached":run.chunks.iter().filter(|c| c.cached).count(),"incomplete":run.incomplete(),"reserved_usd":run.reserved_usd,"failures":run.chunks.iter().filter(|c| c.error.is_some()).map(|c| serde_json::json!({"id":c.id,"error":c.error})).collect::<Vec<_>>()})
+    let (applied_corrections, unresolved_issues) = applied_audit_evidence(run);
+    serde_json::json!({"extraction_feedback":run.recovery,"quality_issues":recipe_epub::review::quality::issues(run),"status":run.status(),"run":path,"source":run.source,"epub_sha256":run.epub_sha256,"chunks":run.chunks.len(),"completed_chunks":run.chunks.iter().filter(|c| c.output.is_some()).count(),"recipes":run.recipes.len(),"cached":run.chunks.iter().filter(|c| c.cached).count(),"incomplete":run.incomplete(),"reserved_usd":run.reserved_usd,"audit_status":audit_status(run),"hybrid_audits":run.hybrid_audits,"applied_corrections":applied_corrections,"unresolved_assignment_issues":unresolved_issues,"failures":run.chunks.iter().filter(|c| c.error.is_some()).map(|c| serde_json::json!({"id":c.id,"error":c.error})).collect::<Vec<_>>()})
+}
+
+fn audit_status(run: &ReviewRun) -> &'static str {
+    if run.hybrid_audits.is_empty() {
+        "not assessed"
+    } else if run.status() == "complete" && !run.incomplete() {
+        "accepted"
+    } else {
+        "findings"
+    }
+}
+
+fn applied_audit_evidence(run: &ReviewRun) -> (serde_json::Value, serde_json::Value) {
+    let candidates = run
+        .recovery
+        .as_ref()
+        .into_iter()
+        .flat_map(|state| state.groups.iter())
+        .flat_map(|group| group.candidates.iter());
+    let corrections = candidates
+        .clone()
+        .flat_map(|candidate| candidate.hybrid_correction_history.iter())
+        .collect::<Vec<_>>();
+    let issues = candidates
+        .flat_map(|candidate| candidate.hybrid_assignment_issues.iter())
+        .collect::<Vec<_>>();
+    (
+        serde_json::to_value(corrections).unwrap_or_else(|_| serde_json::json!([])),
+        serde_json::to_value(issues).unwrap_or_else(|_| serde_json::json!([])),
+    )
 }
 
 /// Terminal presentation only; history and comparison policy remain shared Rust.
@@ -512,6 +879,18 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
                 value["completed_chunks"],
                 value["chunks"]
             );
+            println!(
+                "AI audit: {} · {} audit pass(es)",
+                value["audit_status"].as_str().unwrap_or("not assessed"),
+                value["hybrid_audits"].as_array().map_or(0, Vec::len)
+            );
+            println!(
+                "Applied corrections: {} · unresolved assignment issues: {}",
+                value["applied_corrections"].as_array().map_or(0, Vec::len),
+                value["unresolved_assignment_issues"]
+                    .as_array()
+                    .map_or(0, Vec::len)
+            );
             if let Some(path) = value["run"].as_str() {
                 println!("Saved: {path}");
             }
@@ -571,6 +950,30 @@ pub fn print_human(command: &Command, value: &serde_json::Value) -> bool {
                 value["after_recipes"],
                 money(&value["before_cost"]),
                 money(&value["after_cost"])
+            );
+            println!(
+                "AI audit: {} → {}",
+                value["before_audit_status"]
+                    .as_str()
+                    .unwrap_or("not assessed"),
+                value["after_audit_status"]
+                    .as_str()
+                    .unwrap_or("not assessed")
+            );
+            println!(
+                "Applied corrections: {} → {} · unresolved assignment issues: {} → {}",
+                value["before_applied_corrections"]
+                    .as_array()
+                    .map_or(0, Vec::len),
+                value["after_applied_corrections"]
+                    .as_array()
+                    .map_or(0, Vec::len),
+                value["before_unresolved_assignment_issues"]
+                    .as_array()
+                    .map_or(0, Vec::len),
+                value["after_unresolved_assignment_issues"]
+                    .as_array()
+                    .map_or(0, Vec::len)
             );
             for source in value["changed_sources"].as_array().into_iter().flatten() {
                 println!(
@@ -708,6 +1111,8 @@ fn print_table(command: &Command, value: &serde_json::Value) -> bool {
                 "pending",
                 "estimated_low_usd",
                 "estimated_high_usd",
+                "extraction",
+                "verification",
                 "reservation_usd",
                 "basis",
             ]
@@ -715,7 +1120,23 @@ fn print_table(command: &Command, value: &serde_json::Value) -> bool {
             .map(|key| {
                 vec![
                     key.replace('_', " "),
-                    if key.ends_with("usd") {
+                    if matches!(*key, "extraction" | "verification") {
+                        let estimate = &value[key];
+                        let range = estimate["usd"].as_array().map_or_else(
+                            || "unknown".to_owned(),
+                            |range| format!("{}–{}", money(&range[0]), money(&range[1])),
+                        );
+                        format!(
+                            "{} · {}{}",
+                            range,
+                            text(&estimate["basis"]),
+                            if estimate["uncalibrated"] == true {
+                                " (uncalibrated)"
+                            } else {
+                                ""
+                            }
+                        )
+                    } else if key.ends_with("usd") {
                         money(&value[key])
                     } else {
                         text(&value[key])
@@ -726,7 +1147,7 @@ fn print_table(command: &Command, value: &serde_json::Value) -> bool {
         ),
         Command::Diff { .. } => (
             vec!["Comparison", "Before", "After"],
-            ["model", "status", "recipes", "cost"]
+            ["model", "status", "audit_status", "recipes", "cost"]
                 .iter()
                 .map(|key| {
                     vec![

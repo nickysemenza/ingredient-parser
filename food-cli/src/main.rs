@@ -44,6 +44,8 @@ enum Commands {
     #[command(subcommand)]
     Recipe(RecipeCommand),
     #[command(subcommand)]
+    /// Cookbook extraction and review (also available as `epub` for scripts).
+    #[command(alias = "epub")]
     Cookbook(CookbookCommand),
     #[command(subcommand)]
     Corpus(CorpusCommand),

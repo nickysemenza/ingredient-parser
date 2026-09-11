@@ -246,6 +246,17 @@ pub fn parse_recipes_payload(input: serde_json::Value) -> Result<Vec<ExtractedRe
     Ok(recipes)
 }
 
+/// Decode one legacy response and enforce the same source-text checks as the
+/// browser callback path, without scheduling another provider attempt.
+pub fn parse_recipes_payload_for_chunk(
+    chunk: &Chunk,
+    input: serde_json::Value,
+) -> Result<Vec<ExtractedRecipe>, EpubError> {
+    let recipes = parse_recipes_payload(input)?;
+    validate_chunk_recipes(chunk, &recipes)?;
+    Ok(recipes)
+}
+
 /// One extra attempt after the first, so one model gets at most `1 + PARSE_RETRIES`
 /// calls per chunk. The model occasionally emits a payload that's valid-but-
 /// unparseable (most often the whole `recipes` array double-encoded as a *string*
@@ -277,6 +288,12 @@ pub struct CallFailure {
 }
 
 impl CallFailure {
+    /// Whether the caller may retry this failure under the same model policy.
+    /// The error message remains intentionally separate from this safe signal.
+    pub fn is_retryable(&self) -> bool {
+        self.retryable
+    }
+
     /// A transport/provider failure. It is not retried as a parse failure.
     pub fn transport(error: EpubError) -> Self {
         Self {
@@ -521,7 +538,6 @@ pub fn validate_chunk_recipes(chunk: &Chunk, recipes: &[ExtractedRecipe]) -> Res
 
 /// Indexed titles already own complete, validated source lines. A translation
 /// may follow a headnote instead of immediately following the primary title.
-#[cfg(feature = "native")]
 pub(crate) fn validate_indexed_chunk_recipes(
     chunk: &Chunk,
     recipes: &[ExtractedRecipe],

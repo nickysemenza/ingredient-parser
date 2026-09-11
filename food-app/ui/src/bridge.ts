@@ -28,6 +28,7 @@ export type {
   LibraryBook,
   CookbookRecipe,
   CookbookResult,
+  AuditCorrection,
   ExtractionRequest,
   ExtractionProgress,
   BookImage,

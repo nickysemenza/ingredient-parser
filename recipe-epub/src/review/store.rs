@@ -33,6 +33,8 @@ pub struct CallRecord {
     pub usage: Option<crate::Usage>,
     pub estimated_usd: Option<f64>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub telemetry: Option<crate::recovery::RequestTelemetry>,
 }
 /// One chunk dispatch, including the transport's bounded retry usage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +57,8 @@ pub struct Charge {
     #[serde(default)]
     pub rate_source: Option<String>,
     pub status: String,
+    #[serde(default)]
+    pub telemetry: Option<crate::recovery::RequestTelemetry>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunSummary {
@@ -165,6 +169,10 @@ pub fn summary(run: &ReviewRun, path: &Path) -> RunSummary {
                 .count(),
         ),
         status: if run.incomplete()
+            && !run
+                .recovery
+                .as_ref()
+                .is_some_and(crate::recovery::State::needs_migration)
             && std::fs::File::open(path.with_extension("run-lock")).is_ok_and(|file| {
                 fs2::FileExt::try_lock_shared(&file)
                     .is_err_and(|error| error.kind() == std::io::ErrorKind::WouldBlock)
@@ -311,14 +319,31 @@ pub fn list(book: Option<&Path>) -> Result<Vec<RunSummary>, EpubError> {
     });
     Ok(rows)
 }
-/// Hash once per file metadata revision, including relocation-safe content identity.
-pub fn source_hash(path: &Path) -> Result<String, EpubError> {
-    #[derive(Serialize, Deserialize)]
-    struct Identity {
-        length: u64,
-        modified: u128,
-        digest: String,
+const SOURCE_IDENTITY_VERSION: u32 = 2;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SourceIdentity {
+    version: u32,
+    file_id: String,
+    length: u64,
+    modified: u128,
+    digest: String,
+}
+
+fn file_id(metadata: &std::fs::Metadata) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        format!("{}:{}", metadata.dev(), metadata.ino())
     }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        String::new()
+    }
+}
+
+fn source_hash_with_cache(path: &Path, identity_dir: &Path) -> Result<String, EpubError> {
     let path = path.canonicalize().map_err(|e| error(e.to_string()))?;
     let meta = path.metadata().map_err(|e| error(e.to_string()))?;
     let modified = meta
@@ -327,25 +352,90 @@ pub fn source_hash(path: &Path) -> Result<String, EpubError> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let dir = root()?.join("source-identities");
-    let cached = dir.join(format!("{}.json", hash(path.to_string_lossy().as_bytes())));
-    if let Ok(bytes) = std::fs::read(&cached)
-        && let Ok(identity) = serde_json::from_slice::<Identity>(&bytes)
-        && identity.length == meta.len()
-        && identity.modified == modified
-    {
-        return Ok(identity.digest);
-    }
+    // Always hash current bytes. Metadata is retained for diagnostics and
+    // relocation/replacement identity, but cannot prove that equal-size bytes
+    // with a restored mtime are unchanged.
     let digest = hash(&std::fs::read(&path).map_err(|e| error(e.to_string()))?);
-    std::fs::create_dir_all(dir).map_err(|e| error(e.to_string()))?;
-    std::fs::write(
-        cached,
-        serde_json::to_vec(&Identity {
-            length: meta.len(),
-            modified,
-            digest: digest.clone(),
-        })?,
-    )
-    .map_err(|e| error(e.to_string()))?;
+    let identity = SourceIdentity {
+        version: SOURCE_IDENTITY_VERSION,
+        file_id: file_id(&meta),
+        length: meta.len(),
+        modified,
+        digest: digest.clone(),
+    };
+    let cached = identity_dir.join(format!("{}.json", hash(path.to_string_lossy().as_bytes())));
+    let reusable = std::fs::read(&cached)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<SourceIdentity>(&bytes).ok())
+        .is_some_and(|previous| {
+            previous.version == SOURCE_IDENTITY_VERSION
+                && previous.file_id == identity.file_id
+                && previous.length == identity.length
+                && previous.modified == identity.modified
+                && previous.digest == identity.digest
+        });
+    if !reusable {
+        std::fs::create_dir_all(identity_dir).map_err(|e| error(e.to_string()))?;
+        std::fs::write(cached, serde_json::to_vec(&identity)?).map_err(|e| error(e.to_string()))?;
+    }
     Ok(digest)
+}
+
+/// Content identity for a source file. The persisted metadata avoids stale
+/// records after replacement or relocation, while the current content hash is
+/// always recomputed before returning so restored mtimes cannot reuse a stale
+/// digest.
+pub fn source_hash(path: &Path) -> Result<String, EpubError> {
+    source_hash_with_cache(path, &root()?.join("source-identities"))
+}
+
+#[cfg(test)]
+mod source_identity_tests {
+    #![allow(clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn equal_size_stale_digest_is_recomputed() {
+        let root = std::env::temp_dir().join(format!("recipe-epub-source-identity-{}", new_id()));
+        let path = root.join("book.epub");
+        let identity_dir = root.join("identities");
+        std::fs::create_dir_all(&root).expect("test source directory should be writable");
+        let original = b"original bytes";
+        std::fs::write(&path, original).expect("test source should be writable");
+        let canonical = path
+            .canonicalize()
+            .expect("test source should canonicalize");
+        let replacement = b"changed bytes!";
+        assert_eq!(original.len(), replacement.len());
+        std::fs::write(&path, replacement).expect("replacement should be writable");
+        let metadata = canonical
+            .metadata()
+            .expect("test metadata should be readable");
+        let modified = metadata
+            .modified()
+            .expect("test mtime should be readable")
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("test mtime should be after epoch")
+            .as_nanos();
+        let cached = identity_dir.join(format!(
+            "{}.json",
+            hash(canonical.to_string_lossy().as_bytes())
+        ));
+        std::fs::create_dir_all(&identity_dir).expect("test identity directory should be writable");
+        std::fs::write(
+            &cached,
+            serde_json::json!({
+                "length": metadata.len(),
+                "modified": modified,
+                "digest": "stale-digest"
+            })
+            .to_string(),
+        )
+        .expect("stale identity should be writable");
+        let actual = source_hash_with_cache(&path, &identity_dir).expect("hash should succeed");
+        assert_eq!(actual, hash(replacement));
+        assert_ne!(actual, "stale-digest");
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

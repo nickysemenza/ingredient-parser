@@ -1,7 +1,8 @@
 //! Durable local extraction runs shared by command-line and desktop review.
 
 use crate::{
-    Chunk, CookbookRecipe, CookbookRecipeExt, EpubError, ExtractedRecipe, RecipeExtractor, Usage,
+    Chunk, CookbookRecipe, CookbookRecipeExt, EpubError, ExtractedRecipe, RecipeExtractor,
+    SourceLine, Usage,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -10,16 +11,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub mod audit;
 mod automatic;
 pub mod preflight;
 pub mod quality;
+mod recovery_cache;
 pub mod results;
 pub mod stats;
 pub mod store;
 mod workflow;
+pub use audit::{
+    AuditAccounting, AuditAccountingHandle, AuditRequest, audit_to_run, audit_to_run_controlled,
+    audit_to_run_scoped_controlled, prepare_audit,
+};
 pub use workflow::{
     ExtractionRequest, ReplayRequest, RunOutcome, RunProgress, WorkflowError, export_run,
-    extract_to_run, extract_to_run_controlled, prepare, replay_to_run,
+    extract_to_run, extract_to_run_controlled, prepare, prepare_from_inspection, replay_to_run,
 };
 
 pub const RUN_VERSION: u32 = 1;
@@ -61,6 +68,21 @@ pub struct ReviewRun {
     pub parent: Option<String>,
     pub chunks: Vec<RunChunk>,
     pub documents: Vec<SourceDocument>,
+    #[serde(default)]
+    pub navigation_documents: std::collections::BTreeSet<String>,
+    /// AI audit evidence and correction proposals. Human decisions stay in
+    /// the separate historical review sidecar.
+    #[serde(default)]
+    pub hybrid_audits: Vec<crate::hybrid::AuditResult>,
+    /// Exact per-chunk DOM lineage from the same cleaning pass that built
+    /// `chunks`. It is additive so older saved runs can use the explicit raw
+    /// document-text fallback until refreshed.
+    #[serde(default)]
+    pub source_line_provenance: Vec<Vec<SourceLine>>,
+    /// Hash binding the source chunks and their per-line provenance. It is
+    /// checked before native planning/dispatch and never inferred from text.
+    #[serde(default)]
+    pub source_line_provenance_sha256: Option<String>,
     pub recipes: Vec<CookbookRecipe>,
     pub parsed: serde_json::Value,
     /// Conservative reservations include interrupted requests with unknown billing.
@@ -70,7 +92,8 @@ pub struct ReviewRun {
     pub image_text: Option<SourceImageText>,
 }
 
-pub(crate) fn hash(bytes: &[u8]) -> String {
+/// Stable SHA-256 identity used by native source and run caches.
+pub fn hash(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -94,6 +117,13 @@ impl ExtractionControl {
 
 impl ReviewRun {
     pub fn status(&self) -> &str {
+        if self
+            .recovery
+            .as_ref()
+            .is_some_and(crate::recovery::State::needs_migration)
+        {
+            return "not_assessed";
+        }
         if !self.incomplete() {
             return if self.recovery.is_some() {
                 "complete"
@@ -112,7 +142,20 @@ impl ReviewRun {
     }
 
     pub fn inspect(bytes: &[u8], source: &str, model: &str) -> Result<Self, EpubError> {
-        let chunks = crate::chunk_epub(bytes)?
+        let indexed = crate::chunk_epub_indexed(bytes)?;
+        let sources: Vec<_> = indexed
+            .iter()
+            .map(|indexed| indexed.chunk.clone())
+            .collect();
+        let source_line_provenance: Vec<_> = indexed
+            .iter()
+            .map(|indexed| indexed.lines.clone())
+            .collect();
+        let source_line_provenance_sha256 = Some(
+            crate::recovery::source_line_provenance_sha256(&sources, &source_line_provenance)
+                .map_err(error)?,
+        );
+        let chunks = sources
             .into_iter()
             .enumerate()
             .map(|(i, source)| RunChunk {
@@ -127,6 +170,8 @@ impl ReviewRun {
                 request_identity: None,
             })
             .collect();
+        let (documents, navigation_documents) =
+            crate::source::inspect_source_with_navigation(bytes)?;
         Ok(Self {
             recovery: None,
             execution_status: None,
@@ -139,7 +184,11 @@ impl ReviewRun {
             prompt_version: crate::cache::PROMPT_VERSION.into(),
             parent: None,
             chunks,
-            documents: crate::source::inspect_source(bytes)?,
+            documents,
+            navigation_documents,
+            hybrid_audits: vec![],
+            source_line_provenance,
+            source_line_provenance_sha256,
             recipes: vec![],
             parsed: serde_json::json!([]),
             reserved_usd: 0.0,
@@ -188,6 +237,28 @@ impl ReviewRun {
         if run.chunks.iter().any(|c| !ids.insert(&c.id)) {
             return Err(error("duplicate chunk IDs"));
         }
+        match (
+            run.source_line_provenance.is_empty(),
+            &run.source_line_provenance_sha256,
+        ) {
+            (true, None) => {}
+            (false, Some(identity)) => {
+                let source: Vec<_> = run
+                    .chunks
+                    .iter()
+                    .map(|chunk| chunk.source.clone())
+                    .collect();
+                let actual = crate::recovery::source_line_provenance_sha256(
+                    &source,
+                    &run.source_line_provenance,
+                )
+                .map_err(error)?;
+                if identity != &actual {
+                    return Err(error("run source-line provenance identity is invalid"));
+                }
+            }
+            _ => return Err(error("run source-line provenance identity is invalid")),
+        }
         if let Some(state) = &run.recovery {
             state.validate().map_err(error)?;
         }
@@ -216,6 +287,9 @@ impl ReviewRun {
 
     /// Re-run assembly and the current ingredient parser without a transport or credentials.
     pub fn replay(&mut self) -> Result<(), EpubError> {
+        if let Some(state) = &mut self.recovery {
+            state.migrate_legacy();
+        }
         self.recipes = crate::assemble_recipes(
             self.chunks
                 .iter()
@@ -227,7 +301,18 @@ impl ReviewRun {
                 .collect(),
             &self.source,
         );
-        crate::source::enrich_from_source(&mut self.recipes, &self.documents);
+        if self
+            .recovery
+            .as_ref()
+            .is_some_and(|state| state.strategy == crate::hybrid::HybridStrategy::Hybrid)
+        {
+            crate::source::enrich_from_source_preserving_hybrid_ownership(
+                &mut self.recipes,
+                &self.documents,
+            );
+        } else {
+            crate::source::enrich_from_source(&mut self.recipes, &self.documents);
+        }
         if let Some(text) = &self.image_text {
             apply_image_text(&mut self.recipes, &self.documents, &self.epub_sha256, text)?;
         }
@@ -257,6 +342,8 @@ pub struct RunOptions {
     pub budget_usd: f64,
     /// Zero uses the default four-worker pool.
     pub concurrency: usize,
+    /// Explicit source-span extraction protocol; Indexed is the compatibility default.
+    pub strategy: crate::hybrid::HybridStrategy,
 }
 
 /// Bounded calls reserve budget and checkpoint before requests and after each result.
@@ -495,6 +582,7 @@ async fn extract_run_with_transport<E: RecipeExtractor>(
                     .into(),
                 rate_source: crate::models::pricing_source(&run.model).map(str::to_owned),
                 status: "pending".into(),
+                telemetry: None,
             });
             if run.chunks[i].model.as_deref() != Some(run.model.as_str()) {
                 run.chunks[i].usage = Usage::default();
@@ -1320,6 +1408,12 @@ mod pool_tests {
                     c
                 })
                 .collect();
+            // This scheduling fixture deliberately mutates the synthetic
+            // chunk set after inspection. It is no longer an exact indexed
+            // source run, so exercise the legacy no-provenance path rather
+            // than persisting stale coordinates.
+            run.source_line_provenance.clear();
+            run.source_line_provenance_sha256 = None;
             let reservation = preflight::reservation(&run.model, &run.chunks[0].source)?;
             let options = RunOptions {
                 allow_network: true,

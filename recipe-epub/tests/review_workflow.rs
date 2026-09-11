@@ -213,9 +213,11 @@ async fn named_runs_and_preflight_share_source_and_resume_validation() -> Result
     let fixture = Fixture::new()?;
     let request = fixture.request();
     let fresh = recipe_epub::review::prepare(&request)?;
+    let before = serde_json::to_value(&fresh)?;
     let plan = recipe_epub::review::preflight::plan(&fresh, &request.options)?;
     assert_eq!(plan.pending, fresh.chunks.len());
     assert_eq!(plan.estimated_high_usd, Some(0.0));
+    assert_eq!(serde_json::to_value(&fresh)?, before);
     assert!(!request.out.exists(), "preflight must not checkpoint");
     let outcome = extract_to_run(request.clone(), |_| {}).await?;
     let discovered = recipe_epub::review::store::list(Some(&fixture.path("book.epub")))?;
@@ -365,7 +367,7 @@ async fn native_workflow_reuses_portable_verified_cache_without_network() -> Res
         .cache_dir
         .as_ref()
         .ok_or("missing cache")?
-        .join("verified-recovery-v1");
+        .join("verified-recovery-v2");
     std::fs::create_dir_all(&cache)?;
     while let Some(action) = state.next_action()? {
         let value = if let Some(index) = action.chunk {
@@ -424,7 +426,14 @@ async fn native_workflow_reuses_portable_verified_cache_without_network() -> Res
         }
         std::fs::write(
             cache.join(format!("{}.json", action.key)),
-            serde_json::to_vec(&value)?,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "key": action.key,
+                "contract": recipe_epub::recovery::VERIFICATION_CONTRACT,
+                "model": action.model,
+                "output_limit": action.output_limit,
+                "payload": value,
+            }))?,
         )?;
     }
     assert!(state.complete());
@@ -441,5 +450,161 @@ async fn native_workflow_reuses_portable_verified_cache_without_network() -> Res
     assert_eq!(outcome.run.reserved_usd, 0.0);
     let restored = ReviewRun::read(&outcome.path)?;
     assert!(restored.recovery.as_ref().is_some_and(|s| s.complete()));
+    Ok(())
+}
+
+#[tokio::test]
+async fn legacy_recovery_migrates_to_a_child_without_recharging_parent_attempts() -> Result {
+    let fixture = Fixture::new()?;
+    let mut request = fixture.request();
+    request.options.budget_usd = 10.0;
+    let mut parent = recipe_epub::review::prepare(&request)?;
+    let mut state = parent.recovery.clone().ok_or("missing recovery")?;
+    let action = state.next_action()?.ok_or("missing action")?;
+    state.reserve(&action)?;
+    state.policy = recipe_epub::recovery::LEGACY_POLICY.into();
+    state.groups[0].candidates[0]
+        .verification_evidence
+        .push(serde_json::json!({"legacy":true}));
+    parent.reserved_usd = state.allocated(false) + state.allocated(true);
+    parent.recovery = Some(state);
+    let parent_path = fixture.path("legacy-parent.json");
+    parent.save(&parent_path)?;
+    let parent_bytes = std::fs::read(&parent_path)?;
+
+    let mut child_request = request;
+    child_request.out = fixture.path("legacy-child.json");
+    child_request.from = Some(parent_path.clone());
+    let child = extract_to_run(child_request, |_| {}).await?;
+
+    assert_eq!(std::fs::read(&parent_path)?, parent_bytes);
+    let state = child
+        .run
+        .recovery
+        .as_ref()
+        .ok_or("missing child recovery")?;
+    assert!(state.attempts.iter().all(|attempt| attempt.inherited));
+    assert_eq!(state.allocated(false), parent.reserved_usd);
+    assert_eq!(state.allocated_new(false), 0.0);
+    assert!(
+        state.groups[0].candidates[0]
+            .verification_evidence
+            .is_empty()
+    );
+    assert_eq!(
+        state.groups[0].candidates[0]
+            .obsolete_verification_evidence
+            .len(),
+        1
+    );
+    assert_eq!(child.run.reserved_usd, parent.reserved_usd);
+    assert!(child.run.charges.is_empty());
+    assert_eq!(
+        recipe_epub::review::store::summary(&child.run, &child.path).new_spend_usd,
+        Some(0.0)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn v2_accepted_recovery_becomes_a_v3_child_without_mutating_the_parent() -> Result {
+    let fixture = Fixture::new()?;
+    let mut request = fixture.request();
+    request.options.budget_usd = 10.0;
+    let mut parent = recipe_epub::review::prepare(&request)?;
+    let mut state = parent.recovery.clone().ok_or("missing recovery")?;
+    let action = state.next_action()?.ok_or("missing action")?;
+    state.reserve(&action)?;
+    let group_chunks = state.groups[0].chunks.clone();
+    let source_roles = group_chunks
+        .iter()
+        .map(|chunk| vec!["non_recipe".to_owned(); state.source[*chunk].text.lines().count()])
+        .collect();
+    let candidate = &mut state.groups[0].candidates[0];
+    for output in &mut candidate.outputs {
+        *output = Some(vec![]);
+    }
+    candidate.source_roles = source_roles;
+    candidate.verified = true;
+    candidate.verified_chunks = group_chunks.clone();
+    candidate
+        .verification_evidence
+        .push(serde_json::json!({"v2": "passed"}));
+    candidate
+        .verification_stages
+        .push(recipe_epub::recovery::VerificationStage {
+            target: group_chunks[0],
+            stage: 0,
+            model: "gemini-2.5-flash".into(),
+            status: "passed".into(),
+            attempts: vec![action.key],
+            evidence: vec![serde_json::json!({"classifications": []})],
+            findings: vec![recipe_epub::recovery::Finding {
+                category: "coverage".into(),
+                message: "preserve staged legacy finding".into(),
+                chunk: group_chunks[0],
+                lines: vec![0],
+                resolved: false,
+                model: "gemini-2.5-flash".into(),
+            }],
+        });
+    state.groups[0].accepted = Some(0);
+    state.policy = recipe_epub::recovery::PREVIOUS_POLICY.into();
+    assert!(!state.complete());
+    parent.reserved_usd = state.allocated(false) + state.allocated(true);
+    parent.recovery = Some(state);
+    let parent_path = fixture.path("v2-parent.json");
+    parent.save(&parent_path)?;
+    let parent_bytes = std::fs::read(&parent_path)?;
+    let restored_parent = ReviewRun::read(&parent_path)?;
+    assert!(
+        restored_parent
+            .recovery
+            .as_ref()
+            .is_some_and(|state| !state.complete())
+    );
+    assert_eq!(restored_parent.status(), "not_assessed");
+    assert_eq!(std::fs::read(&parent_path)?, parent_bytes);
+
+    let mut child_request = request;
+    child_request.out = fixture.path("v3-child.json");
+    child_request.from = Some(parent_path.clone());
+    let child = extract_to_run(child_request, |_| {}).await?;
+
+    assert_eq!(std::fs::read(&parent_path)?, parent_bytes);
+    let state = child
+        .run
+        .recovery
+        .as_ref()
+        .ok_or("missing child recovery")?;
+    let candidate = &state.groups[0].candidates[0];
+    assert_eq!(state.policy, recipe_epub::recovery::POLICY);
+    assert_eq!(state.groups[0].accepted, None);
+    assert!(!candidate.verified);
+    assert!(candidate.verified_chunks.is_empty());
+    assert!(candidate.verification_evidence.is_empty());
+    assert_eq!(candidate.obsolete_verification_evidence.len(), 1);
+    // Offline execution may prepare fresh v3 stages, but none may inherit the
+    // old stage's acceptance, response, findings, or dispatched attempts.
+    assert!(!candidate.verification_stages.is_empty());
+    assert!(candidate.verification_stages.iter().all(|stage| {
+        stage.status == "pending"
+            && stage.attempts.is_empty()
+            && stage.evidence.is_empty()
+            && stage.findings.is_empty()
+    }));
+    assert_eq!(candidate.obsolete_verification_stages.len(), 1);
+    let stage = &candidate.obsolete_verification_stages[0];
+    assert_eq!(stage.target, state.groups[0].chunks[0]);
+    assert_eq!(stage.status, "passed");
+    assert_eq!(
+        stage.evidence,
+        vec![serde_json::json!({"classifications": []})]
+    );
+    assert_eq!(stage.findings[0].message, "preserve staged legacy finding");
+    assert!(state.attempts.iter().all(|attempt| attempt.inherited));
+    assert_eq!(state.allocated_new(false), 0.0);
+    assert_eq!(child.run.reserved_usd, parent.reserved_usd);
+    assert!(child.run.charges.is_empty());
     Ok(())
 }

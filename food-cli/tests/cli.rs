@@ -32,6 +32,138 @@ fn parse_ingredient_emits_json() {
 }
 
 #[test]
+fn cookbook_extract_exposes_opt_in_hybrid_strategy() {
+    let output = food_cli()
+        .args(["cookbook", "extract", "--help"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("--strategy"));
+    assert!(help.contains("indexed"));
+    assert!(help.contains("hybrid"));
+}
+
+#[test]
+fn cookbook_ai_audit_requires_child_output_and_network() {
+    for args in [
+        ["cookbook", "audit", "missing.json", "--ai"].as_slice(),
+        [
+            "cookbook",
+            "audit",
+            "missing.json",
+            "--ai",
+            "--out",
+            "child.json",
+        ]
+        .as_slice(),
+    ] {
+        let output = food_cli().args(args).output().unwrap();
+        assert!(!output.status.success());
+    }
+}
+
+#[test]
+fn experiment_audit_operation_exposes_child_run_inputs() {
+    let prepare = food_cli()
+        .args(["cookbook", "experiment", "prepare", "--help"])
+        .output()
+        .unwrap();
+    assert!(prepare.status.success());
+    let help = String::from_utf8_lossy(&prepare.stdout);
+    for flag in [
+        "--operation",
+        "--parent-run",
+        "--group",
+        "--reviewer-model",
+        "--budget-usd",
+        "--correct",
+    ] {
+        assert!(help.contains(flag), "prepare help missing {flag}: {help}");
+    }
+
+    let run = food_cli()
+        .args(["cookbook", "experiment", "run", "--help"])
+        .output()
+        .unwrap();
+    assert!(run.status.success());
+    let help = String::from_utf8_lossy(&run.stdout);
+    assert!(help.contains("--parent-run"));
+    assert!(help.contains("--child-run"));
+}
+
+#[test]
+fn experiment_audit_prepare_requires_parent_and_finite_budget() {
+    let missing_parent = food_cli()
+        .args([
+            "cookbook",
+            "experiment",
+            "prepare",
+            "--operation",
+            "audit",
+            "--expectations",
+            "expectations.json",
+            "--output-dir",
+            "out",
+            "--budget-usd",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(!missing_parent.status.success());
+
+    let invalid_budget = food_cli()
+        .args([
+            "cookbook",
+            "experiment",
+            "prepare",
+            "--operation",
+            "audit",
+            "--parent-run",
+            "parent.json",
+            "--expectations",
+            "expectations.json",
+            "--output-dir",
+            "out",
+            "--budget-usd",
+            "-1",
+        ])
+        .output()
+        .unwrap();
+    assert!(!invalid_budget.status.success());
+}
+
+#[test]
+fn experiment_run_rejects_unknown_manifest_operation() {
+    let dir = std::env::temp_dir().join(format!(
+        "cli-experiment-unknown-operation-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = dir.join("manifest.json");
+    std::fs::write(&manifest, r#"{"operation":"future_operation"}"#).unwrap();
+    let output = food_cli()
+        .args([
+            "cookbook",
+            "experiment",
+            "run",
+            "--manifest",
+            manifest.to_str().unwrap(),
+            "--output-dir",
+            dir.join("evidence").to_str().unwrap(),
+            "--ledger",
+            dir.join("ledger.json").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("unsupported experiment manifest operation")
+    );
+}
+
+#[test]
 fn parse_amount_success_json() {
     let output = food_cli()
         .args(["amount", "parse", "2 cups", "--format", "json"])

@@ -36,17 +36,24 @@ pub mod recovery;
 // CI tests the non-native library and compiles the browser callback example
 // for wasm32.
 mod accounting;
+#[cfg(feature = "native")]
+pub mod experiment;
+pub mod hybrid;
 pub mod indexed;
 #[cfg(feature = "native")]
 pub mod review;
 pub mod source;
 pub use accounting::{CostEstimate, ExtractionAccounting, ModelUsage};
-pub use epub_text::chunk_epub;
+pub use epub_text::{
+    IndexedChunk, SourceElement, SourceElementCoordinate, SourceLine, chunk_epub,
+    chunk_epub_indexed,
+};
 pub use extractor::{
     CallFailure, CallResult, ChunkExtractionFailure, ChunkOutcome, ChunkRequest, DrivenChunk,
     ExtractedRecipe, FailedAttempt, MockExtractor, MockMatch, PARSE_RETRIES, RecipeExtractor,
-    RecipeMeta, Usage, build_chunk_request, parse_recipes_payload, recipes_tool_schema,
-    try_extract_chunk, try_extract_chunk_detailed, try_extract_chunk_detailed_for_chunk,
+    RecipeMeta, Usage, build_chunk_request, parse_recipes_payload, parse_recipes_payload_for_chunk,
+    recipes_tool_schema, try_extract_chunk, try_extract_chunk_detailed,
+    try_extract_chunk_detailed_for_chunk,
 };
 pub use orchestration::{
     ChunkFailure, ChunkReport, ChunkTruncation, ExtractionProgress, ExtractionReport, ModelTier,
@@ -63,9 +70,10 @@ pub use library::{
 // Keep their existing crate-root paths stable.
 #[cfg(feature = "native")]
 pub use backend::{
-    ChunkDebug, CookbookExtractionReport, Options, debug_extract_cookbook, extract_cookbook,
-    extract_cookbook_detailed, extract_cookbook_detailed_with_progress, extract_cookbook_report,
-    extract_cookbook_report_with_progress, extract_cookbook_with, extract_cookbook_with_progress,
+    ChunkDebug, CookbookExtractionReport, Options, RecoveryBackend, debug_extract_cookbook,
+    extract_cookbook, extract_cookbook_detailed, extract_cookbook_detailed_with_progress,
+    extract_cookbook_report, extract_cookbook_report_with_progress, extract_cookbook_with,
+    extract_cookbook_with_progress,
 };
 // Section + time types are shared with the web scraper — one shape workspace-wide.
 pub use recipe_parsing::ParsedSection;
@@ -310,6 +318,44 @@ pub fn assemble_recipes(
     recipes
 }
 
+/// An occurrence's destination after the one canonical assembly pass.
+///
+/// This is crate-private because it records implementation provenance, not a
+/// public recipe representation. In particular, it says nothing about which
+/// metadata fields survived a continuation merge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AssemblyPlacement {
+    Retained {
+        /// Index in the final, ingredient-bearing assembled recipe list.
+        output_recipe: usize,
+        /// First output-section index contributed by this occurrence.
+        section_offset: usize,
+    },
+    Dropped(AssemblyDropReason),
+}
+
+/// Why an input recipe occurrence has no final assembled destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AssemblyDropReason {
+    EmptyTitle,
+    IngredientLess,
+}
+
+/// A source occurrence coordinate and its final assembly placement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AssemblyOccurrence {
+    pub slot: usize,
+    pub recipe: usize,
+    pub placement: AssemblyPlacement,
+}
+
+/// Recipes plus the occurrence placement trace created by the same pass.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AssemblyResult {
+    pub recipes: Vec<CookbookRecipe>,
+    pub placements: Vec<AssemblyOccurrence>,
+}
+
 /// Assemble recipe occurrences in complete chunk order. Only the first recipe
 /// of a hinted chunk can continue the last occurrence of the immediately prior
 /// chunk. Empty chunks are barriers; repeated titles alone are not identity.
@@ -333,7 +379,19 @@ pub(crate) fn assemble_slots(
     slots: impl IntoIterator<Item = Option<(Chunk, Vec<ExtractedRecipe>)>>,
     source: &str,
 ) -> Vec<CookbookRecipe> {
+    assemble_slots_with_placements(slots, source).recipes
+}
+
+/// The internal assembly variant used when a caller needs occurrence lineage.
+/// It deliberately performs continuation detection, section appending, and
+/// ingredient-less filtering only once; matching after assembly would lose the
+/// distinction between repeated titles and merged continuations.
+pub(crate) fn assemble_slots_with_placements(
+    slots: impl IntoIterator<Item = Option<(Chunk, Vec<ExtractedRecipe>)>>,
+    source: &str,
+) -> AssemblyResult {
     let mut out: Vec<CookbookRecipe> = Vec::new();
+    let mut placements = Vec::new();
     // Original occurrence coordinates and the assembled output it belongs to.
     let mut previous: Option<((usize, usize), usize)> = None;
     for (chunk_index, slot) in slots.into_iter().enumerate() {
@@ -346,6 +404,11 @@ pub(crate) fn assemble_slots(
             previous = None;
             let title = r.meta.title.trim().to_string();
             if title.is_empty() {
+                placements.push(AssemblyOccurrence {
+                    slot: chunk_index,
+                    recipe: recipe_index,
+                    placement: AssemblyPlacement::Dropped(AssemblyDropReason::EmptyTitle),
+                });
                 continue;
             }
             let normalized = continuation_title(&title);
@@ -359,9 +422,10 @@ pub(crate) fn assemble_slots(
                     && continuation_title(&out[*output].meta.title) == normalized
             });
             let hero = hero_for(&chunk, &title);
-            let output = if let Some((_, output)) = continuation {
+            let (output, section_offset) = if let Some((_, output)) = continuation {
+                let section_offset = out[output].sections.len();
                 merge_recipe(&mut out[output], r, hero);
-                output
+                (output, section_offset)
             } else {
                 // A long introduction may be split before the first ingredient.
                 // Keep the head until adjacent hinted tails have had a chance
@@ -376,18 +440,55 @@ pub(crate) fn assemble_slots(
                     references: Vec::new(),
                     image: hero,
                 });
-                out.len() - 1
+                (out.len() - 1, 0)
             };
+            // `output` is remapped after ingredient-less recipes are filtered.
+            placements.push(AssemblyOccurrence {
+                slot: chunk_index,
+                recipe: recipe_index,
+                placement: AssemblyPlacement::Retained {
+                    output_recipe: output,
+                    section_offset,
+                },
+            });
             previous = Some(((chunk_index, recipe_index), output));
         }
     }
-    out.retain(|recipe| {
-        recipe
+
+    // Retention compacts output indexes, so remap the temporary coordinates
+    // captured above rather than trying to reconstruct identity from titles.
+    let mut output_indexes = vec![None; out.len()];
+    let mut recipes = Vec::with_capacity(out.len());
+    for (temporary, recipe) in out.into_iter().enumerate() {
+        if recipe
             .sections
             .iter()
             .any(|section| !section.ingredients.is_empty())
-    });
-    out
+        {
+            output_indexes[temporary] = Some(recipes.len());
+            recipes.push(recipe);
+        }
+    }
+    for occurrence in &mut placements {
+        if let AssemblyPlacement::Retained {
+            output_recipe,
+            section_offset,
+        } = occurrence.placement
+        {
+            occurrence.placement = output_indexes[output_recipe]
+                .map(|output_recipe| AssemblyPlacement::Retained {
+                    output_recipe,
+                    section_offset,
+                })
+                .unwrap_or(AssemblyPlacement::Dropped(
+                    AssemblyDropReason::IngredientLess,
+                ));
+        }
+    }
+    AssemblyResult {
+        recipes,
+        placements,
+    }
 }
 
 /// The hero photo for a recipe: the image in `chunk` sitting nearest the recipe's
@@ -1064,6 +1165,150 @@ mod tests {
             "book",
         );
         assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn assembly_trace_uses_the_same_pass_for_continuations_and_references() {
+        let slots = vec![
+            Some((
+                chunk("one"),
+                vec![
+                    er("Cake", &["flour"]),
+                    er("Soup", &["stock"]),
+                    er("Tart", &["1 recipe Cake (this page)"]),
+                ],
+            )),
+            Some((
+                continuation_chunk("two", "Tart"),
+                vec![er("Tart", &["sugar"])],
+            )),
+            Some((
+                continuation_chunk("three", "Tart"),
+                vec![er("Tart", &["butter"]), er("Omelette", &["eggs"])],
+            )),
+        ];
+        let expected = assemble_recipes(
+            slots.iter().cloned().map(Option::unwrap).collect(),
+            vec![],
+            "book",
+        );
+        let mut traced = assemble_slots_with_placements(slots, "book");
+        resolve_references(&mut traced.recipes, &[]);
+
+        assert_eq!(traced.recipes, expected);
+        assert_eq!(
+            traced.placements,
+            vec![
+                AssemblyOccurrence {
+                    slot: 0,
+                    recipe: 0,
+                    placement: AssemblyPlacement::Retained {
+                        output_recipe: 0,
+                        section_offset: 0
+                    }
+                },
+                AssemblyOccurrence {
+                    slot: 0,
+                    recipe: 1,
+                    placement: AssemblyPlacement::Retained {
+                        output_recipe: 1,
+                        section_offset: 0
+                    }
+                },
+                AssemblyOccurrence {
+                    slot: 0,
+                    recipe: 2,
+                    placement: AssemblyPlacement::Retained {
+                        output_recipe: 2,
+                        section_offset: 0
+                    }
+                },
+                AssemblyOccurrence {
+                    slot: 1,
+                    recipe: 0,
+                    placement: AssemblyPlacement::Retained {
+                        output_recipe: 2,
+                        section_offset: 1
+                    }
+                },
+                AssemblyOccurrence {
+                    slot: 2,
+                    recipe: 0,
+                    placement: AssemblyPlacement::Retained {
+                        output_recipe: 2,
+                        section_offset: 2
+                    }
+                },
+                AssemblyOccurrence {
+                    slot: 2,
+                    recipe: 1,
+                    placement: AssemblyPlacement::Retained {
+                        output_recipe: 3,
+                        section_offset: 0
+                    }
+                },
+            ]
+        );
+        assert_eq!(traced.recipes[2].references[0].title, "Cake");
+    }
+
+    #[test]
+    fn assembly_trace_reports_dropped_and_compacted_occurrences() {
+        let slots = vec![
+            Some((
+                chunk("one"),
+                vec![
+                    er("Cake", &["flour"]),
+                    er("  ", &["ignored"]),
+                    er("Noise", &[]),
+                ],
+            )),
+            Some((continuation_chunk("two", "Noise"), vec![er("Noise", &[])])),
+            None,
+            Some((
+                continuation_chunk("four", "Cake"),
+                vec![er("Cake", &["sugar"])],
+            )),
+        ];
+        let traced = assemble_slots_with_placements(slots, "book");
+
+        assert_eq!(traced.recipes.len(), 2, "the missing slot is a barrier");
+        assert_eq!(
+            traced.placements,
+            vec![
+                AssemblyOccurrence {
+                    slot: 0,
+                    recipe: 0,
+                    placement: AssemblyPlacement::Retained {
+                        output_recipe: 0,
+                        section_offset: 0
+                    }
+                },
+                AssemblyOccurrence {
+                    slot: 0,
+                    recipe: 1,
+                    placement: AssemblyPlacement::Dropped(AssemblyDropReason::EmptyTitle)
+                },
+                AssemblyOccurrence {
+                    slot: 0,
+                    recipe: 2,
+                    placement: AssemblyPlacement::Dropped(AssemblyDropReason::IngredientLess)
+                },
+                AssemblyOccurrence {
+                    slot: 1,
+                    recipe: 0,
+                    placement: AssemblyPlacement::Dropped(AssemblyDropReason::IngredientLess)
+                },
+                AssemblyOccurrence {
+                    slot: 3,
+                    recipe: 0,
+                    placement: AssemblyPlacement::Retained {
+                        output_recipe: 1,
+                        section_offset: 0
+                    }
+                },
+            ]
+        );
     }
 
     #[test]

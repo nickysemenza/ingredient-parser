@@ -53,6 +53,13 @@ pub(crate) fn rates(id: &str) -> Option<Rates> {
     entry(id).and_then(|e| e.rates)
 }
 
+/// Maximum response tokens accepted by this exact catalog model. Operation
+/// policies must cap their requested output to this value instead of assuming a
+/// provider-wide limit.
+pub fn max_output_tokens(id: &str) -> Option<u64> {
+    entry(id).map(|e| e.model.max_output_tokens)
+}
+
 #[cfg(test)]
 mod catalog_tests {
     #[test]

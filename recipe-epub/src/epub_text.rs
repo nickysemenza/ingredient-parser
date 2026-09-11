@@ -6,14 +6,80 @@
 //! `window_chunks`), with the last-seen title carried forward as a `title_hint`
 //! when a chunk has to be cut mid-recipe.
 
-use std::io::Cursor;
+use std::{collections::HashMap, io::Cursor};
 
 use ego_tree::iter::Edge;
 use epub::doc::EpubDoc;
 use ingredient::unit::Unit;
 use scraper::{Html, Node};
+use serde::{Deserialize, Serialize};
 
 use crate::{Chunk, EpubError, ImageRef, Link};
+
+/// A chunk together with the source elements that produced each emitted text
+/// line. `lines` has exactly one entry for every line in `chunk.text`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexedChunk {
+    /// The legacy chunk payload. Its fields and serialization remain unchanged.
+    pub chunk: Chunk,
+    /// Source coordinates in the same order as `chunk.text.lines()`.
+    pub lines: Vec<SourceLine>,
+}
+
+/// Source coordinates for one cleaned text line.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceLine {
+    /// Zero-based ordinal among the cleaned lines from this chunk's source
+    /// content document, before chunk windowing.
+    pub document_line: usize,
+    /// Elements that contributed authored text to this line. A rendered table
+    /// row can have multiple contributors.
+    pub contributors: Vec<SourceElement>,
+    /// Non-text anchor elements at this line's DOM position. An anchor between
+    /// emitted lines is retained on both sides; this does not assign ownership.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub anchors: Vec<SourceElement>,
+    /// Internal links authored on this line. This preserves link ownership even
+    /// when identical visible text appears on other lines.
+    #[serde(default)]
+    pub links: Vec<Link>,
+    /// Images attached to this line by the same nearest-line rule used by
+    /// `Chunk::images`.
+    #[serde(default)]
+    pub images: Vec<ImageRef>,
+    /// True when this line is a rendered table row rather than direct source
+    /// text. Its text may therefore differ from the concatenated cell text.
+    pub transformed: bool,
+}
+
+/// An authored source element with enclosing coordinates. Its containing field
+/// distinguishes text contribution from a non-text anchor location.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceElement {
+    /// Stable zero-based element ordinal from the XHTML document's DOM node order.
+    pub element_index: usize,
+    /// XHTML tag name.
+    pub tag: String,
+    /// Literal `class` attribute, or an empty string when absent.
+    pub classes: String,
+    /// The authored fragment anchor (`id`), when present.
+    pub anchor: Option<String>,
+    /// Enclosing elements from the document root to the immediate parent.
+    pub ancestors: Vec<SourceElementCoordinate>,
+}
+
+/// Identity and planning metadata for an ancestor element.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceElementCoordinate {
+    /// Stable zero-based element ordinal from the XHTML document's DOM node order.
+    pub element_index: usize,
+    /// XHTML tag name.
+    pub tag: String,
+    /// Literal `class` attribute, or an empty string when absent.
+    pub classes: String,
+    /// The authored fragment anchor (`id`), when present.
+    pub anchor: Option<String>,
+}
 
 /// A cleaned text line plus any internal anchor links and embedded images it
 /// contained (images that sat in their own empty block attach to the nearest line).
@@ -24,6 +90,15 @@ struct CleanLine {
     text: String,
     links: Vec<Link>,
     images: Vec<ImageRef>,
+    source: SourceLine,
+}
+
+#[derive(Debug, Clone)]
+struct BufferContribution {
+    start: usize,
+    end: usize,
+    contributors: Vec<SourceElement>,
+    transformed: bool,
 }
 
 /// Resolve an `<img src>` (relative to its content document `doc_path`) to the
@@ -160,6 +235,16 @@ const CHUNK_SLACK: usize = 6000;
 /// authored source, so combining documents would make every later recipe claim
 /// the first document's provenance.
 pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
+    Ok(chunk_epub_indexed(bytes)?
+        .into_iter()
+        .map(|indexed| indexed.chunk)
+        .collect())
+}
+
+/// Parse an EPUB into chunks with a source coordinate for each emitted text
+/// line. This is additive to [`chunk_epub`]: projecting `IndexedChunk::chunk`
+/// yields the same legacy chunks.
+pub fn chunk_epub_indexed(bytes: &[u8]) -> Result<Vec<IndexedChunk>, EpubError> {
     // Borrow the bytes (`Cursor<&[u8]>` is Read+Seek) rather than copying them.
     // Image-heavy cookbooks can be hundreds of MB — an extra `.to_vec()` would
     // double that in (wasm) memory for nothing.
@@ -204,7 +289,7 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
         );
     }
 
-    Ok(window_chunks(tagged))
+    Ok(window_chunks_indexed(tagged))
 }
 
 /// Greedily window `(doc_path, line)` pairs into chunks, preferring to break
@@ -216,7 +301,15 @@ pub fn chunk_epub(bytes: &[u8]) -> Result<Vec<Chunk>, EpubError> {
 /// and be dropped downstream. To avoid that, the continuation chunk inherits the
 /// last-seen title as its [`Chunk::title_hint`], so the model re-emits the same
 /// titled recipe and `assemble()` merges the two halves.
+#[cfg(test)]
 fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
+    window_chunks_indexed(tagged)
+        .into_iter()
+        .map(|indexed| indexed.chunk)
+        .collect()
+}
+
+fn window_chunks_indexed(tagged: Vec<(String, CleanLine)>) -> Vec<IndexedChunk> {
     // Prefer authored title styles. A lone generic heading may only name the
     // chapter, so use generic headings only when the document repeats them.
     let mut titles: std::collections::HashMap<&str, (usize, usize)> = Default::default();
@@ -229,6 +322,7 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
         titles.into_iter().map(|(p, c)| (p.to_owned(), c)).collect();
     let mut chunks = Vec::new();
     let mut lines: Vec<String> = Vec::new();
+    let mut source_lines: Vec<SourceLine> = Vec::new();
     let mut chunk_links: Vec<Link> = Vec::new();
     // Images in the current chunk, tagged with their line index within it.
     let mut chunk_images: Vec<(usize, ImageRef)> = Vec::new();
@@ -249,12 +343,15 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
                 .as_deref()
                 .is_some_and(|current| current != path.as_str())
         {
-            chunks.push(Chunk {
-                title_hint: next_hint.take(),
-                text: lines.join("\n"),
-                doc_path: doc.take().unwrap_or_default(),
-                links: std::mem::take(&mut chunk_links),
-                images: std::mem::take(&mut chunk_images),
+            chunks.push(IndexedChunk {
+                chunk: Chunk {
+                    title_hint: next_hint.take(),
+                    text: lines.join("\n"),
+                    doc_path: doc.take().unwrap_or_default(),
+                    links: std::mem::take(&mut chunk_links),
+                    images: std::mem::take(&mut chunk_images),
+                },
+                lines: std::mem::take(&mut source_lines),
             });
             lines = Vec::new();
             len = 0;
@@ -273,12 +370,15 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
         let hard_split = len >= CHUNK_BUDGET + CHUNK_SLACK;
         let want_break = !lines.is_empty() && (at_title || hard_split);
         if want_break {
-            chunks.push(Chunk {
-                title_hint: next_hint.take(),
-                text: lines.join("\n"),
-                doc_path: doc.take().unwrap_or_default(),
-                links: std::mem::take(&mut chunk_links),
-                images: std::mem::take(&mut chunk_images),
+            chunks.push(IndexedChunk {
+                chunk: Chunk {
+                    title_hint: next_hint.take(),
+                    text: lines.join("\n"),
+                    doc_path: doc.take().unwrap_or_default(),
+                    links: std::mem::take(&mut chunk_links),
+                    images: std::mem::take(&mut chunk_images),
+                },
+                lines: std::mem::take(&mut source_lines),
             });
             lines = Vec::new();
             len = 0;
@@ -306,15 +406,19 @@ fn window_chunks(tagged: Vec<(String, CleanLine)>) -> Vec<Chunk> {
         }
         len += line.text.len() + 1;
         lines.push(line.text);
+        source_lines.push(line.source);
         chunk_links.extend(line.links);
     }
     if !lines.is_empty() {
-        chunks.push(Chunk {
-            title_hint: next_hint,
-            text: lines.join("\n"),
-            doc_path: doc.unwrap_or_default(),
-            links: chunk_links,
-            images: chunk_images,
+        chunks.push(IndexedChunk {
+            chunk: Chunk {
+                title_hint: next_hint,
+                text: lines.join("\n"),
+                doc_path: doc.unwrap_or_default(),
+                links: chunk_links,
+                images: chunk_images,
+            },
+            lines: source_lines,
         });
     }
     chunks
@@ -395,6 +499,65 @@ fn is_skip(tag: &str) -> bool {
     matches!(tag, "head" | "script" | "style" | "noscript" | "title")
 }
 
+fn is_void(tag: &str) -> bool {
+    matches!(
+        tag,
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "param"
+            | "source"
+            | "track"
+            | "wbr"
+    )
+}
+
+fn coordinate(element_index: usize, element: &scraper::node::Element) -> SourceElementCoordinate {
+    SourceElementCoordinate {
+        element_index,
+        tag: element.name().to_string(),
+        classes: element.attr("class").unwrap_or_default().to_string(),
+        anchor: element.attr("id").map(str::to_string),
+    }
+}
+
+fn current_contributor(
+    open_elements: &[ego_tree::NodeId],
+    coordinates: &HashMap<ego_tree::NodeId, SourceElementCoordinate>,
+) -> Option<SourceElement> {
+    let element_id = *open_elements.last()?;
+    let element = coordinates.get(&element_id)?.clone();
+    let ancestors = open_elements[..open_elements.len().saturating_sub(1)]
+        .iter()
+        .filter_map(|id| coordinates.get(id).cloned())
+        .collect();
+    Some(SourceElement {
+        element_index: element.element_index,
+        tag: element.tag,
+        classes: element.classes,
+        anchor: element.anchor,
+        ancestors,
+    })
+}
+
+fn push_unique(
+    target: &mut Vec<SourceElement>,
+    contributors: impl IntoIterator<Item = SourceElement>,
+) {
+    for contributor in contributors {
+        if !target.contains(&contributor) {
+            target.push(contributor);
+        }
+    }
+}
+
 /// Strip XHTML to text and join into one string (one line per block element).
 #[cfg(test)]
 pub(crate) fn clean_xhtml_to_text(xhtml: &str) -> String {
@@ -463,7 +626,21 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
     const SEP: char = '\u{0}';
     let xhtml = close_self_closing_rawtext(xhtml);
     let dom = Html::parse_document(&xhtml);
+    // Publish the same element identity namespace as `SourceBlock`: the DOM's
+    // element-node order. This is metadata only; text ownership still comes
+    // from the cleaning walk below. HTML foster parenting can change tree-open
+    // order, so using `Edge::Open` ordinals here would not join source records.
+    let coordinates: HashMap<ego_tree::NodeId, SourceElementCoordinate> = dom
+        .tree
+        .nodes()
+        .filter_map(scraper::ElementRef::wrap)
+        .enumerate()
+        .map(|(element_index, element)| (element.id(), coordinate(element_index, element.value())))
+        .collect();
     let mut buf = String::new();
+    let mut contributions: Vec<BufferContribution> = Vec::new();
+    let mut anchors: Vec<(usize, SourceElement)> = Vec::new();
+    let mut open_elements: Vec<ego_tree::NodeId> = Vec::new();
     let mut title_offsets: Vec<(usize, bool, usize)> = Vec::new();
     let mut open_titles: Vec<(ego_tree::NodeId, usize, bool)> = Vec::new();
     let mut skip_depth = 0usize;
@@ -482,6 +659,7 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
     // `in_caption` route text nodes while inside a table.
     let mut table_depth = 0usize;
     let mut row_cells: Vec<String> = Vec::new();
+    let mut row_contributors: Vec<SourceElement> = Vec::new();
     let mut in_cell = false;
     let mut in_caption = false;
 
@@ -490,6 +668,9 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
             Edge::Open(node) => match node.value() {
                 Node::Element(e) => {
                     let name = e.name();
+                    if !is_void(name) {
+                        open_elements.push(node.id());
+                    }
                     if is_skip(name)
                         || scraper::ElementRef::wrap(node).is_some_and(is_footnote_marker)
                     {
@@ -500,6 +681,15 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                         open_anchor = None;
                         skip_depth += 1;
                     } else if skip_depth == 0 {
+                        if e.attr("id").is_some() {
+                            let mut path = open_elements.clone();
+                            if is_void(name) {
+                                path.push(node.id());
+                            }
+                            if let Some(element) = current_contributor(&path, &coordinates) {
+                                anchors.push((buf.len(), element));
+                            }
+                        }
                         match name {
                             "table" => {
                                 buf.push(SEP);
@@ -507,6 +697,7 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                             }
                             "tr" if table_depth > 0 => {
                                 row_cells.clear();
+                                row_contributors.clear();
                                 in_cell = false;
                             }
                             "td" | "th" if table_depth > 0 => {
@@ -576,13 +767,43 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                         if in_cell {
                             if let Some(cell) = row_cells.last_mut() {
                                 cell.push_str(t);
+                                if !normalize_ws(t).is_empty()
+                                    && let Some(contributor) =
+                                        current_contributor(&open_elements, &coordinates)
+                                {
+                                    push_unique(&mut row_contributors, [contributor]);
+                                }
                             }
                         } else if in_caption {
+                            let start = buf.len();
                             buf.push_str(t);
+                            if !normalize_ws(t).is_empty()
+                                && let Some(contributor) =
+                                    current_contributor(&open_elements, &coordinates)
+                            {
+                                contributions.push(BufferContribution {
+                                    start,
+                                    end: buf.len(),
+                                    contributors: vec![contributor],
+                                    transformed: false,
+                                });
+                            }
                         }
                         // Text between cells/rows (source indentation) is dropped.
                     } else {
+                        let start = buf.len();
                         buf.push_str(t);
+                        if !normalize_ws(t).is_empty()
+                            && let Some(contributor) =
+                                current_contributor(&open_elements, &coordinates)
+                        {
+                            contributions.push(BufferContribution {
+                                start,
+                                end: buf.len(),
+                                contributors: vec![contributor],
+                                transformed: false,
+                            });
+                        }
                     }
                 }
                 _ => {}
@@ -611,10 +832,19 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                                 let rendered = render_table_row(&row_cells);
                                 if !rendered.is_empty() {
                                     buf.push(SEP);
+                                    let start = buf.len();
                                     buf.push_str(&rendered);
+                                    let end = buf.len();
                                     buf.push(SEP);
+                                    contributions.push(BufferContribution {
+                                        start,
+                                        end,
+                                        contributors: std::mem::take(&mut row_contributors),
+                                        transformed: true,
+                                    });
                                 }
                                 row_cells.clear();
+                                row_contributors.clear();
                                 in_cell = false;
                             }
                             "caption" if table_depth > 0 => {
@@ -635,6 +865,11 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                             _ => {}
                         }
                     }
+                    if !is_void(name)
+                        && let Some(index) = open_elements.iter().rposition(|id| *id == node.id())
+                    {
+                        open_elements.truncate(index);
+                    }
                 }
             }
         }
@@ -651,6 +886,14 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
         let line_end = line_start + segment.len();
         let text = normalize_ws(segment);
         if !text.is_empty() {
+            let mut contributors = Vec::new();
+            let mut transformed = false;
+            for contribution in &contributions {
+                if contribution.start < line_end && line_start < contribution.end {
+                    push_unique(&mut contributors, contribution.contributors.clone());
+                    transformed |= contribution.transformed;
+                }
+            }
             let line_links: Vec<Link> = links
                 .iter()
                 .filter(|(off, _, _)| *off >= line_start && *off < line_end)
@@ -676,17 +919,55 @@ fn clean_xhtml_to_lines(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
                     .max_by_key(|(_, _, end)| *end)
                     .map(|(start, _, end)| normalize_ws(&buf[*start..*end].replace(SEP, " "))),
                 text,
-                links: line_links,
+                links: line_links.clone(),
                 images: Vec::new(),
+                source: SourceLine {
+                    anchors: Vec::new(),
+                    document_line: out.len(),
+                    contributors,
+                    links: line_links,
+                    images: Vec::new(),
+                    transformed,
+                },
             });
         }
         line_start = line_end + SEP.len_utf8();
+    }
+
+    let represented: std::collections::HashSet<_> = out
+        .iter()
+        .flat_map(|line| &line.source.contributors)
+        .flat_map(|element| {
+            std::iter::once(element.element_index)
+                .chain(element.ancestors.iter().map(|parent| parent.element_index))
+        })
+        .collect();
+    for (offset, anchor) in anchors {
+        if represented.contains(&anchor.element_index) {
+            continue;
+        }
+        if let Some(index) = ranges
+            .iter()
+            .position(|&(start, end)| start <= offset && offset < end)
+        {
+            out[index].source.anchors.push(anchor);
+        } else {
+            // A text-free block provides no evidence for choosing one side of
+            // a boundary. Keep both adjacent source locations conservatively.
+            if let Some(index) = ranges.iter().rposition(|&(_, end)| end <= offset) {
+                out[index].source.anchors.push(anchor.clone());
+            }
+            if let Some(index) = ranges.iter().position(|&(start, _)| start >= offset) {
+                out[index].source.anchors.push(anchor);
+            }
+        }
     }
 
     // Attach each image to the nearest emitted line (its own block is usually
     // empty text — a bare <figure><img/> — so a strict in-range match would drop it).
     for (off, img) in images {
         if let Some(idx) = nearest_line(&ranges, off) {
+            out[idx].source.images.push(img.clone());
             out[idx].images.push(img);
         }
     }
@@ -791,8 +1072,76 @@ mod tests {
                 text: text.to_string(),
                 links: Vec::new(),
                 images: Vec::new(),
+                source: SourceLine {
+                    anchors: Vec::new(),
+                    document_line: 0,
+                    contributors: Vec::new(),
+                    links: Vec::new(),
+                    images: Vec::new(),
+                    transformed: false,
+                },
             },
         )
+    }
+
+    #[rstest]
+    #[case::before("<a id='target'></a><p>Title</p>", vec![0])]
+    #[case::between("<p>Before</p><a id='target'></a><p>After</p>", vec![0, 1])]
+    #[case::image_container("<p>Before</p><div id='target'><img src='x.jpg'/></div><p>After</p>", vec![0, 1])]
+    #[case::image("<p>Before</p><img id='target' src='x.jpg'/><p>After</p>", vec![0, 1])]
+    #[case::inline("<p>Before<a id='target'></a>after</p>", vec![0])]
+    #[case::after("<p>Title</p><a id='target'></a>", vec![0])]
+    #[case::skipped("<head><script id='target'>ignored</script></head><p>Title</p>", vec![])]
+    #[case::already_represented("<p id='target'>Title</p>", vec![])]
+    fn non_text_anchors_retain_source_positions(#[case] html: &str, #[case] expected: Vec<usize>) {
+        let lines = clean_xhtml_to_lines(html, "chapter.xhtml");
+        let actual: Vec<_> = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(index, line)| {
+                line.source
+                    .anchors
+                    .iter()
+                    .any(|anchor| anchor.anchor.as_deref() == Some("target"))
+                    .then_some(index)
+            })
+            .collect();
+        assert_eq!(actual, expected);
+        for line in &lines {
+            let chunk = Chunk {
+                text: line.text.clone(),
+                doc_path: "chapter.xhtml".into(),
+                title_hint: None,
+                links: vec![],
+                images: vec![],
+            };
+            let evidence = crate::source::chunk_source_evidence(
+                &chunk,
+                Some(std::slice::from_ref(&line.source)),
+                &[],
+            )
+            .unwrap();
+            assert_eq!(
+                evidence.lines[0].contributors.len(),
+                line.source.contributors.len()
+            );
+            let projection = evidence.request_projection();
+            for anchor in &line.source.anchors {
+                assert!(evidence.lines[0].anchors.contains(&anchor.element_index));
+                assert_eq!(
+                    projection["elements"][anchor.element_index.to_string()]["anchor"],
+                    "target"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_source_line_defaults_to_no_non_text_anchors() {
+        let line: SourceLine =
+            serde_json::from_str(r#"{"document_line":0,"contributors":[],"transformed":false}"#)
+                .unwrap();
+        assert!(line.anchors.is_empty());
     }
 
     #[rstest]
@@ -858,6 +1207,156 @@ mod tests {
     )]
     fn cleans_xhtml(#[case] html: &str, #[case] expected: &str) {
         assert_eq!(clean_xhtml_to_text(html), expected);
+    }
+
+    #[test]
+    fn source_lines_keep_duplicate_text_owned_by_their_authored_elements() {
+        let lines = clean_xhtml_to_lines(
+            "<p id='first' class='ingredient'>same text</p><p id='second' class='method'>same text</p>",
+            "chapter.xhtml",
+        );
+        assert_eq!(
+            lines.iter().map(|line| &line.text).collect::<Vec<_>>(),
+            ["same text", "same text"]
+        );
+        assert_eq!(lines[0].source.document_line, 0);
+        assert_eq!(lines[1].source.document_line, 1);
+        let first = &lines[0].source.contributors[0];
+        let second = &lines[1].source.contributors[0];
+        assert_eq!(first.tag, "p");
+        assert_eq!(first.classes, "ingredient");
+        assert_eq!(first.anchor.as_deref(), Some("first"));
+        assert_eq!(second.tag, "p");
+        assert_eq!(second.classes, "method");
+        assert_eq!(second.anchor.as_deref(), Some("second"));
+        assert_ne!(first.element_index, second.element_index);
+    }
+
+    #[test]
+    fn foster_parented_markup_keeps_source_block_element_identity() {
+        // `p` is invalid inside `table`. html5ever foster-parents it before the
+        // table in tree traversal order, while its DOM node allocation remains
+        // after the table. SourceBlock publishes allocation order, so the
+        // indexed line must use that identity rather than its Edge::Open ordinal.
+        let xhtml = "<table><p id='fostered'>Opening note</p><tr><td>Flour</td></tr></table>";
+        let canonical_index = Html::parse_document(xhtml)
+            .tree
+            .nodes()
+            .filter_map(scraper::ElementRef::wrap)
+            .enumerate()
+            .find_map(|(index, element)| {
+                (element.value().attr("id") == Some("fostered")).then_some(index)
+            })
+            .unwrap();
+        let lines = clean_xhtml_to_lines(xhtml, "chapter.xhtml");
+        let owner = lines
+            .iter()
+            .find(|line| line.text == "Opening note")
+            .and_then(|line| {
+                line.source
+                    .contributors
+                    .iter()
+                    .find(|element| element.anchor.as_deref() == Some("fostered"))
+            })
+            .unwrap();
+        assert_eq!(owner.element_index, canonical_index);
+    }
+
+    #[test]
+    fn source_lines_retain_inline_owners_and_wrapper_ancestors() {
+        let lines = clean_xhtml_to_lines(
+            "<div id='recipe' class='wrapper'><p id='method'>Stir <em class='action'>gently</em>.</p></div>",
+            "chapter.xhtml",
+        );
+        assert_eq!(lines[0].text, "Stir gently.");
+        let contributors = &lines[0].source.contributors;
+        assert!(
+            contributors
+                .iter()
+                .any(|element| element.tag == "p" && element.anchor.as_deref() == Some("method"))
+        );
+        let emphasis = contributors
+            .iter()
+            .find(|element| element.tag == "em")
+            .unwrap();
+        assert_eq!(emphasis.classes, "action");
+        assert!(
+            emphasis
+                .ancestors
+                .iter()
+                .any(|ancestor| ancestor.tag == "div"
+                    && ancestor.anchor.as_deref() == Some("recipe"))
+        );
+    }
+
+    #[test]
+    fn whitespace_between_nested_roles_does_not_become_a_contributor() {
+        let lines = clean_xhtml_to_lines(
+            "<div class='headnote'>\n  Introductory note.\n  <span class='yield'>Serves 2</span>\n  Closing note.\n</div>",
+            "chapter.xhtml",
+        );
+        let intro = lines
+            .iter()
+            .find(|line| line.text == "Introductory note.")
+            .unwrap();
+        assert!(
+            intro
+                .source
+                .contributors
+                .iter()
+                .any(|element| element.tag == "div" && element.classes == "headnote")
+        );
+        let yield_line = lines.iter().find(|line| line.text == "Serves 2").unwrap();
+        assert!(
+            yield_line
+                .source
+                .contributors
+                .iter()
+                .any(|element| element.tag == "span" && element.classes == "yield")
+        );
+        assert!(
+            !yield_line
+                .source
+                .contributors
+                .iter()
+                .any(|element| element.tag == "div" && element.classes == "headnote")
+        );
+        let closing = lines
+            .iter()
+            .find(|line| line.text == "Closing note.")
+            .unwrap();
+        assert!(
+            closing
+                .source
+                .contributors
+                .iter()
+                .any(|element| element.tag == "div" && element.classes == "headnote")
+        );
+    }
+
+    #[test]
+    fn rendered_table_rows_are_explicitly_transformed_with_cell_contributors() {
+        let lines = clean_xhtml_to_lines(
+            "<table><tr><td id='name'>Flour</td><td id='weight'>400 g</td></tr></table>",
+            "chapter.xhtml",
+        );
+        assert_eq!(lines[0].text, "Flour (400 g)");
+        assert!(lines[0].source.transformed);
+        assert_eq!(lines[0].source.document_line, 0);
+        assert!(
+            lines[0]
+                .source
+                .contributors
+                .iter()
+                .any(|element| element.tag == "td" && element.anchor.as_deref() == Some("name"))
+        );
+        assert!(
+            lines[0]
+                .source
+                .contributors
+                .iter()
+                .any(|element| element.tag == "td" && element.anchor.as_deref() == Some("weight"))
+        );
     }
 
     #[rstest]
@@ -965,6 +1464,14 @@ mod tests {
                     text: "Chocolate Cake".to_string(),
                     links: Vec::new(),
                     images: vec![hero.clone()],
+                    source: SourceLine {
+                        anchors: Vec::new(),
+                        document_line: 1,
+                        contributors: Vec::new(),
+                        links: Vec::new(),
+                        images: Vec::new(),
+                        transformed: false,
+                    },
                 },
             ),
             tag("c.html", "2 cups flour"),
@@ -993,11 +1500,25 @@ mod tests {
         assert_eq!(lines[0].links.len(), 1);
         assert_eq!(lines[0].links[0].text, "The Only Piecrust");
         assert!(lines[0].links[0].href.contains("piecrust"));
+        assert_eq!(lines[0].source.links, lines[0].links);
         // A plain line has no links.
         assert!(lines[1].links.is_empty());
         // External (http) links are ignored.
         assert_eq!(lines[2].text, "See our site for more");
         assert!(lines[2].links.is_empty());
+    }
+
+    #[test]
+    fn source_lines_keep_identical_link_text_with_distinct_destinations() {
+        let lines = clean_xhtml_to_lines(
+            "<p>See <a href='one.xhtml#sauce'>the recipe</a>.</p><p>See <a href='two.xhtml#cake'>the recipe</a>.</p>",
+            "chapter.xhtml",
+        );
+        assert_eq!(lines[0].text, lines[1].text);
+        assert_eq!(lines[0].source.links[0].text, "the recipe");
+        assert_eq!(lines[1].source.links[0].text, "the recipe");
+        assert_eq!(lines[0].source.links[0].href, "one.xhtml#sauce");
+        assert_eq!(lines[1].source.links[0].href, "two.xhtml#cake");
     }
 
     #[test]
@@ -1020,12 +1541,41 @@ mod tests {
         assert_eq!(title.images[0].path, "OEBPS/images/p12.jpg");
         assert_eq!(title.images[0].mime, "image/jpeg");
         assert_eq!(title.images[0].alt.as_deref(), Some("A finished cake"));
+        assert_eq!(title.source.images, title.images);
         // data: and http(s) image sources are dropped (no archive entry).
         assert!(
             lines
                 .iter()
                 .all(|l| l.images.is_empty() || l.text == "Chocolate Cake")
         );
+    }
+
+    #[test]
+    fn source_lines_keep_images_attached_to_their_own_line() {
+        let lines = clean_xhtml_to_lines(
+            "<p>First <img src='images/first.jpg' alt='First image' /></p><p>Second <img src='images/second.png' alt='Second image' /></p>",
+            "OEBPS/text/chapter.xhtml",
+        );
+        assert_eq!(lines[0].source.images.len(), 1);
+        assert_eq!(
+            lines[0].source.images[0].path,
+            "OEBPS/text/images/first.jpg"
+        );
+        assert_eq!(
+            lines[0].source.images[0].alt.as_deref(),
+            Some("First image")
+        );
+        assert_eq!(lines[1].source.images.len(), 1);
+        assert_eq!(
+            lines[1].source.images[0].path,
+            "OEBPS/text/images/second.png"
+        );
+        assert_eq!(
+            lines[1].source.images[0].alt.as_deref(),
+            Some("Second image")
+        );
+        assert_eq!(lines[0].source.images, lines[0].images);
+        assert_eq!(lines[1].source.images, lines[1].images);
     }
 
     #[rstest]
@@ -1093,6 +1643,56 @@ mod tests {
         // The continuation chunk inherits the title (no title line of its own).
         assert_eq!(chunks[1].title_hint.as_deref(), Some("Lone Long Recipe"));
         assert!(!chunks[1].text.starts_with("Lone Long Recipe"));
+    }
+
+    #[test]
+    fn hard_split_keeps_source_lines_aligned_with_each_continuation() {
+        let line = "x".repeat(140);
+        let count = (CHUNK_BUDGET + CHUNK_SLACK) / line.len() + 5;
+        let mut tagged = vec![tag("big.html", "Lone Long Recipe")];
+        for document_line in 1..=count {
+            let mut line = tag("big.html", &line);
+            line.1.source.document_line = document_line;
+            tagged.push(line);
+        }
+        let chunks = window_chunks_indexed(tagged);
+        assert!(chunks.len() >= 2);
+        assert_eq!(
+            chunks[1].chunk.title_hint.as_deref(),
+            Some("Lone Long Recipe")
+        );
+        for chunk in chunks {
+            assert_eq!(chunk.lines.len(), chunk.chunk.text.lines().count());
+            assert!(
+                chunk
+                    .lines
+                    .windows(2)
+                    .all(|pair| pair[0].document_line < pair[1].document_line)
+            );
+        }
+    }
+
+    #[test]
+    fn indexed_epub_projects_to_the_legacy_chunk_serialization()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = recipe_epub_fixtures::cookbook_epub()?;
+        let legacy = chunk_epub(&bytes)?;
+        let indexed = chunk_epub_indexed(&bytes)?;
+        assert_eq!(
+            serde_json::to_vec(&legacy)?,
+            serde_json::to_vec(
+                &indexed
+                    .iter()
+                    .map(|indexed| &indexed.chunk)
+                    .collect::<Vec<_>>(),
+            )?,
+        );
+        assert!(
+            indexed
+                .iter()
+                .all(|indexed| { indexed.lines.len() == indexed.chunk.text.lines().count() })
+        );
+        Ok(())
     }
 }
 
