@@ -197,6 +197,17 @@ impl CallFailure {
         }
     }
 
+    /// Cloudflare's unified billing refuses a model for the account
+    /// ("Wholesale Rate limited", error 2018); retrying within the run is
+    /// pointless.
+    pub fn is_quota_exhausted(&self) -> bool {
+        matches!(
+            self,
+            CallFailure::Http { status: 429, message, .. }
+                if message.contains("Wholesale") || message.contains("\"code\":2018")
+        )
+    }
+
     pub fn status(&self) -> Option<u16> {
         match self {
             CallFailure::Http { status, .. } => Some(*status),

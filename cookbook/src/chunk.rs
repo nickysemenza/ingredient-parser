@@ -69,14 +69,27 @@ impl Chunk {
     }
 
     /// The chunk as the model sees it: `"{local}: {text}"` per line.
+    /// The numbered lines the model reads. Lines inside a figure carry a
+    /// `[caption]` marker so a caption that names a dish is not mistaken for
+    /// its title; the marker is never copied into output (Rust copies text
+    /// by index).
     pub fn text(&self, book: &BookLines) -> String {
         (self.start..self.end)
             .enumerate()
-            .map(|(local, idx)| format!("{local}: {}", book.text(idx)))
+            .map(|(local, idx)| {
+                if book.lines[idx].clean.in_figure {
+                    format!("{local}: {CAPTION_MARKER} {}", book.text(idx))
+                } else {
+                    format!("{local}: {}", book.text(idx))
+                }
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
 }
+
+/// Prefix on figure lines in the chunk text.
+pub const CAPTION_MARKER: &str = "[caption]";
 
 #[derive(Debug, Clone, Copy)]
 pub struct ChunkOptions {

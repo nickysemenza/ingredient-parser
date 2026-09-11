@@ -6,7 +6,7 @@
 //! `.htm` document, a percent-encoded href, or a lossy UTF-8 document all still
 //! open. It fails only when there is no container, no package, or no spine.
 
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Seek};
 
 use sha2::{Digest, Sha256};
 use zip::ZipArchive;
@@ -63,7 +63,18 @@ pub struct Package {
 impl Package {
     /// Parse the package from EPUB bytes.
     pub fn parse(bytes: &[u8]) -> Result<Package> {
-        let mut archive = ZipArchive::new(Cursor::new(bytes))?;
+        Self::parse_reader(Cursor::new(bytes))
+    }
+
+    /// Parse the package straight from a file, reading only the container and
+    /// package entries. Library scans use this so a 600 MB book costs two
+    /// small reads instead of loading every image.
+    pub fn parse_file(path: &std::path::Path) -> Result<Package> {
+        Self::parse_reader(std::io::BufReader::new(std::fs::File::open(path)?))
+    }
+
+    pub fn parse_reader<R: Read + Seek>(reader: R) -> Result<Package> {
+        let mut archive = ZipArchive::new(reader)?;
         let container = read_entry(&mut archive, "META-INF/container.xml")
             .ok_or_else(|| Error::NotAnEpub("missing META-INF/container.xml".into()))?;
         let opf_path = rootfile_path(&container)?;
@@ -139,7 +150,7 @@ pub fn image_mime(path: &str) -> Option<String> {
     (mime.type_() == mime_guess::mime::IMAGE).then(|| mime.essence_str().to_string())
 }
 
-fn read_entry(archive: &mut ZipArchive<Cursor<&[u8]>>, path: &str) -> Option<Vec<u8>> {
+fn read_entry<R: Read + Seek>(archive: &mut ZipArchive<R>, path: &str) -> Option<Vec<u8>> {
     let path = path.trim_start_matches('/');
     let name = if archive.by_name(path).is_ok() {
         path.to_string()

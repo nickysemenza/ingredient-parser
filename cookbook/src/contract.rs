@@ -221,13 +221,17 @@ recipe's title line; give it its own sections when the book prints ingredients f
 otherwise put its text in notes. kind `technique`: a titled method with steps but no \
 ingredient list. kind `essay`: titled prose with neither.
 
-Fields. title: the complete printed name and subtitle or translation, never dietary flags. \
+Fields. title: the complete printed name and subtitle or translation, never dietary flags; \
+a title printed over consecutive lines (name, then translation or subtitle, then perhaps \
+the native script) is one title, so select every one of those lines. \
 description: the headnote paragraphs. recipe_yield: every line of the serves/makes statement. \
 times: explicitly printed timing lines, one per field; a line combining several times or a \
 time with other metadata goes in notes and the times fields stay empty. equipment: equipment \
 lists and their headings; non-food wrappers listed there stay in equipment. category and \
 page: a printed category or page line. sections: keep the authored ingredient groups, an \
-unnamed main group plus named components; each ingredient line stays in its printed group, \
+unnamed main group plus named components; a short heading over an ingredient list such as \
+\"Paste\", \"Fish\", or \"For the sauce\" is a section name, never an item; each ingredient \
+line stays in its printed group, \
 including unquantified ones such as frying oil or salt; steps are the method paragraphs in \
 order and belong to the group they prepare, with a shared method in the unnamed main group. A \
 required procedure is always a step, even when printed before the ingredients, labelled as a \
@@ -235,8 +239,9 @@ note, or ending with a serving or storage aside. Do not split a line or move par
 notes: tips, do-ahead, storage, serving suggestions, dietary flags, parenthetical group notes. \
 photos: caption lines of this item's photos.
 
-Outside items. captions: photo captions belonging to no item; a caption naming another \
-recipe is a caption, not a title. chapter_headings: chapter or part titles. ignored: \
+Outside items. captions: photo captions belonging to no item; lines marked [caption] sit \
+inside a figure and go in photos or captions, never in title, even when they name the dish. \
+chapter_headings: chapter or part titles. ignored: \
 navigation, running heads, filler, and prose that belongs to no titled item.
 
 Only the first item may continue a recipe cut before this chunk: then its title is [] and \

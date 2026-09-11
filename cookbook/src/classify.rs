@@ -39,6 +39,15 @@ pub struct Classified {
     pub nav_recipe_titles: usize,
 }
 
+/// Do the catalog subjects say cooking? Cheap enough for a library scan that
+/// never opens the book's text.
+pub fn subject_hint(subjects: &[String]) -> bool {
+    let subjects = subjects.join(" ").to_lowercase();
+    ["cook", "recipe", "food", "baking", "cuisine"]
+        .iter()
+        .any(|k| subjects.contains(k))
+}
+
 /// The offline signal: how much of the text reads as ingredient lists.
 pub fn classify_structure(book: &Book) -> Classified {
     let lines = book.lines();
@@ -49,10 +58,7 @@ pub fn classify_structure(book: &Book) -> Classified {
         .count();
     let nav_titles = nav_recipe_titles(lines, book.nav()).len();
     let ratio = quantity_lines as f32 / total as f32;
-    let subjects = book.source().subjects.join(" ").to_lowercase();
-    let subject_hint = ["cook", "recipe", "food", "baking", "cuisine"]
-        .iter()
-        .any(|k| subjects.contains(k));
+    let subject_hint = subject_hint(&book.source().subjects);
     let mut score = (ratio / 0.10).min(1.0) * 0.6 + (ingredient_runs as f32 / 30.0).min(1.0) * 0.3;
     if subject_hint {
         score += 0.1;

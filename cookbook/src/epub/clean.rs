@@ -694,6 +694,11 @@ fn render_table_row(cells: &[String]) -> String {
         .map(|c| normalize_ws(c))
         .filter(|c| !c.is_empty())
         .collect();
+    if cells.len() >= 2 && cells.iter().all(|c| is_column_header(c)) {
+        // `INGREDIENT | QUANTITY | BAKER'S %`: column headers carry no recipe
+        // text and would otherwise read as a section name or ingredient line.
+        return String::new();
+    }
     match cells.as_slice() {
         [] => String::new(),
         [only] => only.clone(),
@@ -714,6 +719,31 @@ fn render_table_row(cells: &[String]) -> String {
             }
         }
     }
+}
+
+/// Generic measure-table column headers.
+fn is_column_header(cell: &str) -> bool {
+    const HEADERS: &[&str] = &[
+        "ingredient",
+        "ingredients",
+        "quantity",
+        "quantities",
+        "amount",
+        "weight",
+        "volume",
+        "metric",
+        "imperial",
+        "us",
+        "grams",
+        "ounces",
+        "baker's percentage",
+        "baker's %",
+        "bakers percentage",
+        "percentage",
+        "%",
+    ];
+    let lower = cell.trim().to_lowercase().replace(['’', '‘'], "'");
+    HEADERS.contains(&lower.as_str())
 }
 
 enum CellKind {
@@ -766,6 +796,10 @@ mod tests {
         "1 oz chiles\n5 g salt"
     )]
     #[case::line_break("<p>line one<br/>line two</p>", "line one\nline two")]
+    #[case::column_headers_dropped(
+        "<table><tr><th>INGREDIENT</th><th>QUANTITY</th><th>BAKER’S PERCENTAGE</th></tr><tr><td>White flour</td><td>1,000 g</td><td>100%</td></tr></table>",
+        "White flour (1,000 g)"
+    )]
     #[case::footnote(
         "<p>1 teaspoon seeds, roasted<a href='#note1'><sup>1</sup></a> and crushed</p><p id='note1'>1 Roast in a dry pan.</p>",
         "1 teaspoon seeds, roasted and crushed\n1 Roast in a dry pan."

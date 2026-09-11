@@ -30,6 +30,11 @@ pub enum HardFault {
     IngredientsAreProse { title: String },
     /// A title that names an ingredient group ("For the sauce").
     TitleIsSectionHeading { local: usize, title: String },
+    /// A title line that is itself an ingredient line ("Salt" inside a list).
+    TitleIsIngredient { local: usize, title: String },
+    /// A short heading over an ingredient list, split off as its own item
+    /// while the recipe it belongs to still has no method ("Paste", "Fish").
+    TitleIsGroupHeading { local: usize, title: String },
 }
 
 /// "For the sauce", "For serving", "To finish:" — group headings, not items.
@@ -55,6 +60,24 @@ const MAX_TITLE_CHARS: usize = 120;
 fn is_prose(text: &str) -> bool {
     let t = text.trim();
     t.len() > MAX_TITLE_CHARS || (t.len() > 60 && t.ends_with('.'))
+}
+
+/// A title line that reads as a quantity, or a short line wedged between two
+/// quantity lines ("Salt" in the middle of a list), is an ingredient.
+fn title_line_is_ingredient(book: &BookLines, line: usize, title: &str) -> bool {
+    let Some(l) = book.lines.get(line) else {
+        return false;
+    };
+    if l.clean.heading.is_some() {
+        return false;
+    }
+    if book.quantity_like(line) {
+        return true;
+    }
+    title.split_whitespace().count() <= 3
+        && line > 0
+        && book.quantity_like(line - 1)
+        && book.quantity_like(line + 1)
 }
 
 /// Words a cross-reference line carries.
@@ -102,7 +125,33 @@ static PAGE_NUMBER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new
 /// with its payload on the same line.
 pub fn is_label(text: &str) -> bool {
     let lower = text.trim().trim_end_matches(':').to_lowercase();
-    LABELS.contains(&lower.as_str()) || LABELS.iter().any(|l| lower.starts_with(&format!("{l}:")))
+    LABELS.contains(&lower.as_str())
+        || LABELS.iter().any(|l| lower.starts_with(&format!("{l}:")))
+        || is_metadata_label(text)
+}
+
+/// `PROOF TIME: About 1 hour`, `BULK FERMENTATION: 12 to 14 hours`,
+/// `SAMPLE SCHEDULE: Mix at 7 p.m.` — an upper-case label whose payload
+/// carries a number or a time. `LAGNIAPPE: OREGON HAZELNUT COOKIES` does not.
+fn is_metadata_label(text: &str) -> bool {
+    let Some((label, payload)) = text.trim().split_once(':') else {
+        return false;
+    };
+    let label = label.trim();
+    let words = label.split_whitespace().count();
+    if label.is_empty()
+        || words > 3
+        || !label.chars().any(|c| c.is_alphabetic())
+        || label.chars().any(|c| c.is_lowercase())
+    {
+        return false;
+    }
+    let payload = payload.trim().to_lowercase();
+    !payload.is_empty()
+        && (payload.chars().any(|c| c.is_ascii_digit())
+            || ["hour", "minute", "day", "overnight", "a.m.", "p.m."]
+                .iter()
+                .any(|w| payload.contains(w)))
 }
 
 impl fmt::Display for HardFault {
@@ -135,6 +184,14 @@ impl fmt::Display for HardFault {
             HardFault::IngredientsAreProse { title } => write!(
                 f,
                 "item {title:?} lists only paragraphs as ingredient lines; a recipe needs a printed ingredient list, so mark this item technique or essay and put the paragraphs in steps or description"
+            ),
+            HardFault::TitleIsIngredient { local, title } => write!(
+                f,
+                "line {local} ({title:?}) is an ingredient line inside a list, not a title; keep it in that recipe's ingredients"
+            ),
+            HardFault::TitleIsGroupHeading { local, title } => write!(
+                f,
+                "line {local} ({title:?}) is a heading over an ingredient group of the item before it, whose method has not appeared yet; make it that item's section name, not a new item"
             ),
             HardFault::TitleIsProse { local, title } => write!(
                 f,
@@ -175,7 +232,7 @@ const IGNORED_QUANTITY_LINES: usize = 4;
 pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validation {
     let mut v = Validation::default();
 
-    for item in &lowered.items {
+    for (index, item) in lowered.items.iter().enumerate() {
         for &line in &item.title_lines {
             if book.lines.get(line).is_some_and(|l| l.clean.in_figure) {
                 v.hard.push(HardFault::TitleIsCaption {
@@ -184,6 +241,32 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 });
                 v.soft.push(Flag::CaptionAsTitle { line });
             }
+            if title_line_is_ingredient(book, line, &item.title) {
+                v.hard.push(HardFault::TitleIsIngredient {
+                    local: line - chunk.start,
+                    title: item.title.clone(),
+                });
+            }
+        }
+        if !item.continues
+            && item.ingredient_count() > 0
+            && item.step_count() == 0
+            && item.title.split_whitespace().count() <= 3
+            && index > 0
+            && lowered.items[index - 1].step_count() == 0
+            && matches!(
+                lowered.items[index - 1].kind,
+                Kind::Recipe | Kind::Variation
+            )
+        {
+            v.hard.push(HardFault::TitleIsGroupHeading {
+                local: item
+                    .title_lines
+                    .first()
+                    .map(|l| l - chunk.start)
+                    .unwrap_or(0),
+                title: item.title.clone(),
+            });
         }
         if !item.continues && is_reference_line(&item.title) {
             v.hard.push(HardFault::TitleIsReference {
@@ -195,13 +278,13 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 title: item.title.clone(),
             });
         }
-        if !item.continues && is_prose(&item.title) {
+        // Judged per printed line: a name plus a French subtitle is long
+        // but not prose.
+        if !item.continues
+            && let Some(&line) = item.title_lines.iter().find(|&&l| is_prose(book.text(l)))
+        {
             v.hard.push(HardFault::TitleIsProse {
-                local: item
-                    .title_lines
-                    .first()
-                    .map(|l| l - chunk.start)
-                    .unwrap_or(0),
+                local: line - chunk.start,
                 title: item.title.clone(),
             });
         }
@@ -215,7 +298,7 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 title: item.title.clone(),
             });
         }
-        if !item.continues && is_label(&item.title) {
+        if !item.continues && item.kind != Kind::Variation && is_label(&item.title) {
             v.hard.push(HardFault::TitleIsLabel {
                 local: item
                     .title_lines
@@ -381,6 +464,65 @@ mod tests {
         assert_eq!(v.soft, [Flag::CaptionAsTitle { line: 0 }]);
     }
 
+    /// A two-line title (name plus a long French subtitle) is not prose; the
+    /// rule judges each printed line.
+    #[test]
+    fn long_two_line_titles_are_not_prose() {
+        let html = "<h1>Spiced Caramel Chiboust with Hazelnut Streusel and Peaches</h1><p class=\"sub\">CREME CHIBOUST AUX EPICES AVEC STREUSEL A LA NOISETTE ET PECHES SANGUINES</p><p>2 cups cream</p><p>Whisk.</p>";
+        let v = run(
+            html,
+            json!({"items":[{"title":[0,1],"sections":[{"ingredients":[2],"steps":[3]}]}]}),
+        );
+        assert!(v.hard.is_empty(), "{:?}", v.hard);
+    }
+
+    /// "Salt" between two quantity lines is an ingredient; a group heading
+    /// split off before the recipe's method appears is a section name; a
+    /// variation may carry its printed label.
+    #[test]
+    fn ingredient_lines_and_group_headings_are_not_items() {
+        let html = "<p>Gribiche</p><p>2 eggs</p><p>Salt</p><p>1 cup oil</p><p>Whisk.</p>";
+        let v = run(
+            html,
+            json!({"items":[
+                {"title":[0],"sections":[{"ingredients":[1]}]},
+                {"title":[2],"sections":[{"ingredients":[3],"steps":[4]}]}]}),
+        );
+        assert!(
+            v.hard
+                .iter()
+                .any(|f| matches!(f, HardFault::TitleIsIngredient { local: 2, .. })),
+            "{:?}",
+            v.hard
+        );
+        let html = "<h1>Aep Plaa</h1><h3>PASTE</h3><p>7 grams chiles</p><p>1 teaspoon salt</p><h3>FISH</h3><p>1 whole catfish</p><p>Pound the paste.</p>";
+        let v = run(
+            html,
+            json!({"items":[
+                {"title":[0],"sections":[{"ingredients":[2]}]},
+                {"title":[1],"sections":[{"ingredients":[3]}]},
+                {"title":[4],"sections":[{"ingredients":[5],"steps":[6]}]}]}),
+        );
+        assert!(
+            matches!(v.hard[0], HardFault::TitleIsGroupHeading { local: 1, .. }),
+            "{:?}",
+            v.hard
+        );
+        assert!(v.feedback().contains("section name"));
+        let html = "<p>VARIATION: WEEKNIGHT WHITE BREAD</p><p>500 g flour</p><p>Mix.</p>";
+        let v = run(
+            html,
+            json!({"items":[{"kind":"variation","title":[0],"variation_of":[0],"sections":[{"ingredients":[1],"steps":[2]}]}]}),
+        );
+        assert!(
+            !v.hard
+                .iter()
+                .any(|f| matches!(f, HardFault::TitleIsLabel { .. })),
+            "{:?}",
+            v.hard
+        );
+    }
+
     #[test]
     fn reference_lines_and_labels_are_not_titles() {
         let html = "<p>Tomato Tart</p><p>2 cups flour</p><p>Flaky All-Butter Pie Dough (this page) ①</p><p>8 ounces feta</p><p>Bake it.</p><p>Do Ahead</p><p>Keeps two days.</p>";
@@ -407,6 +549,13 @@ mod tests {
             "For All the Tea in China: a long essay title about trade and empire"
         ));
         assert!(is_label("Special Equipment: Food processor"));
+        assert!(is_label("PROOF TIME: About 1¼ hours"));
+        assert!(is_label("BULK FERMENTATION: 12 to 14 hours"));
+        assert!(is_label("SAMPLE SCHEDULE: Mix at 7 p.m., shape at 8 a.m."));
+        assert!(!is_label("LAGNIAPPE: OREGON HAZELNUT BUTTER COOKIES"));
+        assert!(!is_label(
+            "Note to Professionals: The chiboust can be piped"
+        ));
         assert!(!is_label("Special Butter Cake"));
         let intro = "An unfussy, single-layer or loaf cake is my favorite category of dessert. The cakes in this chapter are like a drapey jumpsuit, breezy and elegant.";
         let html = format!("<p>{intro}</p><p>Rye Cake</p><p>2 cups rye</p><p>Bake.</p>");

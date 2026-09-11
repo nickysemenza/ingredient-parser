@@ -5,7 +5,7 @@
 //! Every call, cached or live, becomes a `CallRecord`. Cancellation drops the
 //! in-flight stream and returns what was settled.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -86,6 +86,8 @@ struct Shared<'a, T, C> {
     calls: Mutex<Vec<CallRecord>>,
     tracker: Mutex<EtaTracker>,
     in_flight: Mutex<HashMap<String, (u64, String)>>,
+    /// Models the gateway refuses for the rest of the run (quota exhausted).
+    exhausted: Mutex<HashSet<&'static str>>,
 }
 
 impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
@@ -197,6 +199,12 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                         Ok((result, record.cached))
                     }
                     Err(failure) => {
+                        if failure.is_quota_exhausted() {
+                            self.exhausted
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(model.id);
+                        }
                         record.request_id = failure.request_id().map(str::to_string);
                         record.outcome = CallOutcome::Transport {
                             kind: match &failure {
@@ -215,6 +223,13 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
             .unwrap_or_else(|e| e.into_inner())
             .push(record);
         outcome
+    }
+
+    fn is_exhausted(&self, model: &Model) -> bool {
+        self.exhausted
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(model.id)
     }
 
     /// Mark the last record for this chunk as invalid with the given faults.
@@ -238,6 +253,9 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
         let base = build_request(chunk, book);
         let mut attempts = 0;
         for &(tier, model) in models {
+            if self.is_exhausted(model) {
+                continue;
+            }
             let mut feedback: Option<String> = base_feedback.map(str::to_string);
             let mut attempt = 0;
             while attempt < ATTEMPTS_PER_MODEL {
@@ -279,6 +297,9 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                     }
                     Err(CallError::Transport(TransportError::Other(_))) => break,
                     Err(CallError::Call(failure)) => match failure.transient_delay_ms() {
+                        // The gateway will refuse this model for the rest of
+                        // the run; move down the ladder at once.
+                        _ if failure.is_quota_exhausted() => break,
                         Some(delay) => {
                             self.transport.sleep(delay).await;
                             continue;
@@ -594,7 +615,7 @@ pub async fn run<T: Transport, C: ChunkCache>(
     transport: &T,
     cache: &C,
     cancel: &CancelToken,
-    progress: &mut dyn FnMut(Progress),
+    progress: &mut (dyn FnMut(Progress) + Send),
 ) -> RunOutput {
     let shared = Shared {
         input,
@@ -605,6 +626,7 @@ pub async fn run<T: Transport, C: ChunkCache>(
         calls: Mutex::new(Vec::new()),
         tracker: Mutex::new(EtaTracker::new()),
         in_flight: Mutex::new(HashMap::new()),
+        exhausted: Mutex::new(HashSet::new()),
     };
     let shared = &shared;
     let ladder: Vec<(usize, &'static Model)> = input.ladder.iter().copied().enumerate().collect();
@@ -823,7 +845,12 @@ pub async fn run<T: Transport, C: ChunkCache>(
             } else {
                 format!("{:.0}% of chunks flagged", fraction * 100.0)
             };
-            match ladder.get(max_tier + 1).copied() {
+            let next = ladder
+                .iter()
+                .copied()
+                .skip(max_tier + 1)
+                .find(|(_, m)| !shared.is_exhausted(m));
+            match next {
                 Some(next) => {
                     progress(shared.progress(Phase::Escalation, &results, settled_results.len()));
                     let rerun: Vec<(usize, Settled)> = {
@@ -1124,6 +1151,52 @@ mod tests {
         assert!(matches!(k1_calls[0].outcome, CallOutcome::Invalid { .. }));
         assert_eq!(k1_calls[2].outcome, CallOutcome::Ok);
         assert_eq!(transport.calls(), 6);
+    }
+
+    /// A "Wholesale Rate limited" 429 means the gateway refuses the model for
+    /// the account: no pause, no retry, and no further chunk tries it.
+    #[tokio::test]
+    async fn quota_exhausted_models_are_skipped_for_the_rest_of_the_run() {
+        let (book, nav, chunks) = book();
+        let (b, c) = (book.clone(), chunks.clone());
+        let transport = ScriptedTransport::new(move |req, _| {
+            let (model_id, _, _) = request_meta(req).unwrap();
+            if model_id == "gemini-2.5-flash" {
+                Ok(error_response(
+                    429,
+                    "{\"error\":[{\"code\":2018,\"message\":\"Wholesale Rate limited\"}]}",
+                ))
+            } else {
+                Ok(oracle_answer(req, &b, &c))
+            }
+        });
+        let opts = ExtractOptions {
+            concurrency: 1,
+            ..options(false, false)
+        };
+        let (out, _) = drive(
+            &transport,
+            &NoCache,
+            &book,
+            &nav,
+            &chunks,
+            ladder(&["gemini-2.5-flash", "claude-haiku-4-5"]),
+            &opts,
+        )
+        .await;
+        assert!(transport.sleeps_ms.lock().unwrap().is_empty());
+        assert!(!out.incomplete);
+        let refused = out
+            .calls
+            .iter()
+            .filter(|c| c.model == "gemini-2.5-flash")
+            .count();
+        assert_eq!(refused, 1, "only the first chunk tries the refused model");
+        assert!(
+            out.chunks
+                .iter()
+                .all(|c| c.report.final_model.as_deref() == Some("claude-haiku-4-5"))
+        );
     }
 
     #[tokio::test]

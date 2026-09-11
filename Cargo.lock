@@ -1694,11 +1694,11 @@ name = "food-app"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "cookbook",
+ "cookbook-fixtures",
  "dotenvy",
  "ingredient",
  "ingredient-corpus",
- "recipe-epub",
- "recipe-epub-fixtures",
  "recipe-parsing",
  "recipe-scraper",
  "recipe-scraper-fetcher",
@@ -1711,6 +1711,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-window-state",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

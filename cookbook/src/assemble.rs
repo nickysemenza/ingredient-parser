@@ -55,7 +55,12 @@ pub fn assemble(
         };
         collect_outside(lowered, &mut ignored, &mut chapter_headings, &mut captions);
         for (index, item) in lowered.items.iter().enumerate() {
-            let item = item.clone();
+            let mut item = item.clone();
+            if item.kind == Kind::Recipe && strip_variation_label(&item.title) != item.title.trim()
+            {
+                // The book's own marker outranks the model's kind.
+                item.kind = Kind::Variation;
+            }
             if item.continues
                 && index == 0
                 && previous_chunk_ok

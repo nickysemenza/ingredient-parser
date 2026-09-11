@@ -8,6 +8,29 @@
 use serde::{Deserialize, Serialize};
 
 use crate::crosscheck::titles_match;
+
+/// Section names compare leniently: the key writes the group's name, the
+/// source may print it with a column heading ("final dough baker's formula").
+fn sections_match(got: &[Option<String>], want: &[Option<String>]) -> bool {
+    if got.len() != want.len() {
+        return false;
+    }
+    let mut used = vec![false; got.len()];
+    want.iter().all(|w| {
+        got.iter().enumerate().any(|(i, g)| {
+            let hit = !used[i]
+                && match (g, w) {
+                    (None, None) => true,
+                    (Some(g), Some(w)) => g == w || g.starts_with(w) || w.starts_with(g),
+                    _ => false,
+                };
+            if hit {
+                used[i] = true;
+            }
+            hit
+        })
+    })
+}
 use crate::model::{Item, RefKind, RefMethod};
 use crate::report::{ChunkStatus, Extraction};
 
@@ -197,7 +220,7 @@ pub fn score(expected: &Expectations, extraction: &Extraction) -> BookScore {
                 .collect();
             got.sort();
             want.sort();
-            if got != want {
+            if !sections_match(&got, &want) {
                 ok = false;
                 sample_failures.push(format!("{}: sections {got:?}, expected {want:?}", s.title));
             }
@@ -389,4 +412,25 @@ pub fn non_recipe_titles(extraction: &Extraction) -> Vec<String> {
         .filter(|i| !matches!(i, Item::Recipe(_)))
         .map(|i| i.title().to_string())
         .collect()
+}
+
+#[cfg(test)]
+mod section_tests {
+    use super::sections_match;
+
+    #[test]
+    fn sections_compare_leniently() {
+        let got = vec![
+            None,
+            Some("final dough baker’s formula".to_string()),
+            Some("levain".into()),
+        ];
+        let want = vec![None, Some("final dough".to_string()), Some("levain".into())];
+        assert!(sections_match(&got, &want));
+        assert!(!sections_match(&got[1..], &want));
+        assert!(!sections_match(
+            &[Some("poolish".to_string())],
+            &[Some("levain".to_string())]
+        ));
+    }
 }

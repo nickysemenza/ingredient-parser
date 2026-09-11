@@ -55,46 +55,74 @@ pub fn titles_match(a: &str, b: &str) -> bool {
     } else {
         (&b, &a)
     };
-    if short.split(' ').count() >= 2 && long.starts_with(short.as_str()) {
+    let words = short.split(' ').count();
+    // A dropped subtitle ("Sour Cherry Pie" / "Sour Cherry Pie: A Summer
+    // Classic"), or a name printed inside a longer title ("Campagne Boule" /
+    // "Pain de Campagne Campagne Boule", "Central Thai–style papaya salad" /
+    // "Som Tam Thai Central Thai–style papaya salad"). One word is too little:
+    // "Polenta" is not "Polenta with Fresh Corn".
+    if words >= 2 && long.starts_with(short.as_str()) {
+        return true;
+    }
+    if words >= 2 && short.len() >= 12 && contains_tokens(long, short) {
         return true;
     }
     strsim::normalized_levenshtein(&a, &b) >= SIMILARITY
 }
 
-/// Lines after a flat contents target within which an ingredient run marks
-/// the entry as a recipe (a title page plus headnote fits comfortably).
-const FLAT_NAV_RUN_WINDOW: usize = 60;
+/// `needle` appears in `hay` as whole space-separated tokens.
+fn contains_tokens(hay: &str, needle: &str) -> bool {
+    hay == needle
+        || hay.starts_with(&format!("{needle} "))
+        || hay.ends_with(&format!(" {needle}"))
+        || hay.contains(&format!(" {needle} "))
+}
 
-/// Contents entries that name recipes: `(entry order, label, line)`. A nested
-/// contents lists recipes under chapters; a flat one mixes section names and
-/// recipes, so there an entry is a recipe when an ingredient run follows its
-/// target before the next entry.
+/// Lines after a contents target within which the first ingredient run must
+/// start for the entry to be a recipe (a title page plus headnote fits).
+const NAV_RUN_WINDOW: usize = 60;
+/// A contents section holding more ingredient runs than this is a chapter or
+/// part, not a recipe with a few sub-recipes.
+const NAV_MAX_RUNS_PER_RECIPE: usize = 4;
+
+/// Contents entries that name recipes: `(entry order, label, line)`. Whatever
+/// the nesting, an entry is a recipe when the text between its target and the
+/// next entry's target holds one to a few ingredient runs, the first of them
+/// close to the target. Chapter entries hold many; essay entries hold none.
 fn nav_recipe_entries(book: &BookLines, nav: &Nav) -> Vec<(usize, String, usize)> {
-    let max_depth = nav.max_depth();
     let mut targets: Vec<usize> = book.nav_targets.iter().map(|(_, l)| *l).collect();
     targets.sort_unstable();
+    let line_of = |order: usize| {
+        book.nav_targets
+            .iter()
+            .find(|(o, _)| *o == order)
+            .map(|(_, l)| *l)
+    };
     let mut out = Vec::new();
     for entry in &nav.entries {
-        let Some(&(_, line)) = book
-            .nav_targets
-            .iter()
-            .find(|(order, _)| *order == entry.order)
-        else {
+        let Some(line) = line_of(entry.order) else {
             continue;
         };
-        let is_recipe = if max_depth >= 2 {
-            entry.depth >= 2
-        } else {
-            let next_target = targets
-                .iter()
-                .copied()
-                .find(|&l| l > line)
-                .unwrap_or(book.len());
-            let window = next_target
-                .saturating_sub(line)
-                .clamp(1, FLAT_NAV_RUN_WINDOW);
-            book.next_ingredient_run(line, window).is_some()
-        };
+        // A chapter whose first recipe shares its target line (an entry
+        // without a fragment) is a container, not that recipe.
+        let container = nav
+            .entries
+            .iter()
+            .any(|e| e.depth > entry.depth && line_of(e.order) == Some(line));
+        if container {
+            continue;
+        }
+        let next_target = targets
+            .iter()
+            .copied()
+            .find(|&l| l > line)
+            .unwrap_or(book.len());
+        let window = next_target.saturating_sub(line).clamp(1, NAV_RUN_WINDOW);
+        let runs = (line..next_target)
+            .filter(|&i| book.ingredient_run_start(i))
+            .count();
+        let is_recipe = (1..=NAV_MAX_RUNS_PER_RECIPE).contains(&runs)
+            && book.next_ingredient_run(line, window).is_some();
         if is_recipe {
             out.push((entry.order, entry.label.clone(), line));
         }
@@ -218,6 +246,13 @@ mod tests {
     #[case("Sour Cherry Pie", "Sour Cherry Pie: A Summer Classic", true)]
     #[case("Sour Cherry Pie", "Sour Cherry Pei", true)]
     #[case("Polenta", "Polenta with Fresh Corn", false)]
+    #[case("Campagne Boule", "Pain de Campagne Campagne Boule", true)]
+    #[case(
+        "CENTRAL THAI–STYLE PAPAYA SALAD",
+        "Som Tam Thai (Central Thai–Style Papaya Salad)",
+        true
+    )]
+    #[case("Salt", "Salted Caramel", false)]
     #[case("Bread", "Broth", false)]
     #[case("", "Bread", false)]
     fn matching(#[case] a: &str, #[case] b: &str, #[case] expected: bool) {

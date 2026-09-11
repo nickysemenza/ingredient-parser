@@ -120,7 +120,25 @@ fn check_expected(extraction: &Extraction, expected: Expected) {
             .map(|r| &r.title)
             .collect::<Vec<_>>()
     );
-    assert!(!extraction.report.incomplete);
+    let invalid: Vec<String> = extraction
+        .report
+        .calls
+        .iter()
+        .filter_map(|c| match &c.outcome {
+            cookbook::CallOutcome::Invalid { faults } => Some(format!(
+                "{} {}: {}",
+                c.chunk_id,
+                c.model,
+                faults.join(" | ")
+            )),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !extraction.report.incomplete,
+        "incomplete; invalid answers: {invalid:#?}; crosscheck {:?}; escalation {:?}",
+        extraction.report.crosscheck, extraction.report.escalation
+    );
     assert!(extraction.report.total_cost_usd > 0.0);
     assert!(extraction.report.cost_complete);
     assert!(items.iter().all(|i| !i.name().is_empty()));
