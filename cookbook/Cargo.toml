@@ -78,6 +78,8 @@ tsify-next = { workspace = true, optional = true }
 ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
+# Integration tests use the scripted transports.
+cookbook = { path = ".", features = ["test-support"] }
 cookbook-fixtures.workspace = true
 rstest.workspace = true
 insta = { version = "1", features = ["json"] }

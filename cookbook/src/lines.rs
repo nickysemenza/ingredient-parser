@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use ingredient::Confidence;
+use serde::{Deserialize, Serialize};
 
 use crate::epub::clean::{CleanLine, clean_document, page_from_id};
 use crate::epub::nav::Nav;
@@ -37,7 +38,7 @@ impl Line {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocSpan {
     pub index: usize,
     pub path: String,
@@ -57,6 +58,9 @@ pub struct BookLines {
     /// `(nav entry order, line)` for every table-of-contents entry that
     /// resolved to a line.
     pub nav_targets: Vec<(usize, usize)>,
+    /// Per-line `looks_like_quantity_text`, computed once: it runs the
+    /// ingredient parser, and the chunker asks about each line many times.
+    quantity: Vec<bool>,
 }
 
 impl BookLines {
@@ -95,6 +99,11 @@ impl BookLines {
                 len: book.lines.len() - first_line,
             });
         }
+        book.quantity = book
+            .lines
+            .iter()
+            .map(|l| looks_like_quantity_text(l.text()))
+            .collect();
         // Page-shaped anchor ids (`page_518`, `pg12`) stand in for markers the
         // book does not have; explicit markers and the nav page list win.
         for entry in &nav.page_list {
@@ -197,28 +206,35 @@ impl BookLines {
         !self.pages.is_empty()
     }
 
+    /// `(page, first line)` for every printed page the book marks.
+    pub fn pages(&self) -> Vec<(u32, usize)> {
+        self.pages.iter().map(|(p, l)| (*p, *l)).collect()
+    }
+
     /// [`looks_like_title`] with context: a line directly after a
     /// quantity-like line is inside an ingredient list ("Kosher salt" after
     /// "¼ cup olive oil"), never a title.
     pub fn title_like(&self, idx: usize) -> bool {
-        self.lines.get(idx).is_some_and(looks_like_title)
-            && !(idx > 0
-                && self
-                    .lines
-                    .get(idx - 1)
-                    .is_some_and(looks_like_quantity_line))
+        self.lines
+            .get(idx)
+            .is_some_and(|l| looks_like_title_with(l, self.quantity_like(idx)))
+            && !(idx > 0 && self.quantity_like(idx - 1))
+    }
+
+    /// Cached [`looks_like_quantity_line`].
+    pub fn quantity_like(&self, idx: usize) -> bool {
+        self.quantity.get(idx).copied().unwrap_or(false)
     }
 
     /// Whether `idx` starts a run of ingredient lines: a quantity-like line
     /// followed by another, or by a short unpunctuated line (two-line lists).
     pub fn ingredient_run_start(&self, idx: usize) -> bool {
-        let quantity = |i: usize| self.lines.get(i).is_some_and(looks_like_quantity_line);
-        if !quantity(idx) || (idx > 0 && quantity(idx - 1)) {
+        if !self.quantity_like(idx) || (idx > 0 && self.quantity_like(idx - 1)) {
             return false;
         }
         match self.lines.get(idx + 1) {
             Some(next) => {
-                looks_like_quantity_line(next)
+                self.quantity_like(idx + 1)
                     || (next.text().len() < 80 && !next.text().ends_with('.'))
             }
             None => false,
@@ -237,6 +253,10 @@ const LEADERS: &str = "•·*-–—▪◦";
 /// A short line that reads as a recipe title: a heading, or plain text that is
 /// not a quantity, not a sentence, not a `Section:` label, and not a caption.
 pub fn looks_like_title(line: &Line) -> bool {
+    looks_like_title_with(line, looks_like_quantity_line(line))
+}
+
+fn looks_like_title_with(line: &Line, quantity_like: bool) -> bool {
     let c = &line.clean;
     if c.in_figure || c.transformed {
         return false;
@@ -260,7 +280,7 @@ pub fn looks_like_title(line: &Line) -> bool {
         {
             false
         }
-        Some(_) => !looks_like_quantity_line(line),
+        Some(_) => !quantity_like,
         None => false,
     }
 }

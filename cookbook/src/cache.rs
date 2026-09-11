@@ -49,6 +49,16 @@ pub trait ChunkCache {
     fn put(&self, key: &str, call: &CachedCall);
 }
 
+impl<C: ChunkCache + ?Sized> ChunkCache for Box<C> {
+    fn get(&self, key: &str) -> Option<CachedCall> {
+        (**self).get(key)
+    }
+
+    fn put(&self, key: &str, call: &CachedCall) {
+        (**self).put(key, call)
+    }
+}
+
 /// Remembers nothing.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoCache;

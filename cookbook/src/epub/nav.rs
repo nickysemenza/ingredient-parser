@@ -3,11 +3,12 @@
 //! fragment they point at; mapping those to lines happens in `lines`.
 
 use scraper::{ElementRef, Html};
+use serde::{Deserialize, Serialize};
 
 use super::clean::normalize_ws;
 use super::open::{Package, read_resource, resolve_href};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NavEntry {
     pub label: String,
     /// Archive-relative document path.
@@ -19,14 +20,14 @@ pub struct NavEntry {
     pub order: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PageEntry {
     pub page: String,
     pub doc_path: String,
     pub fragment: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Nav {
     pub entries: Vec<NavEntry>,
     pub page_list: Vec<PageEntry>,

@@ -131,6 +131,14 @@ impl Item {
             Item::Essay(e) => &e.photos,
         }
     }
+
+    pub fn photos_mut(&mut self) -> &mut Vec<ImageRef> {
+        match self {
+            Item::Recipe(r) => &mut r.photos,
+            Item::Technique(t) => &mut t.photos,
+            Item::Essay(e) => &mut e.photos,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

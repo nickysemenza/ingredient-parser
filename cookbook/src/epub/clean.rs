@@ -305,8 +305,23 @@ pub fn clean_document(xhtml: &str, doc_path: &str) -> Vec<CleanLine> {
             out[idx].anchors.push(id);
         }
     }
+    // A marker inside a line names that line's page; a marker in an empty
+    // block before it only applies when the line has none of its own.
+    let containing = |offset: usize| {
+        ranges
+            .iter()
+            .position(|&(start, end)| start <= offset && offset < end)
+    };
+    for (offset, page) in &pagebreaks {
+        if let Some(idx) = containing(*offset)
+            && out[idx].pagebreak.is_none()
+        {
+            out[idx].pagebreak = Some(page.clone());
+        }
+    }
     for (offset, page) in pagebreaks {
-        if let Some(idx) = containing_or_next(&ranges, offset)
+        if containing(offset).is_none()
+            && let Some(idx) = containing_or_next(&ranges, offset)
             && out[idx].pagebreak.is_none()
         {
             out[idx].pagebreak = Some(page);

@@ -61,9 +61,18 @@ pub fn titles_match(a: &str, b: &str) -> bool {
     strsim::normalized_levenshtein(&a, &b) >= SIMILARITY
 }
 
-/// The nav entries that name recipes, as `(title, line)`.
-pub fn nav_recipe_titles(book: &BookLines, nav: &Nav) -> Vec<(String, usize)> {
+/// Lines after a flat contents target within which an ingredient run marks
+/// the entry as a recipe (a title page plus headnote fits comfortably).
+const FLAT_NAV_RUN_WINDOW: usize = 60;
+
+/// Contents entries that name recipes: `(entry order, label, line)`. A nested
+/// contents lists recipes under chapters; a flat one mixes section names and
+/// recipes, so there an entry is a recipe when an ingredient run follows its
+/// target before the next entry.
+fn nav_recipe_entries(book: &BookLines, nav: &Nav) -> Vec<(usize, String, usize)> {
     let max_depth = nav.max_depth();
+    let mut targets: Vec<usize> = book.nav_targets.iter().map(|(_, l)| *l).collect();
+    targets.sort_unstable();
     let mut out = Vec::new();
     for entry in &nav.entries {
         let Some(&(_, line)) = book
@@ -73,22 +82,51 @@ pub fn nav_recipe_titles(book: &BookLines, nav: &Nav) -> Vec<(String, usize)> {
         else {
             continue;
         };
-        let doc = book.lines.get(line).map(|l| l.doc);
-        let doc_has_run = doc
-            .and_then(|d| book.docs.get(d))
-            .is_some_and(|d| book.next_ingredient_run(d.first_line, d.len).is_some());
-        // A nested contents lists recipes under chapters; a flat one lists
-        // whatever it likes, so fall back to "does its document cook".
         let is_recipe = if max_depth >= 2 {
             entry.depth >= 2
         } else {
-            doc_has_run
+            let next_target = targets
+                .iter()
+                .copied()
+                .find(|&l| l > line)
+                .unwrap_or(book.len());
+            let window = next_target
+                .saturating_sub(line)
+                .clamp(1, FLAT_NAV_RUN_WINDOW);
+            book.next_ingredient_run(line, window).is_some()
         };
         if is_recipe {
-            out.push((entry.label.clone(), line));
+            out.push((entry.order, entry.label.clone(), line));
         }
     }
     out
+}
+
+/// The nav entries that name recipes, as `(title, line)`.
+pub fn nav_recipe_titles(book: &BookLines, nav: &Nav) -> Vec<(String, usize)> {
+    nav_recipe_entries(book, nav)
+        .into_iter()
+        .map(|(_, label, line)| (label, line))
+        .collect()
+}
+
+/// Nav entries that head chapters: depth-1 entries, minus the ones that are
+/// recipes in a flat contents.
+pub fn nav_chapter_entries(book: &BookLines, nav: &Nav) -> Vec<(String, usize)> {
+    let recipes: HashSet<usize> = nav_recipe_entries(book, nav)
+        .iter()
+        .map(|(order, _, _)| *order)
+        .collect();
+    nav.entries
+        .iter()
+        .filter(|e| e.depth == 1 && !recipes.contains(&e.order))
+        .filter_map(|e| {
+            book.nav_targets
+                .iter()
+                .find(|(o, _)| *o == e.order)
+                .map(|(_, line)| (e.label.clone(), *line))
+        })
+        .collect()
 }
 
 pub fn crosscheck(

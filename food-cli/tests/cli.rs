@@ -32,138 +32,6 @@ fn parse_ingredient_emits_json() {
 }
 
 #[test]
-fn cookbook_extract_exposes_opt_in_hybrid_strategy() {
-    let output = food_cli()
-        .args(["cookbook", "extract", "--help"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let help = String::from_utf8_lossy(&output.stdout);
-    assert!(help.contains("--strategy"));
-    assert!(help.contains("indexed"));
-    assert!(help.contains("hybrid"));
-}
-
-#[test]
-fn cookbook_ai_audit_requires_child_output_and_network() {
-    for args in [
-        ["cookbook", "audit", "missing.json", "--ai"].as_slice(),
-        [
-            "cookbook",
-            "audit",
-            "missing.json",
-            "--ai",
-            "--out",
-            "child.json",
-        ]
-        .as_slice(),
-    ] {
-        let output = food_cli().args(args).output().unwrap();
-        assert!(!output.status.success());
-    }
-}
-
-#[test]
-fn experiment_audit_operation_exposes_child_run_inputs() {
-    let prepare = food_cli()
-        .args(["cookbook", "experiment", "prepare", "--help"])
-        .output()
-        .unwrap();
-    assert!(prepare.status.success());
-    let help = String::from_utf8_lossy(&prepare.stdout);
-    for flag in [
-        "--operation",
-        "--parent-run",
-        "--group",
-        "--reviewer-model",
-        "--budget-usd",
-        "--correct",
-    ] {
-        assert!(help.contains(flag), "prepare help missing {flag}: {help}");
-    }
-
-    let run = food_cli()
-        .args(["cookbook", "experiment", "run", "--help"])
-        .output()
-        .unwrap();
-    assert!(run.status.success());
-    let help = String::from_utf8_lossy(&run.stdout);
-    assert!(help.contains("--parent-run"));
-    assert!(help.contains("--child-run"));
-}
-
-#[test]
-fn experiment_audit_prepare_requires_parent_and_finite_budget() {
-    let missing_parent = food_cli()
-        .args([
-            "cookbook",
-            "experiment",
-            "prepare",
-            "--operation",
-            "audit",
-            "--expectations",
-            "expectations.json",
-            "--output-dir",
-            "out",
-            "--budget-usd",
-            "1",
-        ])
-        .output()
-        .unwrap();
-    assert!(!missing_parent.status.success());
-
-    let invalid_budget = food_cli()
-        .args([
-            "cookbook",
-            "experiment",
-            "prepare",
-            "--operation",
-            "audit",
-            "--parent-run",
-            "parent.json",
-            "--expectations",
-            "expectations.json",
-            "--output-dir",
-            "out",
-            "--budget-usd",
-            "-1",
-        ])
-        .output()
-        .unwrap();
-    assert!(!invalid_budget.status.success());
-}
-
-#[test]
-fn experiment_run_rejects_unknown_manifest_operation() {
-    let dir = std::env::temp_dir().join(format!(
-        "cli-experiment-unknown-operation-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    let manifest = dir.join("manifest.json");
-    std::fs::write(&manifest, r#"{"operation":"future_operation"}"#).unwrap();
-    let output = food_cli()
-        .args([
-            "cookbook",
-            "experiment",
-            "run",
-            "--manifest",
-            manifest.to_str().unwrap(),
-            "--output-dir",
-            dir.join("evidence").to_str().unwrap(),
-            "--ledger",
-            dir.join("ledger.json").to_str().unwrap(),
-        ])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("unsupported experiment manifest operation")
-    );
-}
-
-#[test]
 fn parse_amount_success_json() {
     let output = food_cli()
         .args(["amount", "parse", "2 cups", "--format", "json"])
@@ -255,19 +123,6 @@ fn scrape_epub_missing_path_exits_cleanly() {
     assert!(
         stderr.contains("No such file"),
         "stderr should explain the read failure"
-    );
-}
-
-#[test]
-fn scan_cookbooks_nonexistent_dir_errors() {
-    let output = food_cli()
-        .args(["cookbook", "scan", "/tmp/does-not-exist-food-cli-test-dir"])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("not a directory"),
-        "stderr should explain the directory doesn't exist"
     );
 }
 
@@ -424,126 +279,6 @@ fn legacy_commands_are_removed() {
 }
 
 #[test]
-fn refresh_requires_explicit_network_authorization() {
-    let output = food_cli()
-        .args([
-            "cookbook",
-            "extract",
-            "missing.epub",
-            "--out",
-            "unused.json",
-            "--refresh",
-        ])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-}
-
-#[test]
-fn ingredient_stats_json_jsonl_filters_and_invalid_saved_parses() {
-    use recipe_epub::review::{ReviewRun, stats::ingredient_stats};
-    let dir = std::env::temp_dir().join(format!("cli-ingredient-stats-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("run.json");
-    let mut run: ReviewRun = serde_json::from_value(serde_json::json!({
-        "version":1,"epub_sha256":"synthetic","source":"fixture.epub","model":"no-network","prompt_version":"old-saved-version",
-        "parent":null,"chunks":[],"documents":[],"reserved_usd":0,
-        "recipes":[{"meta":{"title":"Soup"},"sections":[{"ingredients":["1 tsp salt","2 tsp salt","1 cup water"]}],"source":"fixture.epub","url":"fixture.epub#soup.xhtml"}],
-        "parsed":[{"sections":[{"ingredients":[{"name":"salt"},{"name":"salt"},{"name":"water"}]}]}]
-    })).unwrap();
-    run.save(&path).unwrap();
-    let output = food_cli()
-        .args(["cookbook", "stats", "--format", "json"])
-        .arg(&path)
-        .args(["--limit", "1", "--examples", "1"])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let shared = ingredient_stats(&run).unwrap();
-    assert_eq!(result["unique_names"], shared.unique_names);
-    assert_eq!(result["total_occurrences"], shared.total_occurrences);
-    assert_eq!(result["names"][0]["occurrences"], 2);
-    assert_eq!(result["names"][0]["recipes"], 1);
-    assert_eq!(result["names"][0]["examples"].as_array().unwrap().len(), 1);
-    assert_eq!(result["matching_names"], 2);
-    let output = food_cli()
-        .args(["cookbook", "stats", "--format", "jsonl"])
-        .arg(&path)
-        .args(["--max-count", "1", "--sort", "name"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout).lines().count(), 1);
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["name"],
-        "water"
-    );
-    let output = food_cli()
-        .args(["cookbook", "stats", "--format", "json"])
-        .arg(&path)
-        .args(["--name", "missing"])
-        .output()
-        .unwrap();
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["matching_names"],
-        0
-    );
-    let overview = food_cli()
-        .args(["cookbook", "show"])
-        .arg(&path)
-        .output()
-        .unwrap();
-    assert!(overview.status.success());
-    let overview = String::from_utf8(overview.stdout).unwrap();
-    assert!(overview.contains("0 chunks · 1 recipes"));
-    assert!(!overview.contains("prompt_version"));
-    let full = food_cli()
-        .args(["cookbook", "show", "--format", "json"])
-        .arg(&path)
-        .output()
-        .unwrap();
-    let full: serde_json::Value = serde_json::from_slice(&full.stdout).unwrap();
-    assert_eq!(full["source"], "fixture.epub");
-    let expected_path = dir.join("expected.json");
-    std::fs::write(
-        &expected_path,
-        serde_json::to_vec(
-            &serde_json::json!({"epub_sha256":run.epub_sha256,"recipes":run.recipes}),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let evaluated = food_cli()
-        .args(["cookbook", "evaluate", "--format", "json"])
-        .arg(&path)
-        .arg("--expectations")
-        .arg(&expected_path)
-        .output()
-        .unwrap();
-    assert_eq!(evaluated.status.code(), Some(3));
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&evaluated.stdout).unwrap()["complete"],
-        false
-    );
-    run.parsed = serde_json::json!([]);
-    run.save(&path).unwrap();
-    let output = food_cli()
-        .args(["cookbook", "stats", "--format", "json"])
-        .arg(&path)
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("replay"));
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
 fn stdin_batch_preserves_order_and_reports_blank_and_review_lines() {
     use std::io::Write;
     use std::process::Stdio;
@@ -627,4 +362,114 @@ fn corpus_table_write_failure_is_operational() {
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("failed to write"));
+}
+
+fn fixture_epub(name: &str, bytes: Vec<u8>) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("food-cli-cookbook-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("{name}.epub"));
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn cookbook_models_lists_the_catalog() {
+    let output = food_cli()
+        .args(["cookbook", "models", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let ids: Vec<&str> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["id"].as_str())
+        .collect();
+    assert!(ids.contains(&"gemini-2.5-flash"), "{ids:?}");
+    assert!(json[0]["rates"]["input"].is_number());
+}
+
+#[test]
+fn cookbook_inspect_reports_chunks_offline() {
+    let path = fixture_epub("split", cookbook_fixtures::split_spine().unwrap());
+    let output = food_cli()
+        .args([
+            "cookbook", "inspect", "--chunks", "--nav", "--format", "json",
+        ])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["source"]["title"], "Nothing Special");
+    assert!(!json["chunks"].as_array().unwrap().is_empty());
+    assert_eq!(json["chunks"][0]["id"], "k000");
+    assert!(json["nav"]["entries"].as_array().unwrap().len() >= 2);
+    assert!(json["classification"]["classification"].is_string());
+
+    let chunk = food_cli()
+        .args(["cookbook", "inspect", "--chunk", "k000"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(chunk.status.success());
+    let text = String::from_utf8_lossy(&chunk.stdout);
+    assert!(text.contains("0: "), "{text}");
+    assert!(text.contains("Tangy Roasted Mushrooms"), "{text}");
+
+    let lines = food_cli()
+        .args(["cookbook", "inspect", "--lines", "0..5", "--format", "json"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&lines.stdout).unwrap();
+    assert_eq!(json.as_array().unwrap().len(), 5);
+    assert!(json[0]["id"].as_str().unwrap().contains('.'));
+
+    let unknown = food_cli()
+        .args(["cookbook", "inspect", "--chunk", "k999"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert_eq!(unknown.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("no chunk k999"));
+}
+
+#[test]
+fn cookbook_estimate_is_offline_and_bounded() {
+    let path = fixture_epub("epub3", cookbook_fixtures::epub3_nav_pagebreaks().unwrap());
+    let output = food_cli()
+        .args([
+            "cookbook",
+            "estimate",
+            "--no-cache",
+            "--ladder",
+            "gemini-2.5-flash,claude-haiku-4-5",
+            "--format",
+            "json",
+        ])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(json["cost_usd_low"].as_f64().unwrap() <= json["cost_usd_high"].as_f64().unwrap());
+    assert!(json["wall_ms_low"].as_u64().unwrap() <= json["wall_ms_high"].as_u64().unwrap());
+    assert_eq!(json["ladder"][0], "gemini-2.5-flash");
+    let bad = food_cli()
+        .args(["cookbook", "estimate", "--ladder", "no-such-model"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert_eq!(bad.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("no-such-model"));
 }

@@ -336,3 +336,20 @@ pub struct RunReport {
     pub incomplete: bool,
     pub cancelled: bool,
 }
+
+/// What a book looks like before extraction: enough for a library view and
+/// for deciding whether to extract at all.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
+#[cfg_attr(feature = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct BookOutline {
+    pub source: BookSource,
+    pub cover: Option<crate::model::ImageRef>,
+    /// Depth-1 table-of-contents labels.
+    pub chapters: Vec<String>,
+    /// Table-of-contents entries that name recipes.
+    pub nav_recipe_titles: usize,
+    pub chunks: usize,
+    pub lines: usize,
+}
