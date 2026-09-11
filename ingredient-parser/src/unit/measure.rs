@@ -125,11 +125,17 @@ pub use super::conversion::{MeasureGraph, make_graph, print_graph};
 use super::conversion::convert_measure_via_mappings;
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
+// The TypeScript overrides below describe the *serialized* form (the custom
+// serde functions), not the in-memory `Unit`/`Rational64`.
 pub struct Measure {
     #[serde(
         serialize_with = "serialize_unit",
         deserialize_with = "deserialize_unit"
     )]
+    #[cfg_attr(feature = "typescript", ts(type = "string"))]
+    #[cfg_attr(feature = "wasm", tsify(type = "string"))]
     unit: Unit,
     // Stored as an exact rational so equality is exact; (de)serialized as f64 to
     // keep the JSON/wasm representation a plain number.
@@ -137,12 +143,16 @@ pub struct Measure {
         serialize_with = "serialize_rational",
         deserialize_with = "deserialize_rational"
     )]
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    #[cfg_attr(feature = "wasm", tsify(type = "number"))]
     value: Rational64,
     #[serde(
         default,
         serialize_with = "serialize_rational_opt",
         deserialize_with = "deserialize_rational_opt"
     )]
+    #[cfg_attr(feature = "typescript", ts(type = "number | null"))]
+    #[cfg_attr(feature = "wasm", tsify(type = "number | null"))]
     upper_value: Option<Rational64>,
 }
 
@@ -1463,5 +1473,20 @@ mod tests {
         } else {
             assert_eq!(scaled, m, "{unit} must not scale");
         }
+    }
+}
+
+#[cfg(all(test, feature = "typescript"))]
+mod typescript_tests {
+    use super::Measure;
+    use ts_rs::TS;
+
+    /// The declaration must describe the serialized form, not the rational.
+    #[test]
+    fn measure_declares_serialized_shape() {
+        let decl = Measure::decl(&ts_rs::Config::default());
+        assert!(decl.contains("unit: string"), "{decl}");
+        assert!(decl.contains("value: number"), "{decl}");
+        assert!(decl.contains("upper_value: number | null"), "{decl}");
     }
 }

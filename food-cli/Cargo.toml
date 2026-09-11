@@ -9,7 +9,10 @@ publish = false
 [dependencies]
 clap = {version="4.5.4", features=["derive"]}
 recipe-scraper-fetcher.workspace = true
-recipe-epub.workspace = true
+cookbook.workspace = true
+indicatif = "0.18"
+rand = "0.9"
+jiff = "0.2"
 tokio = { workspace = true, features = ["full"] }
 futures.workspace = true
 serde.workspace = true # corpus-row deserialization for `corpus shadow`
@@ -26,6 +29,7 @@ tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] } # surface extractor warns (chunk skips, escalation) via RUST_LOG
 
 [dev-dependencies]
+cookbook-fixtures.workspace = true
 rstest.workspace = true
 serde_json.workspace = true
 

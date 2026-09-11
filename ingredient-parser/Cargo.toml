@@ -22,6 +22,12 @@ exclude = ["/tests"]
 [features]
 default = []
 bench = ["dep:criterion"]
+# Opt-in TypeScript declarations for the public data types (`Ingredient`,
+# `Measure`, `IngredientUsage`, `Confidence`). Neither feature changes runtime
+# behavior or the JSON shape; they only add derives so downstream crates can
+# generate `.d.ts` from the same structs they serialize.
+typescript = ["dep:ts-rs"]
+wasm = ["dep:tsify-next", "dep:wasm-bindgen"]
 
 [dependencies]
 serde.workspace = true
@@ -34,6 +40,9 @@ num-rational = { version = "0.4", default-features = false }
 num-traits = "0.2"
 thiserror.workspace = true
 criterion = { version = "0.8", features = ["html_reports"], optional = true }
+ts-rs = { workspace = true, optional = true }
+tsify-next = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
 
 
 [dependencies.nom]

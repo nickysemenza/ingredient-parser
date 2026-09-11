@@ -9,5 +9,13 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+# Opt-in TypeScript declarations (see `ingredient`'s features of the same name).
+typescript = ["dep:ts-rs"]
+wasm = ["dep:tsify-next", "dep:wasm-bindgen"]
+
 [dependencies]
 serde = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+tsify-next = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }

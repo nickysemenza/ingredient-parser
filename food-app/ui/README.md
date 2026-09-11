@@ -1,6 +1,6 @@
 # Desktop interface
 
-React and TypeScript render the Parser and Cookbooks workspaces inside the Tauri shell. Application DTOs are generated from Rust into `src/generated.ts`; edit their Rust definitions rather than this file. The typed invocation boundary is `src/bridge.ts`.
+React and TypeScript render the Parser and Cookbooks workspaces inside the Tauri shell. The Cookbooks workspace lives in `src/cookbooks/` (library, book and estimate, run tree, diagnostics, run history). Application DTOs are generated from Rust into `src/generated.ts`; edit their Rust definitions rather than this file. The typed invocation boundary is `src/bridge.ts`.
 
 ```sh
 pnpm install # installs the root workspace
@@ -17,9 +17,9 @@ pnpm exec playwright install webkit
 UI_FIXTURE_PATH=/path/to/frontend-fixture.json pnpm test:e2e
 ```
 
-The repository's `create_review_fixture` Rust example produces `frontend-fixture.json`. Tests exercise both desktop sizes, appearances, source/result inspection, review persistence commands, unsaved-change protection, and explicitly requested cache-only extraction. They never call a paid backend.
+The repository's `create_run_fixture` Rust example produces `frontend-fixture.json`. Tests exercise both desktop sizes, appearances, the library scan, a book's offline estimate, a held extraction's progress, the saved run's tree and diagnostics, run history, and ingredient inspection. They never call a paid backend.
 
-Preferences store only idle view choices, inputs, and pane proportions in local storage. Opening a source, restoring a workspace, or changing its appearance does not start extraction. Review files and all parser calculations remain owned by Rust.
+Preferences store only idle view choices, inputs, and pane proportions in local storage. Scanning the library, opening a book or a saved run, restoring a workspace, or changing its appearance never starts an extraction. Deleting a saved run is the only write the interface performs; every parse and extraction stays in Rust.
 
 The root `pnpm-workspace.yaml`, `package.json`, and `pnpm-lock.yaml` own dependency
 installation and the pnpm version. This package owns its Vite and Tauri commands.

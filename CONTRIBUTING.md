@@ -16,8 +16,8 @@ when deciding what a line *should* parse to.
 | `recipe-types` | Plain recipe data shapes shared across crates |
 | `recipe-parsing` | Configured recipe execution shared by ingestion and presentation |
 | `recipe-scraper` / `recipe-scraper-fetcher` | Extract recipes from web pages |
-| `recipe-epub` | Extract recipes from EPUB cookbooks (AI-assisted) |
-| `recipe-epub-fixtures` | Deterministic EPUB generation for shared test inputs |
+| `cookbook` | EPUB cookbook extraction via Cloudflare AI Gateway |
+| `cookbook-fixtures` | Deterministic EPUB fixtures for cookbook tests |
 | `food-cli` | Command-line tool for parsing/scraping |
 | `food-app` | macOS Tauri + React maintainer toolkit ([setup](food-app/README.md)) |
 | `demo-site` | React + Vite demo frontend |
@@ -25,7 +25,7 @@ when deciding what a line *should* parse to.
 ## Downstream consumers
 
 Only `ingredient-parser` is published (as `ingredient`). The library crates
-`recipe-scraper`, `recipe-epub` and `recipe-types` also have external git consumers.
+`recipe-scraper`, `cookbook` and `recipe-types` also have external git consumers.
 Treat their public APIs as compatibility contracts even when no workspace caller
 uses them. Prefer additive changes; coordinate breaking changes with consumers.
 

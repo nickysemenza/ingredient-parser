@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 // `PartialEq`/`PartialOrd` are hand-written below (excluding `parse_notes`), so
 // they're intentionally absent from this derive list.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
 /// A parsed ingredient with structured components
 ///
 /// This struct represents an ingredient that has been parsed from a text string

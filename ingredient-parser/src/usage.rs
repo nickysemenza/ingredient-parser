@@ -32,6 +32,8 @@ use crate::parser::vocab::{
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, Serialize, Deserialize,
 )]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum IngredientUsage {
     /// An ordinary ingredient: measured and consumed as written.

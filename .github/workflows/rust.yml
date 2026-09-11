@@ -43,13 +43,13 @@ jobs:
         run: cargo nextest run --workspace --profile ci
       - name: Run doctests
         run: cargo test -p ingredient --doc
-      # Browser callers build recipe-epub with `default-features = false`
+      # Browser callers build cookbook with `default-features = false`
       # and supply browser transport to the shared driver. Keep the complete
       # runtime-independent interface buildable for that downstream.
-      - name: Check recipe-epub's pure (non-native) half still compiles
+      - name: Check cookbook's pure (non-native) half still compiles
         run: |
-          cargo check -p recipe-epub --no-default-features
-          cargo test -p recipe-epub --no-default-features --lib
+          cargo check -p cookbook --no-default-features
+          cargo test -p cookbook --no-default-features --lib
   wasm-tests:
     name: wasm tests (headless)
     runs-on: ubuntu-latest
@@ -71,10 +71,10 @@ jobs:
         uses: browser-actions/setup-chrome@2e1d749697dd1612b833dba4a722266286fbefcd # v2
       - name: Run wasm-bindgen tests
         run: wasm-pack test --headless --chrome ingredient-wasm
-      - name: Check browser EPUB orchestration example
+      - name: Check the cookbook crate's wasm boundary
         run: >-
-          cargo check -p recipe-epub --target wasm32-unknown-unknown
-          --no-default-features --example browser_callback
+          cargo check -p cookbook --target wasm32-unknown-unknown
+          --no-default-features --features wasm
   coverage:
     name: code coverage
     runs-on: ubuntu-latest
@@ -261,6 +261,6 @@ jobs:
       - run: cargo test -p food-app
       - run: cargo clippy -p food-app --all-targets -- -D warnings
       - run: pnpm --filter @ingredient-parser/desktop-ui exec playwright install webkit
-      - run: cargo run -p food-app --example create_review_fixture -- /tmp/food-app-qa
+      - run: cargo run -p food-app --example create_run_fixture -- /tmp/food-app-qa
       - run: pnpm --filter @ingredient-parser/desktop-ui test:e2e
       - run: pnpm --filter @ingredient-parser/desktop-ui desktop:build --debug
