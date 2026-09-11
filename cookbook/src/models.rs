@@ -86,7 +86,11 @@ pub struct Model {
 }
 
 /// Placeholder until the harness picks the ladder (plan step F13).
-pub const DEFAULT_LADDER: &[&str] = &["gemini-2.5-flash", "claude-haiku-4-5", "claude-sonnet-5"];
+/// Chosen on 2026-09-11 over the six answer-key books (see
+/// docs/cookbook-ladder-2026-09-11.md): Gemini 2.5 Flash reads best, GPT 5.6
+/// Luna is the fast, cheap second reader for retries and second opinions,
+/// Haiku 4.5 the last resort. Claude Sonnet 5 was refused by the gateway.
+pub const DEFAULT_LADDER: &[&str] = &["gemini-2.5-flash", "gpt-5.6-luna", "claude-haiku-4-5"];
 
 const CF_PRICING: &str = "https://developers.cloudflare.com/workers-ai/platform/pricing/";
 const GEMINI_PRICING: &str = "https://ai.google.dev/gemini-api/docs/pricing";
