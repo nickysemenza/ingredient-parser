@@ -1,23 +1,22 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { open, save, confirm } from "@tauri-apps/plugin-dialog";
+import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type {
-  ModelBookResults,
-  ModelChoice,
-  ExtractionPreview,
-  SavedRun,
   JsonValue as Json,
   IngredientResult,
   IngredientInspection,
   RecipeResult,
   CorpusResult,
   LibraryBook,
-  CookbookRecipe,
-  CookbookResult,
-  ExtractionRequest,
-  ExtractionProgress,
+  OpenedBook,
   BookImage,
+  GatewayStatus,
+  Estimate,
+  Extraction,
+  Progress,
+  RunSummary,
 } from "./generated";
+/** The generated DTOs the workspaces name; the file itself stays the contract. */
 export type {
   JsonValue as Json,
   IngredientResult,
@@ -26,18 +25,31 @@ export type {
   RecipeResult,
   CorpusResult,
   LibraryBook,
-  CookbookRecipe,
-  CookbookResult,
-  AuditCorrection,
-  ExtractionRequest,
-  ExtractionProgress,
+  OpenedBook,
   BookImage,
-  SourceDocument,
+  GatewayStatus,
+  Estimate,
+  Extraction,
+  Progress,
+  Eta,
+  RunSummary,
+  RunReport,
+  CallRecord,
+  CallOutcome,
+  ChunkReport,
+  Flag,
+  Chapter,
+  Item,
+  Recipe,
+  Technique,
+  Essay,
+  Section,
+  Step,
+  RecipeRef,
+  ImageRef,
+  Span,
+  Measure,
 } from "./generated";
-export interface Decision {
-  status: string;
-  note: string;
-}
 export const isNative = () => "__TAURI_INTERNALS__" in window;
 declare global {
   interface Window {
@@ -62,59 +74,40 @@ export function call<T>(
   return invoke<T>(command, args);
 }
 export const api = {
-  results: (book: string | null) => call<ModelBookResults>("cookbook_results", { book }),
-  models: () => call<ModelChoice[]>("cookbook_models"),
-  runs: (book: string | null) => call<SavedRun[]>("cookbook_runs", { book }),
-  preview: (request: ExtractionRequest) =>
-    call<ExtractionPreview>("extraction_preview", { request }),
-  exportRun: (path: string, out: string) =>
-    call<void>("export_run", { path, out }),
   parse: (input: string) => call<IngredientResult[]>("parse_batch", { input }),
   inspect: (input: string) =>
     call<IngredientInspection>("inspect_ingredient", { input }),
   recipe: (url: string) => call<RecipeResult>("load_recipe", { url }),
-  corpus: (path: string | null) => call<CorpusResult>("load_corpus", { path }),
-  library: (directory: string) =>
-    call<LibraryBook[]>("scan_library", { directory }),
-  book: (path: string) =>
-    call<CookbookResult>("inspect_book", { path, model: null }),
-  run: (path: string) => call<CookbookResult>("open_run", { path }),
-  cancelExtraction: () => call<void>("cancel_extraction", {}),
-  extract: (
-    request: ExtractionRequest,
-    progress: (value: ExtractionProgress) => void,
-  ) => {
-    if (window.__FIXTURE_INVOKE__)
-      return call<CookbookResult>("extract_run", {
-        request,
-        onProgress: { onmessage: progress },
-      });
-    const onProgress = new Channel<ExtractionProgress>();
-    onProgress.onmessage = progress;
-    return call<CookbookResult>("extract_run", { request, onProgress });
-  },
-  scale: (path: string, index: number, factor: number) =>
-    call<CookbookRecipe>("scale_recipe", { path, index, factor }),
   scaleWeb: (source: Json, factor: number) =>
     call<RecipeResult>("scale_web_recipe", { source, factor }),
+  corpus: (path: string | null) => call<CorpusResult>("load_corpus", { path }),
+  /** An empty directory means the default Calibre folder. */
+  library: (directory: string) =>
+    call<LibraryBook[]>("scan_library", { directory }),
+  /** Offline: the outline, the structural verdict, and this book's runs. */
+  book: (path: string) => call<OpenedBook>("open_book", { path }),
+  estimate: (path: string) => call<Estimate>("estimate_book", { path }),
+  gateway: () => call<GatewayStatus>("gateway_status"),
+  runs: () => call<RunSummary[]>("list_runs"),
+  run: (path: string) => call<Extraction>("open_run", { path }),
+  deleteRun: (path: string) => call<void>("delete_run", { path }),
+  /** One archive image of `book` (an EPUB path), as a data URL. */
+  image: (book: string, image: string) =>
+    call<BookImage>("book_image", { book, image }),
   cover: (path: string) => call<BookImage | null>("load_cover", { path }),
-  replay: (path: string, out: string) =>
-    call<CookbookResult>("replay_run", { path, out }),
-  review: (path: string, document: string, status: string, note: string) =>
-    call<CookbookResult>("save_review", { path, document, status, note }),
-  stats: (path: string) => call<Json>("run_stats", { path }),
-  evaluate: (path: string, expectations: string) =>
-    call<Json>("evaluate_run", { path, expectations }),
-  audit: (path: string) => call<Json>("run_audit", { path }),
-  diff: (before: string, after: string) =>
-    call<Json>("run_diff", { before, after }),
-  images: (runPath: string | null, bookPath: string) =>
-    call<BookImage[]>("load_images", {
-      runPath,
-      bookPath,
-    }),
+  cancelExtraction: () => call<void>("cancel_extraction"),
+  extract: (path: string, progress: (value: Progress) => void) => {
+    if (window.__FIXTURE_INVOKE__)
+      return call<RunSummary>("extract_book", {
+        path,
+        onProgress: { onmessage: progress },
+      });
+    const onProgress = new Channel<Progress>();
+    onProgress.onmessage = progress;
+    return call<RunSummary>("extract_book", { path, onProgress });
+  },
 };
-export async function pick(kind: "epub" | "json" | "directory") {
+export async function pick(kind: "epub" | "directory") {
   if (window.__FIXTURE_INVOKE__)
     return call<string | null>("dialog_open", { kind });
   return (await open({
@@ -123,30 +116,19 @@ export async function pick(kind: "epub" | "json" | "directory") {
     filters:
       kind === "directory"
         ? undefined
-        : [
-            {
-              name: kind === "epub" ? "Cookbook EPUB" : "JSON",
-              extensions: [kind],
-            },
-          ],
+        : [{ name: "Cookbook EPUB", extensions: ["epub"] }],
   })) as string | null;
 }
-export async function savePath(name: string) {
-  if (window.__FIXTURE_INVOKE__)
-    return call<string | null>("dialog_save", { name });
-  return save({
-    defaultPath: name,
-    filters: [{ name: "JSON", extensions: ["json"] }],
-  });
-}
 export async function discardChanges(
-  message = "Discard the unsaved review changes?",
+  message = "Discard the current work?",
+  title = "Leave current work?",
+  okLabel = "Leave",
 ) {
   return isNative()
     ? confirm(message, {
-        title: "Leave current work?",
+        title,
         kind: "warning",
-        okLabel: "Leave",
+        okLabel,
         cancelLabel: "Keep working",
       })
     : window.confirm(message);
@@ -165,7 +147,6 @@ export function display(v: unknown): string {
         : String(v);
 }
 
-export const revealFile = (path: string, review = false) =>
-  call<void>("reveal_file", { path, review });
+export const revealFile = (path: string) => call<void>("reveal_file", { path });
 export const openSourceUrl = (url: string) =>
   call<void>("open_source_url", { url });

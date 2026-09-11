@@ -3,8 +3,8 @@ import { BookOpen, FlaskConical, Moon, Sun } from "lucide-react";
 import { call, discardChanges, isNative } from "./bridge";
 import { Notice, useStored } from "./components";
 import { Parser } from "./Parser";
-import { Cookbooks } from "./Cookbooks";
-import type { ReviewAction, WorkspaceStatus } from "./shell";
+import { Cookbooks } from "./cookbooks/Cookbooks";
+import type { WorkspaceStatus } from "./shell";
 export function App() {
   const [workspace, setWorkspace] = useStored<"Parser" | "Cookbooks">(
     "v1:workspace",
@@ -17,22 +17,14 @@ export function App() {
   ]);
   const [bookStatus, setBookStatus] = useState<WorkspaceStatus>({
     title: "Cookbooks",
-    canReview: false,
     message: "No cookbook open",
     detail: "",
-  });
-  const [reviewAction, setReviewAction] = useState<ReviewAction>({
-    id: 0,
-    command: "",
   });
   const [error, setError] = useState("");
   const [parserBusy, setParserBusy] = useState(false);
   const [bookBusy, setBookBusy] = useState(false);
-  const [dirty, setDirty] = useState(false);
   const [openSignal, setOpenSignal] = useState(0);
-  const [saveSignal, setSaveSignal] = useState(0);
-  const [startupPath, setStartupPath] = useState<string | null>(null);
-  const blocked = dirty || parserBusy || bookBusy;
+  const blocked = parserBusy || bookBusy;
   const blockedRef = useRef(blocked);
   blockedRef.current = blocked;
   const asking = useRef(false);
@@ -41,10 +33,9 @@ export function App() {
     if (isNative())
       void call("set_shell_appearance", {
         dark: theme === "dark",
-        reviewEnabled: workspace === "Cookbooks" && bookStatus.canReview,
         title: `${workspace === "Cookbooks" ? bookStatus.title : "Parser"} — Ingredient Parser`,
       }).catch((e) => setError(String(e)));
-  }, [theme, workspace, bookStatus.title, bookStatus.canReview]);
+  }, [theme, workspace, bookStatus.title]);
   useEffect(() => {
     if (isNative())
       void call("set_close_blocked", { blocked }).catch((e) =>
@@ -62,31 +53,14 @@ export function App() {
   useEffect(() => {
     if (!isNative()) return;
     let dispose: (() => void) | undefined;
-    void call<string | null>("startup_run")
-      .then((path) => {
-        if (path) {
-          setStartupPath(path);
-          setWorkspace("Cookbooks");
-        }
-      })
-      .catch((e) => setError(String(e)));
     import("@tauri-apps/api/event")
       .then(({ listen }) =>
         listen<string>("app-menu", async (e) => {
-          if (e.payload.startsWith("review-"))
-            setReviewAction((previous) => ({
-              id: previous.id + 1,
-              command: e.payload,
-            }));
           if (e.payload === "parser") setWorkspace("Parser");
           if (e.payload === "cookbooks") setWorkspace("Cookbooks");
           if (e.payload === "open") {
             setWorkspace("Cookbooks");
             setOpenSignal((n) => n + 1);
-          }
-          if (e.payload === "save") {
-            setWorkspace("Cookbooks");
-            setSaveSignal((n) => n + 1);
           }
           if (e.payload === "quit" && !asking.current) {
             asking.current = true;
@@ -94,7 +68,7 @@ export function App() {
               if (
                 !blockedRef.current ||
                 (await discardChanges(
-                  "Unsaved changes or an active operation remain. Quit the application?",
+                  "An extraction is still running. Quit the application?",
                 ))
               ) {
                 await call("set_close_blocked", { blocked: false });
@@ -152,12 +126,8 @@ export function App() {
           <Cookbooks
             onError={onError}
             onBusy={setBookBusy}
-            onDirty={setDirty}
             openSignal={openSignal}
-            saveSignal={saveSignal}
-            startupPath={startupPath}
             active={workspace === "Cookbooks"}
-            reviewAction={reviewAction}
             onStatus={setBookStatus}
           />
         </div>
