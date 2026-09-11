@@ -16,13 +16,18 @@ pub mod cache;
 pub mod chunk;
 pub mod contract;
 pub mod cost;
+pub mod crosscheck;
 pub mod epub;
 mod error;
+pub mod eta;
 pub mod gateway;
 pub mod lines;
 pub mod model;
 pub mod models;
 pub mod report;
+pub mod run;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub mod transport;
 pub mod validate;
 
