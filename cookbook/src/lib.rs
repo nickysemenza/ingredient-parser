@@ -40,6 +40,8 @@ pub mod run;
 pub mod test_support;
 pub mod transport;
 pub mod validate;
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 pub use cost::{Usage, cost_for_usage};
 pub use error::{Error, Result};

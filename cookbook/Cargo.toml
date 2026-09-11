@@ -79,12 +79,17 @@ ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Integration tests use the scripted transports.
-cookbook = { path = ".", features = ["test-support"] }
+cookbook = { path = ".", default-features = false, features = ["test-support"] }
 cookbook-fixtures.workspace = true
 rstest.workspace = true
 insta = { version = "1", features = ["json"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tempfile = "3"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
 
 [lints]
 workspace = true

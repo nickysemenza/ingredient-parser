@@ -2,6 +2,7 @@
 //! standing in for the model → the book tree, checked against each fixture's
 //! ground truth.
 
+#![cfg(not(target_arch = "wasm32"))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use cookbook::cache::NoCache;

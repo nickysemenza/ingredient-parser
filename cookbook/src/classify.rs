@@ -219,7 +219,7 @@ pub async fn classify<T: Transport, C: ChunkCache>(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
