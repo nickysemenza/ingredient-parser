@@ -36,6 +36,9 @@ pub struct Classified {
     pub reasons: Vec<String>,
     pub quantity_lines: usize,
     pub ingredient_runs: usize,
+    /// Runs of three or more quantity-like lines: ingredient lists proper,
+    /// as opposed to chapter numbers, addresses and tables.
+    pub solid_runs: usize,
     pub nav_recipe_titles: usize,
 }
 
@@ -56,10 +59,18 @@ pub fn classify_structure(book: &Book) -> Classified {
     let ingredient_runs = (0..lines.len())
         .filter(|&i| lines.ingredient_run_start(i))
         .count();
+    let solid_runs = (0..lines.len())
+        .filter(|&i| lines.solid_run_start(i) && !(i > 0 && lines.quantity_like(i - 1)))
+        .count();
     let nav_titles = nav_recipe_titles(lines, book.nav()).len();
     let ratio = quantity_lines as f32 / total as f32;
     let subject_hint = subject_hint(&book.source().subjects);
-    let mut score = (ratio / 0.10).min(1.0) * 0.6 + (ingredient_runs as f32 / 30.0).min(1.0) * 0.3;
+    // Solid runs carry the verdict: a novel's addresses and chapter numbers
+    // look like quantities one line at a time, a roster or a code listing
+    // can even run three deep a few times, but only recipes do it dozens of
+    // times.
+    let mut score =
+        (solid_runs as f32 / 60.0).min(1.0) * 0.7 + (nav_titles as f32 / 40.0).min(1.0) * 0.2;
     if subject_hint {
         score += 0.1;
     }
@@ -69,7 +80,7 @@ pub fn classify_structure(book: &Book) -> Classified {
             "{quantity_lines} of {total} lines look like quantities ({:.1}%)",
             ratio * 100.0
         ),
-        format!("{ingredient_runs} ingredient runs"),
+        format!("{ingredient_runs} ingredient runs, {solid_runs} of three or more lines"),
         format!("{nav_titles} contents entries that name recipes"),
     ];
     if subject_hint {
@@ -78,9 +89,9 @@ pub fn classify_structure(book: &Book) -> Classified {
             book.source().subjects.join(", ")
         ));
     }
-    let classification = if (ratio >= 0.08 && ingredient_runs >= 10) || nav_titles >= 20 {
+    let classification = if solid_runs >= 40 {
         Classification::Cookbook
-    } else if ratio < 0.02 && ingredient_runs < 3 && nav_titles < 3 {
+    } else if solid_runs == 0 && nav_titles < 5 {
         Classification::NotCookbook
     } else {
         Classification::Ambiguous
@@ -92,6 +103,7 @@ pub fn classify_structure(book: &Book) -> Classified {
         reasons,
         quantity_lines,
         ingredient_runs,
+        solid_runs,
         nav_recipe_titles: nav_titles,
     }
 }
@@ -157,6 +169,7 @@ fn from_answer(input: &Value, model: &Model) -> Option<Classified> {
         reasons: vec![reason],
         quantity_lines: 0,
         ingredient_runs: 0,
+        solid_runs: 0,
         nav_recipe_titles: 0,
     })
 }
@@ -181,7 +194,9 @@ pub async fn classify<T: Transport, C: ChunkCache>(
         purpose: "classify",
         gateway_cache: true,
     };
-    let http = build_http(model, &request, 400, &meta, model.reasoning);
+    // A yes/no with a sentence of reason: no thinking, and room for the
+    // answer even if the model pads it.
+    let http = build_http(model, &request, 1000, &meta, crate::models::Reasoning::Off);
     let key = cache_key(
         CLASSIFY_CONTRACT,
         model.id,
@@ -218,6 +233,7 @@ pub async fn classify<T: Transport, C: ChunkCache>(
         Some(mut c) => {
             c.quantity_lines = structural.quantity_lines;
             c.ingredient_runs = structural.ingredient_runs;
+            c.solid_runs = structural.solid_runs;
             c.nav_recipe_titles = structural.nav_recipe_titles;
             c.reasons.extend(structural.reasons);
             c
@@ -251,12 +267,13 @@ mod tests {
 
     #[tokio::test]
     async fn ambiguous_books_ask_once_and_cache_the_answer() {
-        // A book with a few quantities but no runs: ambiguous by structure.
+        // A history with a handful of short formulas: too many solid runs
+        // to dismiss, too few to be sure.
         let mut body = String::new();
         for i in 0..60 {
             body.push_str(&format!("<p>Paragraph {i} about the history of bread and how it shaped cities and trade.</p>"));
             if i % 10 == 0 {
-                body.push_str("<p>3 cups flour</p>");
+                body.push_str("<p>3 cups flour</p><p>2 teaspoons salt</p><p>1 cup water</p>");
             }
         }
         let bytes = cookbook_fixtures::EpubBuilder::new("Bread History")

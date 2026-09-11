@@ -47,6 +47,10 @@ pub enum Command {
         /// Include the printed-page map.
         #[arg(long)]
         pages: bool,
+        /// Print the first N quantity-like lines and where the ingredient
+        /// runs start: what the structural classifier saw.
+        #[arg(long)]
+        quantities: Option<usize>,
     },
     /// Cost and time before spending anything.
     Estimate {
@@ -383,13 +387,17 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             lines,
             nav,
             pages,
+            quantities,
         } => inspect(
             &book,
-            chunks,
-            chunk.as_deref(),
-            lines.as_deref(),
-            nav,
-            pages,
+            InspectFlags {
+                list_chunks: chunks,
+                chunk: chunk.as_deref(),
+                lines: lines.as_deref(),
+                nav,
+                pages,
+                quantities,
+            },
             json,
         ),
         Command::Estimate {
@@ -699,16 +707,75 @@ fn line_json(book: &Book, idx: usize) -> Value {
     })
 }
 
-fn inspect(
-    path: &Path,
+struct InspectFlags<'a> {
     list_chunks: bool,
-    chunk: Option<&str>,
-    lines: Option<&str>,
+    chunk: Option<&'a str>,
+    lines: Option<&'a str>,
     nav: bool,
     pages: bool,
-    json: bool,
-) -> Result<i32, String> {
+    quantities: Option<usize>,
+}
+
+fn inspect(path: &Path, flags: InspectFlags<'_>, json: bool) -> Result<i32, String> {
+    let InspectFlags {
+        list_chunks,
+        chunk,
+        lines,
+        nav,
+        pages,
+        quantities,
+    } = flags;
     let book = open(path, &label_for(path))?;
+    if let Some(n) = quantities {
+        let lines = book.lines();
+        let quantity: Vec<usize> = (0..lines.len())
+            .filter(|&i| lines.quantity_like(i))
+            .collect();
+        let runs: Vec<usize> = (0..lines.len())
+            .filter(|&i| lines.ingredient_run_start(i))
+            .collect();
+        let solid: Vec<usize> = (0..lines.len())
+            .filter(|&i| lines.solid_run_start(i) && !(i > 0 && lines.quantity_like(i - 1)))
+            .collect();
+        if json {
+            emit(
+                &json!({
+                    "lines": lines.len(),
+                    "quantity_lines": quantity.len(),
+                    "ingredient_runs": runs.len(),
+                    "solid_runs": solid.len(),
+                    "sample": quantity.iter().take(n).map(|&i| json!({"line": i, "text": lines.text(i)})).collect::<Vec<_>>(),
+                    "run_starts": runs.iter().take(n).map(|&i| json!({"line": i, "text": lines.text(i)})).collect::<Vec<_>>(),
+                }),
+                true,
+            );
+        } else {
+            println!(
+                "{} lines · {} quantity-like · {} ingredient runs · {} solid runs (3+ in a row)",
+                lines.len(),
+                quantity.len(),
+                runs.len(),
+                solid.len()
+            );
+            for &i in quantity.iter().take(n) {
+                let marks = format!(
+                    "{}{}",
+                    if lines.ingredient_run_start(i) {
+                        "run "
+                    } else {
+                        "    "
+                    },
+                    if lines.solid_run_start(i) {
+                        "solid "
+                    } else {
+                        "      "
+                    }
+                );
+                println!("{i:>6} {marks} {}", lines.text(i));
+            }
+        }
+        return Ok(0);
+    }
     if let Some(id) = chunk {
         let c = book
             .chunks()

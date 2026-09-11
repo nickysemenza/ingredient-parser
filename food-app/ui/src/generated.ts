@@ -38,7 +38,12 @@ score: number,
 /**
  * `structure` or the model id that decided.
  */
-method: string, reasons: Array<string>, quantity_lines: number, ingredient_runs: number, nav_recipe_titles: number, };
+method: string, reasons: Array<string>, quantity_lines: number, ingredient_runs: number,
+/**
+ * Runs of three or more quantity-like lines: ingredient lists proper,
+ * as opposed to chapter numbers, addresses and tables.
+ */
+solid_runs: number, nav_recipe_titles: number, };
 export type Classification = "cookbook" | "not_cookbook" | "ambiguous";
 export type BookOutline = { source: BookSource, cover: ImageRef | null,
 /**

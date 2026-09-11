@@ -186,9 +186,40 @@ fn rootfile_path(container: &[u8]) -> Result<String> {
         .ok_or_else(|| Error::NotAnEpub("container.xml has no rootfile".into()))
 }
 
+/// Some publishers write `opf:role` or `dc:title` without declaring the
+/// prefix on the package element; roxmltree rejects that, so declare the
+/// two the OPF vocabulary uses when they are missing.
+fn declare_undeclared_prefixes(xml: &str) -> std::borrow::Cow<'_, str> {
+    let needed: Vec<(&str, &str)> = [
+        ("opf", "http://www.idpf.org/2007/opf"),
+        ("dc", "http://purl.org/dc/elements/1.1/"),
+    ]
+    .into_iter()
+    .filter(|(prefix, _)| {
+        (xml.contains(&format!("<{prefix}:")) || xml.contains(&format!(" {prefix}:")))
+            && !xml.contains(&format!("xmlns:{prefix}="))
+    })
+    .collect();
+    if needed.is_empty() {
+        return std::borrow::Cow::Borrowed(xml);
+    }
+    let Some(start) = xml.find("<package") else {
+        return std::borrow::Cow::Borrowed(xml);
+    };
+    let insert_at = start + "<package".len();
+    let mut out = String::with_capacity(xml.len() + 80);
+    out.push_str(&xml[..insert_at]);
+    for (prefix, uri) in needed {
+        out.push_str(&format!(" xmlns:{prefix}=\"{uri}\""));
+    }
+    out.push_str(&xml[insert_at..]);
+    std::borrow::Cow::Owned(out)
+}
+
 fn parse_opf(opf_path: &str, xml: &str) -> Result<Package> {
+    let xml = declare_undeclared_prefixes(xml);
     let doc =
-        roxmltree::Document::parse_with_options(xml, XML_OPTIONS).map_err(|e| Error::Xml {
+        roxmltree::Document::parse_with_options(&xml, XML_OPTIONS).map_err(|e| Error::Xml {
             path: opf_path.to_string(),
             message: e.to_string(),
         })?;
@@ -385,6 +416,21 @@ mod tests {
             put(name, body);
         }
         archive.finish().unwrap().into_inner()
+    }
+
+    /// `opf:` used on the metadata without a declaration on `<package>`.
+    #[test]
+    fn undeclared_opf_prefix_is_declared_before_parsing() {
+        let opf = "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" version=\"2.0\">\
+<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>Meathead</dc:title><dc:creator opf:role=\"aut\">M. Goldwyn</dc:creator></metadata>\
+<manifest><item id=\"c1\" href=\"c1.xhtml\" media-type=\"application/xhtml+xml\"/></manifest><spine><itemref idref=\"c1\"/></spine></package>";
+        let package = parse_opf("OEBPS/content.opf", opf).unwrap();
+        assert_eq!(package.title, "Meathead");
+        assert_eq!(package.authors, ["M. Goldwyn"]);
+        assert!(matches!(
+            declare_undeclared_prefixes(OPF3),
+            std::borrow::Cow::Borrowed(_)
+        ));
     }
 
     const OPF3: &str = "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"id\">\
