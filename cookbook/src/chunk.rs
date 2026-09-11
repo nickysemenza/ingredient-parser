@@ -23,7 +23,7 @@ pub const CHUNK_BUDGET: usize = 12_000;
 /// Extra characters accepted while looking for a clean boundary.
 pub const CHUNK_SLACK: usize = 6_000;
 /// How far after a title an ingredient run may start and still belong to it.
-const RUN_WINDOW: usize = 25;
+const RUN_WINDOW: usize = 60;
 
 /// Why a chunk begins where it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +158,11 @@ pub fn chunk(book: &BookLines, opts: &ChunkOptions) -> Vec<Chunk> {
     let mut boundary = Boundary::Start;
     let mut hint: Option<String> = None;
     let mut last_title: Option<String> = None;
+    // The hint names the recipe a hard cut lands inside. A heading (or a
+    // contents target) is that name until its ingredient run has started;
+    // plain title-like lines in between ("THE PLAN", a wine pairing, a
+    // sidebar) are not.
+    let mut heading_pending = false;
     for (i, &is_title) in title_like.iter().enumerate() {
         let line_len = book.text(i).len() + 1;
         if i > start && len >= opts.budget {
@@ -187,8 +192,17 @@ pub fn chunk(book: &BookLines, opts: &ChunkOptions) -> Vec<Chunk> {
                 hint = next_hint;
             }
         }
+        if book.ingredient_run_start(i) {
+            heading_pending = false;
+        }
         if is_title {
-            last_title = Some(book.text(i).to_string());
+            let strong = book.lines[i].clean.heading.is_some() || nav_lines.contains(&i);
+            if strong {
+                last_title = Some(book.text(i).to_string());
+                heading_pending = true;
+            } else if !heading_pending && !crate::validate::is_label(book.text(i)) {
+                last_title = Some(book.text(i).to_string());
+            }
         }
         len += line_len;
     }

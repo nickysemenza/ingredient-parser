@@ -230,11 +230,16 @@ impl BookLines {
         for i in idx.saturating_sub(3)..idx {
             let Some(l) = self.lines.get(i) else { continue };
             let text = l.text();
-            if text.len() > 100 || text.ends_with('.') || l.clean.heading.is_some() {
+            if l.clean.heading.is_some() {
                 any_quantity = false;
-                continue;
+            } else if self.quantity_like(i) {
+                // A long quantity line ("One 6- to 7-pound corkscrewed whole
+                // leg of lamb {shank and sirloin end attached}") is still a
+                // list line, so "Salt" after it is an ingredient.
+                any_quantity = true;
+            } else if text.len() > 100 || text.ends_with('.') {
+                any_quantity = false;
             }
-            any_quantity |= self.quantity_like(i);
         }
         any_quantity
     }

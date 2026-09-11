@@ -17,7 +17,7 @@ use crate::lines::BookLines;
 use crate::report::{CrossCheck, Flag};
 
 /// Fewer nav titles than this and recall is not judged.
-pub const MIN_NAV_TITLES: usize = 5;
+pub const MIN_NAV_TITLES: usize = 12;
 const SIMILARITY: f64 = 0.85;
 
 /// A title as extracted, with where it came from.
@@ -83,7 +83,7 @@ fn contains_tokens(hay: &str, needle: &str) -> bool {
 const NAV_RUN_WINDOW: usize = 60;
 /// A contents section holding more ingredient runs than this is a chapter or
 /// part, not a recipe with a few sub-recipes.
-const NAV_MAX_RUNS_PER_RECIPE: usize = 4;
+const NAV_MAX_RUNS_PER_RECIPE: usize = 6;
 
 /// Contents entries that name recipes: `(entry order, label, line)`. Whatever
 /// the nesting, an entry is a recipe when the text between its target and the
@@ -259,19 +259,25 @@ mod tests {
         assert_eq!(titles_match(a, b), expected);
     }
 
+    /// Twelve recipes: enough contents entries for recall to be judged.
+    const PIES: [&str; 12] = [
+        "Apple Pie",
+        "Cherry Pie",
+        "Peach Pie",
+        "Plum Pie",
+        "Pear Pie",
+        "Fig Pie",
+        "Quince Tart",
+        "Rhubarb Pie",
+        "Blueberry Pie",
+        "Pecan Pie",
+        "Pumpkin Pie",
+        "Lemon Pie",
+    ];
+
     fn book() -> (BookLines, Nav) {
         let mut html = String::from("<h1 id=\"ch\">Pies</h1>");
-        for (i, title) in [
-            "Apple Pie",
-            "Cherry Pie",
-            "Peach Pie",
-            "Plum Pie",
-            "Pear Pie",
-            "Fig Pie",
-        ]
-        .iter()
-        .enumerate()
-        {
+        for (i, title) in PIES.iter().enumerate() {
             html.push_str(&format!(
                 "<h2 id=\"r{i}\">{title}</h2><p>2 cups fruit</p><p>1 cup sugar</p><p>Bake it.</p>"
             ));
@@ -289,17 +295,7 @@ mod tests {
             depth: 1,
             order: 0,
         }];
-        for (i, title) in [
-            "Apple Pie",
-            "Cherry Pie",
-            "Peach Pie",
-            "Plum Pie",
-            "Pear Pie",
-            "Fig Pie",
-        ]
-        .iter()
-        .enumerate()
-        {
+        for (i, title) in PIES.iter().enumerate() {
             entries.push(NavEntry {
                 label: title.to_string(),
                 doc_path: "c.xhtml".into(),
@@ -338,27 +334,31 @@ mod tests {
         let chunks = make_chunks(&book, &ChunkOptions::default());
         assert_eq!(chunks.len(), 1);
         let nav_titles = nav_recipe_titles(&book, &nav);
-        assert_eq!(nav_titles.len(), 6, "the depth-1 chapter is not a recipe");
+        assert_eq!(nav_titles.len(), 12, "the depth-1 chapter is not a recipe");
         let cap_line = (0..book.len())
-            .find(|&i| book.text(i).starts_with("Quince"))
+            .find(|&i| book.text(i).starts_with("Quince Pie"))
             .unwrap();
-        let got = vec![
-            extracted(0, "Apple Pie", Some(1), 2, 1),
-            extracted(0, "Cherry Pie", Some(5), 2, 1),
-            extracted(0, "Peach pie", Some(9), 2, 1),
-            extracted(0, "Plum Pie", Some(13), 2, 1),
-            extracted(0, "Pear Pie", Some(17), 2, 1),
-            // Fig Pie missing; a caption came back as a recipe.
-            extracted(0, "Quince Pie, this page", Some(cap_line), 0, 0),
-            // A real unlisted recipe with content is not a phantom.
-            extracted(0, "Bonus Pie", None, 6, 4),
-        ];
+        // Every pie but Fig, one of them with a case difference; each recipe
+        // occupies four lines after the chapter heading.
+        let mut got: Vec<ExtractedTitle> = PIES
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| **t != "Fig Pie")
+            .map(|(i, t)| {
+                let title = if i == 2 { "Peach pie" } else { t };
+                extracted(0, title, Some(1 + 4 * i), 2, 1)
+            })
+            .collect();
+        // A caption came back as a recipe.
+        got.push(extracted(0, "Quince Pie, this page", Some(cap_line), 0, 0));
+        // A real unlisted recipe with content is not a phantom.
+        got.push(extracted(0, "Bonus Pie", None, 6, 4));
         let (check, flags) = crosscheck(&book, &nav, &chunks, &got);
-        assert_eq!(check.nav_titles, 6);
-        assert_eq!(check.matched, 5);
+        assert_eq!(check.nav_titles, 12);
+        assert_eq!(check.matched, 11);
         assert_eq!(check.missing, ["Fig Pie"]);
         assert_eq!(check.phantom, ["Quince Pie, this page"]);
-        assert!((check.recall.unwrap() - 5.0 / 6.0).abs() < 1e-6);
+        assert!((check.recall.unwrap() - 11.0 / 12.0).abs() < 1e-6);
         let fig_line = (0..book.len())
             .find(|&i| book.text(i) == "Fig Pie")
             .unwrap();
@@ -392,7 +392,7 @@ mod tests {
             boundary: Boundary::Start,
         };
         let cap_line = (0..book.len())
-            .find(|&i| book.text(i).starts_with("Quince"))
+            .find(|&i| book.text(i).starts_with("Quince Pie"))
             .unwrap();
         let got = vec![
             extracted(0, "Thin", None, 1, 0),

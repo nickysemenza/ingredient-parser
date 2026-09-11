@@ -229,7 +229,7 @@ impl Book {
         transport: &T,
         cache: &C,
         cancel: &CancelToken,
-        mut progress: impl FnMut(Progress) + Send,
+        mut progress: impl FnMut(Progress) + report::MaybeSend,
     ) -> Result<Extraction> {
         let started = Timestamp::now();
         let ladder = models::resolve_ladder(&options.ladder)?;

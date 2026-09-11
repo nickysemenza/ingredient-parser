@@ -223,7 +223,9 @@ ingredient list. kind `essay`: titled prose with neither.
 
 Fields. title: the complete printed name and subtitle or translation, never dietary flags; \
 a title printed over consecutive lines (name, then translation or subtitle, then perhaps \
-the native script) is one title, so select every one of those lines. \
+the native script) is one title, so select every one of those lines. When a heading is \
+followed by a lower-level heading before the first ingredient line, the lower heading \
+names the recipe and the higher one is a chapter heading or an essay over its own paragraphs. \
 description: the headnote paragraphs. recipe_yield: every line of the serves/makes statement. \
 times: explicitly printed timing lines, one per field; a line combining several times or a \
 time with other metadata goes in notes and the times fields stay empty. equipment: equipment \
@@ -404,8 +406,11 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
     let payload: Payload = serde_json::from_value(payload)
         .map_err(|e| Invalid(format!("the answer does not match the tool schema: {e}")))?;
     let n = chunk.lines();
-    let mut used: HashMap<usize, &'static str> = HashMap::new();
-    let mut take = |indices: &[usize], field: &'static str| -> Result<Vec<Text>, Invalid> {
+    let mut used: HashMap<usize, (&'static str, usize)> = HashMap::new();
+    let mut take = |indices: &[usize],
+                    field: &'static str,
+                    owner: usize|
+     -> Result<Vec<Text>, Invalid> {
         let mut sorted = indices.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -415,16 +420,22 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
                 if i >= n {
                     return Err(Invalid(format!("line {i} is out of range (0..{n}) in {field}")));
                 }
-                if let Some(previous) = used.insert(i, field) {
+                if let Some((previous, previous_owner)) = used.insert(i, (field, owner)) {
+                    if previous == field && previous_owner == owner {
+                        // The same line listed twice under one field of one
+                        // item (two sections' ingredients): keep the first.
+                        return Ok(None);
+                    }
                     return Err(Invalid(format!(
                         "line {i} is assigned to both {previous} and {field}; every line belongs to exactly one field"
                     )));
                 }
-                Ok(Text {
+                Ok(Some(Text {
                     line: chunk.global(i),
                     text: book.text(chunk.global(i)).to_string(),
-                })
+                }))
             })
+            .filter_map(Result::transpose)
             .collect()
     };
 
@@ -445,7 +456,7 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
             })?;
             (hint, Vec::new(), true)
         } else {
-            let lines = take(&item.title, "title")?;
+            let lines = take(&item.title, "title", index)?;
             let mut seen = BTreeSet::new();
             let text = lines
                 .iter()
@@ -466,10 +477,10 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
         dedupe_within_item(&mut item);
         normalize_sections(&mut item);
 
-        let description = take(&item.description, "description")?;
-        let notes = take(&item.notes, "notes")?;
-        let equipment = take(&item.equipment, "equipment")?;
-        let yield_lines = take(&item.recipe_yield, "recipe_yield")?;
+        let description = take(&item.description, "description", index)?;
+        let notes = take(&item.notes, "notes", index)?;
+        let equipment = take(&item.equipment, "equipment", index)?;
+        let yield_lines = take(&item.recipe_yield, "recipe_yield", index)?;
         let recipe_yield = (!yield_lines.is_empty()).then(|| {
             yield_lines
                 .iter()
@@ -477,8 +488,8 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
                 .collect::<Vec<_>>()
                 .join(" ")
         });
-        let category = take(&item.category, "category")?.into_iter().next();
-        let page = take(&item.page, "page")?.into_iter().next();
+        let category = take(&item.category, "category", index)?.into_iter().next();
+        let page = take(&item.page, "page", index)?.into_iter().next();
         let mut times = RecipeTimes::default();
         for (field, indices, slot) in [
             ("times.prep", &item.times.prep, &mut times.prep),
@@ -486,13 +497,16 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
             ("times.active", &item.times.active, &mut times.active),
             ("times.total", &item.times.total, &mut times.total),
         ] {
-            *slot = take(indices, field)?.into_iter().next().map(|t| t.text);
+            *slot = take(indices, field, index)?
+                .into_iter()
+                .next()
+                .map(|t| t.text);
         }
         fill_time_minutes(&mut times);
         let times = (!times.is_empty()).then_some(times);
         let mut sections = Vec::with_capacity(item.sections.len());
         for section in &item.sections {
-            let name_lines = take(&section.name, "section name")?;
+            let name_lines = take(&section.name, "section name", index)?;
             sections.push(ChunkSection {
                 name: (!name_lines.is_empty()).then(|| {
                     name_lines
@@ -502,11 +516,11 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
                         .join(" ")
                 }),
                 name_lines: name_lines.into_iter().map(|t| t.line).collect(),
-                ingredients: take(&section.ingredients, "ingredients")?,
-                steps: take(&section.steps, "steps")?,
+                ingredients: take(&section.ingredients, "ingredients", index)?,
+                steps: take(&section.steps, "steps", index)?,
             });
         }
-        let photos: Vec<usize> = take(&item.photos, "photos")?
+        let photos: Vec<usize> = take(&item.photos, "photos", index)?
             .into_iter()
             .map(|t| t.line)
             .collect();
@@ -547,33 +561,51 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
             last,
         });
     }
-    let captions: Vec<usize> = take(&payload.captions, "captions")?
+    let mut captions: Vec<usize> = take(&payload.captions, "captions", usize::MAX)?
         .into_iter()
         .map(|t| t.line)
         .collect();
-    let chapter_headings: Vec<usize> = take(&payload.chapter_headings, "chapter_headings")?
+    let chapter_headings: Vec<usize> =
+        take(&payload.chapter_headings, "chapter_headings", usize::MAX)?
+            .into_iter()
+            .map(|t| t.line)
+            .collect();
+    let mut ignored: Vec<usize> = take(&payload.ignored, "ignored", usize::MAX)?
         .into_iter()
         .map(|t| t.line)
         .collect();
-    let mut ignored: Vec<usize> = take(&payload.ignored, "ignored")?
-        .into_iter()
-        .map(|t| t.line)
-        .collect();
-    let missing: Vec<usize> = (0..n).filter(|i| !used.contains_key(i)).collect();
     let mut auto_ignored = Vec::new();
-    if !missing.is_empty() {
-        let losable = missing.len() <= MAX_AUTO_IGNORED
-            && missing
+    let mut prose_missing = Vec::new();
+    for i in (0..n).filter(|i| !used.contains_key(i)) {
+        let global = chunk.global(i);
+        let line = &book.lines[global];
+        let text = book.text(global);
+        if line.clean.in_figure {
+            // A caption the model skipped is still a caption.
+            captions.push(global);
+        } else if is_structural_label(text, line.clean.heading.is_some()) {
+            // Method sub-headings ("MAKE THE PASTE"), bare labels, and
+            // headings carry no recipe text; leaving them out is harmless.
+            auto_ignored.push(global);
+        } else {
+            prose_missing.push(i);
+        }
+    }
+    if !prose_missing.is_empty() {
+        let losable = prose_missing.len() <= MAX_AUTO_IGNORED
+            && prose_missing
                 .iter()
                 .all(|&i| !crate::lines::looks_like_quantity_text(book.text(chunk.global(i))));
         if !losable {
             return Err(Invalid(format!(
-                "lines {missing:?} are not assigned to any field; put every line in an item field, captions, chapter_headings, or ignored"
+                "lines {prose_missing:?} are not assigned to any field; put every line in an item field, captions, chapter_headings, or ignored"
             )));
         }
-        auto_ignored = missing.iter().map(|&i| chunk.global(i)).collect();
-        ignored.extend(auto_ignored.iter().copied());
+        auto_ignored.extend(prose_missing.iter().map(|&i| chunk.global(i)));
     }
+    auto_ignored.sort_unstable();
+    ignored.extend(auto_ignored.iter().copied());
+    captions.sort_unstable();
     Ok(Lowered {
         items,
         captions,
@@ -586,6 +618,19 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
 /// Unassigned prose lines tolerated per chunk (they are ignored and flagged);
 /// an unassigned quantity line always fails the answer.
 pub const MAX_AUTO_IGNORED: usize = 3;
+
+/// A short heading-like line: a heading tag, an upper-case label ("MAKE THE
+/// PASTE"), or a label ending in a colon. Never a quantity.
+fn is_structural_label(text: &str, heading: bool) -> bool {
+    let t = text.trim();
+    if t.is_empty() || t.len() > 60 || crate::lines::looks_like_quantity_text(t) {
+        return false;
+    }
+    if heading || t.ends_with(':') || crate::validate::is_label(t) {
+        return true;
+    }
+    t.chars().any(|c| c.is_alphabetic()) && !t.chars().any(|c| c.is_lowercase())
+}
 
 /// An untitled item after the first is a component the model split off (a
 /// pizza's per-pie blocks, a sauce printed under its dish): fold it into the

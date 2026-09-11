@@ -9,6 +9,8 @@
 use std::rc::Rc;
 
 use futures::FutureExt;
+use serde::{Deserialize, Serialize};
+use tsify_next::Tsify;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{JsFuture, future_to_promise};
 
@@ -170,6 +172,28 @@ impl Book {
 #[wasm_bindgen]
 pub fn usage_from_response(model: &str, body: &str) -> Option<Usage> {
     crate::usage_from_response(model, body)
+}
+
+/// What a host records per gateway call: the provider, the token usage, and
+/// the catalog's cost for it (`None` for unpriced models).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct GatewayCallUsage {
+    pub provider: String,
+    pub usage: Usage,
+    pub cost_usd: Option<f64>,
+}
+
+/// Usage and cost from a raw provider response body, for AI-usage accounting.
+#[wasm_bindgen]
+pub fn gateway_call_usage(model: &str, body: &str) -> Option<GatewayCallUsage> {
+    let m = crate::models::model(model)?;
+    let usage = crate::gateway::usage_from_response(m.route, body)?;
+    Some(GatewayCallUsage {
+        provider: m.provider.as_str().to_string(),
+        usage,
+        cost_usd: crate::cost::cost_for_usage(m, &usage),
+    })
 }
 
 /// The catalog's default model ladder, for display.

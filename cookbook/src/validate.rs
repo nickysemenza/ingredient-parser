@@ -35,6 +35,8 @@ pub enum HardFault {
     /// A short heading over an ingredient list, split off as its own item
     /// while the recipe it belongs to still has no method ("Paste", "Fish").
     TitleIsGroupHeading { local: usize, title: String },
+    /// A technique or essay whose text holds an ingredient list.
+    NotARecipeWithIngredients { title: String, quantities: usize },
 }
 
 /// "For the sauce", "For serving", "To finish:" — group headings, not items.
@@ -68,16 +70,14 @@ fn title_line_is_ingredient(book: &BookLines, line: usize, title: &str) -> bool 
     let Some(l) = book.lines.get(line) else {
         return false;
     };
-    if l.clean.heading.is_some() {
-        return false;
-    }
-    if book.quantity_like(line) {
-        return true;
-    }
-    title.split_whitespace().count() <= 3
+    // Only the wedged case: quantity words in a title ("50% WHOLE WHEAT
+    // BREAD", "THREE WAYS WITH NOODLES") prove nothing on their own.
+    l.clean.heading.is_none()
+        && title.split_whitespace().count() <= 3
         && line > 0
         && book.quantity_like(line - 1)
         && book.quantity_like(line + 1)
+        && !book.title_like(line)
 }
 
 /// Words a cross-reference line carries.
@@ -180,6 +180,10 @@ impl fmt::Display for HardFault {
             HardFault::TitleIsSectionHeading { local, title } => write!(
                 f,
                 "line {local} ({title:?}) is an ingredient-group heading of the recipe it sits in; make it that recipe's section name, not an item"
+            ),
+            HardFault::NotARecipeWithIngredients { title, quantities } => write!(
+                f,
+                "item {title:?} is not marked recipe, yet {quantities} of its lines are quantities (an ingredient list, possibly a table); make it a recipe with those lines in sections.ingredients"
             ),
             HardFault::IngredientsAreProse { title } => write!(
                 f,
@@ -319,6 +323,21 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
             v.hard.push(HardFault::IngredientsAreProse {
                 title: item.title.clone(),
             });
+        }
+        if matches!(item.kind, Kind::Technique | Kind::Essay) {
+            let quantities = item
+                .description
+                .iter()
+                .chain(item.notes.iter())
+                .chain(item.sections.iter().flat_map(|s| s.steps.iter()))
+                .filter(|t| looks_like_quantity_text(&t.text) && t.text.len() <= 120)
+                .count();
+            if quantities >= 3 {
+                v.hard.push(HardFault::NotARecipeWithIngredients {
+                    title: item.title.clone(),
+                    quantities,
+                });
+            }
         }
         if item.kind == Kind::Recipe && item.ingredient_count() == 0 && !item.continues {
             v.hard.push(HardFault::RecipeWithoutIngredients {

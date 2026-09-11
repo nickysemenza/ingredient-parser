@@ -6,6 +6,24 @@ use serde::{Deserialize, Serialize};
 use crate::cost::Usage;
 use crate::model::{BookSource, Cookbook};
 
+/// `Send` on native hosts, where a Tauri command drives the run from a
+/// multi-threaded runtime; nothing on wasm, where the progress callback is a
+/// `js_sys::Function`.
+#[cfg(not(target_arch = "wasm32"))]
+pub trait MaybeSend: Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send> MaybeSend for T {}
+#[cfg(target_arch = "wasm32")]
+pub trait MaybeSend {}
+#[cfg(target_arch = "wasm32")]
+impl<T> MaybeSend for T {}
+
+/// The progress callback as the run loop sees it.
+#[cfg(not(target_arch = "wasm32"))]
+pub type ProgressSink<'a> = &'a mut (dyn FnMut(Progress) + Send);
+#[cfg(target_arch = "wasm32")]
+pub type ProgressSink<'a> = &'a mut dyn FnMut(Progress);
+
 /// The result of one extraction run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]

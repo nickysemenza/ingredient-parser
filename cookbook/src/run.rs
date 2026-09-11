@@ -615,7 +615,7 @@ pub async fn run<T: Transport, C: ChunkCache>(
     transport: &T,
     cache: &C,
     cancel: &CancelToken,
-    progress: &mut (dyn FnMut(Progress) + Send),
+    progress: crate::report::ProgressSink<'_>,
 ) -> RunOutput {
     let shared = Shared {
         input,

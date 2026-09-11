@@ -69,6 +69,15 @@ pub fn assemble(
                 merge_into(&mut last.item, item);
                 continue;
             }
+            if item.continues && item.kind == Kind::Recipe && item.ingredient_count() == 0 {
+                // Nothing to continue into and no ingredient list of its own:
+                // the hint named a sidebar, not a recipe.
+                item.kind = if item.step_count() > 0 {
+                    Kind::Technique
+                } else {
+                    Kind::Essay
+                };
+            }
             match item.kind {
                 Kind::Variation if item.ingredient_count() == 0 => {
                     let parent = parent_index(&merged, &item);
