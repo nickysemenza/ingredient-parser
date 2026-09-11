@@ -286,10 +286,23 @@ impl BookLines {
 /// `FOR 4 SERVINGS:`.
 pub fn looks_like_yield(text: &str) -> bool {
     let upper = text.trim().to_ascii_uppercase();
-    upper.starts_with("SERVES ")
+    let keyword = upper.starts_with("SERVES ")
         || upper.starts_with("MAKES ")
         || upper.starts_with("YIELD")
-        || (upper.starts_with("FOR ") && upper.contains("SERVING"))
+        || (upper.starts_with("FOR ") && upper.contains("SERVING"));
+    if !keyword {
+        return false;
+    }
+    // "yields of the recipes below" is prose; a yield says how many.
+    const NUMBER_WORDS: &[&str] = &[
+        "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "EIGHT", "TEN", "TWELVE", "DOZEN", "A ",
+    ];
+    upper.chars().any(|c| c.is_ascii_digit())
+        || upper
+            .split(|c: char| !c.is_alphanumeric())
+            .skip(1)
+            .any(|w| NUMBER_WORDS.contains(&w))
+        || upper.starts_with("YIELD:")
 }
 
 /// Leader characters that introduce list lines, never titles.

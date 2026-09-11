@@ -37,6 +37,8 @@ pub enum HardFault {
     TitleIsGroupHeading { local: usize, title: String },
     /// A technique or essay whose text holds an ingredient list.
     NotARecipeWithIngredients { title: String, quantities: usize },
+    /// A title taken from a table row.
+    TitleIsTableRow { local: usize, title: String },
 }
 
 /// "For the sauce", "For serving", "To finish:" — group headings, not items.
@@ -67,10 +69,16 @@ fn is_prose(text: &str) -> bool {
 /// The line parses with an amount that carries a real unit (`400 g`, `2 cups`),
 /// so it is an ingredient line rather than a count, a year, or an address.
 fn has_unit_amount(text: &str) -> bool {
-    ingredient::from_str(text)
-        .amounts
-        .iter()
-        .any(|m| !matches!(m.unit(), ingredient::unit::Unit::Whole))
+    if text.contains('=') {
+        // "1 cup = 240 ml": a conversion, not an ingredient.
+        return false;
+    }
+    let parsed = ingredient::from_str(text);
+    !parsed.name.trim().is_empty()
+        && parsed
+            .amounts
+            .iter()
+            .any(|m| !matches!(m.unit(), ingredient::unit::Unit::Whole))
 }
 
 /// A title line that reads as a quantity, or a short line wedged between two
@@ -218,6 +226,10 @@ impl fmt::Display for HardFault {
                 f,
                 "item {title:?} lists only paragraphs as ingredient lines; a recipe needs a printed ingredient list, so mark this item technique or essay and put the paragraphs in steps or description"
             ),
+            HardFault::TitleIsTableRow { local, title } => write!(
+                f,
+                "line {local} ({title:?}) is a table row, not a title; a formula table belongs to the recipe or section above it"
+            ),
             HardFault::TitleIsIngredient { local, title } => write!(
                 f,
                 "line {local} ({title:?}) is an ingredient line inside a list, not a title; keep it in that recipe's ingredients"
@@ -273,6 +285,12 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                     title: item.title.clone(),
                 });
                 v.soft.push(Flag::CaptionAsTitle { line });
+            }
+            if book.lines.get(line).is_some_and(|l| l.clean.transformed) {
+                v.hard.push(HardFault::TitleIsTableRow {
+                    local: line - chunk.start,
+                    title: item.title.clone(),
+                });
             }
             if title_line_is_ingredient(book, line, &item.title) {
                 v.hard.push(HardFault::TitleIsIngredient {
@@ -384,10 +402,13 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
 
     if lowered.items.is_empty() {
         let has_yield = (chunk.start..chunk.end).any(|i| looks_like_yield(book.text(i)));
+        let has_list = book
+            .next_solid_run(chunk.start, chunk.end - chunk.start)
+            .is_some();
         let quantities = (chunk.start..chunk.end)
             .filter(|&i| looks_like_quantity_text(book.text(i)))
             .count();
-        if has_yield && quantities >= 3 {
+        if has_yield && has_list && quantities >= 3 {
             v.hard.push(HardFault::EmptyWithYield { quantities });
         }
     }

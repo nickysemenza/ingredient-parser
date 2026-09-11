@@ -188,10 +188,10 @@ pub fn chunk(book: &BookLines, opts: &ChunkOptions) -> Vec<Chunk> {
     for (i, &is_title) in title_like.iter().enumerate() {
         let line_len = book.text(i).len() + 1;
         if i > start && len >= opts.budget {
-            // A contents target is a real title; a guessed boundary may sit
-            // mid-recipe, so carry the last title in case the model needs it.
+            // Every boundary carries the last title: a contents target can be
+            // a page anchor inside a recipe, and the model only uses the hint
+            // when the chunk really starts mid-recipe.
             let cut = match candidate(i) {
-                Some(Boundary::NavTarget) => Some((Boundary::NavTarget, None)),
                 Some(kind) => Some((kind, last_title.clone())),
                 None if len >= opts.budget + opts.slack => {
                     Some((Boundary::Hard, last_title.clone()))

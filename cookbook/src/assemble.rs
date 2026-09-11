@@ -82,6 +82,12 @@ pub fn assemble(
                 // kept as prose, not offered as a recipe.
                 item.kind = Kind::Essay;
             }
+            if matches!(item.kind, Kind::Recipe | Kind::Variation) && ingredients_are_prose(&item) {
+                // A recipe told in paragraphs ("For four, you need a pound of
+                // gizzards…") has no ingredient list to import; keep it as a
+                // technique with the paragraphs as its steps.
+                item = prose_recipe_to_technique(item);
+            }
             if item.continues && item.kind == Kind::Recipe && item.ingredient_count() == 0 {
                 // Nothing to continue into and no ingredient list of its own:
                 // the hint named a sidebar, not a recipe.
@@ -378,7 +384,8 @@ pub fn split_note_label(text: &str) -> (Option<String>, String) {
 /// else the nearest preceding recipe.
 /// `<h1>Doughnuts</h1>` + two paragraphs + `<h2>Sugared Doughnuts</h2>` +
 /// ingredients: the model titled the recipe by the section heading. The
-/// heading one level down, sitting between the title and the first
+/// heading one level down (or, without headings, the last title-like line
+/// before the ingredients), sitting between the title and the first
 /// ingredient with only description lines before it, is the recipe's real
 /// title; the higher heading becomes an essay over those paragraphs.
 fn split_group_heading(book: &BookLines, item: &ChunkItem) -> Option<(ChunkItem, ChunkItem)> {
@@ -386,7 +393,6 @@ fn split_group_heading(book: &BookLines, item: &ChunkItem) -> Option<(ChunkItem,
         return None;
     }
     let &title = item.title_lines.first()?;
-    let level = book.lines.get(title)?.clean.heading?;
     let first_ingredient = item
         .sections
         .iter()
@@ -397,10 +403,26 @@ fn split_group_heading(book: &BookLines, item: &ChunkItem) -> Option<(ChunkItem,
         .iter()
         .flat_map(|s| s.name_lines.iter().copied())
         .collect();
-    let sub = (title + 1..first_ingredient).find(|&i| {
-        book.lines.get(i).and_then(|l| l.clean.heading) == Some(level + 1) && !named.contains(&i)
-    })?;
     let described: HashSet<usize> = item.description.iter().map(|t| t.line).collect();
+    let sub = match book.lines.get(title)?.clean.heading {
+        // A heading one level down.
+        Some(level) => (title + 1..first_ingredient).find(|&i| {
+            book.lines.get(i).and_then(|l| l.clean.heading) == Some(level + 1)
+                && !named.contains(&i)
+        })?,
+        // No headings ("my favorite bar is a baked potato bar" over prose,
+        // then "Baked Potato Bar"): the last title-like line before the
+        // ingredients, with at least one paragraph between it and the title.
+        // Upper-case lines are subtitles or labels, never the real title.
+        None => (title + 2..first_ingredient).rev().find(|&i| {
+            book.title_like(i)
+                && !named.contains(&i)
+                && described.contains(&(i - 1))
+                && book.text(i).split_whitespace().count() >= 2
+                && book.text(i).chars().any(|c| c.is_lowercase())
+                && !crate::validate::is_label(book.text(i))
+        })?,
+    };
     if !(title + 1..sub).all(|i| described.contains(&i)) {
         return None;
     }
@@ -442,12 +464,44 @@ fn split_group_heading(book: &BookLines, item: &ChunkItem) -> Option<(ChunkItem,
     Some((section, recipe))
 }
 
-/// A recipe with no method, no yield, and only table rows as ingredients is a
-/// formula listed for comparison, not something to cook from.
+/// Every ingredient line is a sentence.
+fn ingredients_are_prose(item: &ChunkItem) -> bool {
+    item.ingredient_count() > 0
+        && item
+            .sections
+            .iter()
+            .flat_map(|s| s.ingredients.iter())
+            .all(|t| {
+                let text = t.text.trim();
+                text.len() > 160 || (text.len() > 100 && text.ends_with('.'))
+            })
+}
+
+/// The paragraphs become steps, in line order.
+fn prose_recipe_to_technique(mut item: ChunkItem) -> ChunkItem {
+    let mut steps: Vec<Text> = Vec::new();
+    for section in &mut item.sections {
+        steps.append(&mut section.ingredients);
+        steps.append(&mut section.steps);
+    }
+    steps.sort_by_key(|t| t.line);
+    item.sections = vec![crate::contract::ChunkSection {
+        name: None,
+        name_lines: Vec::new(),
+        ingredients: Vec::new(),
+        steps,
+    }];
+    item.kind = Kind::Technique;
+    item
+}
+
+/// A recipe with at most a couple of explanatory paragraphs, no yield, and
+/// only table rows as ingredients is a formula listed for comparison, not
+/// something to cook from.
 fn is_formula_table(book: &BookLines, item: &ChunkItem) -> bool {
     item.kind == Kind::Recipe
         && !item.continues
-        && item.step_count() == 0
+        && item.step_count() <= 2
         && item.recipe_yield.is_none()
         && item.ingredient_count() > 0
         && item
