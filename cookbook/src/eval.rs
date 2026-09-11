@@ -172,10 +172,18 @@ pub fn score(expected: &Expectations, extraction: &Extraction) -> BookScore {
         .filter(|(i, _)| !used[*i])
         .map(|(_, r)| r.title.clone())
         .collect();
+    // Exact: an essay heading over a recipe ("My Favorite Bar Is a Baked
+    // Potato Bar") contains the recipe's own title, and the lenient match
+    // would call the recipe a leak.
     let not_recipe_leaks: Vec<String> = expected
         .not_recipes
         .iter()
-        .filter(|t| recipes.iter().any(|r| titles_match(t, &r.title)))
+        .filter(|t| {
+            let wanted = crate::crosscheck::normalize_title(t);
+            recipes
+                .iter()
+                .any(|r| crate::crosscheck::normalize_title(&r.title) == wanted)
+        })
         .cloned()
         .collect();
 

@@ -61,7 +61,7 @@ fn ingredient_line_is_prose(text: &str) -> bool {
 /// Titles longer than this are paragraphs.
 const MAX_TITLE_CHARS: usize = 120;
 
-fn is_prose(text: &str) -> bool {
+pub(crate) fn is_prose(text: &str) -> bool {
     let t = text.trim();
     if t.len() > MAX_TITLE_CHARS || (t.len() > 60 && t.ends_with('.')) {
         return true;

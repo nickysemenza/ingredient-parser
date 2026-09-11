@@ -64,9 +64,16 @@ pub fn assemble(
             if item.continues
                 && index == 0
                 && previous_chunk_ok
-                && let Some(last) = merged.last_mut().filter(|m| m.item.kind == Kind::Recipe)
+                && let Some(last) = merged.last_mut().filter(|m| continues_into(&m.item, &item))
             {
                 merge_into(&mut last.item, item);
+                if !matches!(last.item.kind, Kind::Recipe | Kind::Variation)
+                    && last.item.ingredient_count() > 0
+                {
+                    // The headnote half was read as an essay because its
+                    // ingredients sat in the next chunk.
+                    last.item.kind = Kind::Recipe;
+                }
                 continue;
             }
             item.title = crate::crosscheck::strip_photo_pointers(&item.title);
@@ -413,7 +420,8 @@ fn split_group_heading(book: &BookLines, item: &ChunkItem) -> Option<(ChunkItem,
         // No headings ("my favorite bar is a baked potato bar" over prose,
         // then "Baked Potato Bar"): the last title-like line before the
         // ingredients, with at least one paragraph between it and the title.
-        // Upper-case lines are subtitles or labels, never the real title.
+        // Upper-case lines are subtitles or labels, never the real title;
+        // neither is a quoted sentence from the headnote.
         None => (title + 2..first_ingredient).rev().find(|&i| {
             book.title_like(i)
                 && !named.contains(&i)
@@ -421,6 +429,7 @@ fn split_group_heading(book: &BookLines, item: &ChunkItem) -> Option<(ChunkItem,
                 && book.text(i).split_whitespace().count() >= 2
                 && book.text(i).chars().any(|c| c.is_lowercase())
                 && !crate::validate::is_label(book.text(i))
+                && !crate::validate::is_prose(book.text(i))
         })?,
     };
     if !(title + 1..sub).all(|i| described.contains(&i)) {
@@ -520,6 +529,15 @@ fn parent_index(merged: &[Merged], item: &ChunkItem) -> Option<usize> {
         return Some(p);
     }
     merged.iter().rposition(|m| m.item.kind == Kind::Recipe)
+}
+
+/// Whether the first, untitled item of a chunk continues `last`: any recipe
+/// or variation (the model's kind for a titled recipe with a subtitle), or
+/// an essay or technique whose title the continuation hint names, which is
+/// the headnote half of a recipe cut before its ingredient list.
+fn continues_into(last: &ChunkItem, continuation: &ChunkItem) -> bool {
+    matches!(last.kind, Kind::Recipe | Kind::Variation)
+        || crate::crosscheck::titles_match(&last.title, &continuation.title)
 }
 
 /// Fold a continuation into the recipe it continues: unnamed sections merge
