@@ -173,16 +173,32 @@ fn nav_recipe_entries(book: &BookLines, nav: &Nav) -> Vec<(usize, String, usize)
             .find(|&l| l > line)
             .unwrap_or(book.len());
         let window = next_target.saturating_sub(line).clamp(1, NAV_RUN_WINDOW);
-        let runs = (line..next_target)
-            .filter(|&i| book.ingredient_run_start(i))
-            .count();
+        let run_start = |i: usize| book.ingredient_run_start(i) && !is_contents_run(book, i);
+        let runs = (line..next_target).filter(|&i| run_start(i)).count();
         let is_recipe = (1..=NAV_MAX_RUNS_PER_RECIPE).contains(&runs)
-            && book.next_ingredient_run(line, window).is_some();
+            && (line..(line + window).min(book.len())).any(run_start);
         if is_recipe {
             out.push((entry.order, entry.label.clone(), line));
         }
     }
     out
+}
+
+/// Whether the line at `idx` sits in a chapter's own little table of contents
+/// rather than an ingredient list. Each such line is nothing but one link to
+/// elsewhere in the book, and a column of short noun phrases ("A Note on
+/// Baking Materials", "Essential Bakeware", "Ten Tips For Better Baking")
+/// parses as an ingredient run exactly like the real thing. A neighbour of
+/// the same shape settles it: an ingredient line that links to a sub-recipe
+/// stands among lines that are not links.
+fn is_contents_run(book: &BookLines, idx: usize) -> bool {
+    let whole_line_link = |i: usize| {
+        book.lines.get(i).is_some_and(|l| {
+            let text = l.clean.text.trim();
+            !text.is_empty() && l.clean.links.len() == 1 && l.clean.links[0].text.trim() == text
+        })
+    };
+    whole_line_link(idx) && (whole_line_link(idx + 1) || (idx > 0 && whole_line_link(idx - 1)))
 }
 
 /// Contents entries that are never recipes whatever follows them.
@@ -484,6 +500,53 @@ mod tests {
             }
         )));
         assert_eq!(flags.len(), 2);
+    }
+
+    /// A chapter whose first page is its own little table of contents
+    /// ("Flour", "Leaveners", "Sugar"…, each a bare link) is not a recipe:
+    /// those lines parse as an ingredient run, which used to make the
+    /// contents entry a recipe that nothing could ever match. The Cook's
+    /// Illustrated Baking Book's "Baking Basics" is this shape.
+    #[rstest]
+    #[case(true, false)]
+    #[case(false, true)]
+    fn a_chapter_toc_is_not_an_ingredient_run(#[case] linked: bool, #[case] expected: bool) {
+        const ENTRIES: [&str; 3] = [
+            "A Note on Baking Materials",
+            "Essential Bakeware",
+            "Ten Tips For Better Baking",
+        ];
+        let mut html = String::from("<h2 id=\"basics\">Baking Basics</h2>");
+        for entry in ENTRIES {
+            let cell = if linked {
+                format!("<a href=\"#f\">{entry}</a>")
+            } else {
+                entry.to_string()
+            };
+            html.push_str(&format!("<p>{cell}</p>"));
+        }
+        html.push_str("<p id=\"f\">Flour is a powder.</p>");
+        let doc = SpineDoc {
+            index: 0,
+            path: "c.xhtml".into(),
+            xhtml: format!("<html><body>{html}</body></html>"),
+        };
+        let nav = Nav {
+            entries: vec![NavEntry {
+                label: "Baking Basics".into(),
+                doc_path: "c.xhtml".into(),
+                fragment: Some("basics".into()),
+                depth: 1,
+                order: 0,
+            }],
+            page_list: vec![],
+        };
+        let book = BookLines::build(&[doc], &nav);
+        assert_eq!(
+            nav_recipe_titles(&book, &nav).len() == 1,
+            expected,
+            "linked={linked}"
+        );
     }
 
     #[test]
