@@ -26,6 +26,9 @@ evaluation harness below.
    captions, chapter headings, and ignored lines. Rust copies the text and
    enforces that every line is claimed exactly once. A rejected answer is
    retried once with the fault as feedback, then handed to the next model.
+   Each catalog model carries a `reasoning` setting (`--reasoning` overrides
+   it for a run): Gemini 2.5 Flash reads at `low`, because its default
+   thinking doubled every call's latency for the same recall.
 6. **Cross-check**: contents recipe titles vs extracted titles. Missing
    titles flag their chunk; thin unlisted recipes are phantoms.
 7. **Second opinion**: flagged chunks are re-read by the next model; the
@@ -54,8 +57,11 @@ cargo run -p food-cli -- cookbook runs
 cargo run -p food-cli -- cookbook sample RUN.json --n 5 --seed 1
 cargo run -p food-cli -- cookbook sample --library ~/Calibre --n 3
 cargo run -p food-cli -- cookbook models
-cargo run -p food-cli -- cookbook expect BOOK.epub --out KEY.json
-cargo run -p food-cli -- cookbook eval [--book slug …] [--replay DIR] [--dump DIR] [--out REPORT.json]
+cargo run -p food-cli -- cookbook expect BOOK.epub [--from-run RUN.json] --out KEY.json
+cargo run -p food-cli -- cookbook eval [--book slug …] [--replay DIR] [--dump DIR] [--out REPORT.json] [--reasoning low]
+cargo run -p food-cli -- cookbook library ~/Calibre --dry-run                      # classify and estimate, spend nothing
+cargo run -p food-cli -- cookbook library ~/Calibre --sample 25 --seed 1 --max-cost 8 [--books 2] [--only "zuni"] [--force]
+cargo run -p food-cli -- cookbook report --library ~/Calibre [--out REPORT]       # worst-first, from the run store
 ```
 
 Exit codes: 0 ok, 1 error, 3 some chunk failed every model, 4 the evaluation
@@ -77,8 +83,12 @@ re-tested for free. A changed prompt or chunking invalidates a dump.
   is recorded as a cached call with no cost. `--no-cache` bypasses both, for
   measurement only.
 - Runs: `~/Library/Application Support/ingredient-parser/cookbook/runs/`
-  (`COOKBOOK_RUNS_DIR` overrides).
+  (`COOKBOOK_RUNS_DIR` overrides), with `index.json` of run summaries kept
+  up to date by `save` and reconciled on every listing.
 - Answer keys: `~/Library/Application Support/ingredient-parser/cookbook/expectations/<slug>.json`.
+- Library: `~/Library/Application Support/ingredient-parser/cookbook/library/`
+  holds `sha-cache.json` (each EPUB's sha256 by size and mtime) and the
+  sweep reports `library-<stamp>.{json,md}`.
 
 ## Evaluation gate
 
@@ -96,6 +106,68 @@ To choose the ladder: run `eval --ladder <model> --no-second-opinion
 throughput priors, then combine the top few cheap→strong and take the first
 ladder that passes the gate; paste the ladder and priors into
 `cookbook/src/models.rs`.
+
+### Authoring an answer key
+
+`cookbook expect BOOK.epub --from-run RUN.json --out KEY.json` writes the
+contents titles, the run's techniques and essays as `not_recipes`
+candidates, and eight empty `samples` stubs, and prints the run's missing
+and phantom titles as hints. The labelling itself never reads the run:
+unzip the EPUB, read the contents (`nav.xhtml` or `toc.ncx`) and the OPF
+spine, and walk the XHTML in spine order.
+
+- `titles`: every contents title confirmed as a heading followed by an
+  ingredient list, plus recipes the contents omit.
+- `variants`: titled variations with their own ingredient list → `{title, of}`.
+- `not_recipes`: each candidate read in its XHTML; one with an ingredient
+  list moves to `titles`; add essay headings that sit directly over a recipe.
+- `samples`: ingredient and step counts taken from the HTML elements, the
+  section names (`null` for the unnamed one), one `notes_contain` label, refs
+  from `<a href>` links to other recipes, and the photo count.
+- `shape`: from the markup (`publisher-epub3`, `publisher-classes`,
+  `publisher-tables`, `publisher-div-based`, `calibre-page-split`,
+  `calibre-typographic`).
+
+An Opus subagent can do the walk, one book per agent; spot-check two
+samples per book by hand.
+
+## Library sweep and tuning loop
+
+`cookbook library DIR` hashes and deduplicates the library, classifies every
+book (the cheap cached model call decides only the ambiguous ones), skips
+books the store already has a run for, takes a seeded sample spread across
+authors when asked, and extracts a few books at a time under `--max-cost`.
+Every book ends up as a row in the report, extracted or not. `cookbook
+report` rebuilds the report from the run store without extracting, so after
+a tuning change only the touched books are re-run:
+
+```sh
+cookbook library ~/Calibre --dry-run                                  # classify everything, project the cost
+cookbook library ~/Calibre --sample 25 --seed 1 --max-cost 8          # the sample sweep
+cookbook report --library ~/Calibre                                   # worst first
+cookbook explain RUN.json --title "…" --book BOOK.epub                # unclaimed lines, calls, flags
+cookbook inspect BOOK.epub --lines A..B
+# fix one deterministic rule with an rstest case; cargo nextest run -p cookbook
+cookbook library ~/Calibre --only "<title>" --force                   # free when the request bodies did not change
+cookbook eval --replay DUMPS/<setting>                                # the gate must not regress
+```
+
+Both caches hash the full request body, so changes in `validate`,
+`assemble`, `refs`, `names`, and `crosscheck` re-run for free, while changes
+in `chunk.rs` or `lines.rs` alter the chunk text and cost a real re-run of
+the affected books; a changed validation feedback wording only affects
+retry bodies.
+
+| Report signal | Look in |
+|---|---|
+| missing titles, `missing_nav_title` | `chunk.rs` (a title cut from its ingredient run), `lines.rs` title detection, `crosscheck.rs` title matching and nav resolution |
+| phantoms, `phantom_title`, `caption_as_title` | `validate.rs` (labels, captions, section headings), `crosscheck.rs` thin-recipe rule, `assemble.rs` (variation attach, retitle) |
+| failed chunks, incomplete, transport errors | `contract.rs` lowering faults, `validate.rs` hard faults, chunk budget, timeouts and rate limits in `run.rs` |
+| `unassigned_lines`, `ingredient_like_ignored`, `low_amount_parse_rate` | `validate.rs` thresholds, `lines.rs` quantity detection, parser gaps (corpus) |
+| `prose_ingredients`, `recipe_without_steps` | `validate.rs`, `assemble.rs` |
+| unresolved references | `refs.rs` (anchor → page → title), `lines.rs` link extraction |
+| ingredient parse rate | `parse.rs` and the `ingredient` crate |
+| eta error | `eta.rs`, catalog priors in `models.rs` |
 
 ## Consumers
 
