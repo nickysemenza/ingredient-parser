@@ -286,6 +286,23 @@ pub enum Flag {
     },
 }
 
+impl Flag {
+    /// The serde tag: the flag's kind without its details.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Flag::LowAmountParseRate { .. } => "low_amount_parse_rate",
+            Flag::IngredientLikeIgnored { .. } => "ingredient_like_ignored",
+            Flag::RecipeWithoutSteps { .. } => "recipe_without_steps",
+            Flag::MissingNavTitle { .. } => "missing_nav_title",
+            Flag::PhantomTitle { .. } => "phantom_title",
+            Flag::Truncated => "truncated",
+            Flag::CaptionAsTitle { .. } => "caption_as_title",
+            Flag::UnassignedLines { .. } => "unassigned_lines",
+            Flag::ProseIngredients { .. } => "prose_ingredients",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]

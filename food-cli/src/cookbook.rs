@@ -138,6 +138,18 @@ pub enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// The library report: every book's latest run, worst first, as JSON
+    /// and Markdown.
+    Report {
+        /// Join the run store to this library directory for paths and the
+        /// books that have no run yet.
+        #[arg(long)]
+        library: Option<PathBuf>,
+        /// Write `<out>.json` and `<out>.md` (default: the library reports
+        /// directory, stamped).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Saved runs, newest first.
     Runs {
         /// Title substring filter.
@@ -239,6 +251,109 @@ fn label_for(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// The report over the run store, joined to `library` when given.
+fn library_report(
+    library: Option<&Path>,
+    statuses: &std::collections::HashMap<String, cookbook::library::RowStatus>,
+) -> Result<cookbook::library::LibraryReport, String> {
+    use cookbook::library::{ShaCache, build_report, scan};
+    let scanned = library.map(|dir| {
+        let mut shas = ShaCache::open_default();
+        let scanned = scan(dir, &mut shas);
+        // A cache that fails to persist only costs the next scan its hashing.
+        let _ = shas.save_default();
+        scanned
+    });
+    build_report(library, scanned.as_ref(), statuses).map_err(|e| e.to_string())
+}
+
+/// Write `<stem>.json` and `<stem>.md`; returns the two paths.
+fn write_library_report(
+    report: &cookbook::library::LibraryReport,
+    out: Option<&Path>,
+) -> Result<(PathBuf, PathBuf), String> {
+    let stem = match out {
+        Some(p) => p.with_extension(""),
+        None => cookbook::library::reports_dir()
+            .ok_or("no data directory for this platform")?
+            .join(format!(
+                "library-{}",
+                jiff::Timestamp::now().strftime("%Y%m%dT%H%MZ")
+            )),
+    };
+    if let Some(parent) = stem.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json_path = stem.with_extension("json");
+    let md_path = stem.with_extension("md");
+    std::fs::write(
+        &json_path,
+        serde_json::to_string_pretty(report).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(&md_path, report.render_markdown()).map_err(|e| e.to_string())?;
+    Ok((json_path, md_path))
+}
+
+fn print_library_report(report: &cookbook::library::LibraryReport, written: &(PathBuf, PathBuf)) {
+    let t = &report.totals;
+    println!(
+        "{} books · {} with runs · mean recall {} · {} missing · {} phantoms · {} failed chunks · ${:.2}",
+        t.books,
+        t.with_runs,
+        t.mean_recall
+            .map(|r| format!("{:.1}%", r * 100.0))
+            .unwrap_or_else(|| "n/a".into()),
+        t.missing,
+        t.phantoms,
+        t.failed_chunks,
+        t.cost_usd
+    );
+    let rows: Vec<Vec<String>> = report
+        .rows
+        .iter()
+        .filter(|r| r.run.is_some())
+        .take(10)
+        .map(|r| {
+            vec![
+                r.title.chars().take(40).collect(),
+                r.recall
+                    .map(|x| format!("{:.0}%", x * 100.0))
+                    .unwrap_or_else(|| "-".into()),
+                r.missing.len().to_string(),
+                r.phantoms.len().to_string(),
+                r.failed_chunks.to_string(),
+                format!("{}/{}", r.flagged_chunks, r.chunks),
+                r.unresolved_refs.to_string(),
+                format!("{:.0}", r.problem_score),
+            ]
+        })
+        .collect();
+    if !rows.is_empty() {
+        println!(
+            "{}",
+            terminal_table(
+                &[
+                    "worst books",
+                    "recall",
+                    "missing",
+                    "phantom",
+                    "failed",
+                    "flagged",
+                    "refs",
+                    "score"
+                ],
+                &rows
+            )
+        );
+    }
+    println!(
+        "written {} and {}",
+        written.0.display(),
+        written.1.display()
+    );
 }
 
 fn emit(value: &Value, json: bool) {
@@ -377,6 +492,16 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
                     );
                 }
                 None => println!("{text}"),
+            }
+            Ok(0)
+        }
+        Command::Report { library, out } => {
+            let report = library_report(library.as_deref(), &Default::default())?;
+            let written = write_library_report(&report, out.as_deref())?;
+            if json {
+                emit(&json!(report), true);
+            } else {
+                print_library_report(&report, &written);
             }
             Ok(0)
         }
