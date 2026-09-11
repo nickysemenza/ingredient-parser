@@ -24,6 +24,8 @@ pub const CHUNK_BUDGET: usize = 12_000;
 pub const CHUNK_SLACK: usize = 6_000;
 /// How far after a title an ingredient run may start and still belong to it.
 const RUN_WINDOW: usize = 60;
+/// Lines a heading's ingredient list proper may sit past its title.
+const SOLID_RUN_WINDOW: usize = 80;
 
 /// Why a chunk begins where it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,6 +125,21 @@ pub fn chunk(book: &BookLines, opts: &ChunkOptions) -> Vec<Chunk> {
                 *p = true;
             }
         }
+        // A heading's recipe body may be preceded by a plan or an equipment
+        // list with a number in it; protect up to the real ingredient list,
+        // but never past the next heading (that one starts something else).
+        if book.lines[i].clean.heading.is_some()
+            && let Some(run) = book.next_solid_run(i + 1, SOLID_RUN_WINDOW)
+        {
+            let next_heading = (i + 1..run)
+                .find(|&j| book.lines[j].clean.heading.is_some())
+                .unwrap_or(run);
+            if next_heading >= run {
+                for p in &mut protected[i + 1..=run] {
+                    *p = true;
+                }
+            }
+        }
     }
     let mut nav_lines: HashSet<usize> = book.nav_targets.iter().map(|&(_, line)| line).collect();
     for line in &book.lines {
@@ -197,7 +214,7 @@ pub fn chunk(book: &BookLines, opts: &ChunkOptions) -> Vec<Chunk> {
                 hint = next_hint;
             }
         }
-        if book.ingredient_run_start(i) {
+        if book.solid_run_start(i) {
             heading_pending = false;
         }
         if is_title {

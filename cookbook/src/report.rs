@@ -271,6 +271,11 @@ pub enum Flag {
     UnassignedLines {
         count: usize,
     },
+    /// Every ingredient line of a recipe is a sentence: a prose recipe, or a
+    /// list the model missed.
+    ProseIngredients {
+        title: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

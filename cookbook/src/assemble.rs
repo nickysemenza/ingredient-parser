@@ -69,6 +69,7 @@ pub fn assemble(
                 merge_into(&mut last.item, item);
                 continue;
             }
+            item.title = crate::crosscheck::strip_photo_pointers(&item.title);
             if let Some((section, recipe)) = split_group_heading(book, &item) {
                 merged.push(Merged {
                     item: section,

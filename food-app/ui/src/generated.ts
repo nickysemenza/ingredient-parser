@@ -307,7 +307,7 @@ export type ChunkReport = { id: string,
  */
 start: number, end: number, chars: number, status: ChunkStatus, final_model: string | null, attempts: number, flags: Array<Flag>, second_opinion: SecondOpinion | null, recipes: number, cached: boolean, };
 export type ChunkStatus = "ok" | "failed";
-export type Flag = { "flag": "low_amount_parse_rate", rate: number, lines: number, } | { "flag": "ingredient_like_ignored", count: number, } | { "flag": "recipe_without_steps", title: string, } | { "flag": "missing_nav_title", title: string, line: number, } | { "flag": "phantom_title", title: string, } | { "flag": "truncated" } | { "flag": "caption_as_title", line: number, } | { "flag": "unassigned_lines", count: number, };
+export type Flag = { "flag": "low_amount_parse_rate", rate: number, lines: number, } | { "flag": "ingredient_like_ignored", count: number, } | { "flag": "recipe_without_steps", title: string, } | { "flag": "missing_nav_title", title: string, line: number, } | { "flag": "phantom_title", title: string, } | { "flag": "truncated" } | { "flag": "caption_as_title", line: number, } | { "flag": "unassigned_lines", count: number, } | { "flag": "prose_ingredients", title: string, };
 export type SecondOpinion = { model: string, chosen: Chosen,
 /**
  * The rule that decided.

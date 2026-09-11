@@ -329,7 +329,20 @@ mod tests {
                 .any(|a| a.contains("answered from the cache"))
         );
         assert_eq!(e1.ladder, ["gemini-2.5-flash", "claude-haiku-4-5"]);
-        assert!(e1.assumptions.iter().any(|a| a.contains("unmeasured")));
+        // Both ladder models carry measured priors now; an unmeasured one
+        // would say so.
+        assert!(
+            e1.assumptions
+                .iter()
+                .any(|a| a.contains("2026-09-11 six-book eval") || a.contains("measured"))
+        );
+        let unmeasured = cold_estimate(&one, &[model("@cf/zai-org/glm-5.3-flash").unwrap()], 16, 0);
+        assert!(
+            unmeasured
+                .assumptions
+                .iter()
+                .any(|a| a.contains("unmeasured"))
+        );
         // 10 chunks at concurrency 16: one wave.
         assert_eq!(
             e1.wall_ms_low,

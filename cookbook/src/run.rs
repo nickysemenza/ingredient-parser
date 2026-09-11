@@ -522,6 +522,7 @@ fn flag_feedback(chunk: &Chunk, flags: &[Flag]) -> String {
             Flag::UnassignedLines { count } => {
                 format!("{count} lines were left out of the previous answer; assign every line.")
             }
+            Flag::ProseIngredients { title } => format!("Every ingredient line of {title:?} is a sentence; if the book prints an ingredient list for it, select those lines instead, otherwise keep the paragraphs as steps."),
         })
         .collect::<Vec<_>>()
         .join("\n")

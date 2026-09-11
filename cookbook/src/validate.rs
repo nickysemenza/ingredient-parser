@@ -141,8 +141,23 @@ pub fn is_label(text: &str) -> bool {
     let lower = text.trim().trim_end_matches(':').to_lowercase();
     LABELS.contains(&lower.as_str())
         || LABELS.iter().any(|l| lower.starts_with(&format!("{l}:")))
+        || PREFIX_LABELS
+            .iter()
+            .any(|l| lower.starts_with(l) && lower[l.len()..].starts_with([' ', ':']))
         || is_metadata_label(text)
+        || looks_like_yield(text)
 }
+
+/// Labels that run into their payload without a colon ("Flavor Profile
+/// SPICY, SOUR", "Try It With Som Tam", "Wine Aligoté 2000").
+const PREFIX_LABELS: &[&str] = &[
+    "flavor profile",
+    "try it with",
+    "wine",
+    "pictured",
+    "photograph",
+    "photographs",
+];
 
 /// `PROOF TIME: About 1 hour`, `BULK FERMENTATION: 12 to 14 hours`,
 /// `SAMPLE SCHEDULE: Mix at 7 p.m.` — an upper-case label whose payload
@@ -334,7 +349,7 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 .flat_map(|s| s.ingredients.iter())
                 .all(|l| ingredient_line_is_prose(&l.text))
         {
-            v.hard.push(HardFault::IngredientsAreProse {
+            v.soft.push(Flag::ProseIngredients {
                 title: item.title.clone(),
             });
         }
@@ -350,7 +365,7 @@ pub fn validate(chunk: &Chunk, book: &BookLines, lowered: &Lowered) -> Validatio
                 .collect();
             let quantities = prose
                 .iter()
-                .filter(|t| t.len() <= 120 && has_unit_amount(t))
+                .filter(|t| t.len() <= 160 && has_unit_amount(t))
                 .count();
             let method = item.step_count() > 0 || prose.iter().any(|t| t.len() > 100);
             if quantities >= 3 && method {
@@ -588,6 +603,12 @@ mod tests {
         assert!(is_label("BULK FERMENTATION: 12 to 14 hours"));
         assert!(is_label("SAMPLE SCHEDULE: Mix at 7 p.m., shape at 8 a.m."));
         assert!(!is_label("LAGNIAPPE: OREGON HAZELNUT BUTTER COOKIES"));
+        assert!(is_label("Flavor Profile SPICY, SOUR, SWEET"));
+        assert!(is_label("Try It With Som Tam Lao"));
+        assert!(is_label("Wine: Soave Classico Superiore, Pieropan, 2000"));
+        assert!(is_label("SERVES 6 TO 12 AS PART OF A MEAL"));
+        assert!(is_label("serves 4 to 6"));
+        assert!(!is_label("Winemaker's Chicken"));
         assert!(!is_label(
             "Note to Professionals: The chiboust can be piped"
         ));
@@ -615,10 +636,15 @@ mod tests {
             &html,
             json!({"items":[{"title":[0],"sections":[{"ingredients":[1],"steps":[2]}]}]}),
         );
+        // A prose recipe is kept (the chunk is not failed) but flagged for a
+        // second opinion.
+        assert!(v.hard.is_empty(), "{:?}", v.hard);
         assert!(
-            matches!(v.hard[0], HardFault::IngredientsAreProse { .. }),
+            v.soft
+                .iter()
+                .any(|f| matches!(f, Flag::ProseIngredients { .. })),
             "{:?}",
-            v.hard
+            v.soft
         );
         let ok = run(
             "<p>Gin Martini</p><p>2½ cups gin</p><p>Stir with ice until very cold and strain into glasses, garnishing each with an olive.</p>",

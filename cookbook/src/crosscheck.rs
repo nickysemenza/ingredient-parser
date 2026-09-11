@@ -32,8 +32,49 @@ pub struct ExtractedTitle {
 }
 
 /// Lowercase, compatibility-normalized, punctuation collapsed to spaces.
+/// Phrases a printed title carries that are not part of its name.
+pub const PHOTO_POINTERS: &[&str] = &[
+    "pictured here",
+    "pictured opposite",
+    "pictured on page",
+    "photograph here",
+    "photographs here",
+    "shown here",
+    "see photograph",
+];
+
+/// `title` without photo pointers such as `{Pictured here}`.
+pub fn strip_photo_pointers(title: &str) -> String {
+    let mut out = title.to_string();
+    for pointer in PHOTO_POINTERS {
+        loop {
+            let lower = out.to_lowercase();
+            let Some(at) = lower.find(pointer) else { break };
+            let mut start = at;
+            let mut end = at + pointer.len();
+            // Take the surrounding brackets or parentheses with it.
+            let bytes = out.as_bytes();
+            let open = out[..start].rfind(['{', '(', '[']);
+            if let Some(o) = open
+                && out[o..start].trim_matches(['{', '(', '[', ' ']).is_empty()
+            {
+                start = o;
+                if let Some(c) = out[end..].find(['}', ')', ']']) {
+                    end += c + 1;
+                }
+            }
+            let _ = bytes;
+            out.replace_range(start..end, " ");
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 pub fn normalize_title(title: &str) -> String {
-    let folded: String = title.nfkc().collect::<String>().to_lowercase();
+    let folded: String = strip_photo_pointers(title)
+        .nfkc()
+        .collect::<String>()
+        .to_lowercase();
     folded
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
@@ -253,6 +294,11 @@ mod tests {
         true
     )]
     #[case("Salt", "Salted Caramel", false)]
+    #[case(
+        "Kaeng Khanun {Pictured here} NORTHERN THAI YOUNG JACKFRUIT CURRY",
+        "Kaeng Khanun (Northern Thai Young Jackfruit Curry)",
+        true
+    )]
     #[case("Bread", "Broth", false)]
     #[case("", "Bread", false)]
     fn matching(#[case] a: &str, #[case] b: &str, #[case] expected: bool) {

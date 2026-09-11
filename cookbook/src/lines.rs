@@ -264,6 +264,18 @@ impl BookLines {
         }
     }
 
+    /// Whether `idx` starts three quantity-like lines in a row: an ingredient
+    /// list proper, as opposed to a plan or an equipment list with a number
+    /// or two in it.
+    pub fn solid_run_start(&self, idx: usize) -> bool {
+        self.quantity_like(idx) && self.quantity_like(idx + 1) && self.quantity_like(idx + 2)
+    }
+
+    /// The first solid run starting in `[from, from + within)`.
+    pub fn next_solid_run(&self, from: usize, within: usize) -> Option<usize> {
+        (from..(from + within).min(self.lines.len())).find(|&i| self.solid_run_start(i))
+    }
+
     /// The first ingredient run starting in `[from, from + within)`.
     pub fn next_ingredient_run(&self, from: usize, within: usize) -> Option<usize> {
         (from..(from + within).min(self.lines.len())).find(|&i| self.ingredient_run_start(i))

@@ -146,9 +146,14 @@ pub struct Payload {
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
+#[schemars(deny_unknown_fields)]
 pub struct PayloadItem {
     pub kind: Kind,
+    /// Models sometimes nest `ignored` inside an item; accepted (and folded
+    /// into the chunk's ignored lines) but not part of the schema.
+    #[schemars(skip)]
+    pub ignored: IndexList,
     /// The item's complete printed name and subtitle. Empty only for the
     /// first item when it continues a recipe cut at the previous chunk.
     pub title: IndexList,
@@ -186,7 +191,8 @@ pub struct PayloadItem {
 /// Explicitly printed timing lines, one line per field. A line that combines
 /// several times, or a time with other metadata, goes to `notes` instead.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
+#[schemars(deny_unknown_fields)]
 pub struct PayloadTimes {
     #[schemars(length(max = 1))]
     pub prep: IndexList,
@@ -199,7 +205,8 @@ pub struct PayloadTimes {
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
+#[schemars(deny_unknown_fields)]
 pub struct PayloadSection {
     /// The printed component heading ("For the filling"); empty for the main
     /// or only group.
@@ -403,8 +410,17 @@ pub struct Invalid(pub String);
 
 /// Lower a tool answer for `chunk` into text with global line indices.
 pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered, Invalid> {
-    let payload: Payload = serde_json::from_value(payload)
+    // Some models hand the tool input back as a JSON string.
+    let payload = match payload {
+        Value::String(text) => serde_json::from_str::<Value>(&text)
+            .map_err(|e| Invalid(format!("the answer is a string, not a tool object: {e}")))?,
+        other => other,
+    };
+    let mut payload: Payload = serde_json::from_value(payload)
         .map_err(|e| Invalid(format!("the answer does not match the tool schema: {e}")))?;
+    for item in &mut payload.items {
+        payload.ignored.extend(std::mem::take(&mut item.ignored));
+    }
     let n = chunk.lines();
     let mut used: HashMap<usize, (&'static str, usize)> = HashMap::new();
     let mut take = |indices: &[usize],
@@ -448,6 +464,7 @@ pub fn lower(chunk: &Chunk, book: &BookLines, payload: Value) -> Result<Lowered,
     let mut payload_items = payload.items;
     payload_items.sort_by_key(first_index);
     fold_untitled_items(&mut payload_items);
+    fold_prose_variations(&mut payload_items, chunk, book);
 
     let mut items = Vec::with_capacity(payload_items.len());
     for (index, mut item) in payload_items.into_iter().enumerate() {
@@ -728,6 +745,42 @@ fn dedupe_within_item(item: &mut PayloadItem) {
     keep(&mut item.photos);
     keep(&mut item.ingredients);
     keep(&mut item.steps);
+}
+
+/// A variation whose "title" is a whole paragraph ("Mint: Omit the malted
+/// milk powder and add ½ teaspoon peppermint…") is a note on the recipe
+/// before it, not an item; fold its lines into that recipe's notes.
+fn fold_prose_variations(items: &mut Vec<PayloadItem>, chunk: &Chunk, book: &BookLines) {
+    let mut i = 1;
+    while i < items.len() {
+        let prose = items[i].kind == Kind::Variation
+            && items[i].title.iter().any(|&t| {
+                let text = book.text(chunk.global(t));
+                text.len() > 120 || (text.len() > 60 && text.contains(": "))
+            });
+        if !prose {
+            i += 1;
+            continue;
+        }
+        let mut orphan = items.remove(i);
+        let Some(prev) = items.get_mut(i - 1) else {
+            continue;
+        };
+        prev.notes.extend(orphan.title.drain(..));
+        orphan.title.clear();
+        prev.notes.extend(orphan.description.iter().copied());
+        prev.notes.extend(orphan.notes.iter().copied());
+        prev.notes.extend(orphan.recipe_yield.iter().copied());
+        prev.notes.extend(orphan.equipment.iter().copied());
+        prev.notes.extend(orphan.ingredients.iter().copied());
+        prev.notes.extend(orphan.steps.iter().copied());
+        for section in orphan.sections {
+            prev.notes.extend(section.name.iter().copied());
+            prev.notes.extend(section.ingredients.iter().copied());
+            prev.notes.extend(section.steps.iter().copied());
+        }
+        prev.photos.extend(orphan.photos.iter().copied());
+    }
 }
 
 /// Items sort by their title line; an untitled continuation sorts by its
@@ -1056,6 +1109,29 @@ mod tests {
         let lowered = lower(&chunk, &book, soup_payload()).unwrap();
         assert_eq!(lowered.items[0].title_lines, [2, 3]);
         assert_eq!(lowered.items[0].sections[1].ingredients[0].line, 6);
+    }
+
+    /// A tool input handed back as a JSON string still lowers, and a
+    /// paragraph-titled variation folds into the recipe's notes.
+    #[test]
+    fn string_payloads_and_prose_variations_lower() {
+        let (book, chunk) = book_and_chunk(
+            &[
+                "Malted Brownies",
+                "2 cups flour",
+                "Bake.",
+                "Mint: Omit the malted milk powder and add ½ teaspoon peppermint extract with the vanilla, then top with crushed candy canes.",
+            ],
+            0,
+        );
+        let payload = json!({"items":[
+            {"title":[0],"sections":[{"ingredients":[1],"steps":[2]}],"ignored":[]},
+            {"kind":"variation","title":[3],"variation_of":[0]}]});
+        let lowered = lower(&chunk, &book, Value::String(payload.to_string())).unwrap();
+        assert_eq!(lowered.items.len(), 1);
+        assert_eq!(lowered.items[0].notes.len(), 1);
+        assert!(lowered.items[0].notes[0].text.starts_with("Mint:"));
+        assert!(crate::validate::validate(&chunk, &book, &lowered).is_ok());
     }
 
     #[rstest]
