@@ -52,6 +52,7 @@ pub enum Command {
         book: PathBuf,
         #[command(flatten)]
         flags: RunFlags,
+        /// Ignore the local chunk cache and the gateway cache: measure the model, not an earlier answer.
         #[arg(long)]
         no_cache: bool,
     },
@@ -63,6 +64,7 @@ pub enum Command {
         /// Record every request and response here for `replay`.
         #[arg(long)]
         dump: Option<PathBuf>,
+        /// Ignore the local chunk cache and the gateway cache: measure the model, not an earlier answer.
         #[arg(long)]
         no_cache: bool,
         #[command(flatten)]
@@ -123,6 +125,7 @@ pub enum Command {
         /// Write the full report here.
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Ignore the local chunk cache and the gateway cache: measure the model, not an earlier answer.
         #[arg(long)]
         no_cache: bool,
         #[command(flatten)]
@@ -164,7 +167,9 @@ pub struct RunFlags {
 }
 
 impl RunFlags {
-    fn options(&self, book: &Path) -> ExtractOptions {
+    /// `use_cache` false turns off both the local chunk cache and the
+    /// gateway's: a measurement must see the model, not an earlier answer.
+    fn options(&self, book: &Path, use_cache: bool) -> ExtractOptions {
         let default = ExtractOptions::default();
         ExtractOptions {
             label: self.label.clone().unwrap_or_else(|| {
@@ -177,6 +182,7 @@ impl RunFlags {
             second_opinion: !self.no_second_opinion,
             whole_book_escalation: !self.no_escalation,
             max_output_tokens: default.max_output_tokens,
+            gateway_cache: use_cache,
         }
     }
 }
@@ -266,7 +272,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             let b = open(&book, &label_for(&book))?;
             let cache = cache(no_cache)?;
             let estimate = b
-                .estimate(&flags.options(&book), &cache)
+                .estimate(&flags.options(&book, !no_cache), &cache)
                 .map_err(|e| e.to_string())?;
             if json {
                 emit(&json!(estimate), true);
@@ -300,7 +306,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
                 None => AnyTransport::Live(live),
             };
             let cache = cache(no_cache)?;
-            let options = flags.options(&book);
+            let options = flags.options(&book, !no_cache);
             run_and_report(&b, &options, &transport, &cache, out.as_deref(), json).await
         }
         Command::Replay { dump, out, flags } => {
@@ -308,7 +314,7 @@ pub async fn execute(command: Command, json: bool) -> Result<i32, String> {
             let b = open(&book, &label_for(&dump))?;
             let transport =
                 AnyTransport::Replay(ReplayTransport::load(&dump).map_err(|e| e.to_string())?);
-            let options = flags.options(&book);
+            let options = flags.options(&book, true);
             run_and_report(&b, &options, &transport, &NoCache, out.as_deref(), json).await
         }
         Command::Explain {
@@ -1256,7 +1262,7 @@ async fn evaluate(
         }
         let options = ExtractOptions {
             label: slug.clone(),
-            ..flags.options(&book_path)
+            ..flags.options(&book_path, !no_cache)
         };
         eprintln!(
             "== {slug}: {} ({} chunks)",

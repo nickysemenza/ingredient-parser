@@ -52,6 +52,9 @@ pub struct ExtractOptions {
     /// Re-run the whole book with a stronger model when too much is flagged.
     pub whole_book_escalation: bool,
     pub max_output_tokens: u32,
+    /// Let AI Gateway answer a repeated request from its cache (30-day TTL).
+    /// Off for evaluation runs, which must measure the model, not the cache.
+    pub gateway_cache: bool,
 }
 
 impl Default for ExtractOptions {
@@ -63,6 +66,7 @@ impl Default for ExtractOptions {
             second_opinion: true,
             whole_book_escalation: true,
             max_output_tokens: 16_000,
+            gateway_cache: true,
         }
     }
 }

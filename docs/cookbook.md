@@ -71,7 +71,11 @@ re-tested for free. A changed prompt or chunking invalidates a dump.
   `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>`) and
   `AI_GATEWAY_API_KEY`, from the environment, a repo `.env`, or
   `~/Library/Application Support/ingredient-parser/gateway.env`.
-- Chunk cache: `~/Library/Caches/ingredient-parser/cookbook/`.
+- Chunk cache: `~/Library/Caches/ingredient-parser/cookbook/`. AI Gateway also
+  keeps every answer for 30 days (`cf-aig-cache-ttl`), so a browser re-extraction
+  of the same book, which has no local cache, is free and instant; a gateway hit
+  is recorded as a cached call with no cost. `--no-cache` bypasses both, for
+  measurement only.
 - Runs: `~/Library/Application Support/ingredient-parser/cookbook/runs/`
   (`COOKBOOK_RUNS_DIR` overrides).
 - Answer keys: `~/Library/Application Support/ingredient-parser/cookbook/expectations/<slug>.json`.

@@ -67,6 +67,8 @@ thinks), so a book takes 100–170 s with it at the head even at concurrency
 | gpt-5.6-luna → gemini-2.5-flash → claude-haiku-4-5 | 99.1% | 11 | 2 | $0.59 | 275 s | fail (phantoms, leaks, failed chunks in Bouchon and FWSY) |
 | gpt-5.6-luna → claude-haiku-4-5 → gemini-2.5-flash | 98.3% | 10 | 2 | $1.48 | 221 s | fail (two books escalated) |
 | **gemini-2.5-flash → gpt-5.6-luna → claude-haiku-4-5** (chosen) | **98.4%** | **8** | **1** | **$1.02** | **183 s** | fail (8 phantoms > 6; the Nothing Fancy leak; one failed chunk in Pok Pok) |
+| gemini-2.5-flash → claude-sonnet-5 → gpt-5.6-luna | 97.9% | 12 | 4 | $2.33 | 258 s | fail; a second reader only sees flagged chunks, so Gemini's first pass still decides the result, and Sonnet's price shows on every retry |
+| claude-sonnet-5 → gemini-2.5-flash → gpt-5.6-luna | 97.3% | 6 | 1 | $7.92 | 230 s | fail; Sonnet reads Bouchon's tables badly (26 of 60 answers invalid), four books end with the ladder exhausted, and the wholesale pool's per-minute metering stretches a book to 2–4 min at concurrency 16 |
 
 The extraction rules were hardened between the first row and the rest
 (chunk-boundary protection, label and caption rules, h2 recipe titles, prose
@@ -75,6 +77,10 @@ variations), so the first row is not directly comparable.
 ## Decision
 
 `DEFAULT_LADDER = ["gemini-2.5-flash", "gpt-5.6-luna", "claude-haiku-4-5"]`.
+Re-checked after the gateway credit top-up made Claude Sonnet 5 available:
+it is the best single reader on Nothing Fancy but earns no slot, at the
+head (eight times the cost, rate-limited in bursts, worse on tables) or as
+the second reader (no gain in phantoms or leaks for twice the cost).
 Gemini 2.5 Flash reads a chunk best on the first pass; GPT 5.6 Luna is the
 fast, cheap second reader for retries and second opinions; Haiku 4.5 is the
 last resort. Every candidate is priced, so the estimate and the run report

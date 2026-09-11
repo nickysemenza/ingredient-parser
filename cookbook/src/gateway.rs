@@ -58,7 +58,16 @@ pub struct CallMeta<'a> {
     pub chunk: &'a str,
     /// `extract`, `retry`, `second_opinion`, `escalation`, `classify`.
     pub purpose: &'a str,
+    /// Let the gateway answer a repeated request from its cache.
+    pub gateway_cache: bool,
 }
+
+/// How long AI Gateway keeps a cached answer: its maximum, one month. The
+/// request body carries the contract version, the model and the chunk text,
+/// so a cached answer is only ever reused for the same question.
+pub const GATEWAY_CACHE_TTL_SECS: u32 = 30 * 24 * 60 * 60;
+/// The gateway's cache verdict header; `HIT` means nothing was billed.
+pub const GATEWAY_CACHE_STATUS_HEADER: &str = "cf-aig-cache-status";
 
 /// Build the gateway request for `model`. Never carries authorization.
 pub fn build_http(
@@ -68,10 +77,18 @@ pub fn build_http(
     meta: &CallMeta<'_>,
 ) -> HttpRequest {
     let max_tokens = max_tokens.min(model.max_output_tokens);
+    let cache_header = if meta.gateway_cache {
+        (
+            "cf-aig-cache-ttl".to_string(),
+            GATEWAY_CACHE_TTL_SECS.to_string(),
+        )
+    } else {
+        ("cf-aig-skip-cache".to_string(), "true".to_string())
+    };
     let mut headers = vec![
         ("content-type".to_string(), "application/json".to_string()),
-        // The local cache and retry policy own reuse and accounting.
-        ("cf-aig-skip-cache".to_string(), "true".to_string()),
+        cache_header,
+        // The retry policy owns retries and their accounting.
         ("cf-aig-max-attempts".to_string(), "1".to_string()),
         (
             "cf-aig-metadata".to_string(),
@@ -420,7 +437,31 @@ mod tests {
             cookbook: "Book",
             chunk: "k001",
             purpose: "extract",
+            gateway_cache: false,
         }
+    }
+
+    #[test]
+    fn gateway_cache_is_a_ttl_or_a_skip() {
+        let m = model("claude-haiku-4-5").unwrap();
+        let cached = build_http(
+            m,
+            &request(),
+            50_000,
+            &CallMeta {
+                gateway_cache: true,
+                ..meta()
+            },
+        );
+        assert!(
+            cached
+                .headers
+                .iter()
+                .any(|(n, v)| n == "cf-aig-cache-ttl" && v == &GATEWAY_CACHE_TTL_SECS.to_string())
+        );
+        assert!(!cached.headers.iter().any(|(n, _)| n == "cf-aig-skip-cache"));
+        let fresh = build_http(m, &request(), 50_000, &meta());
+        assert!(!fresh.headers.iter().any(|(n, _)| n == "cf-aig-cache-ttl"));
     }
 
     #[test]

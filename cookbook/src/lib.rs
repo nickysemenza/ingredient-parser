@@ -195,6 +195,7 @@ impl Book {
                     cookbook: &options.label,
                     chunk: &chunk.id,
                     purpose: "extract",
+                    gateway_cache: options.gateway_cache,
                 };
                 let http = build_http(primary, &request, options.max_output_tokens, &meta);
                 cache

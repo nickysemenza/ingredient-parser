@@ -179,6 +179,7 @@ pub async fn classify<T: Transport, C: ChunkCache>(
         cookbook: &book.source().label,
         chunk: "book",
         purpose: "classify",
+        gateway_cache: true,
     };
     let http = build_http(model, &request, 400, &meta);
     let key = cache_key(

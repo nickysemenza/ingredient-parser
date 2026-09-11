@@ -279,7 +279,12 @@ second_opinion: boolean,
 /**
  * Re-run the whole book with a stronger model when too much is flagged.
  */
-whole_book_escalation: boolean, max_output_tokens: number, };
+whole_book_escalation: boolean, max_output_tokens: number,
+/**
+ * Let AI Gateway answer a repeated request from its cache (30-day TTL).
+ * Off for evaluation runs, which must measure the model, not the cache.
+ */
+gateway_cache: boolean, };
 export type StageTiming = { stage: Phase, ms: number, };
 export type CallRecord = { seq: number, chunk_id: string, model: string,
 /**

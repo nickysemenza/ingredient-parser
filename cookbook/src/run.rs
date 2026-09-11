@@ -20,7 +20,8 @@ use crate::crosscheck::{ExtractedTitle, crosscheck, titles_match};
 use crate::epub::nav::Nav;
 use crate::eta::{EtaTracker, RemainingInput, chunk_tokens};
 use crate::gateway::{
-    CallFailure, CallMeta, CallResult, build_http, parse_response, transient_backoff_ms,
+    CallFailure, CallMeta, CallResult, GATEWAY_CACHE_STATUS_HEADER, build_http, parse_response,
+    transient_backoff_ms,
 };
 use crate::lines::BookLines;
 use crate::models::Model;
@@ -128,6 +129,7 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
             cookbook: &self.input.options.label,
             chunk: &chunk.id,
             purpose: purpose_str(purpose),
+            gateway_cache: self.input.options.gateway_cache,
         };
         let http = build_http(model, request, self.input.options.max_output_tokens, &meta);
         let key = cache_key(CONTRACT_VERSION, model.id, model.route.as_str(), &http.body);
@@ -180,6 +182,13 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
             }
             Ok(response) => {
                 record.status = Some(response.status);
+                // An answer the gateway served from its cache was not billed.
+                if response
+                    .header(GATEWAY_CACHE_STATUS_HEADER)
+                    .is_some_and(|v| v.eq_ignore_ascii_case("hit"))
+                {
+                    record.cached = true;
+                }
                 match parse_response(model.route, &response) {
                     Ok(result) => {
                         record.request_id = result.request_id.clone();
