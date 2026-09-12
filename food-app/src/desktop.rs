@@ -115,8 +115,11 @@ async fn open_book(path: String) -> Result<service::OpenedBook, String> {
     blocking(move || service::open_book(path)).await
 }
 #[tauri::command]
-async fn estimate_book(path: String) -> Result<cookbook::Estimate, String> {
-    blocking(move || service::estimate_book(path)).await
+async fn estimate_book(
+    path: String,
+    options: Option<cookbook::harness::BackendOptions>,
+) -> Result<cookbook::Estimate, String> {
+    blocking(move || service::estimate_book_config(path, options.unwrap_or_default())).await
 }
 #[tauri::command]
 fn gateway_status() -> service::GatewayStatus {
@@ -163,6 +166,7 @@ fn cancel_extraction(state: State<'_, ExtractionState>) -> Result<(), String> {
 #[tauri::command]
 async fn extract_book(
     path: String,
+    options: Option<cookbook::harness::BackendOptions>,
     on_progress: Channel<cookbook::Progress>,
     state: State<'_, ExtractionState>,
 ) -> Result<service::RunSummary, String> {
@@ -183,14 +187,67 @@ async fn extract_book(
             .enable_all()
             .build()
             .map_err(|error| format!("Could not start the extraction runtime: {error}"))?;
-        runtime.block_on(service::extract_book(path, worker, move |progress| {
-            let _ = on_progress.send(progress);
-        }))
+        runtime.block_on(service::extract_book_config(
+            path,
+            options.unwrap_or_default(),
+            worker,
+            move |progress| {
+                let _ = on_progress.send(progress);
+            },
+        ))
     })
     .await
     .map_err(|error| format!("The extraction stopped unexpectedly: {error}"))
     .and_then(|r| r);
     *state.0.lock().map_err(|_| "Extraction state unavailable")? = None;
+    result
+}
+
+#[tauri::command]
+async fn backend_statuses() -> Vec<cookbook::harness::BackendStatus> {
+    service::backend_statuses().await
+}
+#[tauri::command]
+async fn catalog_status(path: String) -> Result<Option<cookbook::catalog::Catalog>, String> {
+    blocking(move || service::catalog_status(path)).await
+}
+#[tauri::command]
+async fn catalog_source(path: String, line: usize) -> Result<String, String> {
+    blocking(move || service::catalog_source(path, line)).await
+}
+#[tauri::command]
+async fn catalog_books(
+    paths: Vec<String>,
+    options: cookbook::catalog::CatalogOptions,
+    on_progress: Channel<cookbook::catalog::CatalogProgress>,
+    state: State<'_, ExtractionState>,
+) -> Result<Vec<cookbook::catalog::Catalog>, String> {
+    let cancel = CancelToken::new();
+    {
+        let mut active = state.0.lock().map_err(|_| "Job state unavailable")?;
+        if active.is_some() {
+            return Err("A cookbook job is already running".into());
+        }
+        *active = Some(cancel.clone());
+    }
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?;
+        runtime.block_on(service::catalog_books(
+            paths,
+            options,
+            cancel,
+            move |progress| {
+                let _ = on_progress.send(progress);
+            },
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+    *state.0.lock().map_err(|_| "Job state unavailable")? = None;
     result
 }
 
@@ -288,6 +345,10 @@ pub fn run() -> tauri::Result<()> {
             open_book,
             estimate_book,
             gateway_status,
+            backend_statuses,
+            catalog_status,
+            catalog_source,
+            catalog_books,
             list_runs,
             open_run,
             delete_run,

@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use cookbook::cache::ChunkCache;
-use cookbook::classify::{Classification, classify, classify_structure};
+use cookbook::classify::{Classification, classify_structure, classify_with_executor};
 use cookbook::library::{LibraryReport, RowStatus, ShaCache, build_report, scan};
 use cookbook::native::runs;
-use cookbook::{Book, CancelToken, ExtractOptions, Progress, Transport};
+use cookbook::{Book, CancelToken, ExtractOptions, Progress};
 use futures::StreamExt;
 use rand::seq::SliceRandom;
 
@@ -27,6 +27,7 @@ struct Candidate {
 }
 
 pub struct SweepArgs<'a> {
+    pub use_catalog: bool,
     pub dir: &'a Path,
     /// Books extracted at once.
     pub books: usize,
@@ -59,7 +60,7 @@ pub struct SweepOutcome {
 
 pub async fn sweep(
     args: SweepArgs<'_>,
-    transport: &(impl Transport + Sync),
+    transport: &(impl cookbook::executor::ModelExecutor + Sync),
     cache: &(impl ChunkCache + Sync),
 ) -> anyhow::Result<SweepOutcome> {
     let mut shas = ShaCache::open_default();
@@ -124,12 +125,13 @@ pub async fn sweep(
                 continue;
             }
         };
-        if classification == Classification::Ambiguous
+        if !args.dry_run
+            && classification == Classification::Ambiguous
             && let Ok(bytes) = std::fs::read(&book.path)
             && let Ok(opened) = Book::open(bytes, label_for(&book.path))
         {
-            classification = classify(&opened, classifier, transport, cache, &cancel)
-                .await
+            classification = classify_with_executor(&opened, classifier, transport, cache, &cancel)
+                .await?
                 .classification;
         }
         match classification {
@@ -336,7 +338,7 @@ pub async fn sweep(
                     .and_then(|bytes| {
                         Book::open(bytes, label_for(&c.path)).map_err(|e| e.to_string())
                     });
-                let book = match opened {
+                let mut book = match opened {
                     Ok(b) => b,
                     Err(error) => {
                         spent
@@ -357,7 +359,8 @@ pub async fn sweep(
                     }
                 };
                 let started = std::time::Instant::now();
-                let result = book.extract(&options, transport, cache, &cancel, progress).await;
+                if args.use_catalog && let Err(e) = cookbook::catalog::apply(&mut book) { spent.lock().unwrap_or_else(|e| e.into_inner()).release(&c.sha256); return (c.sha256, RowStatus::Failed { error: e }, 0.0); }
+                let result = book.extract_with_executor(&options, transport, cache, &cancel, progress).await;
                 let mut ledger = spent.lock().unwrap_or_else(|e| e.into_inner());
                 ledger.release(&c.sha256);
                 match result {
@@ -418,6 +421,9 @@ pub async fn sweep(
     // 5. The report over everything.
     let report = build_report(Some(args.dir), Some(&scanned), &statuses)?;
     let written = write_report(&report, args.out)?;
+    if let Some(error) = cancel.failure() {
+        return Err(anyhow::Error::msg(error));
+    }
     Ok(SweepOutcome {
         report,
         written: Some(written),

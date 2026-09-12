@@ -629,6 +629,15 @@ fn bindings() -> Vec<(String, Vec<String>)> {
         entry::<OpenedBook>(&cfg),
         entry::<BookImage>(&cfg),
         entry::<GatewayStatus>(&cfg),
+        entry::<cookbook::harness::BackendOptions>(&cfg),
+        entry::<cookbook::harness::BackendStatus>(&cfg),
+        entry::<cookbook::catalog::Catalog>(&cfg),
+        entry::<cookbook::catalog::CatalogOptions>(&cfg),
+        entry::<cookbook::catalog::CatalogProgress>(&cfg),
+        entry::<cookbook::catalog::WindowRecord>(&cfg),
+        entry::<cookbook::catalog::WindowMap>(&cfg),
+        entry::<cookbook::catalog::Entry>(&cfg),
+        entry::<cookbook::contract::Kind>(&cfg),
         entry::<RunSummary>(&cfg),
         entry::<Classified>(&cfg),
         entry::<cookbook::classify::Classification>(&cfg),
@@ -949,4 +958,112 @@ mod scaling_tests {
         assert_eq!(reset.ingredients[0].json, original.ingredients[0].json);
         assert!(scale_web_recipe(original.source, 0.0).is_err());
     }
+}
+
+/// Model readiness without creating a model session.
+pub async fn backend_statuses() -> Vec<cookbook::harness::BackendStatus> {
+    cookbook::harness::statuses().await
+}
+
+pub fn estimate_book_config(
+    path: String,
+    config: cookbook::harness::BackendOptions,
+) -> AppResult<Estimate> {
+    let mut book = Book::open(
+        std::fs::read(&path).map_err(|e| e.to_string())?,
+        path.clone(),
+    )
+    .map_err(|e| e.to_string())?;
+    if config.use_catalog {
+        cookbook::catalog::apply(&mut book)?;
+    }
+    let mut options = ExtractOptions::default();
+    config.apply(&mut options)?;
+    let mut estimate = book
+        .estimate(&options, &chunk_cache()?)
+        .map_err(|e| e.to_string())?;
+    if options.ladder.iter().any(|m| m.contains("-cli/")) {
+        estimate.assumptions.push("Subscription usage; dollar estimates do not represent billed cost. Uses the same allowance as your other CLI sessions.".into());
+    }
+    Ok(estimate)
+}
+
+pub async fn extract_book_config(
+    path: String,
+    config: cookbook::harness::BackendOptions,
+    cancel: CancelToken,
+    progress: impl FnMut(Progress) + Send,
+) -> AppResult<RunSummary> {
+    let mut book = Book::open(
+        std::fs::read(&path).map_err(|e| e.to_string())?,
+        path.clone(),
+    )
+    .map_err(|e| e.to_string())?;
+    if config.use_catalog {
+        cookbook::catalog::apply(&mut book)?;
+    }
+    let mut options = ExtractOptions {
+        label: book.source().label.clone(),
+        ..ExtractOptions::default()
+    };
+    config.apply(&mut options)?;
+    let executor = cookbook::harness::NativeExecutor::new(&options.ladder).await?;
+    let extraction = book
+        .extract_with_executor(&options, &executor, &chunk_cache()?, &cancel, progress)
+        .await
+        .map_err(|e| e.to_string())?;
+    let saved = runs::save(&extraction, None).map_err(|e| e.to_string())?;
+    Ok(runs::summarize(&saved, &extraction))
+}
+
+pub fn catalog_status(path: String) -> AppResult<Option<cookbook::catalog::Catalog>> {
+    let (book, _) = book(&path)?;
+    cookbook::catalog::latest(&book)
+}
+pub fn catalog_source(path: String, line: usize) -> AppResult<String> {
+    let (book, _) = book(&path)?;
+    if line >= book.lines().len() {
+        return Err("Source line is outside this book".into());
+    }
+    Ok(
+        (line.saturating_sub(3)..(line + 30).min(book.lines().len()))
+            .map(|i| format!("{i}: {}", book.lines().text(i)))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+pub async fn catalog_books(
+    paths: Vec<String>,
+    options: cookbook::catalog::CatalogOptions,
+    cancel: CancelToken,
+    mut progress: impl FnMut(cookbook::catalog::CatalogProgress) + Send,
+) -> AppResult<Vec<cookbook::catalog::Catalog>> {
+    let mut ids = vec![options.reader.clone()];
+    ids.extend(options.auditor.clone());
+    let executor = cookbook::harness::NativeExecutor::new(&ids).await?;
+    let cache = chunk_cache()?;
+    let mut seen = std::collections::HashSet::new();
+    let mut results = Vec::new();
+    for path in paths {
+        if cancel.is_cancelled() {
+            return Err(cancel
+                .failure()
+                .unwrap_or_else(|| "Catalog cancelled".into()));
+        }
+        let (book, _) = book(&path)?;
+        if seen.insert(book.source().sha256.clone()) {
+            results.push(
+                cookbook::catalog::build(
+                    &book,
+                    &options,
+                    &executor,
+                    &cache,
+                    &cancel,
+                    &mut progress,
+                )
+                .await?,
+            );
+        }
+    }
+    Ok(results)
 }

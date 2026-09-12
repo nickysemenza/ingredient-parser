@@ -6,6 +6,7 @@ import {
   pick,
   revealFile,
   type Extraction,
+  type BackendOptions,
   type LibraryBook,
   type OpenedBook,
   type Progress,
@@ -114,6 +115,10 @@ export function Cookbooks({
   const [scanning, setScanning] = useState(false);
   const [view, setView] = useState<View>({ kind: "library" });
   const [extracting, setExtracting] = useState(false);
+  const [cataloging, setCataloging] = useState(false);
+  useEffect(() => {
+    onBusy(extracting || cataloging);
+  }, [extracting, cataloging, onBusy]);
   const [progress, setProgress] = useState<Progress | null>(null);
   const scanned = useRef(false);
   /** Runs do not carry their EPUB path; the library and opened books do. */
@@ -173,12 +178,12 @@ export function Cookbooks({
     if (openSignal > 0) openFile();
   }, [openSignal, openFile]);
   const extract = useCallback(
-    (path: string) => {
+    (path: string, options: BackendOptions) => {
       setExtracting(true);
       setProgress(null);
-      onBusy(true);
+
       api
-        .extract(path, setProgress)
+        .extract(path, setProgress, options)
         .then((summary) => {
           openRun(summary.path);
           return api.runs().then(setRuns);
@@ -187,7 +192,6 @@ export function Cookbooks({
         .finally(() => {
           setExtracting(false);
           setProgress(null);
-          onBusy(false);
         });
     },
     [onBusy, onError, openRun],
@@ -232,7 +236,7 @@ export function Cookbooks({
       onStatus({
         title,
         message: progress
-          ? `Extracting ${progress.done}/${progress.total} · ${formatCost(progress.cost_so_far_usd)} · ${formatEta(progress.eta)}`
+          ? `Extracting ${progress.done}/${progress.total} · ${progress.active_models.some((model) => model.includes("-cli/")) ? "subscription" : formatCost(progress.cost_so_far_usd)} · ${formatEta(progress.eta)}`
           : "Starting the extraction…",
         detail: progress ? progress.phase : "",
       });
@@ -256,7 +260,7 @@ export function Cookbooks({
       const report = view.extraction.report;
       onStatus({
         title,
-        message: `${allItems(view.extraction.cookbook.chapters).length} items · ${formatCost(report.total_cost_usd)}`,
+        message: `${allItems(view.extraction.cookbook.chapters).length} items · ${report.options.ladder.some((model) => model.includes("-cli/")) ? "subscription" : formatCost(report.total_cost_usd)}`,
         detail: `${formatDuration(report.wall_ms)}${report.incomplete ? " · incomplete" : ""}`,
       });
     }
@@ -321,6 +325,8 @@ export function Cookbooks({
             books={books}
             directory={directory}
             loading={scanning}
+            onError={onError}
+            onBusy={setCataloging}
             onDirectory={(value) => {
               setDirectory(value);
               scan(value);
@@ -343,7 +349,9 @@ export function Cookbooks({
           book={view.book}
           extracting={extracting}
           progress={progress}
-          onExtract={() => extract(view.book.path)}
+          onExtract={(options) => extract(view.book.path, options)}
+          onBusy={setCataloging}
+          cataloging={cataloging}
           onCancel={cancel}
           onOpenRun={openRun}
           onError={onError}

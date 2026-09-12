@@ -12,13 +12,12 @@ use clap::{Args, Subcommand};
 use cookbook::cache::{ChunkCache, NoCache};
 use cookbook::classify::{Classification, classify_structure};
 use cookbook::eval::{self, Expectations};
+use cookbook::executor::{ModelCall, ModelExecutor, Response};
+use cookbook::harness::{NativeExecutor, Recording, Replay};
 use cookbook::models::Reasoning;
+use cookbook::native::FsChunkCache;
 use cookbook::native::runs::{self, RunSummary};
-use cookbook::native::{DumpTransport, FsChunkCache, ReplayTransport, ReqwestTransport};
-use cookbook::{
-    Book, CancelToken, ExtractOptions, Extraction, HttpRequest, HttpResponse, Item, Progress,
-    Transport, TransportError,
-};
+use cookbook::{Book, CancelToken, ExtractOptions, Extraction, Item, Progress, TransportError};
 use rand::SeedableRng;
 use rand::seq::SliceRandom;
 use serde_json::{Value, json};
@@ -201,10 +200,35 @@ pub enum Command {
     },
     /// The model catalog with rates and throughput priors.
     Models,
+    /// Build or resume a source-linked structural map, defaulting to Opus.
+    Catalog {
+        path: PathBuf,
+        #[arg(long, default_value = "claude-cli/opus")]
+        reader: String,
+        #[arg(long)]
+        auditor: Option<String>,
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        only: Vec<String>,
+        #[arg(long)]
+        max_books: Option<usize>,
+    },
 }
 
 #[derive(Args, Clone, Default)]
 pub struct RunFlags {
+    /// gateway (default), claude-cli, or codex-cli.
+    #[arg(long, default_value = "gateway", value_parser = ["gateway", "claude-cli", "codex-cli"])]
+    pub backend: String,
+    /// CLI model: opus, gpt-5.6-sol, or explicitly gpt-6-astra.
+    #[arg(long)]
+    pub model: Option<String>,
+    /// Use a compatible saved catalog (experimental, opt-in).
+    #[arg(long)]
+    pub use_catalog: bool,
     /// Chunks in flight at once (default 16).
     #[arg(long)]
     pub concurrency: Option<usize>,
@@ -228,7 +252,7 @@ impl RunFlags {
     /// gateway's: a measurement must see the model, not an earlier answer.
     fn options(&self, book: &Path, use_cache: bool) -> ExtractOptions {
         let default = ExtractOptions::default();
-        ExtractOptions {
+        let mut options = ExtractOptions {
             label: self.label.clone().unwrap_or_else(|| {
                 book.file_stem()
                     .map(|s| s.to_string_lossy().into_owned())
@@ -241,34 +265,62 @@ impl RunFlags {
             max_output_tokens: default.max_output_tokens,
             gateway_cache: use_cache,
             reasoning: self.reasoning,
+        };
+        if !matches!(self.backend.as_str(), "" | "gateway") {
+            options.ladder = vec![format!(
+                "{}/{}",
+                self.backend,
+                self.model
+                    .as_deref()
+                    .unwrap_or(if self.backend == "claude-cli" {
+                        "opus"
+                    } else {
+                        "gpt-5.6-sol"
+                    })
+            )];
+            options.concurrency = self.concurrency.unwrap_or(1);
+            options.second_opinion = false;
+            options.whole_book_escalation = false;
+            options.reasoning = Some(self.reasoning.unwrap_or(Reasoning::High));
         }
+        options
+    }
+    fn open(&self, path: &Path, label: &str) -> anyhow::Result<Book> {
+        let mut book = open(path, label)?;
+        if self.use_catalog {
+            let used = cookbook::catalog::apply(&mut book).map_err(anyhow::Error::msg)?;
+            eprintln!(
+                "catalog: {}",
+                used.as_deref()
+                    .unwrap_or("none compatible; ordinary extraction")
+            );
+        }
+        Ok(book)
     }
 }
 
 enum AnyTransport {
-    Live(ReqwestTransport),
-    Dump(DumpTransport<ReqwestTransport>),
-    Replay(ReplayTransport),
+    Live(NativeExecutor),
+    Dump(Recording<NativeExecutor>),
+    Replay(Replay),
 }
-
-impl Transport for AnyTransport {
-    async fn send(
+impl ModelExecutor for AnyTransport {
+    async fn execute(
         &self,
-        request: HttpRequest,
+        call: ModelCall<'_>,
         cancel: &CancelToken,
-    ) -> Result<HttpResponse, TransportError> {
+    ) -> Result<Response, TransportError> {
         match self {
-            AnyTransport::Live(t) => t.send(request, cancel).await,
-            AnyTransport::Dump(t) => t.send(request, cancel).await,
-            AnyTransport::Replay(t) => t.send(request, cancel).await,
+            Self::Live(t) => t.execute(call, cancel).await,
+            Self::Dump(t) => t.execute(call, cancel).await,
+            Self::Replay(t) => t.execute(call, cancel).await,
         }
     }
-
     async fn sleep(&self, ms: u64) {
         match self {
-            AnyTransport::Live(t) => t.sleep(ms).await,
-            AnyTransport::Dump(t) => t.sleep(ms).await,
-            AnyTransport::Replay(t) => t.sleep(ms).await,
+            Self::Live(t) => t.sleep(ms).await,
+            Self::Dump(t) => t.sleep(ms).await,
+            Self::Replay(t) => t.sleep(ms).await,
         }
     }
 }
@@ -379,6 +431,99 @@ fn emit(value: &Value, json: bool) {
 /// Run one command. Returns the process exit code.
 pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
     match command {
+        Command::Catalog {
+            path,
+            reader,
+            auditor,
+            force,
+            dry_run,
+            only,
+            max_books,
+        } => {
+            let options = cookbook::catalog::CatalogOptions {
+                reader: reader.clone(),
+                auditor: auditor.clone(),
+                force,
+            };
+            let is_library = path.is_dir();
+            let mut paths = if is_library {
+                let mut shas = cookbook::library::ShaCache::open_default();
+                cookbook::library::scan(&path, &mut shas)
+                    .books
+                    .into_iter()
+                    .map(|b| b.path)
+                    .collect::<Vec<_>>()
+            } else {
+                vec![path]
+            };
+            paths.sort();
+            let cache = FsChunkCache::open_default()?;
+            let mut ids = vec![reader];
+            ids.extend(auditor);
+            let executor = if dry_run {
+                None
+            } else {
+                Some(
+                    NativeExecutor::new(&ids)
+                        .await
+                        .map_err(anyhow::Error::msg)?,
+                )
+            };
+            let cancel = CancelToken::new();
+            let mut results = vec![];
+            for path in paths
+                .into_iter()
+                .filter(|p| {
+                    only.is_empty()
+                        || only.iter().any(|s| {
+                            p.to_string_lossy()
+                                .to_lowercase()
+                                .contains(&s.to_lowercase())
+                        })
+                })
+                .take(max_books.unwrap_or(usize::MAX))
+            {
+                let book = open(&path, &label_for(&path))?;
+                if is_library
+                    && cookbook::classify::classify_structure(&book).classification
+                        == cookbook::classify::Classification::NotCookbook
+                {
+                    continue;
+                }
+                if let Some(executor) = &executor {
+                    let map =
+                        cookbook::catalog::build(&book, &options, executor, &cache, &cancel, |p| {
+                            eprintln!("{}: {} {}/{}", p.book, p.phase, p.done, p.total)
+                        })
+                        .await
+                        .map_err(anyhow::Error::msg)?;
+                    results.push(json!(map));
+                } else {
+                    results.push(json!({"book": book.source(), "windows": book.chunks().len(), "status": "dry_run"}));
+                }
+            }
+            if !json {
+                for result in &results {
+                    if dry_run {
+                        println!(
+                            "{} · {} windows · dry run",
+                            result["book"]["title"].as_str().unwrap_or("Book"),
+                            result["windows"]
+                        );
+                    } else {
+                        println!(
+                            "{} · {} · {} mapped items · catalog {}",
+                            result["title"].as_str().unwrap_or("Book"),
+                            result["status"].as_str().unwrap_or("saved"),
+                            result["entries"].as_array().map_or(0, Vec::len),
+                            result["id"].as_str().unwrap_or("")
+                        );
+                    }
+                }
+            }
+            emit(&json!(results), json);
+            Ok(0)
+        }
         Command::Inspect {
             book,
             chunks,
@@ -404,7 +549,7 @@ pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
             flags,
             no_cache,
         } => {
-            let b = open(&book, &label_for(&book))?;
+            let b = flags.open(&book, &label_for(&book))?;
             let cache = cache(no_cache)?;
             let estimate = b.estimate(&flags.options(&book, !no_cache), &cache)?;
             if json {
@@ -421,8 +566,10 @@ pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
             no_cache,
             flags,
         } => {
-            let b = open(&book, &label_for(&book))?;
-            let live = ReqwestTransport::from_env()?;
+            let b = flags.open(&book, &label_for(&book))?;
+            let live = NativeExecutor::new(&flags.options(&book, !no_cache).ladder)
+                .await
+                .map_err(anyhow::Error::msg)?;
             let transport = match &dump {
                 Some(dir) => {
                     std::fs::create_dir_all(dir)?;
@@ -432,7 +579,10 @@ pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
                         dir.join("manifest.json"),
                         serde_json::to_string_pretty(&manifest).unwrap_or_default(),
                     )?;
-                    AnyTransport::Dump(DumpTransport::new(live, dir)?)
+                    AnyTransport::Dump(Recording {
+                        inner: live,
+                        directory: dir.clone(),
+                    })
                 }
                 None => AnyTransport::Live(live),
             };
@@ -443,7 +593,9 @@ pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
         Command::Replay { dump, out, flags } => {
             let book = dump.join("book.epub");
             let b = open(&book, &label_for(&dump))?;
-            let transport = AnyTransport::Replay(ReplayTransport::load(&dump)?);
+            let transport = AnyTransport::Replay(Replay {
+                directory: dump.clone(),
+            });
             let options = flags.options(&book, true);
             run_and_report(&b, &options, &transport, &NoCache, out.as_deref(), json).await
         }
@@ -546,16 +698,32 @@ pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
             if !dir.is_dir() {
                 anyhow::bail!("{} is not a directory", dir.display());
             }
-            let transport = AnyTransport::Live(ReqwestTransport::from_env()?);
+            if flags.backend != "gateway" && max_cost.is_some() {
+                anyhow::bail!(
+                    "--max-cost cannot measure subscription allowance; use --max-books instead"
+                );
+            }
+            let transport = if dry_run {
+                AnyTransport::Replay(Replay {
+                    directory: PathBuf::new(),
+                })
+            } else {
+                AnyTransport::Live(
+                    NativeExecutor::new(&flags.options(&dir, true).ladder)
+                        .await
+                        .map_err(anyhow::Error::msg)?,
+                )
+            };
             let cache = FsChunkCache::open_default()?;
             let mut options = flags.options(&dir, true);
-            if flags.concurrency.is_none() {
+            if flags.concurrency.is_none() && flags.backend == "gateway" {
                 options.concurrency = 8;
             }
             let outcome = crate::cookbook_library::sweep(
                 crate::cookbook_library::SweepArgs {
                     dir: &dir,
-                    books,
+                    books: if flags.backend == "gateway" { books } else { 1 },
+                    use_catalog: flags.use_catalog,
                     force,
                     max_cost,
                     max_books,
@@ -575,8 +743,15 @@ pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
             } else if let (Some(written), false) = (&outcome.written, dry_run) {
                 print_library_report(&outcome.report, written);
                 println!(
-                    "this sweep spent ${:.2} (projected ${:.2}–${:.2})",
-                    outcome.cost_usd, outcome.projected_low_usd, outcome.projected_high_usd
+                    "{}",
+                    if flags.backend != "gateway" {
+                        "This sweep used subscription allowance.".into()
+                    } else {
+                        format!(
+                            "this sweep spent ${:.2} (projected ${:.2}–${:.2})",
+                            outcome.cost_usd, outcome.projected_low_usd, outcome.projected_high_usd
+                        )
+                    }
                 );
             } else {
                 println!(
@@ -615,6 +790,32 @@ pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
             Ok(0)
         }
         Command::Models => {
+            let readiness = cookbook::harness::statuses().await;
+            if json {
+                let mut entries: Vec<_> = cookbook::models::catalog()
+                    .iter()
+                    .map(|m| json!(m))
+                    .collect();
+                for model in cookbook::models::local_models() {
+                    let mut entry = json!(model);
+                    entry["availability"] = json!(
+                        readiness
+                            .iter()
+                            .find(|s| model.id.starts_with(&format!("{}/", s.backend)))
+                    );
+                    entries.push(entry);
+                }
+                emit(&json!(entries), true);
+                return Ok(0);
+            }
+            for status in readiness {
+                eprintln!(
+                    "{}: {} · {}",
+                    status.backend,
+                    if status.ready { "ready" } else { "unavailable" },
+                    status.error.unwrap_or_else(|| status.models.join(", "))
+                );
+            }
             let models = cookbook::models::catalog();
             if json {
                 emit(&json!(models), true);
@@ -938,15 +1139,25 @@ fn print_estimate(e: &cookbook::Estimate) {
         "{} chunks ({} lines, {} chars), {} cached · ~{} in / {} out tokens",
         e.chunks, e.lines, e.chars, e.cache_hits, e.input_tokens, e.output_tokens
     );
-    println!(
-        "calls: {}–{} · time: {}–{} s · cost: ${:.3}–${:.3}",
-        e.calls_low,
-        e.calls_high,
-        e.wall_ms_low / 1000,
-        e.wall_ms_high / 1000,
-        e.cost_usd_low,
-        e.cost_usd_high
-    );
+    if e.ladder.iter().any(|m| m.contains("-cli/")) {
+        println!(
+            "Subscription usage · {}–{} calls · estimated {}–{} s",
+            e.calls_low,
+            e.calls_high,
+            e.wall_ms_low / 1000,
+            e.wall_ms_high / 1000
+        );
+    } else {
+        println!(
+            "calls: {}–{} · time: {}–{} s · cost: ${:.3}–${:.3}",
+            e.calls_low,
+            e.calls_high,
+            e.wall_ms_low / 1000,
+            e.wall_ms_high / 1000,
+            e.cost_usd_low,
+            e.cost_usd_high
+        );
+    }
     println!(
         "ladder: {} · concurrency {}",
         e.ladder.join(" → "),
@@ -975,6 +1186,7 @@ async fn run_and_report(
             .unwrap_or_else(|_| indicatif::ProgressStyle::default_bar())
             .progress_chars("=> "),
     );
+    let subscription = options.ladder.iter().any(|model| model.contains("-cli/"));
     let mut last_phase = None;
     let progress = |p: Progress| {
         bar.set_position(p.done as u64);
@@ -983,10 +1195,16 @@ async fn run_and_report(
             bar.println(format!("phase: {:?}", p.phase));
         }
         bar.set_message(format!(
-            "· {} recipes · ${:.3} (→ ${:.2}) · {}–{}s left · {}",
+            "· {} recipes · {} · {}–{}s left · {}",
             p.recipes_so_far,
-            p.cost_so_far_usd,
-            p.eta.projected_cost_usd,
+            if subscription {
+                "subscription".into()
+            } else {
+                format!(
+                    "${:.3} (→ ${:.2})",
+                    p.cost_so_far_usd, p.eta.projected_cost_usd
+                )
+            },
             p.eta.remaining_low_ms / 1000,
             p.eta.remaining_high_ms / 1000,
             p.active_models.join(",")
@@ -994,7 +1212,7 @@ async fn run_and_report(
     };
     let cancel = CancelToken::new();
     let result = book
-        .extract(options, transport, cache, &cancel, progress)
+        .extract_with_executor(options, transport, cache, &cancel, progress)
         .await;
     bar.finish_and_clear();
     let extraction = match result {
@@ -1038,30 +1256,45 @@ fn print_summary(extraction: &Extraction, path: &Path) {
         c.chapters.len(),
         c.edges.len()
     );
-    println!(
-        "{} chunks · {} calls · ${:.3}{} · {:.1}s (estimated {}–{}s, ${:.3}–${:.3})",
-        r.chunks.len(),
-        r.calls.len(),
-        r.total_cost_usd,
-        if r.cost_complete {
-            ""
-        } else {
-            " (incomplete pricing)"
-        },
-        r.wall_ms as f64 / 1000.0,
-        r.estimate.wall_ms_low / 1000,
-        r.estimate.wall_ms_high / 1000,
-        r.estimate.cost_usd_low,
-        r.estimate.cost_usd_high
-    );
+    if r.options.ladder.iter().any(|model| model.contains("-cli/")) {
+        println!(
+            "{} chunks · {} calls · subscription usage · {:.1}s",
+            r.chunks.len(),
+            r.calls.len(),
+            r.wall_ms as f64 / 1000.0
+        );
+    } else {
+        println!(
+            "{} chunks · {} calls · ${:.3}{} · {:.1}s (estimated {}–{}s, ${:.3}–${:.3})",
+            r.chunks.len(),
+            r.calls.len(),
+            r.total_cost_usd,
+            if r.cost_complete {
+                ""
+            } else {
+                " (incomplete pricing)"
+            },
+            r.wall_ms as f64 / 1000.0,
+            r.estimate.wall_ms_low / 1000,
+            r.estimate.wall_ms_high / 1000,
+            r.estimate.cost_usd_low,
+            r.estimate.cost_usd_high
+        );
+    }
     for m in &r.usage_by_model {
         println!(
-            "  {}: {} calls, {} in / {} out tokens, ${:.3}",
+            "  {}: {} calls, {} in / {} out tokens, {}",
             m.model,
             m.calls,
             m.usage.input_tokens,
             m.usage.output_tokens,
-            m.cost_usd.unwrap_or(0.0)
+            m.cost_usd
+                .map(|cost| format!("${cost:.3}"))
+                .unwrap_or_else(|| if m.model.contains("-cli/") {
+                    "subscription".into()
+                } else {
+                    "unpriced".into()
+                })
         );
     }
     let cc = &r.crosscheck;
@@ -1541,7 +1774,7 @@ async fn evaluate(
         let expected: Expectations = serde_json::from_str(&std::fs::read_to_string(path)?)
             .with_context(|| path.display().to_string())?;
         let book_path = resolve_book(&expected.book, &dir, library)?;
-        let book = open(&book_path, slug)?;
+        let book = flags.open(&book_path, slug)?;
         if let Some(sha) = &expected.sha256
             && sha != &book.source().sha256
         {
@@ -1558,20 +1791,24 @@ async fn evaluate(
         );
         let extraction = match replay {
             Some(replay_dir) => {
-                let transport = AnyTransport::Replay(
-                    ReplayTransport::load(replay_dir.join(slug))
-                        .with_context(|| slug.to_string())?,
-                );
+                let transport = AnyTransport::Replay(Replay {
+                    directory: replay_dir.join(slug),
+                });
                 extract_quiet(&book, &options, &transport, &NoCache).await?
             }
             None => {
-                let live = ReqwestTransport::from_env()?;
+                let live = NativeExecutor::new(&options.ladder)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
                 let transport = match dump {
                     Some(d) => {
                         let d = d.join(slug);
                         std::fs::create_dir_all(&d)?;
                         std::fs::copy(&book_path, d.join("book.epub"))?;
-                        AnyTransport::Dump(DumpTransport::new(live, &d)?)
+                        AnyTransport::Dump(Recording {
+                            inner: live,
+                            directory: d,
+                        })
                     }
                     None => AnyTransport::Live(live),
                 };
@@ -1584,7 +1821,7 @@ async fn evaluate(
         ladder_used = extraction.report.estimate.ladder.clone();
         let score = eval::score(&expected, &extraction);
         eprintln!(
-            "   recall {:.0}% ({}/{}), phantoms {}, samples {}, ${:.3}, {:.0}s{}",
+            "   recall {:.0}% ({}/{}), phantoms {}, samples {}, {}, {:.0}s{}",
             score.title_recall * 100.0,
             score.matched,
             score.titles,
@@ -1593,7 +1830,11 @@ async fn evaluate(
                 .sample_pass
                 .map(|p| format!("{:.0}%", p * 100.0))
                 .unwrap_or_else(|| "-".into()),
-            score.cost_usd,
+            if flags.backend != "gateway" {
+                "subscription".into()
+            } else {
+                format!("${:.3}", score.cost_usd)
+            },
             score.wall_ms as f64 / 1000.0,
             if score.escalated { " (escalated)" } else { "" }
         );
@@ -1622,7 +1863,11 @@ async fn evaluate(
                         .map(|p| format!("{:.0}%", p * 100.0))
                         .unwrap_or_else(|| "-".into()),
                     format!("{:.0}%", b.line_coverage * 100.0),
-                    format!("${:.3}", b.cost_usd),
+                    if flags.backend != "gateway" {
+                        "subscription".into()
+                    } else {
+                        format!("${:.3}", b.cost_usd)
+                    },
                     format!("{:.0}s", b.wall_ms as f64 / 1000.0),
                     b.eta_error
                         .map(|e| format!("{:.0}%", e * 100.0))
@@ -1670,7 +1915,7 @@ async fn evaluate(
             }
         }
         println!(
-            "ladder {} · mean recall {:.1}% · {} phantoms · samples {} · ${:.3} · max {:.0}s · gate {}",
+            "ladder {} · mean recall {:.1}% · {} phantoms · samples {} · {} · max {:.0}s · gate {}",
             report.ladder.join(" → "),
             report.mean_recall * 100.0,
             report.total_phantoms,
@@ -1678,7 +1923,11 @@ async fn evaluate(
                 .mean_sample_pass
                 .map(|p| format!("{:.0}%", p * 100.0))
                 .unwrap_or_else(|| "-".into()),
-            report.total_cost_usd,
+            if flags.backend != "gateway" {
+                "subscription".into()
+            } else {
+                format!("${:.3}", report.total_cost_usd)
+            },
             report.max_wall_ms as f64 / 1000.0,
             if report.gate.pass {
                 "PASS".to_string()
@@ -1717,7 +1966,7 @@ async fn extract_quiet(
         ));
     };
     let result = book
-        .extract(options, transport, cache, &CancelToken::new(), progress)
+        .extract_with_executor(options, transport, cache, &CancelToken::new(), progress)
         .await;
     bar.finish_and_clear();
     match result {

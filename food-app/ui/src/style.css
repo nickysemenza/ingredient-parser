@@ -1486,3 +1486,31 @@ details.card > summary {
     height: 48%;
   }
 }
+
+.catalog-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.catalog-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.catalog-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block: 12px;
+  max-height: 240px;
+  overflow: auto;
+}
+.catalog-source {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  background: var(--evidence);
+}

@@ -564,7 +564,8 @@ mod tests {
                 status: 200,
                 headers: vec![],
                 body: "{}".into(),
-            },
+            }
+            .into(),
             usage: Usage::default(),
             recorded_at: "now".into(),
         };

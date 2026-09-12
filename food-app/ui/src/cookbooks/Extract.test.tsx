@@ -1,12 +1,21 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Estimate, GatewayStatus, OpenedBook } from "../bridge";
 import { api } from "../bridge";
 import { BookPanel } from "./Extract";
 
 vi.mock("../bridge", () => ({
-  api: { estimate: vi.fn(), gateway: vi.fn() },
+  api: {
+    estimate: vi.fn(),
+    gateway: vi.fn(),
+    backends: vi.fn(),
+    catalogStatus: vi.fn(),
+  },
 }));
+beforeEach(() => {
+  vi.mocked(api.backends).mockResolvedValue([]);
+  vi.mocked(api.catalogStatus).mockResolvedValue(null);
+});
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -94,7 +103,11 @@ it("shows the estimate before any extraction, with its assumptions", async () =>
   ).toBeVisible();
   expect(screen.getByText("ambiguous")).toBeVisible();
   expect(screen.getByRole("button", { name: "Extract" })).toBeEnabled();
-  expect(api.estimate).toHaveBeenCalledWith("/books/dessert.epub");
+  expect(api.estimate).toHaveBeenCalledWith("/books/dessert.epub", {
+    backend: "gateway",
+    model: null,
+    use_catalog: false,
+  });
 });
 
 it("refuses to extract without gateway credentials and says where they go", async () => {

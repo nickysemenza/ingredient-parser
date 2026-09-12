@@ -197,6 +197,10 @@ pub enum CallOutcome {
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
 pub struct CallRecord {
+    #[serde(default)]
+    pub actual_model: Option<String>,
+    #[serde(default = "api_billing")]
+    pub billing: String,
     pub seq: usize,
     pub chunk_id: String,
     pub model: String,
@@ -378,6 +382,10 @@ pub struct EtaSample {
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
 pub struct RunReport {
+    #[serde(default)]
+    pub catalog_missing: Vec<String>,
+    #[serde(default)]
+    pub catalog_id: Option<String>,
     pub run_id: String,
     /// RFC 3339.
     pub started_at: String,
@@ -418,4 +426,8 @@ pub struct BookOutline {
     pub nav_recipe_titles: usize,
     pub chunks: usize,
     pub lines: usize,
+}
+
+fn api_billing() -> String {
+    "api".into()
 }

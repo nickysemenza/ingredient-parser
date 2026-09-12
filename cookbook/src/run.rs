@@ -12,16 +12,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use futures::{FutureExt, StreamExt, stream};
 use jiff::Timestamp;
 
-use crate::cache::{CachedCall, ChunkCache, cache_key};
+use crate::cache::{CachedCall, ChunkCache};
 use crate::chunk::Chunk;
 use crate::contract::{CONTRACT_VERSION, ChunkRequest, Kind, Lowered, build_request, lower};
 use crate::cost::{Usage, cost_for_usage};
 use crate::crosscheck::{ExtractedTitle, crosscheck, titles_match};
 use crate::epub::nav::Nav;
 use crate::eta::{EtaTracker, RemainingInput, chunk_tokens};
+use crate::executor::{ModelCall, ModelExecutor};
 use crate::gateway::{
-    CallFailure, CallMeta, CallResult, GATEWAY_CACHE_STATUS_HEADER, build_http, parse_response,
-    transient_backoff_ms,
+    CallFailure, CallMeta, CallResult, GATEWAY_CACHE_STATUS_HEADER, transient_backoff_ms,
 };
 use crate::lines::BookLines;
 use crate::models::{Model, effective_reasoning};
@@ -29,7 +29,7 @@ use crate::report::{
     CallOutcome, CallPurpose, CallRecord, Chosen, ChunkReport, ChunkStatus, CrossCheck, Escalation,
     EtaSample, ExtractOptions, Flag, Phase, Progress, SecondOpinion,
 };
-use crate::transport::{CancelToken, Transport, TransportError};
+use crate::transport::{CancelToken, TransportError};
 use crate::validate::{Validation, validate};
 
 /// Models tried per chunk before the book-level policy takes over.
@@ -52,6 +52,7 @@ pub struct RunInput<'a> {
     pub ladder: Vec<&'static Model>,
     pub options: &'a ExtractOptions,
     pub started: Timestamp,
+    pub catalog_hints: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -102,7 +103,7 @@ struct Shared<'a, T, C> {
     exhausted: Mutex<HashSet<&'static str>>,
 }
 
-impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
+impl<T: ModelExecutor, C: ChunkCache> Shared<'_, T, C> {
     fn now_ms(&self) -> u64 {
         (Timestamp::now().as_millisecond() - self.input.started.as_millisecond()).max(0) as u64
     }
@@ -133,14 +134,14 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
             purpose: purpose_str(purpose),
             gateway_cache: self.input.options.gateway_cache,
         };
-        let http = build_http(
+        let call = ModelCall {
             model,
             request,
-            self.input.options.max_output_tokens,
-            &meta,
-            effective_reasoning(model, self.input.options),
-        );
-        let key = cache_key(CONTRACT_VERSION, model.id, model.route.as_str(), &http.body);
+            max_tokens: self.input.options.max_output_tokens,
+            meta,
+            reasoning: effective_reasoning(model, self.input.options),
+        };
+        let key = call.cache_key(CONTRACT_VERSION);
         let started_ms = self.now_ms();
         let seq = self.seq.fetch_add(1, Ordering::SeqCst);
         let mut record = CallRecord {
@@ -159,6 +160,13 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
             cost_usd: Some(0.0),
             truncated: false,
             outcome: CallOutcome::Ok,
+            actual_model: None,
+            billing: if model.id.contains("-cli/") {
+                "subscription"
+            } else {
+                "api"
+            }
+            .into(),
         };
         let cached = self.cache.get(&key);
         let response = match cached {
@@ -171,7 +179,7 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .insert(chunk.id.clone(), (started_ms, model.id.to_string()));
-                let sent = self.transport.send(http, self.cancel).await;
+                let sent = self.transport.execute(call, self.cancel).await;
                 self.in_flight
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -182,6 +190,9 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
         record.latency_ms = self.now_ms().saturating_sub(started_ms);
         let outcome = match response {
             Err(err) => {
+                if matches!(err, TransportError::Allowance(_)) {
+                    self.cancel.fail(err.to_string());
+                }
                 record.outcome = CallOutcome::Transport {
                     kind: err.kind().to_string(),
                     message: err.to_string(),
@@ -189,7 +200,8 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                 Err(CallError::Transport(err))
             }
             Ok(response) => {
-                record.status = Some(response.status);
+                record.status = response.status();
+                record.actual_model = response.actual_model().map(str::to_string);
                 // An answer the gateway served from its cache was not billed.
                 if response
                     .header(GATEWAY_CACHE_STATUS_HEADER)
@@ -197,7 +209,7 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                 {
                     record.cached = true;
                 }
-                match parse_response(model.route, &response) {
+                match response.decode(model) {
                     Ok(result) => {
                         record.request_id = result.request_id.clone();
                         record.truncated = result.truncated;
@@ -311,7 +323,12 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
         base_feedback: Option<&str>,
     ) -> Settled {
         let book = self.input.book;
-        let base = build_request(chunk, book);
+        let mut base = build_request(chunk, book);
+        crate::executor::add_catalog_hint(
+            &mut base,
+            self.input.catalog_hints.get(&chunk.id).map(String::as_str),
+            chunk.start,
+        );
         let mut attempts = 0;
         for &(tier, model) in models {
             if self.is_exhausted(model) {
@@ -359,7 +376,9 @@ impl<T: Transport, C: ChunkCache> Shared<'_, T, C> {
                         self.transport.sleep(transient_backoff_ms(0)).await;
                         continue;
                     }
-                    Err(CallError::Transport(TransportError::Other(_))) => break,
+                    Err(CallError::Transport(
+                        TransportError::Other(_) | TransportError::Allowance(_),
+                    )) => break,
                     // The gateway refuses this model for the rest of the run;
                     // move down the ladder at once.
                     Err(CallError::Call(_)) if self.is_exhausted(model) => break,
@@ -682,7 +701,7 @@ fn choose(first: &ChunkResult, second: &Settled, missing_titles: &[String]) -> (
     (Chosen::Second, "tie; higher tier wins".into())
 }
 
-pub async fn run<T: Transport, C: ChunkCache>(
+pub async fn run<T: ModelExecutor, C: ChunkCache>(
     input: &RunInput<'_>,
     transport: &T,
     cache: &C,
@@ -1096,6 +1115,7 @@ mod tests {
             ladder,
             options,
             started: Timestamp::now(),
+            catalog_hints: Default::default(),
         }
     }
 
@@ -1768,5 +1788,36 @@ mod tests {
         );
         assert!(transport.calls() <= 2);
         assert!(out.escalation.is_none());
+    }
+    #[tokio::test]
+    async fn allowance_failure_stops_before_any_retry_or_fallback() {
+        struct Exhausted(std::sync::atomic::AtomicUsize);
+        impl ModelExecutor for Exhausted {
+            async fn execute(
+                &self,
+                _: crate::executor::ModelCall<'_>,
+                _: &CancelToken,
+            ) -> Result<crate::executor::Response, TransportError> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Err(TransportError::Allowance("test allowance exhausted".into()))
+            }
+            async fn sleep(&self, _: u64) {}
+        }
+        let (book, nav, chunks) = book();
+        let mut options = options(true, true);
+        options.concurrency = 1;
+        let input = input(
+            &book,
+            &nav,
+            &chunks,
+            ladder(&["claude-cli/opus", "codex-cli/gpt-5.6-sol"]),
+            &options,
+        );
+        let executor = Exhausted(std::sync::atomic::AtomicUsize::new(0));
+        let cancel = CancelToken::new();
+        let result = run(&input, &executor, &NoCache, &cancel, &mut |_| {}).await;
+        assert_eq!(executor.0.load(Ordering::SeqCst), 1);
+        assert!(result.cancelled);
+        assert!(cancel.failure().unwrap().contains("allowance"));
     }
 }

@@ -186,7 +186,7 @@ const TOOL_DESCRIPTION: &str =
     "Report the structure of the numbered source lines as line-number selections.";
 
 /// A decoded successful call.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallResult {
     /// The tool input, `None` when the model produced no tool call.
     pub input: Option<Value>,

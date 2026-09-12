@@ -34,7 +34,11 @@ function CallRow({ call }: { call: CallRecord }) {
       <span>{formatDuration(call.latency_ms)}</span>
       <span>{call.status ?? "—"}</span>
       <span>{call.cached ? "cached" : "live"}</span>
-      <span>{formatCost(call.cost_usd)}</span>
+      <span>
+        {call.billing === "subscription"
+          ? "subscription"
+          : formatCost(call.cost_usd)}
+      </span>
       <span
         className={call.outcome.outcome === "ok" ? "success" : "error-text"}
       >
@@ -73,7 +77,9 @@ export function Diagnostics({ report }: { report: RunReport }) {
             ["wall time", formatDuration(report.wall_ms)],
             [
               "total cost",
-              `${formatCost(report.total_cost_usd)}${report.cost_complete ? "" : " (incomplete: an unpriced model answered)"}`,
+              report.options.ladder.some((model) => model.includes("-cli/"))
+                ? "Subscription usage"
+                : `${formatCost(report.total_cost_usd)}${report.cost_complete ? "" : " (incomplete: an unpriced model answered)"}`,
             ],
             [
               "state",
@@ -120,7 +126,9 @@ export function Diagnostics({ report }: { report: RunReport }) {
               formatCount(usage.usage.input_tokens),
               formatCount(usage.usage.output_tokens),
               formatCount(usage.usage.cache_read_input_tokens),
-              formatCost(usage.cost_usd),
+              usage.model.includes("-cli/")
+                ? "Subscription usage"
+                : formatCost(usage.cost_usd),
             ],
           }))}
         />
@@ -156,6 +164,21 @@ export function Diagnostics({ report }: { report: RunReport }) {
           }))}
         />
       </section>
+      {report.catalog_id && (
+        <section className="card" aria-label="Catalog completeness">
+          <h2>Catalog completeness</h2>
+          <p className="caption">Catalog {report.catalog_id}</p>
+          {report.catalog_missing?.length ? (
+            <ul>
+              {report.catalog_missing.map((title) => (
+                <li key={title}>Missing: {title}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>All unambiguous catalog recipe titles were found.</p>
+          )}
+        </section>
+      )}
       <section className="card call-log" aria-label="Call log">
         <h2>Calls</h2>
         <div className="call-header">

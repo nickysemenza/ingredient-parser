@@ -439,7 +439,10 @@ pub fn catalog() -> &'static [Model] {
 
 /// Exact-id lookup.
 pub fn model(id: &str) -> Option<&'static Model> {
-    CATALOG.iter().find(|m| m.id == id)
+    CATALOG
+        .iter()
+        .chain(LOCAL_MODELS.iter())
+        .find(|m| m.id == id)
 }
 
 pub fn enabled() -> impl Iterator<Item = &'static Model> {
@@ -457,6 +460,37 @@ pub fn resolve_ladder(ids: &[String]) -> Result<Vec<&'static Model>, crate::Erro
     ids.into_iter()
         .map(|id| model(id).ok_or_else(|| crate::Error::UnknownModel(id.to_string())))
         .collect()
+}
+
+macro_rules! local_model {
+    ($id:literal, $label:literal, $provider:ident) => {
+        Model {
+            id: $id,
+            label: $label,
+            provider: Provider::$provider,
+            route: Route::OpenAiChat,
+            enabled: true,
+            reasoning: Reasoning::High,
+            status: "Uses CLI subscription; availability depends on login",
+            max_output_tokens: 16_000,
+            rates: None,
+            priors: UNMEASURED,
+            pricing_checked: "subscription",
+            pricing_source: "subscription",
+        }
+    };
+}
+static LOCAL_MODELS: &[Model] = &[
+    local_model!("claude-cli/opus", "Opus (Claude Code)", Anthropic),
+    local_model!("codex-cli/gpt-5.6-sol", "Sol (Codex)", OpenAi),
+    local_model!(
+        "codex-cli/gpt-6-astra",
+        "Astra (Codex, explicit selection)",
+        OpenAi
+    ),
+];
+pub fn local_models() -> &'static [Model] {
+    LOCAL_MODELS
 }
 
 #[cfg(test)]

@@ -14,6 +14,8 @@
 
 pub mod assemble;
 pub mod cache;
+#[cfg(feature = "native")]
+pub mod catalog;
 pub mod chunk;
 pub mod classify;
 pub mod contract;
@@ -24,7 +26,10 @@ mod error;
 pub mod eta;
 #[cfg(feature = "native")]
 pub mod eval;
+pub mod executor;
 pub mod gateway;
+#[cfg(feature = "native")]
+pub mod harness;
 pub mod library;
 pub mod lines;
 pub mod model;
@@ -55,12 +60,13 @@ use std::collections::BTreeMap;
 
 use jiff::Timestamp;
 
-use crate::cache::{ChunkCache, cache_key};
+use crate::cache::ChunkCache;
 use crate::chunk::{Chunk, ChunkOptions};
 use crate::contract::{CONTRACT_VERSION, build_request};
 use crate::epub::nav::Nav;
 use crate::epub::open::{Package, read_image, sha256_hex};
-use crate::gateway::{CallMeta, build_http};
+use crate::executor::{ModelCall, ModelExecutor};
+use crate::gateway::CallMeta;
 use crate::lines::BookLines;
 use crate::models::Model;
 use crate::parse::LineParser;
@@ -77,6 +83,9 @@ pub struct Book {
     chunks: Vec<Chunk>,
     cover: Option<ImageRef>,
     open_stages: Vec<StageTiming>,
+    #[cfg(feature = "native")]
+    catalog_entries: Vec<catalog::Entry>,
+    catalog_id: Option<String>,
 }
 
 impl Book {
@@ -130,6 +139,9 @@ impl Book {
             chunks,
             cover,
             open_stages: stages,
+            #[cfg(feature = "native")]
+            catalog_entries: vec![],
+            catalog_id: None,
         })
     }
 
@@ -179,6 +191,26 @@ impl Book {
         }
     }
 
+    fn catalog_hints(&self) -> BTreeMap<String, String> {
+        #[allow(unused_mut)]
+        let mut hints = BTreeMap::new();
+        #[cfg(feature = "native")]
+        for chunk in &self.chunks {
+            let entries: Vec<_> = self
+                .catalog_entries
+                .iter()
+                .filter(|e| e.start < chunk.end && e.end > chunk.start)
+                .collect();
+            if !entries.is_empty() {
+                hints.insert(
+                    chunk.id.clone(),
+                    serde_json::to_string(&entries).unwrap_or_default(),
+                );
+            }
+        }
+        hints
+    }
+
     /// Chunks the cache already answers for the ladder's first model.
     fn cache_hits(
         &self,
@@ -189,31 +221,30 @@ impl Book {
         let Some(primary) = ladder.first() else {
             return 0;
         };
+        let hints = self.catalog_hints();
         self.chunks
             .iter()
             .filter(|chunk| {
-                let request = build_request(chunk, &self.lines);
+                let mut request = build_request(chunk, &self.lines);
+                executor::add_catalog_hint(
+                    &mut request,
+                    hints.get(&chunk.id).map(String::as_str),
+                    chunk.start,
+                );
                 let meta = CallMeta {
                     cookbook: &options.label,
                     chunk: &chunk.id,
                     purpose: "extract",
                     gateway_cache: options.gateway_cache,
                 };
-                let http = build_http(
-                    primary,
-                    &request,
-                    options.max_output_tokens,
-                    &meta,
-                    models::effective_reasoning(primary, options),
-                );
-                cache
-                    .get(&cache_key(
-                        CONTRACT_VERSION,
-                        primary.id,
-                        primary.route.as_str(),
-                        &http.body,
-                    ))
-                    .is_some()
+                let call = ModelCall {
+                    model: primary,
+                    request: &request,
+                    max_tokens: options.max_output_tokens,
+                    meta,
+                    reasoning: models::effective_reasoning(primary, options),
+                };
+                cache.get(&call.cache_key(CONTRACT_VERSION)).is_some()
             })
             .count()
     }
@@ -237,6 +268,18 @@ impl Book {
         transport: &T,
         cache: &C,
         cancel: &CancelToken,
+        progress: impl FnMut(Progress) + report::MaybeSend,
+    ) -> Result<Extraction> {
+        self.extract_with_executor(options, transport, cache, cancel, progress)
+            .await
+    }
+
+    pub async fn extract_with_executor<T: ModelExecutor, C: ChunkCache>(
+        &self,
+        options: &ExtractOptions,
+        transport: &T,
+        cache: &C,
+        cancel: &CancelToken,
         mut progress: impl FnMut(Progress) + report::MaybeSend,
     ) -> Result<Extraction> {
         let started = Timestamp::now();
@@ -254,6 +297,7 @@ impl Book {
             ladder: ladder.clone(),
             options,
             started,
+            catalog_hints: self.catalog_hints(),
         };
         let output = run(&input, transport, cache, cancel, &mut progress).await;
         let mut stages = self.open_stages.clone();
@@ -301,6 +345,26 @@ impl Book {
             edges,
         };
 
+        #[allow(unused_mut)]
+        let mut catalog_missing = Vec::new();
+        #[cfg(feature = "native")]
+        for entry in &self.catalog_entries {
+            if matches!(
+                entry.kind,
+                contract::Kind::Recipe | contract::Kind::Variation
+            ) && !entry.uncertain
+            {
+                let title = self.lines.text(entry.title_line);
+                if !cookbook
+                    .chapters
+                    .iter()
+                    .flat_map(|c| &c.items)
+                    .any(|item| crosscheck::titles_match(item.title(), title))
+                {
+                    catalog_missing.push(title.to_string());
+                }
+            }
+        }
         let mut by_model: BTreeMap<String, ModelUsage> = BTreeMap::new();
         let mut cost_complete = true;
         for call in &output.calls {
@@ -334,6 +398,8 @@ impl Book {
             finished_at: finished.to_string(),
             book: self.source.clone(),
             options: options.clone(),
+            catalog_id: self.catalog_id.clone(),
+            catalog_missing,
             estimate,
             stages,
             calls: output.calls,
@@ -349,6 +415,9 @@ impl Book {
             incomplete: output.incomplete,
             cancelled: output.cancelled,
         };
+        if let Some(message) = cancel.failure() {
+            return Err(Error::Config(message));
+        }
         if output.cancelled {
             return Err(Error::Cancelled(Box::new(report)));
         }

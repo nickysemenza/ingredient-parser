@@ -35,6 +35,7 @@ pub struct ChunkRequest {
 
 /// What kind of titled item a selection describes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
     /// A titled item with at least one ingredient line.

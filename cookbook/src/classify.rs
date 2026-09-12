@@ -4,10 +4,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::cache::{CachedCall, ChunkCache, cache_key};
+use crate::cache::{CachedCall, ChunkCache};
 use crate::contract::ChunkRequest;
 use crate::crosscheck::nav_recipe_titles;
-use crate::gateway::{CallMeta, build_http, parse_response};
+use crate::executor::{ModelCall, ModelExecutor};
+use crate::gateway::CallMeta;
 use crate::models::Model;
 use crate::transport::{CancelToken, Transport};
 use crate::{Book, Usage};
@@ -183,9 +184,21 @@ pub async fn classify<T: Transport, C: ChunkCache>(
     cache: &C,
     cancel: &CancelToken,
 ) -> Classified {
+    classify_with_executor(book, model, transport, cache, cancel)
+        .await
+        .unwrap_or_else(|_| classify_structure(book))
+}
+
+pub async fn classify_with_executor<T: ModelExecutor, C: ChunkCache>(
+    book: &Book,
+    model: &Model,
+    transport: &T,
+    cache: &C,
+    cancel: &CancelToken,
+) -> Result<Classified, crate::TransportError> {
     let structural = classify_structure(book);
     if structural.classification != Classification::Ambiguous {
-        return structural;
+        return Ok(structural);
     }
     let request = classify_request(book);
     let meta = CallMeta {
@@ -196,18 +209,19 @@ pub async fn classify<T: Transport, C: ChunkCache>(
     };
     // A yes/no with a sentence of reason: no thinking, and room for the
     // answer even if the model pads it.
-    let http = build_http(model, &request, 1000, &meta, crate::models::Reasoning::Off);
-    let key = cache_key(
-        CLASSIFY_CONTRACT,
-        model.id,
-        model.route.as_str(),
-        &http.body,
-    );
+    let call = ModelCall {
+        model,
+        request: &request,
+        max_tokens: 1000,
+        meta,
+        reasoning: crate::models::Reasoning::Off,
+    };
+    let key = call.cache_key(CLASSIFY_CONTRACT);
     let response = match cache.get(&key) {
         Some(hit) => Some(hit.response),
-        None => match transport.send(http, cancel).await {
+        None => match transport.execute(call, cancel).await {
             Ok(r) => {
-                if r.is_success() {
+                if r.decode(model).is_ok() {
                     cache.put(
                         &key,
                         &CachedCall {
@@ -222,11 +236,11 @@ pub async fn classify<T: Transport, C: ChunkCache>(
                 }
                 Some(r)
             }
-            Err(_) => None,
+            Err(err) => return Err(err),
         },
     };
     let answered = response
-        .and_then(|r| parse_response(model.route, &r).ok())
+        .and_then(|r| r.decode(model).ok())
         .and_then(|call| call.input)
         .and_then(|input| from_answer(&input, model));
     match answered {
@@ -236,9 +250,9 @@ pub async fn classify<T: Transport, C: ChunkCache>(
             c.solid_runs = structural.solid_runs;
             c.nav_recipe_titles = structural.nav_recipe_titles;
             c.reasons.extend(structural.reasons);
-            c
+            Ok(c)
         }
-        None => structural,
+        None => Ok(structural),
     }
 }
 

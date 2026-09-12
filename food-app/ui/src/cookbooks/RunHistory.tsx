@@ -36,7 +36,10 @@ export function RunHistory({
                 <span className="caption">
                   {formatDate(run.started_at)} · {run.recipes} recipes ·{" "}
                   {run.items} items · recall {formatPercent(run.recall)} ·{" "}
-                  {formatCost(run.cost_usd)} · {formatDuration(run.wall_ms)}
+                  {run.ladder.some((model) => model.includes("-cli/"))
+                    ? "subscription"
+                    : formatCost(run.cost_usd)}{" "}
+                  · {formatDuration(run.wall_ms)}
                 </span>
                 <span className="caption">
                   {run.ladder.join(" → ") || "default ladder"}

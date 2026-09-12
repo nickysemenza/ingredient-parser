@@ -16,14 +16,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::cost::Usage;
-use crate::transport::HttpResponse;
+use crate::executor::Response;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CachedCall {
     pub key: String,
     pub model: String,
     pub contract: String,
-    pub response: HttpResponse,
+    pub response: Response,
     pub usage: Usage,
     /// RFC 3339.
     pub recorded_at: String,
@@ -125,11 +125,12 @@ mod tests {
             key: "k".into(),
             model: "m".into(),
             contract: "v1".into(),
-            response: HttpResponse {
+            response: crate::HttpResponse {
                 status: 200,
                 headers: vec![],
                 body: "{}".into(),
-            },
+            }
+            .into(),
             usage: Usage::default(),
             recorded_at: "2026-09-10T00:00:00Z".into(),
         };

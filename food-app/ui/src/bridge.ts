@@ -11,6 +11,11 @@ import type {
   OpenedBook,
   BookImage,
   GatewayStatus,
+  BackendOptions,
+  BackendStatus,
+  Catalog,
+  CatalogOptions,
+  CatalogProgress,
   Estimate,
   Extraction,
   Progress,
@@ -28,6 +33,11 @@ export type {
   OpenedBook,
   BookImage,
   GatewayStatus,
+  BackendOptions,
+  BackendStatus,
+  Catalog,
+  CatalogOptions,
+  CatalogProgress,
   Estimate,
   Extraction,
   Progress,
@@ -86,7 +96,28 @@ export const api = {
     call<LibraryBook[]>("scan_library", { directory }),
   /** Offline: the outline, the structural verdict, and this book's runs. */
   book: (path: string) => call<OpenedBook>("open_book", { path }),
-  estimate: (path: string) => call<Estimate>("estimate_book", { path }),
+  estimate: (path: string, options?: BackendOptions) =>
+    call<Estimate>("estimate_book", { path, options }),
+  backends: () => call<BackendStatus[]>("backend_statuses"),
+  catalogStatus: (path: string) =>
+    call<Catalog | null>("catalog_status", { path }),
+  catalogSource: (path: string, line: number) =>
+    call<string>("catalog_source", { path, line }),
+  catalog: (
+    paths: string[],
+    options: CatalogOptions,
+    progress: (value: CatalogProgress) => void,
+  ) => {
+    if (window.__FIXTURE_INVOKE__)
+      return call<Catalog[]>("catalog_books", {
+        paths,
+        options,
+        onProgress: { onmessage: progress },
+      });
+    const onProgress = new Channel<CatalogProgress>();
+    onProgress.onmessage = progress;
+    return call<Catalog[]>("catalog_books", { paths, options, onProgress });
+  },
   gateway: () => call<GatewayStatus>("gateway_status"),
   runs: () => call<RunSummary[]>("list_runs"),
   run: (path: string) => call<Extraction>("open_run", { path }),
@@ -96,15 +127,20 @@ export const api = {
     call<BookImage>("book_image", { book, image }),
   cover: (path: string) => call<BookImage | null>("load_cover", { path }),
   cancelExtraction: () => call<void>("cancel_extraction"),
-  extract: (path: string, progress: (value: Progress) => void) => {
+  extract: (
+    path: string,
+    progress: (value: Progress) => void,
+    options?: BackendOptions,
+  ) => {
     if (window.__FIXTURE_INVOKE__)
       return call<RunSummary>("extract_book", {
         path,
+        options,
         onProgress: { onmessage: progress },
       });
     const onProgress = new Channel<Progress>();
     onProgress.onmessage = progress;
-    return call<RunSummary>("extract_book", { path, onProgress });
+    return call<RunSummary>("extract_book", { path, options, onProgress });
   },
 };
 export async function pick(kind: "epub" | "directory") {

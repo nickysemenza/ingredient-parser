@@ -59,6 +59,8 @@ pub enum TransportError {
     Connect,
     #[error("cancelled")]
     Cancelled,
+    #[error("allowance exhausted: {0}")]
+    Allowance(String),
     #[error("{0}")]
     Other(String),
 }
@@ -70,6 +72,7 @@ impl TransportError {
             TransportError::Connect => "connect",
             TransportError::Cancelled => "cancelled",
             TransportError::Other(_) => "other",
+            TransportError::Allowance(_) => "allowance",
         }
     }
 }
@@ -97,6 +100,7 @@ pub struct CancelToken(Arc<Inner>);
 struct Inner {
     cancelled: AtomicBool,
     wakers: Mutex<Vec<Waker>>,
+    failure: Mutex<Option<String>>,
 }
 
 impl CancelToken {
@@ -110,6 +114,23 @@ impl CancelToken {
         for waker in wakers {
             waker.wake();
         }
+    }
+
+    pub fn fail(&self, message: String) {
+        let mut failure = self.0.failure.lock().unwrap_or_else(|e| e.into_inner());
+        if failure.is_none() {
+            *failure = Some(message);
+        }
+        drop(failure);
+        self.cancel();
+    }
+
+    pub fn failure(&self) -> Option<String> {
+        self.0
+            .failure
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn is_cancelled(&self) -> bool {

@@ -176,3 +176,117 @@ retry bodies.
 - Cubby consumes `cookbook::wasm` through its `recipebridge` crate; its
   server is a signed forwarder that adds the gateway key to the request the
   crate built.
+
+## Local subscription backends
+
+The CLI and native desktop app can run the **unmodified, installed Claude Code
+or Codex CLI**, signed in through that CLI's own subscription login. Credentials
+are never copied into this application. Finder-launched Tauri also checks
+`~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin` for the executables.
+`cookbook models --format json` retains its model array and includes local model
+entries with readiness information. Availability still depends on your account.
+
+```sh
+food-cli cookbook extract BOOK.epub --backend claude-cli --model opus
+food-cli cookbook extract BOOK.epub --backend codex-cli --model gpt-5.6-sol
+food-cli cookbook extract BOOK.epub --backend codex-cli --model gpt-6-astra
+food-cli cookbook estimate BOOK.epub --backend claude-cli
+```
+
+Gateway remains the default. Local backends use one selected model, high effort,
+and one concurrent call by default. Validation can request a corrected answer
+from that same model. **Reported allowance exhaustion terminates the job; it
+never switches models, accounts, credentials, or backends, purchases credits,
+consumes resets, or waits for a quota reset.** Completed response-cache entries
+remain reusable on manual retry. Model/CLI errors surface as job errors.
+Subscription limits reported as throttling are handled conservatively as terminal.
+
+Subscription usage is not a `$0` API call. Token counts and the actual model
+(where exposed by the harness) are recorded; dollar costs are unknown. Provider
+account settings can allow paid credits before a harness reports exhaustion.
+This application does not change those settings or promise to prevent such
+provider-managed billing. Use `--max-books`, not `--max-cost`, for subscription
+library sweeps. CLI configuration and unrelated tools are isolated per call;
+Claude's `--bare` is deliberately avoided because it disables subscription login.
+
+New executor dumps include the neutral request and structured response under
+`executor-calls/`; old HTTP dumps and cache entries remain readable. Replay must
+use the original backend/model and extraction settings, and never authenticates
+or runs a live model.
+
+## Structural catalogs (experimental)
+
+A catalog is a full-source structural map: recipe boundaries, variations,
+continuations, chapter references, non-recipe regions, reference candidates,
+layout observations, and unresolved concerns. It does not replace extraction,
+train the ingredient parser, or become an evaluation answer key.
+
+```sh
+food-cli cookbook catalog BOOK.epub                         # Opus, no auditor
+food-cli cookbook catalog ~/Calibre --dry-run              # no model calls
+food-cli cookbook catalog ~/Calibre --only dessert --max-books 3
+food-cli cookbook catalog BOOK.epub --auditor codex-cli/gpt-5.6-sol
+food-cli cookbook extract BOOK.epub --backend claude-cli --use-catalog
+```
+
+Tauri exposes the same actions on an opened book and on books selected in the
+library. Opus is the default reader. Sol audits uncertain regions only when
+selected. Astra is never chosen automatically. Both required logins are checked
+before an audited job starts. If the auditor exhausts its allowance, the job
+fails and retains its primary-reader checkpoints; it is not silently published
+as unaudited.
+
+Maps are saved beside `runs/` in `catalogs/<epub-sha>/`, with cleaned-source and
+contract fingerprints. Every successful window is checkpointed atomically.
+Repeating the same operation resumes it; `--force` archives the prior map and
+rebuilds from reusable request caches. Model observations retain source line
+references; conflicting candidates remain visible as uncertain. The desktop
+map inspector opens nearby source text for each mapped item.
+
+Catalog use is **opt-in pending measured quality improvement**. A compatible
+finished map can guide chunk boundaries and provide per-chunk evidence across
+any backend. Every source line is still processed and the source takes
+precedence over catalog hints. Stale, failed, and missing maps never trigger
+automatic regeneration; extraction proceeds without them. Run reports record
+the catalog ID and missing unambiguous catalog titles independently of the
+existing contents-based recall score.
+
+### Reproducible backend comparison
+
+Generate three independently authored fixture books and answer keys:
+
+```sh
+cargo run -p cookbook --example catalog_fixtures -- /tmp/catalog-eval
+COOKBOOK_RUNS_DIR=/tmp/catalog-eval/runs food-cli cookbook eval \
+  --expectations /tmp/catalog-eval/expectations --backend claude-cli \
+  --out /tmp/catalog-eval/baseline.json
+COOKBOOK_RUNS_DIR=/tmp/catalog-eval/runs food-cli cookbook catalog /tmp/catalog-eval
+COOKBOOK_RUNS_DIR=/tmp/catalog-eval/runs food-cli cookbook eval \
+  --expectations /tmp/catalog-eval/expectations --backend claude-cli --use-catalog \
+  --out /tmp/catalog-eval/guided.json
+```
+
+Compare recall, phantoms, leaks, ingredient/step counts, coverage, and elapsed
+time. Include the catalog windows' usage and construction time when judging
+upfront cost. Passing synthetic fixtures does not establish quality across the
+full real-book evaluation library.
+
+### Initial live validation (2026-09-12)
+
+On the independently authored `split-spine` fixture, Sol extraction passed with
+and without an Opus catalog: 100% title recall, sample accuracy, and line
+coverage, with no phantoms or leaks. The successful baseline took 18.7 seconds;
+the guided run took 15.3 seconds, plus 24.6 seconds to build the Opus catalog.
+These single runs establish functionality, not a quality or speed improvement.
+The catalog retained its ambiguous sidebar classification as uncertain. A saved
+Sol executor dump also replayed successfully without model calls.
+
+Native macOS QA verified CLI readiness, the saved catalog's resume action, and
+source-line inspection. Opus cataloging succeeded, but direct index-based
+recipe extraction received an Opus 5 provider refusal (`reasoning_extraction`)
+on this fixture. The application surfaced the refusal and kept Claude selected;
+it did not switch to Sol or Gateway. Catalog guidance remains opt-in, and Opus
+extraction availability must not be inferred from successful cataloging.
+
+The optional Sol audit also completed on the uncertain window, reusing the
+primary Opus response from cache and preserving the map's unresolved concerns.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CatalogPanel } from "./Catalog";
 import { BookOpen, FolderOpen, Grid2x2, List, Search } from "lucide-react";
 import { api, pick, type LibraryBook } from "../bridge";
 import { useStored } from "../components";
@@ -48,7 +49,11 @@ export function Library({
   onDirectory,
   onOpenBook,
   onOpenFile,
+  onError,
+  onBusy,
 }: {
+  onError: (message: string) => void;
+  onBusy: (busy: boolean) => void;
   books: LibraryBook[];
   directory: string;
   loading: boolean;
@@ -56,6 +61,12 @@ export function Library({
   onOpenBook: (path: string) => void;
   onOpenFile: () => void;
 }) {
+  const [selected, setSelected] = useState<string[]>([]);
+  useEffect(() => {
+    setSelected((paths) =>
+      paths.filter((path) => books.some((book) => book.path === path)),
+    );
+  }, [books]);
   const [grid, setGrid] = useStored("v1:library-grid", false);
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLowerCase();
@@ -103,9 +114,28 @@ export function Library({
           ? "Scanning…"
           : `${shown.length} of ${books.length} book${books.length === 1 ? "" : "s"}`}
       </p>
+      <CatalogPanel
+        paths={selected.filter((path) =>
+          books.some((book) => book.path === path),
+        )}
+        onError={onError}
+        onBusy={onBusy}
+      />
       <div className={`library-books scroll ${grid ? "grid" : ""}`}>
         {shown.map((book) => (
           <div className="library-entry" key={book.path}>
+            <input
+              type="checkbox"
+              aria-label={`Select ${book.title} for catalog`}
+              checked={selected.includes(book.path)}
+              onChange={(event) =>
+                setSelected((current) =>
+                  event.target.checked
+                    ? [...current, book.path]
+                    : current.filter((path) => path !== book.path),
+                )
+              }
+            />
             <button
               onClick={() => onOpenBook(book.path)}
               disabled={Boolean(book.error)}

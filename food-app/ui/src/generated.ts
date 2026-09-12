@@ -29,6 +29,31 @@ export type GatewayStatus = { configured: boolean, baseUrl: string | null,
  * The file the app reads when launched outside a shell.
  */
 configPath: string | null, cacheDir: string | null, runsDir: string | null, ladder: Array<string>, error: string | null, };
+export type BackendOptions = {
+/**
+ * gateway, claude-cli, or codex-cli.
+ */
+backend: string, model: string | null,
+/**
+ * Catalog guidance remains opt-in until its quality gate is measured.
+ */
+use_catalog: boolean, };
+export type BackendStatus = { backend: string, ready: boolean, executable: string | null, error: string | null, models: Array<string>, };
+export type Catalog = { id: string, contract: string, source_sha: string, fingerprint: string, title: string, reader: string, auditor: string | null,
+/**
+ * building, complete, uncertain, failed; stale is computed on lookup.
+ */
+status: string, error: string | null, updated_at: string, windows: Array<WindowRecord>, entries: Array<Entry>, concerns: Array<string>, };
+export type CatalogOptions = { reader: string, auditor: string | null, force: boolean, };
+export type CatalogProgress = { book: string, done: number, total: number, phase: string, };
+export type WindowRecord = { start: number, end: number, map: WindowMap, audited: boolean, actual_model: string | null, audit_model: string | null, usage: Usage, wall_ms: number, };
+export type WindowMap = { entries: Array<Entry>, concerns: Array<string>, };
+export type Entry = { kind: Kind, title_line: number, start: number,
+/**
+ * Exclusive end of the observed range, not a guess about unseen text.
+ */
+end: number, parent_title_line: number | null, chapter_line: number | null, continues_before: boolean, continues_after: boolean, reference_lines: Array<number>, layout: string, uncertain: boolean, };
+export type Kind = "recipe" | "variation" | "technique" | "essay";
 export type RunSummary = { path: string, run_id: string, book: string, sha256: string, started_at: string, ladder: Array<string>, recipes: number, items: number, recall: number | null, cost_usd: number, wall_ms: number, incomplete: boolean, };
 export type Classified = { classification: Classification,
 /**
@@ -246,7 +271,7 @@ export type Span = { start: number,
  * Exclusive.
  */
 end: number, doc_path: string, page: string | null, };
-export type RunReport = { run_id: string,
+export type RunReport = { catalog_missing: Array<string>, catalog_id: string | null, run_id: string,
 /**
  * RFC 3339.
  */
@@ -295,7 +320,7 @@ gateway_cache: boolean,
  */
 reasoning: Reasoning | null, };
 export type StageTiming = { stage: Phase, ms: number, };
-export type CallRecord = { seq: number, chunk_id: string, model: string,
+export type CallRecord = { actual_model: string | null, billing: string, seq: number, chunk_id: string, model: string,
 /**
  * Position of `model` in the ladder.
  */

@@ -98,6 +98,8 @@ test.beforeEach(async ({ page }) => {
       if (command === "scan_library") return data.library;
       if (command === "open_book") return data.book;
       if (command === "estimate_book") return data.estimate;
+      if (command === "backend_statuses") return [];
+      if (command === "catalog_status") return null;
       if (command === "gateway_status")
         return { ...data.gateway, configured: true, error: null };
       if (command === "list_runs") return data.runs;
@@ -503,5 +505,64 @@ test("parser failure evidence belongs to the selected failure input", async ({
   await page.screenshot({
     path: "test-results/parser-failure.png",
     fullPage: true,
+  });
+});
+
+test("subscription backend is usable without gateway and remains selected after quota error", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const host = window as unknown as {
+      __FIXTURE_INVOKE__: (
+        command: string,
+        args?: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
+    const original = host.__FIXTURE_INVOKE__;
+    host.__FIXTURE_INVOKE__ = async (command, args) => {
+      if (command === "extract_book") {
+        (
+          window as unknown as { __calls: { command: string; args: unknown }[] }
+        ).__calls.push({ command, args });
+        throw new Error("Allowance exhausted; retry after reset");
+      }
+      const value = await original(command, args);
+      if (command === "backend_statuses")
+        return [
+          {
+            backend: "claude-cli",
+            ready: true,
+            executable: "/test/claude",
+            models: ["opus"],
+            error: null,
+          },
+        ];
+      if (command === "gateway_status")
+        return { ...(value as object), configured: false };
+      return value;
+    };
+  });
+  await page.goto("/");
+  await openCookbooks(page);
+  await page.locator(".library-entry > button").first().click();
+  await page.getByLabel("Backend", { exact: true }).selectOption("claude-cli");
+  await expect(
+    page.getByRole("button", { name: "Extract", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Extract", exact: true }).click();
+  await expect(
+    page.getByText(/Allowance exhausted; retry after reset/),
+  ).toBeVisible();
+  await expect(page.getByLabel("Backend", { exact: true })).toHaveValue(
+    "claude-cli",
+  );
+  const invoked = (await calls(page)).filter(
+    (call) => call.command === "extract_book",
+  );
+  expect(invoked).toHaveLength(1);
+  expect(invoked[0].args.options).toEqual({
+    backend: "claude-cli",
+    model: "opus",
+    use_catalog: false,
   });
 });
