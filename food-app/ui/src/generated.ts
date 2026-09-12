@@ -100,6 +100,17 @@ active_models: Array<string>, };
 export type Phase = "open" | "clean" | "nav" | "chunk" | "extract" | "crosscheck" | "second_opinion" | "escalation" | "assemble" | "refs" | "names" | "parse" | "done";
 export type Eta = { remaining_low_ms: number, remaining_high_ms: number, projected_cost_usd: number, };
 export type Extraction = { cookbook: Cookbook, report: RunReport, };
+export type BundleExport = { path: string, manifest: BundleManifest, };
+export type BundleManifest = { format: string, version: number, extraction: string, preview: string, source_sha256: string, run_id: string, incomplete: boolean, images: Array<BundleImage>, };
+export type BundleImage = {
+/**
+ * Original ImageRef.path, preserved verbatim in extraction.json.
+ */
+source_path: string,
+/**
+ * Relative path inside this bundle; aliases share this path.
+ */
+path: string, mime: string, sha256: string, bytes: number, };
 export type Cookbook = {
 /**
  * The model contract version that produced this tree (`CONTRACT_VERSION`).

@@ -94,10 +94,12 @@ fn main() -> Result<()> {
         inspections.insert(input, serde_json::to_value(value)?);
     }
 
+    let bundle = food_app::backend::export_bundle(summary.path.clone(), book_string)?;
     let frontend = serde_json::json!({
         "book": book,
         "estimate": estimate,
         "extraction": extraction,
+        "bundle": bundle,
         "runs": runs,
         "library": library,
         "gateway": food_app::backend::gateway_status(),
@@ -113,7 +115,7 @@ fn main() -> Result<()> {
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
             "epub": epub_path, "run": summary.path, "frontend": frontend_path,
-            "recipes": summary.recipes, "items": summary.items,
+            "recipes": summary.recipes, "items": summary.items, "bundle": bundle.path,
         }))?
     );
     Ok(())

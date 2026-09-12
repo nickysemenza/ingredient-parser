@@ -104,6 +104,7 @@ test.beforeEach(async ({ page }) => {
         return { ...data.gateway, configured: true, error: null };
       if (command === "list_runs") return data.runs;
       if (command === "open_run") return data.extraction;
+      if (command === "export_bundle") return data.bundle;
       if (command === "book_image")
         return { path: String(args?.image), dataUrl: pixel };
       if (command === "load_cover")
@@ -565,4 +566,42 @@ test("subscription backend is usable without gateway and remains selected after 
     model: "opus",
     use_catalog: false,
   });
+});
+
+test("exports a saved run using its library source without extraction", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 800, height: 560 });
+  await page.goto("/");
+  await openSavedRun(page);
+  await page
+    .getByRole("button", { name: "Export bundle", exact: true })
+    .click();
+  await expect(
+    page.getByText(`Exported ${fixture.bundle.path}`, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: bookTitle, exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  const recorded = await calls(page);
+  expect(recorded.filter((call) => call.command === "export_bundle")).toEqual([
+    {
+      command: "export_bundle",
+      args: { run: savedRun.path, book: fixture.book.path },
+    },
+  ]);
+  expect(recorded.some((call) => call.command === "extract_book")).toBe(false);
+  await page.getByRole("button", { name: "Reveal bundle in Finder" }).click();
+  expect(
+    (await calls(page)).some(
+      (call) =>
+        call.command === "reveal_file" &&
+        call.args.path === fixture.bundle.path,
+    ),
+  ).toBe(true);
 });

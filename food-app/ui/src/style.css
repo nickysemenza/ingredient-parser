@@ -1514,3 +1514,15 @@ details.card > summary {
   padding: 12px;
   background: var(--evidence);
 }
+
+.bundle-export {
+  flex: none;
+  min-width: 0;
+}
+.bundle-export .actions {
+  flex-wrap: wrap;
+}
+.bundle-export [role="status"] {
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+}

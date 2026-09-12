@@ -20,6 +20,7 @@ import type {
   Extraction,
   Progress,
   RunSummary,
+  BundleExport,
 } from "./generated";
 /** The generated DTOs the workspaces name; the file itself stays the contract. */
 export type {
@@ -43,6 +44,7 @@ export type {
   Progress,
   Eta,
   RunSummary,
+  BundleExport,
   RunReport,
   CallRecord,
   CallOutcome,
@@ -121,6 +123,8 @@ export const api = {
   gateway: () => call<GatewayStatus>("gateway_status"),
   runs: () => call<RunSummary[]>("list_runs"),
   run: (path: string) => call<Extraction>("open_run", { path }),
+  exportBundle: (run: string, book: string) =>
+    call<BundleExport>("export_bundle", { run, book }),
   deleteRun: (path: string) => call<void>("delete_run", { path }),
   /** One archive image of `book` (an EPUB path), as a data URL. */
   image: (book: string, image: string) =>

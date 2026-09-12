@@ -290,3 +290,52 @@ extraction availability must not be inferred from successful cataloging.
 
 The optional Sol audit also completed on the uncertain window, reusing the
 primary Opus response from cache and preserving the map's unresolved concerns.
+
+## Portable cookbook bundles
+
+Export a saved run without making model calls:
+
+```sh
+cargo run -p food-cli -- cookbook export RUN.json --book BOOK.epub
+cargo run -p food-cli -- cookbook export RUN.json --book BOOK.epub --out reviewed.cookbook.zip --format json
+```
+
+The default is `<book-title>--<run-id>.cookbook.zip` beside the saved run, with
+filesystem-safe name components. The source EPUB must match the SHA-256 recorded
+in both the tree and the run report. Missing referenced images are errors. The
+output is replaced atomically only when the entire export succeeds; the run and
+EPUB cannot be used as output paths. Exporting leaves the saved run unchanged.
+
+Unzip the bundle and open **index.html** in a browser to spot-check every recipe
+and photograph offline. The page includes chapter navigation, recipe-reference
+links, ingredients, instructions, notes, source pages, techniques, essays, and
+quality diagnostics. It is generated from the same extraction.json in the bundle,
+uses relative image links and embedded styling, and makes no network requests.
+Incomplete or cancelled saved runs remain explicitly marked incomplete; export
+never tries to finish them or run models. Browsers must support the original
+image format to display it; source image bytes are preserved without conversion.
+
+### Version 1 archive contract
+
+- `manifest.json`: `format: "cookbook-bundle"`, `version: 1`, `extraction:
+  "extraction.json"`, `preview: "index.html"`, `source_sha256`, `run_id`,
+  `incomplete`, and an `images` array.
+- Each image entry contains `source_path` (the original `ImageRef.path`), `path`
+  (its bundle-relative filename), `mime`, `sha256`, and `bytes` (byte length).
+  Multiple source paths can map to one asset when their contents are identical.
+- `images/<sha256>.<extension>` contains every referenced cover or item image.
+  Image bytes are preserved; conflicting MIME declarations are rejected.
+- `extraction.json` is the existing `{ cookbook, report }` saved-run format,
+  including all source metadata, structured ingredients, and references. Its
+  image paths stay unchanged; consumers resolve them through the manifest.
+- `index.html` is for human review. Consumers read the JSON, not the HTML.
+
+The bundle version is independent of the cookbook extraction contract. There is
+no original EPUB, source XHTML, credential configuration, or model request dump
+in the archive. All archive filenames are exporter-generated; original image
+paths are metadata only.
+
+The desktop saved-run view has **Export bundle**, backed by the same Rust
+exporter. It locates the EPUB through the library's source-hash mapping, asks for
+it when unavailable, and offers **Reveal bundle in Finder** after export. If the
+source was moved or changed, **Choose source EPUB** reconnects the correct file.

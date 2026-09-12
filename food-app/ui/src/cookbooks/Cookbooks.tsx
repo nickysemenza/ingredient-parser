@@ -18,6 +18,7 @@ import { BookPanel } from "./Extract";
 import { BookTree, ItemView } from "./BookTree";
 import { Diagnostics } from "./Diagnostics";
 import { Library } from "./Library";
+import { ExportBundle } from "./ExportBundle";
 import { RunHistory } from "./RunHistory";
 import { allItems, formatCost, formatDuration, formatEta } from "./format";
 
@@ -116,9 +117,10 @@ export function Cookbooks({
   const [view, setView] = useState<View>({ kind: "library" });
   const [extracting, setExtracting] = useState(false);
   const [cataloging, setCataloging] = useState(false);
+  const [exporting, setExporting] = useState(false);
   useEffect(() => {
-    onBusy(extracting || cataloging);
-  }, [extracting, cataloging, onBusy]);
+    onBusy(extracting || cataloging || exporting);
+  }, [extracting, cataloging, exporting, onBusy]);
   const [progress, setProgress] = useState<Progress | null>(null);
   const scanned = useRef(false);
   /** Runs do not carry their EPUB path; the library and opened books do. */
@@ -278,6 +280,7 @@ export function Cookbooks({
           <button
             className="back"
             aria-label="Back to library"
+            disabled={exporting}
             onClick={() => setView({ kind: "library" })}
           >
             <ArrowLeft size={15} />
@@ -300,12 +303,13 @@ export function Cookbooks({
                 Reveal in Finder
               </button>
               <button
-                disabled={!bookPath}
+                disabled={!bookPath || exporting}
                 onClick={() => bookPath && openBook(bookPath)}
               >
                 Re-extract
               </button>
               <button
+                disabled={exporting}
                 onClick={() =>
                   void removeRun(
                     view.path,
@@ -319,6 +323,15 @@ export function Cookbooks({
           </div>
         )}
       </header>
+      {view.kind === "run" && (
+        <ExportBundle
+          key={view.path}
+          runPath={view.path}
+          sourcePath={bookPath}
+          onBusy={setExporting}
+          onError={onError}
+        />
+      )}
       {view.kind === "library" ? (
         <>
           <Library

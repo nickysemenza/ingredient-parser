@@ -554,6 +554,11 @@ pub fn list_runs() -> AppResult<Vec<RunSummary>> {
     runs::list().map_err(|e| e.to_string())
 }
 
+pub fn export_bundle(run: String, book: String) -> AppResult<cookbook::bundle::BundleExport> {
+    cookbook::bundle::export(Path::new(&run), Path::new(&book), None)
+        .map_err(|error| error.to_string())
+}
+
 pub fn open_run(path: String) -> AppResult<Extraction> {
     runs::load(Path::new(&path)).map_err(|e| format!("Cannot open run {path}: {e}"))
 }
@@ -647,6 +652,9 @@ fn bindings() -> Vec<(String, Vec<String>)> {
         entry::<cookbook::Phase>(&cfg),
         entry::<cookbook::Eta>(&cfg),
         entry::<Extraction>(&cfg),
+        entry::<cookbook::bundle::BundleExport>(&cfg),
+        entry::<cookbook::bundle::BundleManifest>(&cfg),
+        entry::<cookbook::bundle::BundleImage>(&cfg),
         entry::<cookbook::Cookbook>(&cfg),
         entry::<cookbook::BookSource>(&cfg),
         entry::<cookbook::Chapter>(&cfg),

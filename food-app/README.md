@@ -48,8 +48,11 @@ frontend calls a model.
   **Diagnostics** tab carries the run summary and crosscheck, stage timings,
   usage by model, the chunk table (failed and flagged first), the full call log,
   unresolved references, the ETA trace, and the raw report.
+- **Export bundle** on a saved run packages the full extraction, all referenced
+  images, and an offline HTML review page. It uses the same native exporter as
+  `food-cli cookbook export`; see [the format](../docs/cookbook.md#portable-cookbook-bundles).
 - **Run history** lists every saved run, newest first, and can open or delete
-  one. Deletion is the only write the workspace performs.
+  one. Export never modifies a saved run or calls a model.
 
 ## Offline fixtures
 
@@ -61,7 +64,7 @@ The generator writes a real EPUB, extracts it through the production pipeline
 with an in-process oracle transport (no paid model calls), saves the run under
 `/tmp/food-app-qa/runs` by pointing the run store there with `COOKBOOK_RUNS_DIR`,
 and writes `frontend-fixture.json`. The Playwright bridge answers every command
-from that bundle: `book`, `estimate`, `extraction`, `runs`, `library`,
+from that bundle: `book`, `estimate`, `extraction`, `bundle`, `runs`, `library`,
 `gateway`, `ingredients`, `inspections`, `corpus`, `webRecipe`,
 `scaledWebRecipe`.
 

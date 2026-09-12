@@ -16,6 +16,7 @@ description = "Extract a structured recipe tree from an EPUB cookbook via Cloudf
 default = ["native"]
 native = [
     "dep:reqwest",
+    "dep:maud",
     "dep:tempfile",
     "dep:tokio",
     "dep:directories",
@@ -59,6 +60,7 @@ sha2 = "0.11"
 regex = "1.10"
 
 # native
+maud = { version = "0.27", optional = true }
 tempfile = { version = "3", optional = true }
 reqwest = { version = "0.13", features = ["json"], optional = true }
 tokio = { workspace = true, features = ["time", "process", "io-util"], optional = true }

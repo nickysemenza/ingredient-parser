@@ -134,6 +134,13 @@ async fn open_run(path: String) -> Result<cookbook::Extraction, String> {
     blocking(move || service::open_run(path)).await
 }
 #[tauri::command]
+async fn export_bundle(
+    run: String,
+    book: String,
+) -> Result<cookbook::bundle::BundleExport, String> {
+    blocking(move || service::export_bundle(run, book)).await
+}
+#[tauri::command]
 async fn delete_run(path: String) -> Result<(), String> {
     blocking(move || service::delete_run(path)).await
 }
@@ -351,6 +358,7 @@ pub fn run() -> tauri::Result<()> {
             catalog_books,
             list_runs,
             open_run,
+            export_bundle,
             delete_run,
             book_image,
             load_cover,

@@ -75,6 +75,15 @@ pub enum Command {
         #[command(flatten)]
         flags: RunFlags,
     },
+    /// Export a saved extraction, all images, and an offline HTML preview.
+    Export {
+        run: PathBuf,
+        /// The source EPUB whose hash matches the saved run.
+        #[arg(long)]
+        book: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// How one item came to be: its lines, chunk, calls, and references.
     Explain {
         run: PathBuf,
@@ -431,6 +440,16 @@ fn emit(value: &Value, json: bool) {
 /// Run one command. Returns the process exit code.
 pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
     match command {
+        Command::Export { run, book, out } => {
+            let exported = cookbook::bundle::export(&run, &book, out.as_deref())?;
+            if json {
+                emit(&serde_json::to_value(&exported)?, true);
+            } else {
+                println!("Exported {}", exported.path);
+            }
+            Ok(0)
+        }
+
         Command::Catalog {
             path,
             reader,

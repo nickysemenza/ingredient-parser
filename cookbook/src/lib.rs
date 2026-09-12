@@ -13,6 +13,8 @@
 //! callback.
 
 pub mod assemble;
+#[cfg(feature = "native")]
+pub mod bundle;
 pub mod cache;
 #[cfg(feature = "native")]
 pub mod catalog;
