@@ -11,6 +11,8 @@ use rstest::rstest;
 #[case("2 cups flour", "• 2 cups flour")]
 #[case("2 cups chopped onions", "chopped onions — 2 cups")]
 #[case("1/3-2/3 cup flour", "⅓–⅔ cup flour")]
+#[case("1 pound ground pork (450g)", "1 pound ground pork ((450g))")]
+#[case("(1 egg)", "((1 egg))")]
 fn equivalent_spellings_preserve_semantics(#[case] left: &str, #[case] right: &str) {
     assert_eq!(from_str(left), from_str(right), "{left:?} versus {right:?}");
 }
