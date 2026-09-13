@@ -17,8 +17,9 @@
 //!
 //! Follow the first incorrect interpretation and fix its owning module:
 //!
-//! - [`normalize`] handles textual artifacts: whitespace, list bullets, and
-//!   footnote glyphs. Each edit retains its authored occurrence mapping.
+//! - [`normalize`] handles textual artifacts: whitespace, list bullets,
+//!   footnote glyphs, and doubled parenthetical wrappers. Each edit retains its
+//!   authored occurrence mapping.
 //! - [`recognize`] describes composable whole-line shapes, including trailing
 //!   amounts, optional wrappers, and derived components.
 //! - [`measurement`] and [`vocab`] own units, qualifiers, and configured

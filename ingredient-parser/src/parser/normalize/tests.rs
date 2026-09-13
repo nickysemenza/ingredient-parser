@@ -55,9 +55,32 @@ fn test_strip_leading_bullet(#[case] input: &str, #[case] expected: &str) {
 }
 
 #[rstest]
+// A redundant layer wrapping the whole parenthetical is collapsed.
+#[case::doubled("1 pound ground pork ((450g))", "1 pound ground pork (450g)")]
+#[case::tripled("flour (((sifted)))", "flour (sifted)")]
+#[case::inner_whitespace("onion ( (150g) )", "onion ( 150g )")]
+#[case::two_spans("a ((b)) c ((d))", "a (b) c (d)")]
+#[case::whole_line("((1 egg))", "(1 egg)")]
+// The inner parens do not span the whole content → not redundant.
+#[case::alternatives("flour ((a) or (b))", "flour ((a) or (b))")]
+#[case::siblings("flour (1 cup) (120g)", "flour (1 cup) (120g)")]
+// Single layer and unbalanced input are untouched; an empty layer still peels.
+#[case::single("1 pound ground pork (450g)", "1 pound ground pork (450g)")]
+#[case::unbalanced("1 pound ground pork ((450g)", "1 pound ground pork ((450g)")]
+#[case::empty_inner("flour (())", "flour ()")]
+fn test_collapse_doubled_parens(#[case] input: &str, #[case] expected: &str) {
+    assert_eq!(
+        collapse_doubled_parens(input).as_ref(),
+        expected,
+        "input: {input}"
+    );
+}
+
+#[rstest]
 #[case("\t2\tcups\nflour\r\n", "2 cups flour")]
 #[case("•\t½\u{a0}cup\nflour①", "½ cup flour")]
 #[case("flour (optional) (see page 12)", "flour (optional) (see page 12)")]
+#[case("1 pound ground pork ((450g))", "1 pound ground pork (450g)")]
 #[case(
     "2 batches of filling (2 pounds in total)",
     "2 batches of filling (2 pounds in total)"

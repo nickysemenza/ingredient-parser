@@ -92,6 +92,13 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- Doubled parenthetical wrappers, as emitted by WP Recipe Maker when an
+  authored note already has parens (`1 pound ground pork ((450g))`), are
+  collapsed during normalization. The wrapped amount, `(optional)` marker, or
+  `(see note)` reference now resolves as it does single-wrapped instead of
+  landing verbatim in the modifier (`((450g))` previously dropped the gram
+  amount; `holy basil leaves ((about 1 1/2 cups packed))` parsed with no
+  amount at all).
 - A leading multiplier (`N x`) applied to a *ranged* quantity now scales **both**
   bounds: `3 x 100-120 g` is `300-360 g` (previously only the lower bound scaled,
   yielding a nonsensical `120-300 g` after the range was reordered).

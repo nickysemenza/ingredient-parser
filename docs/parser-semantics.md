@@ -34,7 +34,9 @@ not infer a food ontology or expose its private structural representation.
   the named ingredient. Parenthetical amounts within an explicit alternative
   stay with that alternative.
 - Decomposition attributes actual consumed source occurrences. Text normalization
-  carries mappings to the authored line. Discarded reference numbers have no
+  carries mappings to the authored line. A redundant paren layer that wraps an
+  entire parenthetical (`((450g))`, `((optional))`) is a text artifact and is
+  collapsed before interpretation; `((a) or (b))` is not redundant and is kept. Discarded reference numbers have no
   amount attribution; identical words in different positions are not
   interchangeable evidence.
 - Ingredient, usage, notes, decomposition, and diagnostics must agree across

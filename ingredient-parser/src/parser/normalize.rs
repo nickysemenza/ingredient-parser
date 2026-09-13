@@ -1,10 +1,13 @@
 //! Text-artifact normalization with occurrence-level source mappings.
 //!
 //! Only typography and extraction artifacts belong here: whitespace, list
-//! bullets and footnote glyphs. Optionality, references, quantity qualifiers and
-//! other ingredient meaning are resolved from source-bearing parser structure.
+//! bullets, footnote glyphs and doubled parenthetical wrappers. Optionality,
+//! references, quantity qualifiers and other ingredient meaning are resolved
+//! from source-bearing parser structure.
 
 use std::borrow::Cow;
+
+use crate::parser::token::matching_close_paren;
 
 /// A circled-number glyph (①②③ …) used as a footnote/technique-note marker in
 /// some cookbooks (e.g. Claire Saffitz's *Dessert Person*). They're not part of
@@ -49,6 +52,60 @@ fn strip_leading_bullet(input: &str) -> Cow<'_, str> {
     rewrite_text(RewriteId::LeadingBullet, input)
 }
 
+/// Collapse a redundant paren layer that wraps an *entire* parenthetical
+/// ("ground pork ((450g))" → "ground pork (450g)"). WP Recipe Maker wraps each
+/// ingredient's notes field in parens, so an authored "(450g)" arrives doubled
+/// in the page's `recipeIngredient` JSON-LD. Left in place, the paren classifier
+/// sees "(450g)" and cannot read it as a measurement, optional marker, or note
+/// reference. Only a layer that closes at the very end of its outer span is
+/// redundant: "((a) or (b))" keeps its inner parens.
+fn collapse_doubled_parens(input: &str) -> Cow<'_, str> {
+    rewrite_text(RewriteId::CollapseDoubledParens, input)
+}
+
+/// Edits removing every redundant wrapper layer in `input`, in ascending byte
+/// order. Each top-level span is peeled while its trimmed inner text is itself
+/// one balanced parenthetical.
+fn doubled_paren_edits(input: &str) -> Vec<Edit> {
+    let mut edits = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(rel_open) = input.get(cursor..).and_then(|rest| rest.find('(')) {
+        let open = cursor + rel_open;
+        // Unbalanced from `open` on ends the scan, as in `paren::spans`.
+        let Some(rel_close) = matching_close_paren(&input[open..]) else {
+            break;
+        };
+        let close = open + rel_close;
+        cursor = close + 1;
+        // Peel inner layers from the outside in.
+        let mut inner_start = open + 1;
+        let mut inner_end = close;
+        loop {
+            let inner = &input[inner_start..inner_end];
+            let leading = inner.len() - inner.trim_start().len();
+            let trimmed = inner.trim();
+            if trimmed.is_empty() || !trimmed.starts_with('(') {
+                break;
+            }
+            // The layer is redundant only when its `(` closes at the inner's
+            // last non-whitespace character.
+            if matching_close_paren(trimmed) != Some(trimmed.len() - 1) {
+                break;
+            }
+            let layer_open = inner_start + leading;
+            let layer_close = layer_open + trimmed.len() - 1;
+            edits.push(delete(layer_open..layer_open + 1));
+            edits.push(delete(layer_close..layer_close + 1));
+            inner_start = layer_open + 1;
+            inner_end = layer_close;
+        }
+    }
+    // Peeling emits each layer's `)` before the next layer's `(`; the edit
+    // appliers walk a monotonic cursor, so restore byte order.
+    edits.sort_by_key(|edit| edit.range.start);
+    edits
+}
+
 type Rewrite = fn(&str) -> Cow<'_, str>;
 
 crate::define_stage_pipeline! {
@@ -59,6 +116,11 @@ crate::define_stage_pipeline! {
     trace: pub(crate) REWRITE_TRACE_NAMES,
     (Nbsp, "strip_nbsp", strip_nbsp),
     (LeadingBullet, "strip_leading_bullet", strip_leading_bullet),
+    (
+        CollapseDoubledParens,
+        "collapse_doubled_parens",
+        collapse_doubled_parens
+    ),
     (FootnoteMarkers, "strip_footnote_markers", strip_footnote_markers),
     (
         TrailingFootnoteMarkers,
@@ -171,6 +233,7 @@ fn rewrite_edits(id: RewriteId, input: &str) -> Vec<Edit> {
             crate::lazy_regex!(TRAILING_MARK, r"\s*[*\u{2020}\u{2021}]+\s*$");
             deletions(&TRAILING_MARK, input)
         }
+        RewriteId::CollapseDoubledParens => doubled_paren_edits(input),
     }
 }
 

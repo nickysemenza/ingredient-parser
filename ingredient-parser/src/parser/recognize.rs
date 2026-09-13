@@ -4,6 +4,7 @@
 
 use super::ir::{ModifierPart, ParsedIngredient};
 use crate::IngredientParser;
+use crate::parser::token::matching_close_paren;
 use crate::parser::{MeasurementMode, MeasurementParser};
 use crate::unit::{self, Measure};
 use std::ops::Range;
@@ -120,37 +121,17 @@ impl IngredientParser {
     ///
     /// When an entire ingredient line is wrapped in parentheses, it indicates
     /// the ingredient is optional. This is common in cookbooks like Joy of Cooking.
+    ///
+    /// Peels exactly one layer. Normalization collapses doubled wrappers before
+    /// any recognizer runs, and `parse_shape`'s loop re-applies this recognizer
+    /// to the peeled inner, so deeper nesting still resolves without a table.
     fn try_parse_optional_ingredient<'a>(&self, input: &'a str) -> Option<Shape<'a>> {
-        let mut inner = input.trim();
-        if !inner.starts_with('(') {
-            return None;
-        }
-        // Pair once, then peel wrappers by offset without rescanning each layer.
-        let mut closes = vec![None; input.len()];
-        let mut stack = Vec::new();
-        for (offset, byte) in input.bytes().enumerate() {
-            if byte == b'(' {
-                stack.push(offset);
-            } else if byte == b')'
-                && let Some(open) = stack.pop()
-            {
-                closes[open] = Some(offset);
-            }
-        }
-        let mut wrapped = false;
-        while inner.starts_with('(') && inner.len() >= 2 {
-            let start = inner.as_ptr() as usize - input.as_ptr() as usize;
-            if closes[start] != Some(start + inner.len() - 1) {
-                break;
-            }
-            inner = inner[1..inner.len() - 1].trim();
-            wrapped = true;
-        }
-        if !wrapped {
+        let trimmed = input.trim();
+        if !trimmed.starts_with('(') || matching_close_paren(trimmed) != Some(trimmed.len() - 1) {
             return None;
         }
         Some(Shape {
-            inner,
+            inner: trimmed[1..trimmed.len() - 1].trim(),
             effect: Effect::Optional,
         })
     }

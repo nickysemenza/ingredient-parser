@@ -620,3 +620,11 @@
 
 {"input":"1 teaspoon sesame seeds, plus 4 teaspoons to garnish","name":"sesame seeds","amounts":[{"unit":"tsp","value":1}],"modifier":"plus 4 teaspoons to garnish","usage":"normal"}
 {"input":"1 small or ½ medium bottle gourd, peeled and grated","name":"small or ½ medium bottle gourd","amounts":[{"unit":"whole","value":1}],"modifier":"peeled and grated"}
+// WP Recipe Maker wraps its per-ingredient notes field in parens, doubling any authored parens.
+{"input": "1 pound ground pork ((450g))", "name": "ground pork", "amounts": [{"unit": "lb", "value": 1.0}, {"unit": "g", "value": 450.0}]}
+{"input": "holy basil leaves ((about 1 1/2 cups packed))", "name": "holy basil leaves", "amounts": [{"unit": "cup", "value": 1.5}]}
+{"input": "1 medium onion ((150g))", "name": "onion", "amounts": [{"unit": "medium", "value": 1.0}, {"unit": "g", "value": 150.0}]}
+{"input": "2  shallots ((thinly sliced))", "name": "shallots", "amounts": [{"unit": "whole", "value": 2.0}], "modifier": "thinly sliced"}
+{"input": "1 cup flour ((optional))", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}], "optional": true}
+{"input": "1 cup flour ((see note))", "name": "flour", "amounts": [{"unit": "cup", "value": 1.0}]}
+{"input": "((1 egg))", "name": "egg", "amounts": [{"unit": "whole", "value": 1.0}], "optional": true}
