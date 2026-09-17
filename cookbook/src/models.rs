@@ -2,6 +2,12 @@
 //! route, USD rates per million tokens, and throughput priors for estimates.
 //!
 //! Ids are matched exactly; a new model version never inherits an old rate.
+//! Rates come from `llm_models_spider`'s generated table (LiteLLM and
+//! OpenRouter, refreshed daily upstream) at compile time, so a `cargo update`
+//! reprices the catalog; a model that table does not know is unpriced. Those
+//! prices are approximate: the table merges by bare model name, so a regional
+//! or reseller row can win (Haiku 4.5 lists 10% over Anthropic's first-party
+//! price), and it carries no prompt-cache tiers.
 //! `DEFAULT_LADDER` is the automatic order, cheapest first; the eval harness
 //! (`food-cli cookbook eval`) chooses it and measures the priors.
 
@@ -33,15 +39,14 @@ impl Provider {
     }
 }
 
-/// USD per million tokens.
+/// USD per million tokens. Cache reads and writes are priced as input; the
+/// source table has no cache tiers.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[cfg_attr(feature = "wasm", derive(tsify_next::Tsify))]
 pub struct Rates {
     pub input: f64,
     pub output: f64,
-    pub cache_read: f64,
-    pub cache_write: f64,
 }
 
 /// Throughput priors for the cold estimate. `measured` is the date the harness
@@ -152,10 +157,9 @@ pub struct Model {
     pub reasoning: Reasoning,
     pub status: &'static str,
     pub max_output_tokens: u32,
+    /// `None` for a model the pricing table does not list.
     pub rates: Option<Rates>,
     pub priors: Priors,
-    pub pricing_checked: &'static str,
-    pub pricing_source: &'static str,
 }
 
 /// Placeholder until the harness picks the ladder (plan step F13).
@@ -165,19 +169,51 @@ pub struct Model {
 /// Haiku 4.5 the last resort. Claude Sonnet 5 was refused by the gateway.
 pub const DEFAULT_LADDER: &[&str] = &["gemini-2.5-flash", "gpt-5.6-luna", "claude-haiku-4-5"];
 
-const CF_PRICING: &str = "https://developers.cloudflare.com/workers-ai/platform/pricing/";
-const GEMINI_PRICING: &str = "https://ai.google.dev/gemini-api/docs/pricing";
-const CLAUDE_PRICING: &str = "https://platform.claude.com/docs/en/about-claude/pricing";
+/// The pricing table's rates for `id`, looked up at compile time so the
+/// table itself is never linked. A Workers AI id (`@cf/org/name`) is looked
+/// up by its bare name, which is the vendor's own price, not Cloudflare's.
+/// Unknown ids and zero (unknown) prices are `None`.
+const fn listed(id: &str) -> Option<Rates> {
+    let bytes = id.as_bytes();
+    let mut start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'/' {
+            start = i + 1;
+        }
+        i += 1;
+    }
+    let (_, name) = bytes.split_at(start);
+    let table = llm_models_spider::MODEL_INFO;
+    let mut i = 0;
+    while i < table.len() {
+        let entry = &table[i];
+        if bytes_eq(entry.name.as_bytes(), name) {
+            if entry.cost_input_x1000 == 0 || entry.cost_output_x1000 == 0 {
+                return None;
+            }
+            return Some(Rates {
+                input: entry.cost_input_x1000 as f64 / 1000.0,
+                output: entry.cost_output_x1000 as f64 / 1000.0,
+            });
+        }
+        i += 1;
+    }
+    None
+}
 
-macro_rules! rates {
-    ($i:expr, $o:expr, $r:expr, $w:expr) => {
-        Some(Rates {
-            input: $i,
-            output: $o,
-            cache_read: $r,
-            cache_write: $w,
-        })
-    };
+const fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 static CATALOG: &[Model] = &[
@@ -190,7 +226,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Disabled: 53% recall on Nothing Fancy (2026-09-11)",
         max_output_tokens: 16_000,
-        rates: rates!(0.10, 0.40, 0.01, 0.125),
+        rates: listed("gemini-2.5-flash-lite"),
         priors: Priors {
             ttft_ms_p50: 500,
             ttft_ms_p90: 1500,
@@ -198,8 +234,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.69,
             measured: "2026-09-11 six-book eval",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: GEMINI_PRICING,
     },
     Model {
         id: "gemini-2.5-flash",
@@ -210,7 +244,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Low,
         status: "Ladder head: 98% recall on the six-book eval at low reasoning (its default thinking doubled every call's latency for the same recall; no thinking lost 4 points)",
         max_output_tokens: 16_000,
-        rates: rates!(0.30, 2.50, 0.03, 0.375),
+        rates: listed("gemini-2.5-flash"),
         priors: Priors {
             ttft_ms_p50: 4500,
             ttft_ms_p90: 6000,
@@ -218,8 +252,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.23,
             measured: "2026-09-11 six-book eval, reasoning low",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: GEMINI_PRICING,
     },
     Model {
         id: "gemini-3.5-flash-lite",
@@ -230,10 +262,8 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Disabled: not served by the gateway (Google answers 400 Missing Authorization, 2026-09-11)",
         max_output_tokens: 16_000,
-        rates: rates!(0.30, 2.50, 0.03, 0.375),
+        rates: listed("gemini-3.5-flash-lite"),
         priors: UNMEASURED,
-        pricing_checked: "2026-09-09",
-        pricing_source: GEMINI_PRICING,
     },
     Model {
         id: "gemini-3.7-flash",
@@ -244,10 +274,8 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Disabled: not served by the gateway (Google answers 400 Missing Authorization, 2026-09-11)",
         max_output_tokens: 16_000,
-        rates: rates!(0.75, 3.75, 0.075, 0.9375),
+        rates: listed("gemini-3.7-flash"),
         priors: UNMEASURED,
-        pricing_checked: "2026-09-09",
-        pricing_source: GEMINI_PRICING,
     },
     Model {
         id: "claude-haiku-4-5",
@@ -258,7 +286,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Ladder fallback: fast, recovers flagged chunks",
         max_output_tokens: 16_000,
-        rates: rates!(1.0, 5.0, 0.10, 1.25),
+        rates: listed("claude-haiku-4-5"),
         priors: Priors {
             ttft_ms_p50: 1450,
             ttft_ms_p90: 2900,
@@ -266,8 +294,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.35,
             measured: "2026-09-11 six-book eval",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: CLAUDE_PRICING,
     },
     Model {
         id: "claude-sonnet-5",
@@ -278,7 +304,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Most accurate and fastest single reader measured (99% recall on Nothing Fancy in 19 s), at four times Gemini's price; its wholesale pool meters tokens per minute and refuses bursts with 429 code 2018",
         max_output_tokens: 16_000,
-        rates: rates!(2.0, 10.0, 0.20, 2.50),
+        rates: listed("claude-sonnet-5"),
         priors: Priors {
             ttft_ms_p50: 2900,
             ttft_ms_p90: 4100,
@@ -286,8 +312,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.15,
             measured: "2026-09-11 Nothing Fancy probes (70 calls)",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: CLAUDE_PRICING,
     },
     Model {
         id: "gpt-5.6-luna",
@@ -298,7 +322,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Ladder candidate: 95% recall alone, fastest and cheapest",
         max_output_tokens: 16_000,
-        rates: rates!(0.20, 1.20, 0.02, 0.25),
+        rates: listed("gpt-5.6-luna"),
         priors: Priors {
             ttft_ms_p50: 630,
             ttft_ms_p90: 5700,
@@ -306,8 +330,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.20,
             measured: "2026-09-11 six-book eval",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
     },
     // Workers AI models are priced and routable but disabled. Probed on
     // Nothing Fancy on 2026-09-11 (single model, no second opinion or
@@ -325,10 +347,8 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Disabled: 0% recall on Nothing Fancy; 44 of 58 answers leave lines unassigned and 12 time out (464 s per book)",
         max_output_tokens: 16_000,
-        rates: rates!(0.06, 0.40, 0.006, 0.075),
+        rates: listed("@cf/zai-org/glm-4.7-flash"),
         priors: UNMEASURED,
-        pricing_checked: "2026-09-09",
-        pricing_source: CF_PRICING,
     },
     Model {
         id: "@cf/zai-org/glm-5.3-flash",
@@ -339,7 +359,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Disabled: 98% recall on Nothing Fancy at $0.07, but 49 s per chunk at the median and timeouts on long chunks (277 s per book)",
         max_output_tokens: 16_000,
-        rates: rates!(0.15, 0.50, 0.03, 0.1875),
+        rates: listed("@cf/zai-org/glm-5.3-flash"),
         priors: Priors {
             ttft_ms_p50: 42000,
             ttft_ms_p90: 83000,
@@ -347,8 +367,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.13,
             measured: "2026-09-11 Nothing Fancy probe",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: CF_PRICING,
     },
     Model {
         id: "@cf/zai-org/glm-5.3",
@@ -359,7 +377,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Disabled: 99% recall on Nothing Fancy but $0.82 per book, 57 s per chunk at the median and timeouts on long chunks (333 s per book)",
         max_output_tokens: 16_000,
-        rates: rates!(1.40, 4.40, 0.26, 1.75),
+        rates: listed("@cf/zai-org/glm-5.3"),
         priors: Priors {
             ttft_ms_p50: 50000,
             ttft_ms_p90: 123000,
@@ -367,8 +385,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.15,
             measured: "2026-09-11 Nothing Fancy probe",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: CF_PRICING,
     },
     Model {
         id: "@cf/deepseek-ai/deepseek-v4-flash-0731",
@@ -379,7 +395,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Disabled: 100% recall on Nothing Fancy at $0.22 with no phantoms, but 54 s per chunk at the median and a timeout on long chunks (278 s per book)",
         max_output_tokens: 16_000,
-        rates: rates!(0.44, 1.32, 0.014, 0.55),
+        rates: listed("@cf/deepseek-ai/deepseek-v4-flash-0731"),
         priors: Priors {
             ttft_ms_p50: 47000,
             ttft_ms_p90: 88000,
@@ -387,8 +403,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.06,
             measured: "2026-09-11 Nothing Fancy probe",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: CF_PRICING,
     },
     Model {
         id: "@cf/google/gemma-4-26b-a4b-it",
@@ -399,7 +413,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Disabled: 46% recall on Nothing Fancy; 28 of 49 answers invalid (no tool call, doubled lines), 122 s per chunk at the median, 6 timeouts (512 s per book)",
         max_output_tokens: 16_000,
-        rates: rates!(0.10, 0.30, 0.01, 0.125),
+        rates: listed("@cf/google/gemma-4-26b-a4b-it"),
         priors: Priors {
             ttft_ms_p50: 115000,
             ttft_ms_p90: 162000,
@@ -407,8 +421,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.69,
             measured: "2026-09-11 Nothing Fancy probe",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: CF_PRICING,
     },
     Model {
         id: "@cf/moonshotai/kimi-k2.7-code",
@@ -419,7 +431,7 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Disabled: 95% recall on Nothing Fancy, 53 s per chunk at the median, timeouts and a 402 on long chunks (272 s per book)",
         max_output_tokens: 16_000,
-        rates: rates!(0.95, 4.00, 0.19, 1.1875),
+        rates: listed("@cf/moonshotai/kimi-k2.7-code"),
         priors: Priors {
             ttft_ms_p50: 45000,
             ttft_ms_p90: 108000,
@@ -427,8 +439,6 @@ static CATALOG: &[Model] = &[
             retry_rate: 0.13,
             measured: "2026-09-11 Nothing Fancy probe",
         },
-        pricing_checked: "2026-09-09",
-        pricing_source: CF_PRICING,
     },
 ];
 
@@ -475,8 +485,6 @@ macro_rules! local_model {
             max_output_tokens: 16_000,
             rates: None,
             priors: UNMEASURED,
-            pricing_checked: "subscription",
-            pricing_source: "subscription",
         }
     };
 }
@@ -505,20 +513,18 @@ mod tests {
             assert!(ids.insert(m.id), "duplicate id {}", m.id);
             assert!(!m.label.is_empty());
             assert!(m.max_output_tokens > 0);
-            assert!(m.pricing_source.starts_with("https://"));
-            assert_eq!(m.pricing_checked.len(), 10);
             let route_ok = match m.provider {
                 Provider::Anthropic => m.route == Route::AnthropicMessages,
                 Provider::GoogleAiStudio | Provider::WorkersAi => m.route == Route::CompatChat,
                 Provider::OpenAi => matches!(m.route, Route::OpenAiChat | Route::OpenAiResponses),
             };
             assert!(route_ok, "{} routes wrongly", m.id);
-            let r = m.rates.expect("every catalog model is priced");
-            assert!(
-                [r.input, r.output, r.cache_read, r.cache_write]
-                    .iter()
-                    .all(|n| n.is_finite() && *n >= 0.0)
-            );
+            assert_eq!(m.rates, listed(m.id), "{} prices another id", m.id);
+            if let Some(r) = m.rates {
+                assert!(r.input > 0.0 && r.output > 0.0, "{} rates {r:?}", m.id);
+            } else {
+                assert!(!m.enabled, "{} is enabled but unpriced", m.id);
+            }
             assert!(m.priors.output_tps > 0.0);
         }
     }

@@ -34,15 +34,15 @@ impl Usage {
 }
 
 /// USD for `usage` at `model`'s rates; `None` when the model is unpriced.
+/// Cache reads and writes are priced as plain input (see [`Rates`]), which
+/// overstates a cache-heavy run by about a tenth.
+///
+/// [`Rates`]: crate::models::Rates
 pub fn cost_for_usage(model: &crate::models::Model, usage: &Usage) -> Option<f64> {
     let r = model.rates?;
-    Some(
-        (usage.input_tokens as f64 * r.input
-            + usage.cache_creation_input_tokens as f64 * r.cache_write
-            + usage.cache_read_input_tokens as f64 * r.cache_read
-            + usage.output_tokens as f64 * r.output)
-            / 1e6,
-    )
+    let input =
+        usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens;
+    Some((input as f64 * r.input + usage.output_tokens as f64 * r.output) / 1e6)
 }
 
 #[cfg(test)]
@@ -60,8 +60,9 @@ mod tests {
             reasoning_tokens: 0,
         };
         let m = crate::models::model("claude-haiku-4-5").unwrap();
+        let r = m.rates.unwrap();
         let cost = cost_for_usage(m, &usage).unwrap();
-        assert!((cost - (1.0 + 5.0 + 0.10 + 1.25)).abs() < 1e-9, "{cost}");
+        assert!((cost - (3.0 * r.input + r.output)).abs() < 1e-9, "{cost}");
         let mut sum = Usage::default();
         sum.add(&usage);
         sum.add(&usage);
