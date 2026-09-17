@@ -102,10 +102,9 @@ error, and passes when mean recall ≥ 97%, phantoms ≤ 1 per book, no leaks,
 and full coverage.
 
 To choose the ladder: run `eval --ladder <model> --no-second-opinion
---no-escalation` per candidate to rank models by recall and measure their
-throughput priors, then combine the top few cheap→strong and take the first
-ladder that passes the gate; paste the ladder and priors into
-`cookbook/src/models.rs`.
+--no-escalation` per candidate to rank models by recall, then combine the
+top few cheap→strong and take the first ladder that passes the gate; paste
+the ladder and each model's verdict (`status`) into `cookbook/src/models.rs`.
 
 ### Authoring an answer key
 
@@ -167,7 +166,7 @@ retry bodies.
 | `prose_ingredients`, `recipe_without_steps` | `validate.rs`, `assemble.rs` |
 | unresolved references | `refs.rs` (anchor → page → title), `lines.rs` link extraction |
 | ingredient parse rate | `parse.rs` and the `ingredient` crate |
-| eta error | `eta.rs`, catalog priors in `models.rs` |
+| eta error | `eta.rs` (its latency prior is one crate-wide constant) |
 
 ## Consumers
 

@@ -68,7 +68,7 @@ impl Default for ExtractOptions {
             ladder: Vec::new(),
             second_opinion: true,
             whole_book_escalation: true,
-            max_output_tokens: 16_000,
+            max_output_tokens: crate::models::MAX_OUTPUT_TOKENS,
             gateway_cache: true,
             reasoning: None,
         }

@@ -849,15 +849,8 @@ pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
                         vec![
                             m.id.to_string(),
                             m.provider.as_str().to_string(),
-                            if m.enabled { "yes".into() } else { "no".into() },
                             m.reasoning.to_string(),
                             r,
-                            format!(
-                                "{:.1}s / {:.0} tok/s ({})",
-                                m.priors.ttft_ms_p50 as f64 / 1000.0,
-                                m.priors.output_tps,
-                                m.priors.measured
-                            ),
                             m.status.to_string(),
                         ]
                     })
@@ -865,15 +858,7 @@ pub async fn execute(command: Command, json: bool) -> anyhow::Result<i32> {
                 println!(
                     "{}",
                     terminal_table(
-                        &[
-                            "model",
-                            "provider",
-                            "enabled",
-                            "reasoning",
-                            "$/M in / out",
-                            "priors",
-                            "status"
-                        ],
+                        &["model", "provider", "reasoning", "$/M in / out", "status"],
                         &rows
                     )
                 );

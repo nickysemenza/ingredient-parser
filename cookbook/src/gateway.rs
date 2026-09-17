@@ -77,7 +77,7 @@ pub fn build_http(
     meta: &CallMeta<'_>,
     reasoning: Reasoning,
 ) -> HttpRequest {
-    let max_tokens = max_tokens.min(model.max_output_tokens);
+    let max_tokens = max_tokens.min(crate::models::MAX_OUTPUT_TOKENS);
     // Google's and OpenAI's chat endpoints take `reasoning_effort` (the
     // gateway's compat layer forwards it; "none" turns Gemini's thinking off);
     // the Responses API nests it. Anthropic has no equivalent here.
@@ -561,7 +561,7 @@ mod tests {
         assert_eq!(meta["contract"], CONTRACT_VERSION);
         assert_eq!(
             req.body["max_tokens"],
-            json!(m.max_output_tokens),
+            json!(crate::models::MAX_OUTPUT_TOKENS),
             "capped by the catalog"
         );
         assert_eq!(

@@ -1,6 +1,6 @@
 # Cookbook model ladder, 2026-09-11
 
-How `cookbook::models::DEFAULT_LADDER` and the catalog priors were chosen.
+How `cookbook::models::DEFAULT_LADDER` was chosen.
 Method: `food-cli cookbook eval` over the six answer-key books (Dessert
 Person, Nothing Fancy, Zuni Cafe, Bouchon Bakery, Pok Pok, Flour Water Salt
 Yeast), live through Cloudflare AI Gateway with the chunk cache off.
@@ -34,9 +34,8 @@ running out, not a billing exclusion; the rows above are from after the
 top-up. The GLM and DeepSeek models read as accurately as the chosen ladder
 (and produce no phantoms on this book), but they think before they answer:
 50–60 s per chunk at the median, 57–75 visible output tokens/s, and a few
-chunks per book outrun the 180 s timeout, so a book takes 4–6 minutes. Their
-catalog priors fold the thinking time into the first-token latency because
-the usage they report counts reasoning tokens as output. They stay disabled;
+chunks per book outrun the 180 s timeout, so a book takes 4–6 minutes. They
+stay off the ladder;
 `glm-5.3-flash` and `deepseek-v4-flash` are the ones to revisit if Workers AI
 gets faster, since they are the cheapest accurate readers measured.
 

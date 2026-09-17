@@ -1,7 +1,7 @@
 //! Time and cost estimates: a cold estimate before the first call, refined
 //! live from observed latencies.
 //!
-//! Token counts come from chunk size; latencies from the catalog's priors
+//! Token counts come from chunk size; latencies from one crate-wide prior
 //! until a few real calls have been observed, then from an exponential moving
 //! average per model. Every number is a range with its assumptions spelled
 //! out, because a book's chunks vary and a second opinion or an escalation can
@@ -18,6 +18,13 @@ use crate::report::{Estimate, Eta};
 const SECOND_OPINION_SHARE: f64 = 0.25;
 /// Retries assumed in the low estimate.
 const LOW_RETRY_SHARE: f64 = 0.10;
+/// Retries assumed in the high estimate.
+const HIGH_RETRY_SHARE: f64 = 0.25;
+/// Latency prior for any model before it has been observed: roughly the
+/// default ladder's head on the 2026-09-11 six-book eval.
+const TTFT_MS_P50: f64 = 3_000.0;
+const TTFT_MS_P90: f64 = 6_000.0;
+const OUTPUT_TPS: f64 = 150.0;
 
 /// Tokens the model will read and write for one chunk. Input is the chunk
 /// text plus the prompt and schema; output is index lists, a few tokens per
@@ -28,13 +35,9 @@ pub fn chunk_tokens(chunk: &Chunk) -> (u64, u64) {
     (input, output)
 }
 
-fn call_ms(model: &Model, output_tokens: u64, p90: bool) -> f64 {
-    let ttft = if p90 {
-        model.priors.ttft_ms_p90
-    } else {
-        model.priors.ttft_ms_p50
-    } as f64;
-    ttft + output_tokens as f64 / model.priors.output_tps as f64 * 1000.0
+fn call_ms(output_tokens: u64, p90: bool) -> f64 {
+    let ttft = if p90 { TTFT_MS_P90 } else { TTFT_MS_P50 };
+    ttft + output_tokens as f64 / OUTPUT_TPS * 1000.0
 }
 
 fn call_cost(model: &Model, input: u64, output: u64) -> f64 {
@@ -94,17 +97,15 @@ pub fn cold_estimate(
     let outputs: Vec<u64> = pending_tokens.iter().map(|(_, o)| *o).collect();
     let median_out = median(&outputs);
     let max_out = outputs.iter().copied().max().unwrap_or(0);
-    let retry = primary.priors.retry_rate as f64;
 
     let calls_low = pending + (LOW_RETRY_SHARE * pending as f64).ceil() as usize;
     let calls_high = pending
-        + (retry * pending as f64).ceil() as usize
+        + (HIGH_RETRY_SHARE * pending as f64).ceil() as usize
         + (SECOND_OPINION_SHARE * pending as f64).ceil() as usize;
     let waves_low = pending.div_ceil(concurrency) as f64;
     let waves_high = calls_high.div_ceil(concurrency) as f64;
-    let wall_ms_low = (waves_low * call_ms(primary, median_out, false)) as u64;
-    let wall_ms_high =
-        (waves_high * call_ms(primary, max_out, true) + call_ms(second, max_out, true)) as u64;
+    let wall_ms_low = (waves_low * call_ms(median_out, false)) as u64;
+    let wall_ms_high = ((waves_high + 1.0) * call_ms(max_out, true)) as u64;
 
     let cost_low: f64 = pending_tokens
         .iter()
@@ -114,21 +115,14 @@ pub fn cold_estimate(
         .iter()
         .map(|(i, o)| call_cost(second, *i, *o))
         .sum();
-    let cost_high = cost_low * (1.0 + retry) + SECOND_OPINION_SHARE * second_cost;
+    let cost_high = cost_low * (1.0 + HIGH_RETRY_SHARE) + SECOND_OPINION_SHARE * second_cost;
 
-    for m in [primary, second] {
-        assumptions.push(format!(
-            "{}: {:.1} s to first token, {:.0} tok/s, {:.0}% retries ({})",
-            m.id,
-            m.priors.ttft_ms_p50 as f64 / 1000.0,
-            m.priors.output_tps,
-            m.priors.retry_rate * 100.0,
-            m.priors.measured
-        ));
-        if m.id == second.id && primary.id == second.id {
-            break;
-        }
-    }
+    assumptions.push(format!(
+        "{:.1} s to first token, {:.0} tok/s, up to {:.0}% retries for any model",
+        TTFT_MS_P50 / 1000.0,
+        OUTPUT_TPS,
+        HIGH_RETRY_SHARE * 100.0
+    ));
     assumptions.push(format!(
         "at most {}% of chunks need a second opinion",
         (SECOND_OPINION_SHARE * 100.0) as u32
@@ -214,7 +208,7 @@ impl EtaTracker {
     pub fn latency_ms(&self, model: &Model, output_tokens: u64) -> f64 {
         match self.ewma.get(model.id) {
             Some((ewma, n)) if *n >= MIN_SAMPLES => *ewma,
-            _ => call_ms(model, output_tokens, false),
+            _ => call_ms(output_tokens, false),
         }
     }
 
@@ -329,24 +323,7 @@ mod tests {
                 .any(|a| a.contains("answered from the cache"))
         );
         assert_eq!(e1.ladder, ["gemini-2.5-flash", "claude-haiku-4-5"]);
-        // Both ladder models carry measured priors now; an unmeasured one
-        // would say so.
-        assert!(
-            e1.assumptions
-                .iter()
-                .any(|a| a.contains("2026-09-11 six-book eval") || a.contains("measured"))
-        );
-        let never_measured = crate::models::Model {
-            priors: crate::models::UNMEASURED,
-            ..model("gemini-2.5-flash").unwrap().clone()
-        };
-        let unmeasured = cold_estimate(&one, &[&never_measured], 16, 0);
-        assert!(
-            unmeasured
-                .assumptions
-                .iter()
-                .any(|a| a.contains("unmeasured"))
-        );
+        assert!(e1.assumptions.iter().any(|a| a.contains("to first token")));
         // 10 chunks at concurrency 16: one wave.
         assert_eq!(
             e1.wall_ms_low,
