@@ -70,6 +70,8 @@ pub fn tool_response(route: Route, payload: &Value, usage: Usage, truncated: boo
                       "input_tokens_details": {"cached_tokens": usage.cache_read_input_tokens,
                                                "cache_write_tokens": usage.cache_creation_input_tokens}},
         }),
+        // No fixture: the pipeline never sends a chunk over this route.
+        Route::WorkersAiRun => unreachable!("not a chat route"),
     };
     HttpResponse {
         status: 200,
