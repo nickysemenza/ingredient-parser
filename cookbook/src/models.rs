@@ -4,10 +4,11 @@
 //! Ids are matched exactly; a new model version never inherits an old rate.
 //! Rates come from `llm_models_spider`'s generated table (LiteLLM and
 //! OpenRouter, refreshed daily upstream) at compile time, so a `cargo update`
-//! reprices the catalog; a model that table does not know is unpriced. Those
-//! prices are approximate: the table merges by bare model name, so a regional
-//! or reseller row can win (Haiku 4.5 lists 10% over Anthropic's first-party
-//! price), and it carries no prompt-cache tiers.
+//! reprices the catalog; a model that table does not know is unpriced unless
+//! its entry carries an explicit, dated rate. Those prices are approximate:
+//! the table merges by bare model name, so a regional or reseller row can win
+//! (Haiku 4.5 lists 10% over Anthropic's first-party price), and it carries
+//! no prompt-cache tiers.
 //! `DEFAULT_LADDER` is the automatic order, cheapest first; the eval harness
 //! (`food-cli cookbook eval`) chooses it. `status` records each model's
 //! verdict from that harness; nothing gates on it.
@@ -303,6 +304,20 @@ static CATALOG: &[Model] = &[
         status: "Disabled: 95% recall on Nothing Fancy, 53 s per chunk at the median, timeouts and a 402 on long chunks (272 s per book)",
         rates: listed("@cf/moonshotai/kimi-k2.7-code"),
     },
+    Model {
+        id: "typesafe/jev",
+        provider: Provider::WorkersAi,
+        route: Route::WorkersAiRun,
+        reasoning: Reasoning::Default,
+        status: "Not a chat model: TypeSafe's closed-set decision model, listed so consumers can price it; the pipeline never calls it",
+        // Not in llm_models_spider, and `listed` would read its free output
+        // (one forward pass, no generation) as unknown. Cloudflare's price,
+        // 2026-09-18.
+        rates: Some(Rates {
+            input: 0.042,
+            output: 0.0,
+        }),
+    },
 ];
 
 /// Every gateway model, on the ladder or not.
@@ -319,7 +334,8 @@ pub fn model(id: &str) -> Option<&'static Model> {
 }
 
 /// Resolve a ladder of ids, or the default when empty. Unknown ids are an
-/// error so a typo never silently drops a tier.
+/// error so a typo never silently drops a tier, and so is a catalog model
+/// the pipeline cannot send a chunk to (a non-chat route).
 pub fn resolve_ladder(ids: &[String]) -> Result<Vec<&'static Model>, crate::Error> {
     let ids: Vec<&str> = if ids.is_empty() {
         DEFAULT_LADDER.to_vec()
@@ -327,7 +343,11 @@ pub fn resolve_ladder(ids: &[String]) -> Result<Vec<&'static Model>, crate::Erro
         ids.iter().map(String::as_str).collect()
     };
     ids.into_iter()
-        .map(|id| model(id).ok_or_else(|| crate::Error::UnknownModel(id.to_string())))
+        .map(|id| {
+            model(id)
+                .filter(|m| m.route.is_chat())
+                .ok_or_else(|| crate::Error::UnknownModel(id.to_string()))
+        })
         .collect()
 }
 
@@ -365,15 +385,39 @@ mod tests {
             assert!(!m.status.is_empty());
             let route_ok = match m.provider {
                 Provider::Anthropic => m.route == Route::AnthropicMessages,
-                Provider::GoogleAiStudio | Provider::WorkersAi => m.route == Route::CompatChat,
+                Provider::GoogleAiStudio => m.route == Route::CompatChat,
+                Provider::WorkersAi => {
+                    matches!(m.route, Route::CompatChat | Route::WorkersAiRun)
+                }
                 Provider::OpenAi => matches!(m.route, Route::OpenAiChat | Route::OpenAiResponses),
             };
             assert!(route_ok, "{} routes wrongly", m.id);
-            assert_eq!(m.rates, listed(m.id), "{} prices another id", m.id);
+            // A table-priced model never overrides the table; only a model
+            // the table cannot price may carry an explicit rate.
+            if listed(m.id).is_some() {
+                assert_eq!(m.rates, listed(m.id), "{} prices another id", m.id);
+            }
             if let Some(r) = m.rates {
-                assert!(r.input > 0.0 && r.output > 0.0, "{} rates {r:?}", m.id);
+                assert!(r.input > 0.0 && r.output >= 0.0, "{} rates {r:?}", m.id);
             }
         }
+    }
+
+    #[test]
+    fn non_chat_models_are_priced_but_never_laddered() {
+        let jev = model("typesafe/jev").unwrap();
+        assert!(!jev.route.is_chat());
+        assert_eq!(
+            jev.rates,
+            Some(Rates {
+                input: 0.042,
+                output: 0.0
+            })
+        );
+        assert!(matches!(
+            resolve_ladder(&["typesafe/jev".into()]),
+            Err(crate::Error::UnknownModel(_))
+        ));
     }
 
     #[test]

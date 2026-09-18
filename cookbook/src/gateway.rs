@@ -2,10 +2,11 @@
 //! model and decode its response. No network, no credentials.
 //!
 //! Every provider is reached through the gateway root the host supplies. Four
-//! routes cover the catalog: Anthropic Messages, the gateway's unified
+//! chat routes cover the pipeline: Anthropic Messages, the gateway's unified
 //! OpenAI-compatible chat route (Google AI Studio, Workers AI), OpenAI chat
 //! completions, and OpenAI Responses. All calls force one tool call so the
-//! answer is the tool input, never prose.
+//! answer is the tool input, never prose. A fifth route, native Workers AI,
+//! exists only so the catalog can list (and price) a non-chat model.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -28,6 +29,11 @@ pub enum Route {
     CompatChat,
     OpenAiChat,
     OpenAiResponses,
+    /// `/workers-ai/run/<model>`: the gateway's native Workers AI route, for
+    /// a model with its own input shape rather than a chat one. The pipeline
+    /// never calls such a model (`resolve_ladder` refuses it); the catalog
+    /// lists it so a consumer can price it.
+    WorkersAiRun,
 }
 
 impl Route {
@@ -37,6 +43,7 @@ impl Route {
             Route::CompatChat => "/compat/chat/completions",
             Route::OpenAiChat => "/openai/chat/completions",
             Route::OpenAiResponses => "/openai/responses",
+            Route::WorkersAiRun => "/workers-ai/run",
         }
     }
 
@@ -46,7 +53,13 @@ impl Route {
             Route::CompatChat => "compat-chat",
             Route::OpenAiChat => "openai-chat",
             Route::OpenAiResponses => "openai-responses",
+            Route::WorkersAiRun => "workers-ai-run",
         }
+    }
+
+    /// Whether the pipeline can send a chunk over this route.
+    pub fn is_chat(self) -> bool {
+        !matches!(self, Route::WorkersAiRun)
     }
 }
 
@@ -174,6 +187,8 @@ pub fn build_http(
             }
             body
         }
+        // `resolve_ladder` never hands the pipeline a non-chat model.
+        Route::WorkersAiRun => unreachable!("{} is not a chat model", model.id),
     };
     HttpRequest {
         path: model.route.path().to_string(),
@@ -376,6 +391,9 @@ pub fn parse_response(route: Route, response: &HttpResponse) -> Result<CallResul
             };
             (input, usage, truncated)
         }
+        Route::WorkersAiRun => {
+            return Err(payload("not a chat route".to_string()));
+        }
     };
     Ok(CallResult {
         input,
@@ -394,6 +412,9 @@ pub fn usage_from_response(route: Route, body: &str) -> Option<Usage> {
         Route::AnthropicMessages => anthropic_usage(&value),
         Route::CompatChat | Route::OpenAiChat => openai_usage(&value),
         Route::OpenAiResponses => responses_usage(&value),
+        // The gateway envelopes a native Workers AI answer under `result`, so
+        // its usage never sits at the top level; the consumer reads its own.
+        Route::WorkersAiRun => return None,
     })
 }
 
