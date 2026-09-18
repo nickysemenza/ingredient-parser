@@ -33,6 +33,6 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            Review this PR following the conventions in CLAUDE.md. Post concise,
+            Review this PR following the conventions in AGENTS.md. Post concise,
             actionable inline comments anchored to the diff. Skip nitpicks, style
             preferences, and praise. If the PR is clean, say so in one line.
