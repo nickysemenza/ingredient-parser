@@ -254,11 +254,7 @@ static CATALOG: &[Model] = &[
         route: Route::OpenAiResponses,
         reasoning: Reasoning::Default,
         status: "Ladder fallback: passed synthetic extraction probes; full-book evaluation pending",
-        // OpenAI Standard short-context list price, 2026-09-23.
-        rates: Some(Rates {
-            input: 0.1,
-            output: 0.5,
-        }),
+        rates: listed("gpt-6-luna"),
     },
     Model {
         id: "gpt-6-sol",
@@ -266,11 +262,7 @@ static CATALOG: &[Model] = &[
         route: Route::OpenAiResponses,
         reasoning: Reasoning::Default,
         status: "Available for app reasoning; not on the cookbook ladder",
-        // OpenAI Standard short-context list price, 2026-09-23.
-        rates: Some(Rates {
-            input: 2.0,
-            output: 10.0,
-        }),
+        rates: listed("gpt-6-sol"),
     },
     Model {
         id: "claude-opus-5-5",
@@ -278,11 +270,7 @@ static CATALOG: &[Model] = &[
         route: Route::AnthropicMessages,
         reasoning: Reasoning::Default,
         status: "Available for app audit recovery; not on the cookbook ladder",
-        // Anthropic list price, 2026-09-23.
-        rates: Some(Rates {
-            input: 4.0,
-            output: 20.0,
-        }),
+        rates: listed("claude-opus-5-5"),
     },
     // Workers AI models are priced and routable but off the ladder. Probed on
     // Nothing Fancy on 2026-09-11 (single model, no second opinion or
@@ -474,13 +462,13 @@ mod tests {
     }
 
     #[test]
-    fn new_models_have_exact_catalog_prices() {
-        for (id, input, output) in [
-            ("gpt-6-luna", 0.1, 0.5),
-            ("gpt-6-sol", 2.0, 10.0),
-            ("claude-opus-5-5", 4.0, 20.0),
-        ] {
-            assert_eq!(model(id).unwrap().rates, Some(Rates { input, output }));
+    fn new_models_are_priced_by_the_rust_catalog() {
+        for id in ["gpt-6-luna", "gpt-6-sol", "claude-opus-5-5"] {
+            assert!(
+                listed(id).is_some(),
+                "{id} is missing from llm_models_spider"
+            );
+            assert_eq!(model(id).unwrap().rates, listed(id));
         }
     }
 }
