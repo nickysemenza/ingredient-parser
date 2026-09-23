@@ -12,7 +12,7 @@ anyhow = "1" # error chains with context in the cookbook commands
 recipe-scraper-fetcher.workspace = true
 cookbook.workspace = true
 indicatif = "0.18"
-rand = "0.9"
+rand = "0.10"
 jiff = "0.2"
 tokio = { workspace = true, features = ["full"] }
 futures.workspace = true
