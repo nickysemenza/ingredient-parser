@@ -2917,8 +2917,8 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
 name = "llm_models_spider"
-version = "0.1.228"
-source = "git+https://github.com/spider-rs/llm_models?branch=main#40a144ce1fafcda70cdb2400beb937f02e8bed6c"
+version = "0.1.234"
+source = "git+https://github.com/spider-rs/llm_models?branch=main#0b703bd221bc78c9e76335fff185c9f2398a8718"
 
 [[package]]
 name = "lock_api"

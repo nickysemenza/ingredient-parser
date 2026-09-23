@@ -516,7 +516,7 @@ mod tests {
             default.body.get("reasoning_effort").is_none(),
             "cached bodies stay valid"
         );
-        let luna = model("gpt-5.6-luna").unwrap();
+        let luna = model("gpt-6-luna").unwrap();
         let low = build_http(luna, &request(), 50_000, &meta(), Reasoning::Low);
         assert_eq!(low.body["reasoning"]["effort"], "low");
         let haiku = model("claude-haiku-4-5").unwrap();
@@ -604,7 +604,7 @@ mod tests {
 
     #[test]
     fn responses_request_for_luna() {
-        let m = model("gpt-5.6-luna").unwrap();
+        let m = model("gpt-6-luna").unwrap();
         let req = build_http(m, &request(), 1000, &meta(), Reasoning::Default);
         assert_eq!(req.path, "/openai/responses");
         assert_eq!(req.body["max_output_tokens"], 1000);

@@ -140,12 +140,9 @@ pub struct Model {
 /// The most output tokens one call may produce, for every model.
 pub const MAX_OUTPUT_TOKENS: u32 = 16_000;
 
-/// Placeholder until the harness picks the ladder (plan step F13).
-/// Chosen on 2026-09-11 over the six answer-key books (see
-/// docs/cookbook-ladder-2026-09-11.md): Gemini 2.5 Flash reads best, GPT 5.6
-/// Luna is the fast, cheap second reader for retries and second opinions,
-/// Haiku 4.5 the last resort. Claude Sonnet 5 was refused by the gateway.
-pub const DEFAULT_LADDER: &[&str] = &["gemini-2.5-flash", "gpt-5.6-luna", "claude-haiku-4-5"];
+/// Gemini remains the evaluated first reader. GPT-6 Luna replaces GPT-5.6
+/// Luna for retries and second opinions; a full-book comparison is pending.
+pub const DEFAULT_LADDER: &[&str] = &["gemini-2.5-flash", "gpt-6-luna", "claude-haiku-4-5"];
 
 /// The pricing table's rates for `id`, looked up at compile time so the
 /// table itself is never linked. A Workers AI id (`@cf/org/name`) is looked
@@ -244,12 +241,12 @@ static CATALOG: &[Model] = &[
         rates: listed("claude-sonnet-5"),
     },
     Model {
-        id: "gpt-5.6-luna",
+        id: "gpt-6-luna",
         provider: Provider::OpenAi,
         route: Route::OpenAiResponses,
         reasoning: Reasoning::Default,
-        status: "Ladder candidate: 95% recall alone, fastest and cheapest",
-        rates: listed("gpt-5.6-luna"),
+        status: "Ladder fallback: passed synthetic extraction probes; full-book evaluation pending",
+        rates: listed("gpt-6-luna"),
     },
     // Workers AI models are priced and routable but off the ladder. Probed on
     // Nothing Fancy on 2026-09-11 (single model, no second opinion or
