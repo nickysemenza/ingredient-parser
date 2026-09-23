@@ -140,12 +140,9 @@ pub struct Model {
 /// The most output tokens one call may produce, for every model.
 pub const MAX_OUTPUT_TOKENS: u32 = 16_000;
 
-/// Placeholder until the harness picks the ladder (plan step F13).
-/// Chosen on 2026-09-11 over the six answer-key books (see
-/// docs/cookbook-ladder-2026-09-11.md): Gemini 2.5 Flash reads best, GPT 5.6
-/// Luna is the fast, cheap second reader for retries and second opinions,
-/// Haiku 4.5 the last resort. Claude Sonnet 5 was refused by the gateway.
-pub const DEFAULT_LADDER: &[&str] = &["gemini-2.5-flash", "gpt-5.6-luna", "claude-haiku-4-5"];
+/// Gemini remains the evaluated first reader. GPT-6 Luna replaces GPT-5.6
+/// Luna for retries and second opinions; a full-book comparison is pending.
+pub const DEFAULT_LADDER: &[&str] = &["gemini-2.5-flash", "gpt-6-luna", "claude-haiku-4-5"];
 
 /// The pricing table's rates for `id`, looked up at compile time so the
 /// table itself is never linked. A Workers AI id (`@cf/org/name`) is looked
@@ -250,6 +247,42 @@ static CATALOG: &[Model] = &[
         reasoning: Reasoning::Default,
         status: "Ladder candidate: 95% recall alone, fastest and cheapest",
         rates: listed("gpt-5.6-luna"),
+    },
+    Model {
+        id: "gpt-6-luna",
+        provider: Provider::OpenAi,
+        route: Route::OpenAiResponses,
+        reasoning: Reasoning::Default,
+        status: "Ladder fallback: passed synthetic extraction probes; full-book evaluation pending",
+        // OpenAI Standard short-context list price, 2026-09-23.
+        rates: Some(Rates {
+            input: 0.1,
+            output: 0.5,
+        }),
+    },
+    Model {
+        id: "gpt-6-sol",
+        provider: Provider::OpenAi,
+        route: Route::OpenAiResponses,
+        reasoning: Reasoning::Default,
+        status: "Available for app reasoning; not on the cookbook ladder",
+        // OpenAI Standard short-context list price, 2026-09-23.
+        rates: Some(Rates {
+            input: 2.0,
+            output: 10.0,
+        }),
+    },
+    Model {
+        id: "claude-opus-5-5",
+        provider: Provider::Anthropic,
+        route: Route::AnthropicMessages,
+        reasoning: Reasoning::Default,
+        status: "Available for app audit recovery; not on the cookbook ladder",
+        // Anthropic list price, 2026-09-23.
+        rates: Some(Rates {
+            input: 4.0,
+            output: 20.0,
+        }),
     },
     // Workers AI models are priced and routable but off the ladder. Probed on
     // Nothing Fancy on 2026-09-11 (single model, no second opinion or
@@ -423,6 +456,10 @@ mod tests {
     #[test]
     fn default_ladder_is_priced() {
         let ladder = resolve_ladder(&[]).unwrap();
+        assert_eq!(
+            ladder.iter().map(|m| m.id).collect::<Vec<_>>(),
+            DEFAULT_LADDER
+        );
         assert_eq!(ladder.len(), DEFAULT_LADDER.len());
         assert!(ladder.iter().all(|m| m.rates.is_some()));
         assert!(matches!(
@@ -434,5 +471,16 @@ mod tests {
             None,
             "legacy ids are gone, not silently priced"
         );
+    }
+
+    #[test]
+    fn new_models_have_exact_catalog_prices() {
+        for (id, input, output) in [
+            ("gpt-6-luna", 0.1, 0.5),
+            ("gpt-6-sol", 2.0, 10.0),
+            ("claude-opus-5-5", 4.0, 20.0),
+        ] {
+            assert_eq!(model(id).unwrap().rates, Some(Rates { input, output }));
+        }
     }
 }
