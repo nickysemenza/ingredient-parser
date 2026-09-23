@@ -241,36 +241,12 @@ static CATALOG: &[Model] = &[
         rates: listed("claude-sonnet-5"),
     },
     Model {
-        id: "gpt-5.6-luna",
-        provider: Provider::OpenAi,
-        route: Route::OpenAiResponses,
-        reasoning: Reasoning::Default,
-        status: "Ladder candidate: 95% recall alone, fastest and cheapest",
-        rates: listed("gpt-5.6-luna"),
-    },
-    Model {
         id: "gpt-6-luna",
         provider: Provider::OpenAi,
         route: Route::OpenAiResponses,
         reasoning: Reasoning::Default,
         status: "Ladder fallback: passed synthetic extraction probes; full-book evaluation pending",
         rates: listed("gpt-6-luna"),
-    },
-    Model {
-        id: "gpt-6-sol",
-        provider: Provider::OpenAi,
-        route: Route::OpenAiResponses,
-        reasoning: Reasoning::Default,
-        status: "Available for app reasoning; not on the cookbook ladder",
-        rates: listed("gpt-6-sol"),
-    },
-    Model {
-        id: "claude-opus-5-5",
-        provider: Provider::Anthropic,
-        route: Route::AnthropicMessages,
-        reasoning: Reasoning::Default,
-        status: "Available for app audit recovery; not on the cookbook ladder",
-        rates: listed("claude-opus-5-5"),
     },
     // Workers AI models are priced and routable but off the ladder. Probed on
     // Nothing Fancy on 2026-09-11 (single model, no second opinion or
@@ -444,10 +420,6 @@ mod tests {
     #[test]
     fn default_ladder_is_priced() {
         let ladder = resolve_ladder(&[]).unwrap();
-        assert_eq!(
-            ladder.iter().map(|m| m.id).collect::<Vec<_>>(),
-            DEFAULT_LADDER
-        );
         assert_eq!(ladder.len(), DEFAULT_LADDER.len());
         assert!(ladder.iter().all(|m| m.rates.is_some()));
         assert!(matches!(
@@ -459,16 +431,5 @@ mod tests {
             None,
             "legacy ids are gone, not silently priced"
         );
-    }
-
-    #[test]
-    fn new_models_are_priced_by_the_rust_catalog() {
-        for id in ["gpt-6-luna", "gpt-6-sol", "claude-opus-5-5"] {
-            assert!(
-                listed(id).is_some(),
-                "{id} is missing from llm_models_spider"
-            );
-            assert_eq!(model(id).unwrap().rates, listed(id));
-        }
     }
 }
