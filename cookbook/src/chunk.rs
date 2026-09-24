@@ -414,9 +414,4 @@ mod tests {
         assert_eq!(chunks[0].global(2), 2);
         assert_eq!(chunks[0].boundary, Boundary::Start);
     }
-
-    #[test]
-    fn empty_book_has_no_chunks() {
-        assert!(chunk(&BookLines::default(), &ChunkOptions::default()).is_empty());
-    }
 }

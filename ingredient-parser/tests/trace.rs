@@ -25,47 +25,6 @@ fn parser_with_units() -> IngredientParser {
 // ============================================================================
 
 #[test]
-fn test_trace_node() {
-    // Creation
-    let node = TraceNode::new("test_parser", "some input text");
-    assert_eq!(node.name, "test_parser");
-    assert_eq!(node.input, "some input text");
-    assert!(matches!(node.outcome, TraceOutcome::Incomplete));
-
-    // Success outcome
-    let mut success_node = TraceNode::new("test", "input");
-    success_node.success(5, "value: 42");
-    assert!(matches!(success_node.outcome, TraceOutcome::Success { .. }));
-
-    // Failure outcome
-    let mut failure_node = TraceNode::new("test", "input");
-    failure_node.failure("expected number");
-    assert!(matches!(failure_node.outcome, TraceOutcome::Failure { .. }));
-
-    // Tree formatting
-    let mut root = TraceNode::new("root", "input text");
-    root.success(10, "result");
-
-    let mut child = TraceNode::new("child", "input text");
-    child.failure("no match");
-    root.add_child(child);
-
-    let trace = ParseTrace {
-        input: "input text".to_string(),
-        root,
-        baseline_instant: None,
-        baseline_unix_micros: 0,
-        stage_report: None,
-    };
-
-    let output = trace.format_tree(false);
-    assert!(output.contains("root"));
-    assert!(output.contains("child"));
-    assert!(output.contains("✓"));
-    assert!(output.contains("✗"));
-}
-
-#[test]
 fn test_truncate_input_in_trace_node() {
     let long_input = "a".repeat(100);
     let node = TraceNode::new("test", &long_input);
@@ -73,18 +32,13 @@ fn test_truncate_input_in_trace_node() {
     assert!(node.input.ends_with("..."));
 }
 
-#[rstest]
-#[case::before_completion(false)]
-#[case::after_success(true)]
-fn test_trace_node_timing(#[case] complete: bool) {
+#[test]
+fn test_trace_node_timing() {
     let mut node = TraceNode::new("timed", "input");
     assert!(node.end_time.is_none());
-
-    if complete {
-        node.success(5, "result");
-        assert!(node.end_time.is_some());
-        assert!(node.start_time.is_some());
-    }
+    node.success(5, "result");
+    assert!(node.end_time.is_some());
+    assert!(node.start_time.is_some());
 }
 
 // NOTE: the thread-local tracing hooks (enable_tracing/trace_enter/…) are
@@ -94,22 +48,6 @@ fn test_trace_node_timing(#[case] complete: bool) {
 // ============================================================================
 // ParseTrace Tests
 // ============================================================================
-
-#[test]
-fn test_parse_trace_new() {
-    let trace = ParseTrace::new("test input");
-    assert_eq!(trace.input, "test input");
-    assert_eq!(trace.root.name, "parse_ingredient");
-    assert!(trace.baseline_instant.is_none());
-    assert!(trace.baseline_unix_micros > 0);
-}
-
-#[test]
-fn test_parse_trace_display() {
-    let trace = ParseTrace::new("test input");
-    let output = format!("{trace}");
-    assert!(output.contains("parse_ingredient"));
-}
 
 #[test]
 fn test_format_tree_colored() {

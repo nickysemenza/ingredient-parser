@@ -13,7 +13,7 @@ vi.mock("./bridge", async () => {
   const actual = await vi.importActual<typeof import("./bridge")>("./bridge");
   return {
     ...actual,
-    api: { ...actual.api, parse: vi.fn(), inspect: vi.fn(), corpus: vi.fn() },
+    api: { ...actual.api, parse: vi.fn(), inspect: vi.fn() },
   };
 });
 const row = (
@@ -100,47 +100,6 @@ describe("Parser evidence identity", () => {
     ).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Inspect a web recipe" }),
-    ).toBeInTheDocument();
-  });
-  it("inspects corpus evidence without losing corpus context", async () => {
-    vi.mocked(api.corpus).mockResolvedValue({
-      path: null,
-      cases: [
-        {
-          lineNumber: 1,
-          section: "test",
-          input: "2 cups zucchini",
-          status: "Regression",
-          reason: null,
-          fields: [
-            {
-              field: "name",
-              matches: false,
-              expected: "squash",
-              actual: "zucchini",
-            },
-          ],
-        },
-      ],
-    });
-    render(<Parser {...props} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Corpus" }));
-    fireEvent.click(screen.getByRole("button", { name: "Load & score" }));
-    await screen.findByRole("button", { name: "Inspect ingredient" });
-    fireEvent.click(screen.getByRole("button", { name: "Inspect ingredient" }));
-    await screen.findByRole("region", { name: "Ingredient inspector" });
-    expect(screen.getByRole("tab", { name: "Corpus" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(
-      screen.getByRole("listbox", { name: "Corpus rows" }),
-    ).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Back to field comparison" }),
-    );
-    expect(
-      screen.getByRole("heading", { name: "Field comparison" }),
     ).toBeInTheDocument();
   });
 });

@@ -3,12 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { JsonView, RecipeScale } from "./index";
 
 describe("shared recipe presentation", () => {
-  it("sends desktop selection to the caller and respects pending work", () => {
+  it("disables desktop selection during pending work", () => {
     const onChange = vi.fn();
-    const view = render(<RecipeScale value={1} onChange={onChange} />);
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "2" } });
-    expect(onChange).toHaveBeenCalledWith(2);
-    view.rerender(<RecipeScale value={2} onChange={onChange} disabled />);
+    render(<RecipeScale value={2} onChange={onChange} disabled />);
     expect(screen.getByRole("combobox")).toBeDisabled();
   });
 

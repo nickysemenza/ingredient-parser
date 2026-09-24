@@ -4,11 +4,15 @@ export default defineConfig({
   fullyParallel: false,
   // The fixture bundle is large; webkit needs room to install it per navigation.
   timeout: 60_000,
-  use: { baseURL: "http://127.0.0.1:1420", browserName: "webkit" },
+  use: {
+    baseURL: "http://127.0.0.1:1420",
+    browserName: "webkit",
+    trace: "retain-on-failure",
+  },
   webServer: {
     command: "pnpm dev",
     url: "http://127.0.0.1:1420",
     reuseExistingServer: !process.env.CI,
   },
-  reporter: "list",
+  reporter: [["list"], ["json", { outputFile: "test-results/results.json" }]],
 });

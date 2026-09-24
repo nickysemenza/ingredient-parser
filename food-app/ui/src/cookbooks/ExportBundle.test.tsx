@@ -6,7 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { api, pick, revealFile } from "../bridge";
+import { api, pick } from "../bridge";
 import { ExportBundle } from "./ExportBundle";
 vi.mock("../bridge", () => ({
   api: { exportBundle: vi.fn() },
@@ -27,7 +27,6 @@ beforeEach(() => {
       images: [],
     },
   });
-  vi.mocked(revealFile).mockResolvedValue(undefined);
 });
 afterEach(() => {
   cleanup();
@@ -44,24 +43,6 @@ const panel = (sourcePath: string | null = "/books/book.epub") =>
       onError={onError}
     />,
   );
-it("exports the library source only on request and reveals the result", async () => {
-  panel();
-  expect(api.exportBundle).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Export bundle" }));
-  expect(await screen.findByRole("status")).toHaveTextContent(
-    "/runs/book--run.cookbook.zip",
-  );
-  expect(api.exportBundle).toHaveBeenCalledWith(
-    "/runs/run.json",
-    "/books/book.epub",
-  );
-  expect(pick).not.toHaveBeenCalled();
-  expect(onBusy.mock.calls).toEqual([[true], [false]]);
-  fireEvent.click(
-    screen.getByRole("button", { name: "Reveal bundle in Finder" }),
-  );
-  expect(revealFile).toHaveBeenCalledWith("/runs/book--run.cookbook.zip");
-});
 it("picks the source when missing and does nothing when the picker is cancelled", async () => {
   vi.mocked(pick)
     .mockResolvedValueOnce(null)

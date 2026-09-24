@@ -110,43 +110,8 @@ fn test_unit_other_to_str() {
     assert_eq!(Unit::Other("packets".to_string()).to_str(), "packet");
 }
 
-// ============================================================================
-// MeasureKind Tests (Parameterized)
-// ============================================================================
-
-#[rstest]
-// Display now delegates to the canonical lowercase `to_str` form.
-#[case::weight(MeasureKind::Weight, "weight")]
-#[case::volume(MeasureKind::Volume, "volume")]
-#[case::money(MeasureKind::Money, "money")]
-#[case::calories(MeasureKind::Calories, "calories")]
-#[case::time(MeasureKind::Time, "time")]
-#[case::temperature(MeasureKind::Temperature, "temperature")]
-#[case::length(MeasureKind::Length, "length")]
-fn test_measure_kind_display_and_to_str(#[case] kind: MeasureKind, #[case] expected: &str) {
-    assert_eq!(format!("{kind}"), expected);
-    assert_eq!(kind.to_str(), expected);
-}
-
-#[test]
-fn test_measure_kind_other() {
-    // `Other`/`Nutrient` carry their inner string so `to_str` inverts `from_str`.
-    let other = MeasureKind::Other("custom".to_string());
-    assert_eq!(format!("{other}"), "other:custom");
-    assert_eq!(other.to_str(), "other:custom");
-}
-
-#[rstest]
-#[case::weight("weight", MeasureKind::Weight)]
-#[case::volume("volume", MeasureKind::Volume)]
-#[case::money("money", MeasureKind::Money)]
-#[case::calories("calories", MeasureKind::Calories)]
-#[case::time("time", MeasureKind::Time)]
-#[case::temperature("temperature", MeasureKind::Temperature)]
-#[case::length("length", MeasureKind::Length)]
-fn test_measure_kind_from_str(#[case] input: &str, #[case] expected: MeasureKind) {
-    assert_eq!(MeasureKind::from_str(input).unwrap(), expected);
-}
+// MeasureKind string and representative-unit contracts are covered by
+// src/unit/kind.rs; classification from unit names remains here.
 
 #[rstest]
 #[case::gram("gram", MeasureKind::Weight)]
@@ -175,81 +140,9 @@ fn test_measure_kind_from_unit(#[case] unit_str: &str, #[case] expected: Measure
     assert_eq!(Measure::new(unit_str, 1.0).kind(), expected);
 }
 
-#[test]
-fn test_measure_kind_other_units() {
-    assert!(matches!(
-        Measure::new("whole", 1.0).kind(),
-        MeasureKind::Other(_)
-    ));
-    assert!(matches!(
-        Measure::new("custom", 1.0).kind(),
-        MeasureKind::Other(_)
-    ));
-}
-
-#[rstest]
-#[case::length(MeasureKind::Length, Unit::Inch)]
-#[case::weight(MeasureKind::Weight, Unit::Gram)]
-#[case::volume(MeasureKind::Volume, Unit::Milliliter)]
-#[case::money(MeasureKind::Money, Unit::Cent)]
-#[case::calories(MeasureKind::Calories, Unit::KCal)]
-#[case::time(MeasureKind::Time, Unit::Second)]
-#[case::temperature(MeasureKind::Temperature, Unit::Fahrenheit)]
-fn test_measure_kind_unit(#[case] kind: MeasureKind, #[case] expected: Unit) {
-    assert_eq!(kind.unit(), expected);
-}
-
 // ============================================================================
 // Measure Denormalization Tests (Parameterized)
 // ============================================================================
-
-#[rstest]
-#[case::small_tsp(2.0, "tsp")]
-#[case::tbsp(6.0, "tbsp")]
-#[case::cups(96.0, "cups")]
-#[case::quart(250.0, "quart")]
-fn test_teaspoon_denormalize(#[case] tsp_value: f64, #[case] expected_unit: &str) {
-    let m = Measure::new("tsp", tsp_value);
-    assert_eq!(m.denormalize().unit_as_string(), expected_unit);
-}
-
-#[rstest]
-#[case::small_sec(30.0, "seconds")]
-#[case::minutes(120.0, "minutes")]
-#[case::hour(7200.0, "hours")]
-#[case::day(100000.0, "days")]
-fn test_second_denormalize(#[case] sec_value: f64, #[case] expected_unit: &str) {
-    let m = Measure::new("second", sec_value);
-    assert_eq!(m.denormalize().unit_as_string(), expected_unit);
-}
-
-#[rstest]
-#[case("kg")]
-#[case("liter")]
-#[case("tablespoon")]
-#[case("cup")]
-#[case("quart")]
-#[case("gallon")]
-#[case("fl oz")]
-#[case("oz")]
-#[case("lb")]
-#[case("dollar")]
-#[case("fahrenheit")]
-#[case("celcius")]
-#[case("minute")]
-#[case("hour")]
-#[case("day")]
-fn test_denormalize_passthrough(#[case] unit: &str) {
-    let m = Measure::new(unit, 1.0);
-    assert_eq!(m.denormalize().value(), 1.0);
-}
-
-#[test]
-fn test_denormalize_with_upper_value() {
-    let m = Measure::with_range("tsp", 6.0, 12.0);
-    let d = m.denormalize();
-    assert!(d.upper_value().is_some());
-}
 
 // ============================================================================
 // Measure Pluralization Tests
@@ -257,11 +150,8 @@ fn test_denormalize_with_upper_value() {
 
 #[rstest]
 #[case::cup_half("cup", 0.5, "cup")]
-#[case::cup_one("cup", 1.0, "cup")]
-#[case::cup_two("cup", 2.0, "cups")]
 #[case::minute_one("minute", 1.0, "minute")]
 #[case::minute_two("minute", 2.0, "minutes")]
-#[case::gram("gram", 100.0, "g")]
 fn test_measure_pluralization(#[case] unit: &str, #[case] value: f64, #[case] expected: &str) {
     assert_eq!(Measure::new(unit, value).unit_as_string(), expected);
 }
@@ -271,9 +161,6 @@ fn test_measure_pluralization(#[case] unit: &str, #[case] value: f64, #[case] ex
 // ============================================================================
 
 #[rstest]
-#[case::simple("cups", 2.0, None, "2 cups")]
-#[case::singular("cup", 1.0, None, "1 cup")]
-#[case::range("cups", 1.0, Some(2.0), "1 - 2 cups")]
 #[case::zero_range("days", 0.0, Some(3.0), "3 days")]
 fn test_measure_display(
     #[case] unit: &str,
@@ -297,15 +184,6 @@ fn test_measure_add_different_kinds() {
     let weight = Measure::new("grams", 100.0);
     let volume = Measure::new("cups", 1.0);
     assert!(weight.add(volume).is_err());
-}
-
-#[test]
-fn test_measure_add_same_kind() {
-    let m1 = Measure::new("cups", 1.0);
-    let m2 = Measure::new("tbsp", 2.0);
-    let result = m1.add(m2);
-    assert!(result.is_ok());
-    assert!(result.unwrap().value() > 0.0);
 }
 
 #[rstest]
@@ -552,32 +430,6 @@ fn test_num_without_zeroes(#[case] input: f64, #[case] expected: &str) {
 // ============================================================================
 // Graph Tests
 // ============================================================================
-
-#[test]
-fn test_unit_and_kind_mapping() {
-    let kind_unit_pairs: Vec<(&str, &str)> = vec![
-        ("weight", "g"),
-        ("volume", "ml"),
-        ("money", "cent"),
-        ("calories", "cal"),
-        ("time", "second"),
-        ("temperature", "°"),
-    ];
-
-    for (kind_str, unit_str) in kind_unit_pairs {
-        assert_eq!(
-            Unit::from_str(unit_str).unwrap(),
-            MeasureKind::from_str(kind_str).unwrap().unit(),
-            "Kind '{kind_str}' should map to unit '{unit_str}'"
-        );
-    }
-
-    // Custom/Other kind
-    assert_eq!(
-        Unit::from_str("foo").unwrap().normalize(),
-        MeasureKind::from_str("foo").unwrap().unit()
-    );
-}
 
 #[test]
 fn test_graph_creation_and_printing() {

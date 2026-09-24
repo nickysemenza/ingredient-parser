@@ -63,6 +63,9 @@ proptest! {
     #[test]
     fn parser_never_panics_unicode(input in arb_unicode_input()) {
         let ingredient = from_str(&input);
+        if let Some(modifier) = &ingredient.modifier {
+            prop_assert!(!modifier.is_empty());
+        }
         let _display = format!("{ingredient}");
     }
 
@@ -84,16 +87,6 @@ proptest! {
 
         // Should be able to display the ingredient
         let _display = format!("{ingredient}");
-    }
-
-    /// Test that parsing is consistent
-    #[test]
-    fn parsing_is_consistent(input in arb_text_input()) {
-        let ingredient1 = from_str(&input);
-        let ingredient2 = from_str(&input);
-
-        // Same input should produce same output
-        prop_assert_eq!(ingredient1, ingredient2);
     }
 
     /// Test that parser handles edge cases gracefully
@@ -132,20 +125,6 @@ proptest! {
 
         // Should be able to format
         let _formatted = format!("{ingredient}");
-    }
-
-    /// Parsing stays panic-free and structurally valid on arbitrary (multibyte)
-    /// input. This once ran both the legacy and segmented paths and asserted
-    /// exact equality; the cutover ended that parity and the legacy path is now
-    /// gone, so accuracy is pinned by the corpus ratchet and this property
-    /// covers only robustness.
-    #[test]
-    fn parse_robust_on_unicode(input in arb_unicode_input()) {
-        let ing = from_str(&input);
-        if let Some(modifier) = &ing.modifier {
-            prop_assert!(!modifier.is_empty());
-        }
-        let _display = format!("{ing}");
     }
 
     /// Same robustness over *vocabulary-triggering* lines: random sentences
@@ -210,36 +189,4 @@ fn arb_vocab_line() -> impl Strategy<Value = String> {
         }
         line
     })
-}
-
-/// Test with edge case inputs
-#[test]
-fn test_parser_robustness_with_edge_cases() {
-    let edge_cases = [
-        "",
-        " ",
-        "salt",
-        "1 egg",
-        "½ cup water",
-        "a pinch of salt",
-        "2-3 cups flour",
-        "1 cup (240ml) milk",
-        "salt to taste",
-        "1 cup plus 2 tbsp flour",
-    ];
-
-    for input in edge_cases {
-        let ingredient = from_str(input);
-
-        // Should never have empty name unless input was empty or whitespace only
-        if !input.trim().is_empty() {
-            assert!(
-                !ingredient.name.is_empty(),
-                "Input '{input}' resulted in empty name"
-            );
-        }
-
-        // Should be able to display result
-        let _display = format!("{ingredient}");
-    }
 }

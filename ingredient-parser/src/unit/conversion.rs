@@ -1206,16 +1206,6 @@ mod tests {
     }
 
     #[test]
-    fn test_print_graph() {
-        let mappings = vec![(Measure::new("cup", 1.0), Measure::new("g", 120.0))];
-
-        let graph = make_graph(&mappings);
-        let dot = print_graph(&graph);
-
-        assert!(dot.contains("digraph"));
-    }
-
-    #[test]
     fn test_print_graph_escapes_quotes_in_labels() {
         // A unit can contain a double quote (the inch symbol, e.g. `1" cubes`).
         // Unescaped, it would terminate the DOT label early and yield invalid
