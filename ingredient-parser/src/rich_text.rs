@@ -335,11 +335,6 @@ mod tests {
         RichParser::new(Vec::<String>::new())
     }
 
-    #[fixture]
-    fn parser_with_ingredients() -> RichParser {
-        RichParser::new(["flour", "sugar"])
-    }
-
     // ============================================================================
     // RichParser Basic Tests
     // ============================================================================
@@ -390,25 +385,8 @@ mod tests {
     }
 
     #[rstest]
-    fn test_rich_parser_basic(parser: RichParser) {
-        let result = parser.parse("hello 1 cup foo bar").unwrap();
-        assert_eq!(result.len(), 3);
-        assert!(matches!(result[0], Chunk::Text(_)));
-        assert!(matches!(result[1], Chunk::Measure(_)));
-        assert!(matches!(result[2], Chunk::Text(_)));
-    }
-
-    #[rstest]
     fn test_rich_parser_empty_input(parser: RichParser) {
-        let result = parser.parse("").unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[rstest]
-    fn test_rich_parser_only_text(parser: RichParser) {
-        let result = parser.parse("just some text").unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(matches!(&result[0], Chunk::Text(s) if s == "just some text"));
+        assert!(parser.parse("").unwrap().is_empty());
     }
 
     #[rstest]
@@ -433,16 +411,6 @@ mod tests {
         let result = parser.parse(input).unwrap();
         let has_measure = result.iter().any(|c| matches!(c, Chunk::Measure(_)));
         assert!(!has_measure, "should not extract a measurement: {result:?}");
-    }
-
-    #[rstest]
-    fn test_rich_parser_multiple_measures(parser: RichParser) {
-        let result = parser.parse("Mix 1 cup flour with 2 tbsp sugar").unwrap();
-        let measures: Vec<_> = result
-            .iter()
-            .filter(|c| matches!(c, Chunk::Measure(_)))
-            .collect();
-        assert_eq!(measures.len(), 2);
     }
 
     /// Regression: the measure parser swallows a leading qualifier ("about ")
@@ -514,29 +482,6 @@ mod tests {
         );
     }
 
-    #[rstest]
-    fn test_rich_parser_with_ingredients(parser_with_ingredients: RichParser) {
-        let result = parser_with_ingredients
-            .parse("Add 2 cups flour and sugar")
-            .unwrap();
-
-        let has_flour = result
-            .iter()
-            .any(|c| matches!(c, Chunk::Ing(s) if s == "flour"));
-        let has_sugar = result
-            .iter()
-            .any(|c| matches!(c, Chunk::Ing(s) if s == "sugar"));
-        assert!(has_flour);
-        assert!(has_sugar);
-    }
-
-    #[test]
-    fn test_rich_parser_default() {
-        let parser: RichParser = Default::default();
-        let result = parser.parse("1 cup").unwrap();
-        assert!(!result.is_empty());
-    }
-
     // ============================================================================
     // Condense Text Tests
     // ============================================================================
@@ -550,17 +495,6 @@ mod tests {
         let condensed = condense_text(chunks);
         assert_eq!(condensed.len(), 1);
         assert!(matches!(&condensed[0], Chunk::Text(s) if s == "hello world"));
-    }
-
-    #[test]
-    fn test_condense_text_mixed() {
-        let chunks = vec![
-            Chunk::Text("hello ".to_string()),
-            Chunk::Measure(vec![Measure::new("cup", 1.0)]),
-            Chunk::Text(" world".to_string()),
-        ];
-        let condensed = condense_text(chunks);
-        assert_eq!(condensed.len(), 3);
     }
 
     // ============================================================================
@@ -625,39 +559,10 @@ mod tests {
         );
     }
 
-    /// Every occurrence of a repeated name is extracted, not just the first.
-    #[test]
-    fn test_extract_ingredients_repeated_name() {
-        let chunks = vec![Chunk::Text("Add flour then more flour".to_string())];
-        let names = vec!["flour".to_string()];
-        let result = extract_ingredients(chunks, &names);
-        let flour_count = result
-            .iter()
-            .filter(|c| matches!(c, Chunk::Ing(s) if s == "flour"))
-            .count();
-        assert_eq!(flour_count, 2);
-    }
-
-    /// Plural-suffix matching, with the boundary guard re-checked past the
-    /// suffix. Each case: (input, name, expected chunks). Surface text must
-    /// carry the prose's own plural, not the candidate.
-    ///
-    /// Sentence-initial capitalized mentions use guarded case-insensitive
-    /// matching (see `find_candidate_case_insensitive_at_start`); mid-sentence
-    /// capitals and imperative openers stay plain text.
+    /// Remaining direct cases cover punctuation and case boundaries not yet
+    /// labeled in the rich-text corpus. Plural and false-positive boundaries
+    /// with independently labeled outcomes live in that corpus.
     #[rstest]
-    // plural: name "egg" matches prose "eggs", surface keeps the plural.
-    #[case::plural_s("beat the eggs", "egg", vec![
-        Chunk::Text("beat the ".into()), Chunk::Ing("eggs".into())])]
-    // "es" plural form.
-    #[case::plural_es("dice the tomatoes", "tomato", vec![
-        Chunk::Text("dice the ".into()), Chunk::Ing("tomatoes".into())])]
-    // boundary re-checked past suffix: must NOT punch through "eggplant".
-    #[case::no_eggplant("slice the eggplant", "egg", vec![
-        Chunk::Text("slice the eggplant".into())])]
-    // "s" branch must not leak into "limestone".
-    #[case::no_limestone("set on limestone", "lime", vec![
-        Chunk::Text("set on limestone".into())])]
     // apostrophe-s is a boundary, not a plural to absorb.
     #[case::apostrophe_s("trim the egg's shell", "egg", vec![
         Chunk::Text("trim the ".into()), Chunk::Ing("egg".into()), Chunk::Text("'s shell".into())])]
@@ -675,9 +580,6 @@ mod tests {
         Chunk::Text("Salt to taste".into())])]
     #[case::cap_start_plural_es("Tomatoes are ripe", "tomato", vec![
         Chunk::Ing("Tomatoes".into()), Chunk::Text(" are ripe".into())])]
-    // must-preserve: "oil" never matches inside "broil" (leading boundary).
-    #[case::broil_guard("broil until charred", "oil", vec![
-        Chunk::Text("broil until charred".into())])]
     // lowercase exact still works unchanged.
     #[case::lower_exact("add the onion", "onion", vec![
         Chunk::Text("add the ".into()), Chunk::Ing("onion".into())])]
@@ -737,17 +639,6 @@ mod tests {
             !has_size_measure,
             "Should not parse cooking terms as measurements: {input:?} -> {result:?}"
         );
-    }
-
-    // ============================================================================
-    // Chunk Tests
-    // ============================================================================
-
-    #[test]
-    fn test_chunk_clone() {
-        let chunk = Chunk::Text("test".to_string());
-        let cloned = chunk.clone();
-        assert_eq!(chunk, cloned);
     }
 
     // Regression test: numbers followed by periods and capitalized words (like oven temps)

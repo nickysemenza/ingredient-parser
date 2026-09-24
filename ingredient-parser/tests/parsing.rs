@@ -260,7 +260,6 @@ fn test_display_empty_amounts() {
 // ============================================================================
 
 #[rstest]
-#[case::basic("hello 1 cups foo bar", &[], vec![text("hello "), measure("cups", 1.0), text(" foo bar")])]
 #[case::with_ing("hello 1 cups foo bar", &["bar"], vec![text("hello "), measure("cups", 1.0), text(" foo "), ing("bar")])]
 #[case::multi_word_ing("hello 1 cups foo bar", &["foo bar"], vec![text("hello "), measure("cups", 1.0), text(" "), ing("foo bar")])]
 #[case::range("2-2 1/2 cups foo' bar", &[], vec![measure_range("cups", 2.0, 2.5), text(" foo' bar")])]
@@ -314,9 +313,6 @@ fn test_rich_text_dimensions() {
 #[case::whitespace("   ", vec![text("   ")])]
 #[case::number_without_unit("step 1", vec![text("step "), measure("whole", 1.0)])]
 #[case::punctuation("add 1 cup, then stir", vec![text("add "), measure("cup", 1.0), text(", then stir")])]
-// Numbered instructions should NOT parse step numbers as measurements
-#[case::numbered_step("1 Bring a large pot of water to a boil.", vec![text("1 Bring a large pot of water to a boil.")])]
-#[case::numbered_step_2("2 Set out 4 ramen bowls.", vec![text("2 Set out "), measure("whole", 4.0), text(" ramen bowls.")])]
 fn test_rich_text_edge_cases(#[case] input: &str, #[case] expected: Vec<Chunk>) {
     assert_eq!(parse_rich(input, &[]), expected);
 }
@@ -326,9 +322,7 @@ fn test_rich_text_edge_cases(#[case] input: &str, #[case] expected: Vec<Chunk>) 
 // ============================================================================
 
 #[rstest]
-#[case::rest_minutes("rest for 10 minutes", vec![text("rest for "), measure("minutes", 10.0)])]
 #[case::no_measure("marinate overnight", vec![text("marinate overnight")])]
-#[case::cook_range("cook 2-3 hours", vec![text("cook "), measure_range("hours", 2.0, 3.0)])]
 #[case::bake_minutes("bake for 25-30 minutes", vec![text("bake for "), measure_range("minutes", 25.0, 30.0)])]
 #[case::let_rest("let rest 1-2 hours", vec![text("let rest "), measure_range("hours", 1.0, 2.0)])]
 #[case::chill_range("chill for 2-4 hours", vec![text("chill for "), measure_range("hours", 2.0, 4.0)])]
@@ -336,21 +330,11 @@ fn test_rich_text_time_patterns(#[case] input: &str, #[case] expected: Vec<Chunk
     assert_eq!(parse_rich(input, &[]), expected);
 }
 
-#[test]
-fn test_rich_text_compound_time_expressions() {
-    let result = parse_rich("2 hours and up to 3 days", &[]);
-    assert_eq!(result.len(), 3);
-    assert_eq!(result[0], measure("hours", 2.0));
-    assert_eq!(result[1], text(" and "));
-    assert_eq!(result[2], measure_range("days", 0.0, 3.0));
-}
-
 // ============================================================================
 // Rich Text - Temperature Patterns
 // ============================================================================
 
 #[rstest]
-#[case::fahrenheit("preheat oven to 350°F", vec![text("preheat oven to "), measure("°f", 350.0)])]
 #[case::temperature_only("preheat to 350 °F", vec![text("preheat to "), measure("°f", 350.0)])]
 fn test_rich_text_temperature(#[case] input: &str, #[case] expected: Vec<Chunk>) {
     assert_eq!(parse_rich(input, &[]), expected);

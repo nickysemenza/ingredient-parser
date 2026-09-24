@@ -68,6 +68,19 @@ from that bundle: `book`, `estimate`, `extraction`, `bundle`, `runs`, `library`,
 `gateway`, `ingredients`, `inspections`, `corpus`, `webRecipe`,
 `scaledWebRecipe`.
 
+After WebKit E2E, seal its product output and test evidence:
+
+```sh
+pnpm --filter @ingredient-parser/desktop-ui test:e2e
+cargo run -p food-app --example e2e_artifact -- seal /tmp/food-app-qa food-app/ui/test-results
+cargo run -p food-app --example e2e_artifact -- verify /tmp/food-app-qa/e2e-artifact
+```
+
+The artifact contains the source EPUB, saved run, exported `.cookbook.zip`,
+browser report and screenshots, plus SHA-256 evidence. Verification checks each
+file and bundle asset, then re-exports the retained inputs and compares the
+archive bytes. CI uploads the directory as `desktop-e2e-evidence`.
+
 ## Command bindings
 
 Application boundary types live in `src/backend.rs`. After changing a DTO,

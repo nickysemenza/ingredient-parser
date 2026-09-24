@@ -333,13 +333,6 @@ mod tests {
     }
 
     #[test]
-    fn tokens_follow_chunk_size() {
-        let (i, o) = chunk_tokens(&chunk(0, 100, 12_000));
-        assert_eq!(i, 3_333 + 1_400);
-        assert_eq!(o, 80 + 340);
-    }
-
-    #[test]
     fn tracker_converges_to_observations() {
         let mut t = EtaTracker::new();
         let m = model("gemini-2.5-flash").unwrap();

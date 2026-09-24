@@ -101,18 +101,18 @@ ranges and `xfail` rows highlighted) and opens it in your default browser. Pass
 
 ## When you change the parser
 
-- **Always add tests.** Prefer appending corpus rows (for end-to-end behavior)
-  and extending the existing `rstest`-parameterized unit tests over writing new
-  one-off test functions.
+- Cover new parser behavior before changing the code. Prefer independently
+  labeled corpus rows for `from_str` accuracy. Add an isolated `rstest` case
+  before implementation only for a concrete failure the corpus and public
+  boundaries cannot express; list those failure modes in the task plan or PR.
 - Run `cargo nextest run` and `cargo test -p ingredient --doc`; both must pass.
 - Run `cargo clippy --all-targets` and `cargo fmt` before pushing.
 - If a fix relies on a non-obvious invariant, add a brief code comment.
 
 ## Snapshot tests
 
-[`tests/snapshots.rs`](ingredient-parser/tests/snapshots.rs) uses `insta`. If a
-change intentionally alters snapshot output, review and accept with
-`cargo insta review`.
+If a change intentionally alters a retained `insta` snapshot, review and accept
+it with `cargo insta review`.
 
 ## Independent evaluation
 

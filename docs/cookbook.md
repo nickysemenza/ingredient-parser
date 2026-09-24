@@ -146,7 +146,7 @@ cookbook library ~/Calibre --sample 25 --seed 1 --max-cost 8          # the samp
 cookbook report --library ~/Calibre                                   # worst first
 cookbook explain RUN.json --title "…" --book BOOK.epub                # unclaimed lines, calls, flags
 cookbook inspect BOOK.epub --lines A..B
-# fix one deterministic rule with an rstest case; cargo nextest run -p cookbook
+# label the failing EPUB-to-run case before the fix; use rstest only for a unique isolated failure
 cookbook library ~/Calibre --only "<title>" --force                   # free when the request bodies did not change
 cookbook eval --replay DUMPS/<setting>                                # the gate must not regress
 ```

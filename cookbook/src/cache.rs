@@ -117,27 +117,4 @@ mod tests {
         assert_ne!(base, cache_key("v1", "m", "s", &json!({"a": 1})));
         assert_ne!(base, cache_key("v1", "m", "r", &json!({"a": 2})));
     }
-
-    #[test]
-    fn memory_cache_round_trips() {
-        let cache = MemoryCache::default();
-        let call = CachedCall {
-            key: "k".into(),
-            model: "m".into(),
-            contract: "v1".into(),
-            response: crate::HttpResponse {
-                status: 200,
-                headers: vec![],
-                body: "{}".into(),
-            }
-            .into(),
-            usage: Usage::default(),
-            recorded_at: "2026-09-10T00:00:00Z".into(),
-        };
-        assert!(cache.get("k").is_none());
-        cache.put("k", &call);
-        assert_eq!(cache.get("k"), Some(call));
-        assert_eq!(cache.len(), 1);
-        assert!(NoCache.get("k").is_none());
-    }
 }

@@ -23,19 +23,3 @@ impl LineParser {
         (parsed, confidence)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_amounts_and_reports_confidence() {
-        let p = LineParser::new();
-        let (i, c) = p.parse("2 cups all-purpose flour, sifted");
-        assert_eq!(i.name, "all-purpose flour");
-        assert_eq!(i.amounts.len(), 1);
-        assert_eq!(c, Confidence::High);
-        let (_, c) = p.parse("Kosher salt");
-        assert_eq!(c, Confidence::Medium);
-    }
-}

@@ -254,4 +254,19 @@ jobs:
       - run: pnpm --filter @ingredient-parser/desktop-ui exec playwright install webkit
       - run: cargo run -p food-app --example create_run_fixture -- /tmp/food-app-qa
       - run: pnpm --filter @ingredient-parser/desktop-ui test:e2e
+      - name: Seal and verify desktop E2E evidence
+        if: always()
+        run: |
+          if [ -f /tmp/food-app-qa/frontend-fixture.json ] && [ -f food-app/ui/test-results/results.json ]; then
+            cargo run -p food-app --example e2e_artifact -- seal /tmp/food-app-qa food-app/ui/test-results
+          fi
+      - name: Upload desktop E2E evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: desktop-e2e-evidence
+          path: /tmp/food-app-qa/e2e-artifact
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
       - run: pnpm --filter @ingredient-parser/desktop-ui desktop:build --debug

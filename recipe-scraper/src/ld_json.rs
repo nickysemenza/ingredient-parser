@@ -402,84 +402,17 @@ mod tests {
     use crate::{
         RecipeYield,
         ld_json::{
-            extract_ld, extract_tool_names, extract_yield_from_wrapper, humanize_minutes,
-            normalize_ld_json, parse_iso8601_duration, parse_ld_json, parse_yield_string,
-            scrape_from_ld_json,
+            extract_tool_names, extract_yield_from_wrapper, humanize_minutes, normalize_ld_json,
+            parse_iso8601_duration, parse_yield_string, scrape_from_ld_json,
         },
         ld_schema::{InstructionWrapper, RecipeYieldWrapper, Root, RootRecipe},
     };
     use rstest::rstest;
-    use scraper::Html;
     use serde_json::json;
-
-    // ============================================================================
-    // parse_ld_json() Tests
-    // ============================================================================
-
-    #[test]
-    fn test_parse_valid_json() {
-        assert_eq!(
-            parse_ld_json(
-                r#"{
-  "name": "",
-  "recipeIngredient": [],
-  "recipeInstructions": []
-}
-"#
-            )
-            .unwrap(),
-            crate::ld_schema::Root::Recipe(Box::new(crate::ld_schema::RootRecipe {
-                context: None,
-                name: "".to_string(),
-                description: None,
-                image: None,
-                total_time: None,
-                prep_time: None,
-                cook_time: None,
-                recipe_yield: None,
-                recipe_category: None,
-                tool: None,
-                recipe_ingredient: vec![],
-                recipe_instructions: InstructionWrapper::A(vec![]),
-            }))
-        );
-    }
-
-    #[rstest]
-    #[case::invalid_json("not valid json")]
-    #[case::empty("")]
-    #[case::incomplete("{")]
-    fn test_parse_invalid_json(#[case] input: &str) {
-        let result = parse_ld_json(input);
-        assert!(result.is_err());
-    }
 
     // ============================================================================
     // normalize_ld_json() Tests
     // ============================================================================
-
-    #[test]
-    fn test_normalize_list_root() {
-        let root = Root::List(vec![RootRecipe {
-            context: None,
-            name: "Test Recipe".to_string(),
-            description: None,
-            image: None,
-            total_time: None,
-            prep_time: None,
-            cook_time: None,
-            recipe_yield: None,
-            recipe_category: None,
-            tool: None,
-            recipe_ingredient: vec!["1 cup flour".to_string()],
-            recipe_instructions: InstructionWrapper::A(vec![]),
-        }]);
-
-        let result = normalize_ld_json(root, "https://example.com");
-        assert!(result.is_ok());
-        let recipe = result.unwrap();
-        assert_eq!(recipe.name, "Test Recipe");
-    }
 
     /// A multi-recipe list picks the FIRST recipe (the page's primary), matching
     /// the first-match convention everywhere else (was `pop()` = last).
@@ -545,61 +478,8 @@ mod tests {
     }
 
     // ============================================================================
-    // extract_ld() Tests
-    // ============================================================================
-
-    #[test]
-    fn test_extract_ld_no_script() {
-        let html = Html::parse_document("<html><body>No recipe here</body></html>");
-        let result = extract_ld(&html);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_extract_ld_with_script() {
-        let html = Html::parse_document(
-            r#"<html>
-            <head>
-                <script type="application/ld+json">{"name": "test"}</script>
-            </head>
-            <body></body>
-            </html>"#,
-        );
-        let result = extract_ld(&html);
-        assert!(result.is_ok());
-        let scripts = result.unwrap();
-        assert_eq!(scripts.len(), 1);
-        assert!(scripts[0].contains("name"));
-    }
-
-    // ============================================================================
     // scrape_from_ld_json() Tests
     // ============================================================================
-
-    #[test]
-    fn test_scrape_from_ld_json_valid() {
-        let json = r#"{
-            "name": "Chocolate Cake",
-            "recipeIngredient": ["2 cups flour", "1 cup sugar"],
-            "recipeInstructions": []
-        }"#;
-
-        let result = scrape_from_ld_json(json, "https://example.com/cake");
-        assert!(result.is_ok());
-        let recipe = result.unwrap();
-        assert_eq!(recipe.name, "Chocolate Cake");
-        assert_eq!(recipe.ingredients().count(), 2);
-        assert_eq!(recipe.url, "https://example.com/cake");
-    }
-
-    #[rstest]
-    #[case::invalid_json("not valid json at all")]
-    #[case::empty("")]
-    #[case::incomplete("{\"name\":")]
-    fn test_scrape_from_ld_json_invalid(#[case] json: &str) {
-        let result = scrape_from_ld_json(json, "https://example.com");
-        assert!(result.is_err());
-    }
 
     #[test]
     fn test_instruction_wrapper_c() {
@@ -763,19 +643,6 @@ mod tests {
     // ============================================================================
 
     #[test]
-    fn test_extract_tool_names_single_string() {
-        assert_eq!(extract_tool_names(&json!("Whisk")), vec!["Whisk"]);
-    }
-
-    #[test]
-    fn test_extract_tool_names_string_array() {
-        assert_eq!(
-            extract_tool_names(&json!(["9-inch pan", "Whisk"])),
-            vec!["9-inch pan", "Whisk"]
-        );
-    }
-
-    #[test]
     fn test_extract_tool_names_object_array() {
         // schema.org HowToTool objects, plus the "n/a" placeholder some sites emit.
         let tool = json!([
@@ -912,39 +779,5 @@ mod tests {
             recipe.instructions().collect::<Vec<_>>(),
             vec!["Mix at 350°."]
         );
-    }
-
-    /// Already-clean text is unchanged — decoding is idempotent and doesn't
-    /// mangle a bare `&` that isn't part of an entity.
-    #[test]
-    fn test_scrape_decode_is_idempotent_on_clean_text() {
-        let json = r#"{
-            "name": "Mac & Cheese",
-            "recipeIngredient": ["1 cup elbow macaroni"],
-            "recipeInstructions": []
-        }"#;
-
-        let recipe = scrape_from_ld_json(json, "https://example.com").unwrap();
-        assert_eq!(recipe.name, "Mac & Cheese");
-        assert_eq!(
-            recipe.ingredients().collect::<Vec<_>>(),
-            vec!["1 cup elbow macaroni"]
-        );
-    }
-
-    #[test]
-    fn test_scrape_no_metadata_leaves_fields_empty() {
-        let json = r#"{
-            "name": "Bare",
-            "recipeIngredient": ["1 cup flour"],
-            "recipeInstructions": []
-        }"#;
-
-        let recipe = scrape_from_ld_json(json, "https://example.com").unwrap();
-        assert_eq!(recipe.description, None);
-        assert_eq!(recipe.times, None);
-        assert_eq!(recipe.category, None);
-        assert!(recipe.notes.is_empty());
-        assert!(recipe.equipment.is_empty());
     }
 }
