@@ -47,7 +47,7 @@ thiserror.workspace = true
 tracing.workspace = true
 futures.workspace = true
 zip = { version = "8", default-features = false, features = ["deflate"] }
-roxmltree = "0.20"
+roxmltree = "0.21"
 scraper = "0.27.0"
 ego-tree = "0.11"
 schemars = "1"
