@@ -42,7 +42,7 @@ ingredient.workspace = true
 recipe-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-strum = { version = "0.27", features = ["derive"] } # Reasoning: FromStr and Display
+strum = { version = "0.28", features = ["derive"] } # Reasoning: FromStr and Display
 thiserror.workspace = true
 tracing.workspace = true
 futures.workspace = true
