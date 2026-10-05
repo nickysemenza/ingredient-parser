@@ -19,8 +19,9 @@ members = [
 # `rust-version.workspace = true`. Workspace MSRV is 1.88: edition 2024 plus
 # clippy's `collapsible_if` (under CI's `-D warnings`) collapses nested `if let`
 # into let-chains, which stabilized in 1.88, so that's the real floor for every
-# crate including the published `ingredient`. (`version` stays per-crate:
-# `ingredient` is published at its own cadence, the rest are 0.1.0 internal.)
+# crate including the published `ingredient` (food-app overrides it: Tauri needs
+# 1.90). (`version` stays per-crate: `ingredient` is published at its own
+# cadence, the rest are 0.1.0 internal.)
 [workspace.package]
 edition = "2024"
 rust-version = "1.88"
