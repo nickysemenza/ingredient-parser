@@ -1,0 +1,33 @@
+.github/workflows/preview-cleanup.yml
+  s_d7a2bc4972862f::t_1ced49320cb1f6 1-34
+.github/workflows/rust.yml
+  s_d7a2bc4972862f::t_f9f997fe1f679c 209-210,216-220,250-278,280-309
+README.md
+  s_d7a2bc4972862f::t_3fd80ddd5c2581 78-82
+pnpm-lock.yaml
+  s_d7a2bc4972862f::t_60893ebf6a0be8 90-92,139,145,163,178,181-184,242-288,325-483,508-669,686-688,819-827,1089-1095,1518-1520,1535-1538,1581-1583,1587-1591,1647-1650,1825-1828,1854-1859,1954-1967,1993-1996,2042-2045,2050-2052,2183-2209,2217-2222,2279-2305,2330-2412,2432-2537,2557-2561,2625-2636,2821-2824,2886,2891,2969,2979,3078,3081,3083,3090,3114-3115,3132-3133,3169-3170,3173-3201,3258-3259,3378-3390,3421-3424,3521-3555,3573-3574,3629-3630,3633-3636,3656,3665,3669,3672,3683,3709-3735,3739-3751
+pnpm-workspace.yaml
+  s_d7a2bc4972862f::t_290118d7d93351 33,37
+ui/.gitignore
+  s_d7a2bc4972862f::t_bf73a3a821392b 7
+ui/package.json
+  s_d7a2bc4972862f::t_f67e60054fdae6 47-48
+ui/wrangler.jsonc
+  s_d7a2bc4972862f::t_0db0bbf62e20df 1-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5003866e7a89510b595adb7de9f01a3a37594bad",
+  "prompts": {},
+  "sessions": {
+    "s_d7a2bc4972862f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e04b3aee-7fec-4b0d-b188-ac6b4482af72",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "nicky <nicky@cloudflare.com>"
+    }
+  }
+}
