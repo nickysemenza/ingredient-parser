@@ -1553,12 +1553,10 @@ dependencies = [
  "cookbook",
  "cookbook-fixtures",
  "dotenvy",
- "ingredient",
+ "food-core",
  "ingredient-corpus",
- "recipe-parsing",
  "recipe-scraper",
  "recipe-scraper-fetcher",
- "recipe-types",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -1601,6 +1599,37 @@ dependencies = [
  "terminal_size",
  "tokio",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "food-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "cookbook",
+ "cookbook-fixtures",
+ "ingredient",
+ "ingredient-corpus",
+ "recipe-parsing",
+ "recipe-scraper",
+ "recipe-types",
+ "serde",
+ "serde_json",
+ "ts-rs",
+ "web-time",
+]
+
+[[package]]
+name = "food-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "cookbook",
+ "cookbook-fixtures",
+ "food-core",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -2514,6 +2543,7 @@ dependencies = [
  "ts-rs",
  "tsify-next",
  "wasm-bindgen",
+ "web-time",
 ]
 
 [[package]]
@@ -2528,25 +2558,6 @@ dependencies = [
  "unicode-casefold",
  "xml-rs",
  "zip",
-]
-
-[[package]]
-name = "ingredient-wasm"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "ingredient",
- "js-sys",
- "recipe-parsing",
- "recipe-scraper",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "tracing",
- "tsify-next",
- "wasm-bindgen",
- "wasm-bindgen-test",
- "wasm-tracing",
 ]
 
 [[package]]
@@ -6393,17 +6404,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
-]
-
-[[package]]
-name = "wasm-tracing"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11ab253baf6d3772bbdb37a0966b67d37ab80657ccd1a084b4d7b3de3232375d"
-dependencies = [
- "tracing",
- "tracing-subscriber",
- "wasm-bindgen",
 ]
 
 [[package]]

@@ -1,0 +1,29 @@
+[package]
+name = "food-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+publish = false
+description = "Portable application services behind the desktop app and the web build."
+
+[dependencies]
+ingredient = { workspace = true, features = ["typescript"] }
+ingredient-corpus.workspace = true
+recipe-parsing.workspace = true
+recipe-scraper.workspace = true
+recipe-types = { workspace = true, features = ["typescript"] }
+# Path dependency so the browser build can turn the native default off; the
+# desktop app re-enables it through feature unification.
+cookbook = { path = "../cookbook", default-features = false, features = ["typescript"] }
+serde.workspace = true
+serde_json.workspace = true
+ts-rs.workspace = true
+base64 = "0.23"
+web-time = "1"
+
+[dev-dependencies]
+cookbook-fixtures.workspace = true
+
+[lints]
+workspace = true

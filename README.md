@@ -10,7 +10,7 @@ For full documentation, usage examples, and features, see the detailed [ingredie
 
 ## Maintainer toolkit
 
-Run `pnpm --filter @ingredient-parser/desktop-ui desktop:dev` for the macOS Parser and Cookbooks
+Run `pnpm --filter @ingredient-parser/ui desktop:dev` for the macOS Parser and Cookbooks
 desktop workspaces. See [desktop setup and testing](food-app/README.md).
 The terminal interface has six command families: `ingredient`, `amount`, `text`,
 `recipe`, `cookbook`, and `corpus`. Use `--help` on a family or command to see its
@@ -55,17 +55,23 @@ network and no extraction model. To write one out for manual inspection:
 cargo run -p cookbook-fixtures --example write_fixture -- cookbook /tmp/synthetic-cookbook.epub
 ```
 
-### Frontend workspace
+### Frontend
 
-Run `pnpm install --frozen-lockfile` at the repository root. The pnpm workspace
-contains `demo-site`, `food-app/ui`, and `packages/recipe-ui`, with one lockfile
-and package-manager version. Each app retains its own build configuration.
+`ui/` is the one frontend: the public website (landing page plus the Parser and
+Cookbooks workbench) and the desktop window are the same build. Both run the
+same Rust command layer, [`food-core`](food-core): natively in the desktop app,
+compiled to WebAssembly ([`food-wasm`](food-wasm)) in a worker on the web. The
+TypeScript contract `ui/src/api/generated.ts` is generated from Rust.
 
-- `pnpm build`: regenerate the demo WASM bindings and build all frontend packages.
-- `pnpm lint`: lint all frontend packages.
-- `pnpm test`: run shared presentation and desktop interaction tests.
-- `pnpm --filter demo-site dev`: start the demo (run `make build-demo-wasm` first).
-- `pnpm --filter @ingredient-parser/desktop-ui desktop:dev`: start the macOS app.
+Run `pnpm install --frozen-lockfile` at the repository root, then:
 
-Shared UI code uses `workspace:*` dependencies; source edits do not require a
-reinstall. Use `pnpm --filter <package> <command>` to run package-specific checks.
+- `pnpm dev`: build the WASM package and start the website at http://localhost:1420.
+- `pnpm --filter @ingredient-parser/ui desktop:dev`: start the macOS app.
+- `pnpm build`: build the WASM package and the frontend (`ui/dist`).
+- `pnpm lint` / `pnpm test`: lint and unit-test the frontend.
+- `pnpm --filter @ingredient-parser/ui test:e2e`: Playwright against the production
+  build — the website in Chromium with real WASM, and the desktop shell in WebKit
+  against a recorded fixture (see [food-app](food-app/README.md#end-to-end-tests)).
+- `cargo run -p food-app --example export_bindings`: regenerate the TypeScript contract.
+
+The WASM build needs the `wasm32-unknown-unknown` target and `wasm-pack`.

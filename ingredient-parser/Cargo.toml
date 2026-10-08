@@ -39,6 +39,8 @@ regex = "1.10"
 num-rational = { version = "0.4", default-features = false }
 num-traits = "0.2"
 thiserror.workspace = true
+# `std::time` panics on wasm32-unknown-unknown; this is std on native.
+web-time = "1"
 criterion = { version = "0.8", features = ["html_reports"], optional = true }
 ts-rs = { workspace = true, optional = true }
 tsify-next = { workspace = true, optional = true }

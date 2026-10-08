@@ -379,39 +379,10 @@ pub mod runs {
         })
     }
 
-    /// A row in `runs`.
-    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-    #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-    pub struct RunSummary {
-        pub path: String,
-        pub run_id: String,
-        pub book: String,
-        pub sha256: String,
-        pub started_at: String,
-        pub ladder: Vec<String>,
-        pub recipes: usize,
-        pub items: usize,
-        pub recall: Option<f32>,
-        pub cost_usd: f64,
-        pub wall_ms: u64,
-        pub incomplete: bool,
-    }
+    pub use crate::report::RunSummary;
 
     pub fn summarize(path: &Path, extraction: &Extraction) -> RunSummary {
-        RunSummary {
-            path: path.to_string_lossy().into_owned(),
-            run_id: extraction.report.run_id.clone(),
-            book: extraction.cookbook.source.title.clone(),
-            sha256: extraction.cookbook.source.sha256.clone(),
-            started_at: extraction.report.started_at.clone(),
-            ladder: extraction.report.estimate.ladder.clone(),
-            recipes: extraction.cookbook.recipes().count(),
-            items: extraction.cookbook.items().count(),
-            recall: extraction.report.crosscheck.recall,
-            cost_usd: extraction.report.total_cost_usd,
-            wall_ms: extraction.report.wall_ms,
-            incomplete: extraction.report.incomplete,
-        }
+        RunSummary::of(path.to_string_lossy().into_owned(), extraction)
     }
 
     /// Write a run to `<root>/<title-slug>--<run_id>.json` (or `out`). A run

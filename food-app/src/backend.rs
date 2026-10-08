@@ -1,291 +1,59 @@
-//! Application services for the native desktop shell: ingredient parsing,
-//! corpus scoring, web recipes, and cookbook extraction over the `cookbook`
-//! crate. Loading and rendering never start extraction; a run is one explicit
-//! call that ends in the shared run store.
-use base64::Engine;
+//! Native application services. Portable commands (parsing, recipes, corpus,
+//! opened books and runs) are `food-core`'s, answered from the filesystem by
+//! [`FsHost`]; this module adds what only a desktop can do: the Calibre
+//! library, the run store, model backends, extraction, and bundle export.
+//! Loading and rendering never start extraction; a run is one explicit call
+//! that ends in the shared run store.
+pub use cookbook::RunSummary;
 use cookbook::cache::ChunkCache;
-use cookbook::classify::{Classified, classify_structure, subject_hint};
+use cookbook::classify::subject_hint;
 use cookbook::epub::open::Package;
 use cookbook::library::ShaCache;
 use cookbook::native::runs;
-pub use cookbook::native::runs::RunSummary;
 use cookbook::native::{FsChunkCache, ReqwestTransport};
-use cookbook::{
-    Book, BookOutline, CancelToken, Estimate, ExtractOptions, Extraction, Progress, Transport,
-};
-use ingredient::{IngredientParser, ParseOptions, TraceDetail};
+use cookbook::{Book, CancelToken, Estimate, ExtractOptions, Progress, Transport};
+use food_core::Host;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
-};
+use std::path::{Path, PathBuf};
 use ts_rs::TS;
 
 type AppResult<T> = Result<T, String>;
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct IngredientResult {
-    pub line_number: usize,
-    pub input: String,
-    pub name: String,
-    pub amounts: Vec<String>,
-    pub modifier: Option<String>,
-    pub optional: bool,
-    pub usage: String,
-    pub confidence: String,
-    pub review_reasons: Vec<String>,
-    pub json: Value,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct TraceNode {
-    pub name: String,
-    pub input: String,
-    pub outcome: String,
-    pub detail: String,
-    pub children: Vec<TraceNode>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct IngredientInspection {
-    pub result: IngredientResult,
-    pub stages: String,
-    pub trace: Option<TraceNode>,
-    pub trace_text: String,
-    pub jaeger_json: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct RecipeResult {
-    pub title: String,
-    pub url: String,
-    pub ingredients: Vec<IngredientResult>,
-    pub sections: Vec<WebSection>,
-    pub source: Value,
-    pub parsed: Value,
-    pub diagnostics: Vec<String>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct CorpusField {
-    pub field: String,
-    pub matches: bool,
-    pub expected: String,
-    pub actual: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct CorpusCase {
-    pub line_number: usize,
-    pub section: String,
-    pub input: String,
-    pub status: String,
-    pub reason: Option<String>,
-    pub fields: Vec<CorpusField>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct CorpusResult {
-    pub path: Option<String>,
-    pub cases: Vec<CorpusCase>,
-}
-/// A scraped web recipe's section, rendered for display.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct WebSection {
-    pub name: Option<String>,
-    pub ingredients: Vec<String>,
-    pub instructions: Vec<String>,
-}
+/// Files are paths on disk; runs come from the shared run store.
+pub struct FsHost;
 
-fn ingredient_result(
-    input: &str,
-    line_number: usize,
-    parsed: &ingredient::ingredient::Ingredient,
-) -> IngredientResult {
-    let mut review_reasons: Vec<_> = parsed
-        .parse_notes
-        .review_reasons()
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    if input.trim().is_empty() {
-        review_reasons.push("Empty ingredient line".into());
+impl Host for FsHost {
+    fn read(&self, path: &str) -> AppResult<Vec<u8>> {
+        std::fs::read(path).map_err(|e| format!("Cannot read {path}: {e}"))
     }
-    IngredientResult {
-        line_number,
-        input: input.into(),
-        name: parsed.name.clone(),
-        amounts: parsed.amounts.iter().map(ToString::to_string).collect(),
-        modifier: parsed.modifier.clone(),
-        optional: parsed.optional,
-        usage: serde_json::to_value(parsed.usage)
+    fn stamp(&self, path: &str) -> AppResult<String> {
+        let metadata =
+            std::fs::metadata(path).map_err(|e| format!("Cannot inspect {path}: {e}"))?;
+        let modified = metadata
+            .modified()
             .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_else(|| format!("{:?}", parsed.usage)),
-        confidence: format!("{:?}", parsed.parse_notes.confidence),
-        review_reasons,
-        json: serde_json::to_value(parsed).unwrap_or(Value::Null),
+            .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        Ok(format!("{}:{modified}", metadata.len()))
+    }
+    fn runs_for(&self, sha256: &str) -> AppResult<Vec<RunSummary>> {
+        runs::for_sha(sha256).map_err(|e| e.to_string())
     }
 }
 
-pub fn parse_batch(input: String) -> AppResult<Vec<IngredientResult>> {
-    let parser = IngredientParser::new();
-    Ok(input
-        .lines()
-        .enumerate()
-        .map(|(index, line)| ingredient_result(line, index + 1, &parser.from_str(line)))
-        .collect())
+/// Run a portable command against the filesystem.
+pub fn core(command: &str, args: Value) -> AppResult<Value> {
+    food_core::dispatch(&FsHost, command, args)
 }
 
-pub fn inspect_ingredient(input: String) -> AppResult<IngredientInspection> {
-    let execution = IngredientParser::new().parse_line(
-        &input,
-        ParseOptions {
-            decomposition: false,
-            trace: TraceDetail::Full,
-        },
-    );
-    fn node(source: &ingredient::trace::TraceNode) -> TraceNode {
-        use ingredient::trace::TraceOutcome;
-        let (outcome, detail) = match &source.outcome {
-            TraceOutcome::Success {
-                consumed,
-                output_preview,
-            } => (
-                "success",
-                format!("{consumed} characters · {output_preview}"),
-            ),
-            TraceOutcome::Failure { error } => ("failure", error.clone()),
-            TraceOutcome::Incomplete => ("incomplete", String::new()),
-        };
-        TraceNode {
-            name: source.name.clone(),
-            input: source.input.clone(),
-            outcome: outcome.into(),
-            detail,
-            children: source.children.iter().map(node).collect(),
-        }
-    }
-    Ok(IngredientInspection {
-        result: ingredient_result(&input, 1, &execution.ingredient),
-        stages: execution
-            .stages
-            .as_ref()
-            .map(|s| s.format(false))
-            .unwrap_or_default(),
-        trace: execution.trace.as_ref().map(|t| node(&t.root)),
-        trace_text: execution
-            .trace
-            .as_ref()
-            .map(|t| t.format_tree(false))
-            .unwrap_or_default(),
-        jaeger_json: execution
-            .trace
-            .as_ref()
-            .map(|t| t.to_jaeger_json())
-            .unwrap_or_default(),
-    })
-}
-
-pub async fn load_recipe(url: String) -> AppResult<RecipeResult> {
-    let recipe = recipe_scraper_fetcher::Fetcher::new()
-        .scrape_url(url.trim())
+/// Fetch a recipe page the way the CLI does (browser-like user agent, cache).
+pub async fn fetch_html(url: String) -> AppResult<String> {
+    recipe_scraper_fetcher::Fetcher::new()
+        .fetch_html(url.trim())
         .await
-        .map_err(|e| e.to_string())?;
-    recipe_result(recipe)
-}
-fn recipe_result(recipe: recipe_scraper::ScrapedRecipe) -> AppResult<RecipeResult> {
-    let parser = IngredientParser::new();
-    let execution =
-        recipe_parsing::execute_sections(&recipe.sections, &parser, ParseOptions::default());
-    let ingredients = recipe
-        .ingredients()
-        .enumerate()
-        .map(|(index, line)| ingredient_result(line, index + 1, &parser.from_str(line)))
-        .collect();
-    Ok(RecipeResult {
-        title: recipe.name.clone(),
-        url: recipe.url.clone(),
-        ingredients,
-        sections: recipe
-            .sections
-            .iter()
-            .map(|section| WebSection {
-                name: section.name.clone(),
-                ingredients: section.ingredients.clone(),
-                instructions: section.instructions.clone(),
-            })
-            .collect(),
-        source: serde_json::to_value(&recipe).map_err(|e| e.to_string())?,
-        parsed: serde_json::to_value(&execution.recipe).map_err(|e| e.to_string())?,
-        diagnostics: execution
-            .instruction_diagnostics
-            .iter()
-            .map(|d| {
-                format!(
-                    "Section {}, instruction {}: {}",
-                    d.section + 1,
-                    d.instruction + 1,
-                    d.message
-                )
-            })
-            .collect(),
-    })
-}
-
-pub fn load_corpus(path: Option<String>) -> AppResult<CorpusResult> {
-    let source = match &path {
-        Some(path) => {
-            std::fs::read_to_string(path).map_err(|e| format!("Cannot read {path}: {e}"))?
-        }
-        None => ingredient_corpus::embedded().to_owned(),
-    };
-    let corpus = ingredient_corpus::parse(&source);
-    let cases = corpus
-        .entries
-        .iter()
-        .map(|entry| {
-            let section = corpus
-                .sections
-                .get(entry.section)
-                .cloned()
-                .unwrap_or_default();
-            match &entry.parsed {
-                Ok(row) => {
-                    let score = ingredient_corpus::score(row);
-                    CorpusCase {
-                        line_number: entry.line_no,
-                        section,
-                        input: row.input.clone(),
-                        status: score.status.label().into(),
-                        reason: row.xfail.clone(),
-                        fields: score
-                            .fields
-                            .iter()
-                            .map(|d| CorpusField {
-                                field: d.field.as_str().into(),
-                                matches: d.ok,
-                                expected: d.want.clone(),
-                                actual: d.got.clone(),
-                            })
-                            .collect(),
-                    }
-                }
-                Err(error) => CorpusCase {
-                    line_number: entry.line_no,
-                    section,
-                    input: error.line.clone(),
-                    status: "INVALID".into(),
-                    reason: Some(error.message.clone()),
-                    fields: Vec::new(),
-                },
-            }
-        })
-        .collect();
-    Ok(CorpusResult { path, cases })
+        .map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -306,25 +74,6 @@ pub struct LibraryBook {
     /// Saved runs of this exact file (matched by its sha256), newest first.
     pub runs: Vec<RunSummary>,
     pub error: Option<String>,
-}
-
-/// What `open_book` returns: the outline plus the offline cookbook verdict.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenedBook {
-    pub path: String,
-    pub outline: BookOutline,
-    pub classified: Classified,
-    /// Runs of this exact file (by content hash), newest first.
-    pub runs: Vec<RunSummary>,
-    pub open_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct BookImage {
-    pub path: String,
-    pub data_url: String,
 }
 
 /// Whether the gateway credentials are available, and where they came from.
@@ -410,88 +159,8 @@ fn file_stem(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// Opened books, keyed by canonical path. A book holds its whole archive, so
-/// only the two most recent stay resident.
-struct OpenBooks(Vec<(PathBuf, BookIdentity, Arc<Book>)>);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct BookIdentity {
-    length: u64,
-    modified_nanos: u128,
-}
-
-static BOOKS: OnceLock<Mutex<OpenBooks>> = OnceLock::new();
-const RESIDENT_BOOKS: usize = 2;
-
-fn identity(path: &Path) -> AppResult<BookIdentity> {
-    let metadata =
-        std::fs::metadata(path).map_err(|e| format!("Cannot inspect {}: {e}", path.display()))?;
-    Ok(BookIdentity {
-        length: metadata.len(),
-        modified_nanos: metadata
-            .modified()
-            .ok()
-            .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_nanos())
-            .unwrap_or_default(),
-    })
-}
-
-/// The opened book for `path`, reusing a resident handle when the file is
-/// unchanged. Returns the open time in milliseconds (0 when reused).
-fn book(path: &str) -> AppResult<(Arc<Book>, u64)> {
-    let canonical = Path::new(path)
-        .canonicalize()
-        .map_err(|e| format!("Cannot read {path}: {e}"))?;
-    let identity = identity(&canonical)?;
-    let cache = BOOKS.get_or_init(|| Mutex::new(OpenBooks(Vec::new())));
-    {
-        let books = cache.lock().map_err(|_| "Book cache is unavailable")?;
-        if let Some((_, _, book)) = books
-            .0
-            .iter()
-            .find(|(p, id, _)| *p == canonical && *id == identity)
-        {
-            return Ok((book.clone(), 0));
-        }
-    }
-    let started = std::time::Instant::now();
-    let bytes = std::fs::read(&canonical).map_err(|e| format!("Cannot read {path}: {e}"))?;
-    let label = file_stem(&canonical);
-    let book = Arc::new(Book::open(bytes, label).map_err(|e| e.to_string())?);
-    let open_ms = started.elapsed().as_millis() as u64;
-    let mut books = cache.lock().map_err(|_| "Book cache is unavailable")?;
-    books.0.retain(|(p, _, _)| *p != canonical);
-    if books.0.len() >= RESIDENT_BOOKS {
-        books.0.remove(0);
-    }
-    books.0.push((canonical, identity, book.clone()));
-    Ok((book, open_ms))
-}
-
-fn runs_of(sha256: &str) -> AppResult<Vec<RunSummary>> {
-    runs::for_sha(sha256).map_err(|e| e.to_string())
-}
-
-pub fn open_book(path: String) -> AppResult<OpenedBook> {
-    let (book, open_ms) = book(&path)?;
-    Ok(OpenedBook {
-        runs: runs_of(&book.source().sha256)?,
-        outline: book.outline(),
-        classified: classify_structure(&book),
-        path,
-        open_ms,
-    })
-}
-
 fn chunk_cache() -> AppResult<FsChunkCache> {
     FsChunkCache::open_default().map_err(|e| e.to_string())
-}
-
-pub fn estimate_book(path: String) -> AppResult<Estimate> {
-    let (book, _) = book(&path)?;
-    book.estimate(&ExtractOptions::default(), &chunk_cache()?)
-        .map_err(|e| e.to_string())
 }
 
 pub fn gateway_status() -> GatewayStatus {
@@ -514,17 +183,6 @@ pub fn gateway_status() -> GatewayStatus {
     }
 }
 
-/// Extract with the live gateway and the shared file cache, then save the run.
-pub async fn extract_book(
-    path: String,
-    cancel: CancelToken,
-    progress: impl FnMut(Progress) + Send,
-) -> AppResult<RunSummary> {
-    let transport = ReqwestTransport::from_env().map_err(|e| e.to_string())?;
-    let cache = chunk_cache()?;
-    extract_book_with(path, &transport, &cache, cancel, progress).await
-}
-
 /// Extract with any transport and cache (tests use the fixture oracle).
 /// A cancelled run is discarded, not saved.
 pub async fn extract_book_with(
@@ -534,7 +192,7 @@ pub async fn extract_book_with(
     cancel: CancelToken,
     progress: impl FnMut(Progress) + Send,
 ) -> AppResult<RunSummary> {
-    let (book, _) = book(&path)?;
+    let (book, _) = food_core::books::book(&FsHost, &path)?;
     let options = ExtractOptions {
         label: book.source().label.clone(),
         ..ExtractOptions::default()
@@ -559,10 +217,6 @@ pub fn export_bundle(run: String, book: String) -> AppResult<cookbook::bundle::B
         .map_err(|error| error.to_string())
 }
 
-pub fn open_run(path: String) -> AppResult<Extraction> {
-    runs::load(Path::new(&path)).map_err(|e| format!("Cannot open run {path}: {e}"))
-}
-
 /// Delete a saved run. Only files the run store lists can be deleted.
 pub fn delete_run(path: String) -> AppResult<()> {
     let listed = list_runs()?.into_iter().any(|r| r.path == path);
@@ -572,421 +226,35 @@ pub fn delete_run(path: String) -> AppResult<()> {
     std::fs::remove_file(&path).map_err(|e| format!("Cannot delete {path}: {e}"))
 }
 
-fn data_url(mime: &str, bytes: &[u8]) -> String {
-    format!(
-        "data:{mime};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    )
-}
-
-/// One image from the archive, as a data URL.
-pub fn book_image(book_path: String, image: String) -> AppResult<BookImage> {
-    let (book, _) = book(&book_path)?;
-    let (bytes, mime) = book
-        .read_image(&image)
-        .ok_or_else(|| format!("{image} is not in the book"))?;
-    Ok(BookImage {
-        data_url: data_url(&mime, &bytes),
-        path: image,
-    })
-}
-
-/// Read a library thumbnail without keeping the book resident.
-pub fn load_cover(path: String) -> AppResult<Option<BookImage>> {
-    let package = Package::parse_file(Path::new(&path)).map_err(|e| e.to_string())?;
-    let Some(cover) = package.cover_ref() else {
-        return Ok(None);
-    };
-    let bytes = std::fs::read(&path).map_err(|e| format!("Cannot read {path}: {e}"))?;
-    Ok(
-        cookbook::epub::open::read_image(&bytes, &cover.path).map(|(bytes, mime)| BookImage {
-            path,
-            data_url: data_url(&mime, &bytes),
-        }),
-    )
-}
-
-/// Single-source declarations for the checked-in frontend contract: the
-/// application DTOs plus every `cookbook` type they carry. Each entry lists
-/// the type's direct dependencies so a test can prove the file is closed.
-fn bindings() -> Vec<(String, Vec<String>)> {
-    let cfg = ts_rs::Config::new().with_large_int("number");
-    fn entry<T: TS + 'static>(cfg: &ts_rs::Config) -> (String, Vec<String>) {
-        (
-            T::decl(cfg),
-            T::dependencies(cfg)
-                .into_iter()
-                .map(|d| d.ts_name)
-                .collect(),
-        )
-    }
-    vec![
-        (Value::decl(&cfg), vec![]),
-        entry::<IngredientResult>(&cfg),
-        entry::<TraceNode>(&cfg),
-        entry::<IngredientInspection>(&cfg),
-        entry::<WebSection>(&cfg),
-        entry::<RecipeResult>(&cfg),
-        entry::<CorpusField>(&cfg),
-        entry::<CorpusCase>(&cfg),
-        entry::<CorpusResult>(&cfg),
-        entry::<LibraryBook>(&cfg),
-        entry::<OpenedBook>(&cfg),
-        entry::<BookImage>(&cfg),
-        entry::<GatewayStatus>(&cfg),
-        entry::<cookbook::harness::BackendOptions>(&cfg),
-        entry::<cookbook::harness::BackendStatus>(&cfg),
-        entry::<cookbook::catalog::Catalog>(&cfg),
-        entry::<cookbook::catalog::CatalogOptions>(&cfg),
-        entry::<cookbook::catalog::CatalogProgress>(&cfg),
-        entry::<cookbook::catalog::WindowRecord>(&cfg),
-        entry::<cookbook::catalog::WindowMap>(&cfg),
-        entry::<cookbook::catalog::Entry>(&cfg),
-        entry::<cookbook::contract::Kind>(&cfg),
-        entry::<RunSummary>(&cfg),
-        entry::<Classified>(&cfg),
-        entry::<cookbook::classify::Classification>(&cfg),
-        entry::<BookOutline>(&cfg),
-        entry::<Estimate>(&cfg),
-        entry::<Progress>(&cfg),
-        entry::<cookbook::Phase>(&cfg),
-        entry::<cookbook::Eta>(&cfg),
-        entry::<Extraction>(&cfg),
-        entry::<cookbook::bundle::BundleExport>(&cfg),
-        entry::<cookbook::bundle::BundleManifest>(&cfg),
-        entry::<cookbook::bundle::BundleImage>(&cfg),
-        entry::<cookbook::Cookbook>(&cfg),
-        entry::<cookbook::BookSource>(&cfg),
-        entry::<cookbook::Chapter>(&cfg),
-        entry::<cookbook::Item>(&cfg),
-        entry::<cookbook::Recipe>(&cfg),
-        entry::<cookbook::Technique>(&cfg),
-        entry::<cookbook::Essay>(&cfg),
-        entry::<cookbook::RecipeMeta>(&cfg),
-        entry::<recipe_types::RecipeTimes>(&cfg),
-        entry::<cookbook::Section>(&cfg),
-        entry::<cookbook::IngredientLine>(&cfg),
-        entry::<ingredient::ingredient::Ingredient>(&cfg),
-        entry::<ingredient::unit::Measure>(&cfg),
-        entry::<ingredient::IngredientUsage>(&cfg),
-        entry::<ingredient::Confidence>(&cfg),
-        entry::<cookbook::Step>(&cfg),
-        entry::<cookbook::Note>(&cfg),
-        entry::<cookbook::RecipeRef>(&cfg),
-        entry::<cookbook::RefKind>(&cfg),
-        entry::<cookbook::RefMethod>(&cfg),
-        entry::<cookbook::Edge>(&cfg),
-        entry::<cookbook::ImageRef>(&cfg),
-        entry::<cookbook::Span>(&cfg),
-        entry::<cookbook::RunReport>(&cfg),
-        entry::<ExtractOptions>(&cfg),
-        entry::<cookbook::StageTiming>(&cfg),
-        entry::<cookbook::CallRecord>(&cfg),
-        entry::<cookbook::CallPurpose>(&cfg),
-        entry::<cookbook::CallOutcome>(&cfg),
-        entry::<cookbook::Usage>(&cfg),
-        entry::<cookbook::ChunkReport>(&cfg),
-        entry::<cookbook::ChunkStatus>(&cfg),
-        entry::<cookbook::Flag>(&cfg),
-        entry::<cookbook::SecondOpinion>(&cfg),
-        entry::<cookbook::Chosen>(&cfg),
-        entry::<cookbook::CrossCheck>(&cfg),
-        entry::<cookbook::Escalation>(&cfg),
-        entry::<cookbook::UnresolvedRef>(&cfg),
-        entry::<cookbook::ModelUsage>(&cfg),
-        entry::<cookbook::EtaSample>(&cfg),
-        entry::<cookbook::models::Reasoning>(&cfg),
-    ]
-}
-
-pub fn bindings_source() -> String {
-    format!(
-        "// Generated from Rust DTOs (food-app + cookbook). Do not edit.\n{}\n",
-        bindings()
-            .into_iter()
-            .map(|(decl, _)| format!(
-                "export {}",
-                decl.lines()
-                    .map(str::trim_end)
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            ))
-            .collect::<Vec<_>>()
-            .join("\n")
-    )
-}
-
-/// Explicit development command; tests never regenerate checked-in frontend files.
-pub fn export_bindings(path: &Path) -> AppResult<()> {
-    std::fs::write(path, bindings_source()).map_err(|e| e.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
-    use super::*;
-
-    #[test]
-    fn batch_and_inspector_share_results_and_keep_failed_source() {
-        let input = "1 cup flour\n\n1+1 vitamins";
-        let rows = parse_batch(input.into()).unwrap();
-        assert_eq!(rows.len(), 3);
-        assert_eq!(rows[1].line_number, 2);
-        assert!(!rows[1].review_reasons.is_empty());
-        for row in rows {
-            let inspection = inspect_ingredient(row.input.clone()).unwrap();
-            assert_eq!(inspection.result.json, row.json);
-            assert_eq!(inspection.result.input, row.input);
-            assert!(inspection.trace.is_some());
-            assert!(serde_json::from_str::<Value>(&inspection.jaeger_json).is_ok());
-        }
-    }
-
-    #[test]
-    fn corpus_keeps_invalid_and_known_gap_rows() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("corpus.jsonl");
-        std::fs::write(&path,"{\"input\":\"1 cup flour\",\"name\":\"flour\",\"amounts\":[{\"unit\":\"cup\",\"value\":1}]}\ninvalid\n{\"input\":\"salt\",\"name\":\"wrong\",\"xfail\":\"known gap\"}\n").unwrap();
-        let result = load_corpus(Some(path.to_string_lossy().into_owned())).unwrap();
-        assert_eq!(
-            result
-                .cases
-                .iter()
-                .map(|r| r.status.as_str())
-                .collect::<Vec<_>>(),
-            vec!["EXACT", "INVALID", "XFAIL"]
-        );
-        assert_eq!(result.cases[1].line_number, 2);
-    }
-
-    #[test]
-    fn recipe_source_parses_without_a_network_transport() {
-        let html = r#"<script type="application/ld+json">{"name":"Soup","recipeIngredient":["1 tsp salt"],"recipeInstructions":[{"@type":"HowToStep","text":"Mix the salt."}]}</script>"#;
-        let result =
-            recipe_result(recipe_scraper::scrape(html, "https://example.com/soup").unwrap())
-                .unwrap();
-        assert_eq!(result.title, "Soup");
-        assert_eq!(result.ingredients[0].name, "salt");
-    }
-
-    /// Every type a declaration references is itself declared, and large
-    /// integers come out as `number` (Tauri sends JSON numbers, not bigint).
-    #[test]
-    fn frontend_bindings_are_closed_over_their_dependencies() {
-        let entries = bindings();
-        let source = bindings_source();
-        for (decl, deps) in &entries {
-            for dep in deps {
-                assert!(
-                    source.contains(&format!("export type {dep} ")),
-                    "{dep} (needed by {}) is not declared",
-                    decl.lines().next().unwrap_or("")
-                );
-            }
-        }
-        assert!(!source.contains("bigint"), "{source}");
-        assert!(source.contains("export type Extraction = "));
-        assert!(source.contains("export type Ingredient = "));
-    }
-
-    #[test]
-    fn library_scan_reads_metadata_without_opening_text() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("book.epub"),
-            cookbook_fixtures::epub3_nav_pagebreaks().unwrap(),
-        )
-        .unwrap();
-        std::fs::write(dir.path().join("broken.epub"), b"not a zip").unwrap();
-        let books = scan_library(dir.path().to_string_lossy().into_owned()).unwrap();
-        assert_eq!(books.len(), 2);
-        assert!(books[0].error.is_none(), "{books:?}");
-        assert!(!books[0].title.is_empty());
-        assert_eq!(books[1].title, "broken");
-        assert!(books[1].error.is_some());
-        let cover = load_cover(books[0].path.clone()).unwrap();
-        assert!(cover.is_none() || cover.unwrap().data_url.starts_with("data:image/"));
-    }
-
-    #[test]
-    fn opening_a_book_is_offline_and_reuses_the_handle() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("book.epub");
-        std::fs::write(&path, cookbook_fixtures::epub3_nav_pagebreaks().unwrap()).unwrap();
-        let path = path.to_string_lossy().into_owned();
-        let first = open_book(path.clone()).unwrap();
-        assert!(first.outline.chunks >= 1);
-        assert!(first.outline.lines > 10);
-        let second = open_book(path.clone()).unwrap();
-        assert_eq!(second.open_ms, 0, "second open should reuse the handle");
-        assert_eq!(first.outline, second.outline);
-        let estimate = estimate_book(path).unwrap();
-        assert_eq!(estimate.chunks, first.outline.chunks);
-        assert!(estimate.cost_usd_high >= estimate.cost_usd_low);
-    }
-}
-
-fn rendered_sections(sections: &[recipe_parsing::ParsedSection]) -> Vec<WebSection> {
-    sections
-        .iter()
-        .map(|section| WebSection {
-            name: section.name.clone(),
-            ingredients: section
-                .ingredients
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
-            instructions: section
-                .instructions
-                .iter()
-                .map(|chunks| {
-                    chunks
-                        .iter()
-                        .map(|chunk| match chunk {
-                            ingredient::rich_text::Chunk::Measure(amounts) => amounts
-                                .iter()
-                                .map(ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join(" / "),
-                            ingredient::rich_text::Chunk::Text(text)
-                            | ingredient::rich_text::Chunk::Ing(text) => text.clone(),
-                        })
-                        .collect::<String>()
-                })
-                .collect(),
-        })
-        .collect()
-}
-
-fn validate_scale(factor: f64) -> AppResult<()> {
-    if !factor.is_finite() || !(0.01..=100.0).contains(&factor) {
-        return Err("Scale must be between 0.01 and 100".into());
-    }
-    Ok(())
-}
-
-fn scale_sections(sections: &mut [recipe_parsing::ParsedSection], factor: f64) {
-    for section in sections {
-        for ingredient in &mut section.ingredients {
-            ingredient.amounts = ingredient
-                .amounts
-                .iter()
-                .map(|amount| amount.scale(factor))
-                .collect();
-        }
-        for chunks in &mut section.instructions {
-            for chunk in chunks {
-                if let ingredient::rich_text::Chunk::Measure(amounts) = chunk {
-                    *amounts = amounts.iter().map(|amount| amount.scale(factor)).collect();
-                }
-            }
-        }
-    }
-}
-
-/// Scale from the original scraped source every time, so repeated presentation
-/// changes never compound rounding or change the ingredient's source context.
-pub fn scale_web_recipe(source: Value, factor: f64) -> AppResult<RecipeResult> {
-    validate_scale(factor)?;
-    let recipe: recipe_scraper::ScrapedRecipe =
-        serde_json::from_value(source).map_err(|e| e.to_string())?;
-    let mut result = recipe_result(recipe)?;
-    let mut parsed: recipe_parsing::ParsedRecipe =
-        serde_json::from_value(result.parsed).map_err(|e| e.to_string())?;
-    scale_sections(&mut parsed.sections, factor);
-    for (row, ingredient) in result.ingredients.iter_mut().zip(
-        parsed
-            .sections
-            .iter()
-            .flat_map(|section| &section.ingredients),
-    ) {
-        *row = ingredient_result(&row.input, row.line_number, ingredient);
-    }
-    result.sections = rendered_sections(&parsed.sections);
-    result.parsed = serde_json::to_value(parsed).map_err(|e| e.to_string())?;
-    Ok(result)
-}
-
-#[cfg(test)]
-mod scaling_tests {
-    #![allow(clippy::unwrap_used)]
-    use super::*;
-    #[test]
-    fn web_scaling_changes_quantities_once_and_preserves_source_and_constraints() {
-        use ingredient::unit::{MeasureKind, Unit};
-        let html = r#"<script type="application/ld+json">{"name":"Soup","recipeIngredient":["1 cup (240 g) water"],"recipeInstructions":[{"@type":"HowToStep","text":"Add 1 cup (240 g) water; cut into 3cm cubes, then bake at 365 degrees F for 20 minutes."}]}</script>"#;
-        let original =
-            recipe_result(recipe_scraper::scrape(html, "https://example.com/soup").unwrap())
-                .unwrap();
-        let scaled = scale_web_recipe(original.source.clone(), 2.0).unwrap();
-        assert_eq!(scaled.source, original.source);
-        assert_eq!(scaled.ingredients[0].input, original.ingredients[0].input);
-        let parsed: recipe_parsing::ParsedRecipe = serde_json::from_value(scaled.parsed).unwrap();
-        let ingredient = &parsed.sections[0].ingredients[0];
-        assert!(
-            ingredient
-                .amounts
-                .iter()
-                .any(|m| *m.unit() == Unit::Cup && m.value() == 2.0)
-        );
-        assert!(
-            ingredient
-                .amounts
-                .iter()
-                .any(|m| *m.unit() == Unit::Gram && m.value() == 480.0)
-        );
-        let original_parsed: recipe_parsing::ParsedRecipe =
-            serde_json::from_value(original.parsed).unwrap();
-        let measure_values = |recipe: &recipe_parsing::ParsedRecipe| {
-            recipe.sections[0]
-                .instructions
-                .iter()
-                .flatten()
-                .filter_map(|chunk| match chunk {
-                    ingredient::rich_text::Chunk::Measure(m) => Some(m),
-                    _ => None,
-                })
-                .flatten()
-                .cloned()
-                .collect::<Vec<_>>()
-        };
-        let before = measure_values(&original_parsed);
-        let after = measure_values(&parsed);
-        for kind in [
-            MeasureKind::Length,
-            MeasureKind::Temperature,
-            MeasureKind::Time,
-        ] {
-            assert_eq!(
-                before.iter().find(|m| m.kind() == kind).unwrap(),
-                after.iter().find(|m| m.kind() == kind).unwrap()
-            );
-        }
-        let reset = scale_web_recipe(scaled.source, 1.0).unwrap();
-        assert_eq!(reset.ingredients[0].json, original.ingredients[0].json);
-        assert!(scale_web_recipe(original.source, 0.0).is_err());
-    }
-}
-
 /// Model readiness without creating a model session.
 pub async fn backend_statuses() -> Vec<cookbook::harness::BackendStatus> {
     cookbook::harness::statuses().await
 }
 
-pub fn estimate_book_config(
-    path: String,
-    config: cookbook::harness::BackendOptions,
-) -> AppResult<Estimate> {
+fn configured_book(
+    path: &str,
+    config: &cookbook::harness::BackendOptions,
+    options: &mut ExtractOptions,
+) -> AppResult<Book> {
     let mut book = Book::open(
-        std::fs::read(&path).map_err(|e| e.to_string())?,
-        path.clone(),
+        std::fs::read(path).map_err(|e| format!("Cannot read {path}: {e}"))?,
+        file_stem(Path::new(path)),
     )
     .map_err(|e| e.to_string())?;
     if config.use_catalog {
         cookbook::catalog::apply(&mut book)?;
     }
+    options.label = book.source().label.clone();
+    config.apply(options)?;
+    Ok(book)
+}
+
+pub fn estimate_book(
+    path: String,
+    config: cookbook::harness::BackendOptions,
+) -> AppResult<Estimate> {
     let mut options = ExtractOptions::default();
-    config.apply(&mut options)?;
+    let book = configured_book(&path, &config, &mut options)?;
     let mut estimate = book
         .estimate(&options, &chunk_cache()?)
         .map_err(|e| e.to_string())?;
@@ -996,25 +264,14 @@ pub fn estimate_book_config(
     Ok(estimate)
 }
 
-pub async fn extract_book_config(
+pub async fn extract_book(
     path: String,
     config: cookbook::harness::BackendOptions,
     cancel: CancelToken,
     progress: impl FnMut(Progress) + Send,
 ) -> AppResult<RunSummary> {
-    let mut book = Book::open(
-        std::fs::read(&path).map_err(|e| e.to_string())?,
-        path.clone(),
-    )
-    .map_err(|e| e.to_string())?;
-    if config.use_catalog {
-        cookbook::catalog::apply(&mut book)?;
-    }
-    let mut options = ExtractOptions {
-        label: book.source().label.clone(),
-        ..ExtractOptions::default()
-    };
-    config.apply(&mut options)?;
+    let mut options = ExtractOptions::default();
+    let book = configured_book(&path, &config, &mut options)?;
     let executor = cookbook::harness::NativeExecutor::new(&options.ladder).await?;
     let extraction = book
         .extract_with_executor(&options, &executor, &chunk_cache()?, &cancel, progress)
@@ -1025,21 +282,10 @@ pub async fn extract_book_config(
 }
 
 pub fn catalog_status(path: String) -> AppResult<Option<cookbook::catalog::Catalog>> {
-    let (book, _) = book(&path)?;
+    let (book, _) = food_core::books::book(&FsHost, &path)?;
     cookbook::catalog::latest(&book)
 }
-pub fn catalog_source(path: String, line: usize) -> AppResult<String> {
-    let (book, _) = book(&path)?;
-    if line >= book.lines().len() {
-        return Err("Source line is outside this book".into());
-    }
-    Ok(
-        (line.saturating_sub(3)..(line + 30).min(book.lines().len()))
-            .map(|i| format!("{i}: {}", book.lines().text(i)))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
-}
+
 pub async fn catalog_books(
     paths: Vec<String>,
     options: cookbook::catalog::CatalogOptions,
@@ -1058,7 +304,7 @@ pub async fn catalog_books(
                 .failure()
                 .unwrap_or_else(|| "Catalog cancelled".into()));
         }
-        let (book, _) = book(&path)?;
+        let (book, _) = food_core::books::book(&FsHost, &path)?;
         if seen.insert(book.source().sha256.clone()) {
             results.push(
                 cookbook::catalog::build(
@@ -1074,4 +320,88 @@ pub async fn catalog_books(
         }
     }
     Ok(results)
+}
+
+// ---------------------------------------------------------------------------
+// The frontend contract
+
+/// The portable declarations plus every native-only type the desktop commands
+/// carry: one file, so the frontend has a single type source.
+fn bindings() -> Vec<food_core::bindings::Declaration> {
+    use food_core::bindings::entry;
+    let cfg = food_core::bindings::config();
+    let mut all = food_core::bindings::declarations(&cfg);
+    all.extend([
+        entry::<LibraryBook>(&cfg),
+        entry::<GatewayStatus>(&cfg),
+        entry::<cookbook::harness::BackendOptions>(&cfg),
+        entry::<cookbook::harness::BackendStatus>(&cfg),
+        entry::<cookbook::catalog::Catalog>(&cfg),
+        entry::<cookbook::catalog::CatalogOptions>(&cfg),
+        entry::<cookbook::catalog::CatalogProgress>(&cfg),
+        entry::<cookbook::catalog::WindowRecord>(&cfg),
+        entry::<cookbook::catalog::WindowMap>(&cfg),
+        entry::<cookbook::catalog::Entry>(&cfg),
+        entry::<cookbook::contract::Kind>(&cfg),
+        entry::<cookbook::bundle::BundleExport>(&cfg),
+        entry::<cookbook::bundle::BundleManifest>(&cfg),
+        entry::<cookbook::bundle::BundleImage>(&cfg),
+    ]);
+    all
+}
+
+pub fn bindings_source() -> String {
+    food_core::bindings::source(
+        "// Generated from Rust (food-core + food-app). Do not edit.\n// Regenerate: cargo run -p food-app --example export_bindings",
+        bindings(),
+    )
+}
+
+/// The checked-in contract the frontend imports.
+pub fn bindings_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/src/api/generated.ts")
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    /// Every type a declaration references is itself declared.
+    #[test]
+    fn frontend_bindings_are_closed_over_their_dependencies() {
+        assert_eq!(food_core::bindings::undeclared(&bindings()), None);
+        let source = bindings_source();
+        assert!(!source.contains("bigint"), "{source}");
+        assert!(source.contains("export type LibraryBook = "));
+    }
+
+    #[test]
+    fn library_scan_reads_metadata_without_opening_text() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("book.epub"),
+            cookbook_fixtures::epub3_nav_pagebreaks().unwrap(),
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("broken.epub"), b"not a zip").unwrap();
+        let books = scan_library(dir.path().to_string_lossy().into_owned()).unwrap();
+        assert_eq!(books.len(), 2);
+        assert!(books[0].error.is_none(), "{books:?}");
+        assert!(!books[0].title.is_empty());
+        assert_eq!(books[1].title, "broken");
+        assert!(books[1].error.is_some());
+    }
+
+    #[test]
+    fn portable_commands_read_the_filesystem() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("book.epub");
+        std::fs::write(&path, cookbook_fixtures::epub3_nav_pagebreaks().unwrap()).unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let opened = core("open_book", serde_json::json!({ "path": path })).unwrap();
+        assert!(opened["outline"]["chunks"].as_u64().unwrap() >= 1);
+        let estimate = estimate_book(path, Default::default()).unwrap();
+        assert!(estimate.cost_usd_high >= estimate.cost_usd_low);
+    }
 }

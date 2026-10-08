@@ -63,7 +63,7 @@ impl Fetcher {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn fetch_html(&self, url: &str) -> Result<String, ScrapeError> {
+    pub async fn fetch_html(&self, url: &str) -> Result<String, ScrapeError> {
         if let Some(cache) = &self.cache
             && let Some(cached) = cache.get(url)
         {

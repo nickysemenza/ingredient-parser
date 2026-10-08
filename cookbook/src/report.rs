@@ -431,3 +431,41 @@ pub struct BookOutline {
 fn api_billing() -> String {
     "api".into()
 }
+
+/// One saved run, as the run store lists it. Portable so a browser host can
+/// summarize a run file the user opened.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+pub struct RunSummary {
+    pub path: String,
+    pub run_id: String,
+    pub book: String,
+    pub sha256: String,
+    pub started_at: String,
+    pub ladder: Vec<String>,
+    pub recipes: usize,
+    pub items: usize,
+    pub recall: Option<f32>,
+    pub cost_usd: f64,
+    pub wall_ms: u64,
+    pub incomplete: bool,
+}
+
+impl RunSummary {
+    pub fn of(path: String, extraction: &crate::Extraction) -> Self {
+        Self {
+            path,
+            run_id: extraction.report.run_id.clone(),
+            book: extraction.cookbook.source.title.clone(),
+            sha256: extraction.cookbook.source.sha256.clone(),
+            started_at: extraction.report.started_at.clone(),
+            ladder: extraction.report.estimate.ladder.clone(),
+            recipes: extraction.cookbook.recipes().count(),
+            items: extraction.cookbook.items().count(),
+            recall: extraction.report.crosscheck.recall,
+            cost_usd: extraction.report.total_cost_usd,
+            wall_ms: extraction.report.wall_ms,
+            incomplete: extraction.report.incomplete,
+        }
+    }
+}

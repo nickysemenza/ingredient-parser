@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Turn freeform recipe ingredients into structured data. A Rust parser, running in your browser through WebAssembly." />
+    <meta name="theme-color" content="#f9f9fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1e1f22" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>ingredient-parser</title>
+    <script>
+      // Apply the stored appearance before first paint.
+      try {
+        const stored = JSON.parse(localStorage.getItem("v2:appearance") ?? '"system"');
+        const dark = stored === "dark" || (stored !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

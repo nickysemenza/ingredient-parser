@@ -48,14 +48,9 @@ fn main() -> Result<()> {
     if summary.incomplete || summary.recipes < 3 {
         return Err(format!("fixture extraction is not complete: {summary:?}").into());
     }
-    let book = food_app::backend::open_book(book_string.clone())?;
-    let estimate = food_app::backend::estimate_book(book_string.clone())?;
-    let extraction = food_app::backend::open_run(summary.path.clone())?;
+    let estimate = food_app::backend::estimate_book(book_string.clone(), Default::default())?;
     let runs = food_app::backend::list_runs()?;
     let library = food_app::backend::scan_library(output.to_string_lossy().into_owned())?;
-
-    let inputs = ["2 cups flour", "salt and pepper to taste", "???", ""];
-    let ingredients = food_app::backend::parse_batch(inputs.join("\n") + "\n")?;
     // Keep the real corpus and add one intentionally mislabeled QA case so the
     // failure workflow remains exercised when the repository corpus is all exact.
     let corpus_path = output.join("corpus.jsonl");
@@ -67,47 +62,51 @@ fn main() -> Result<()> {
         &corpus_path,
         format!("{}\n{}\n", ingredient_corpus::embedded(), mismatch),
     )?;
-    let corpus = food_app::backend::load_corpus(Some(corpus_path.to_string_lossy().into_owned()))?;
-    let html = r#"<script type="application/ld+json">{"name":"Weeknight soup","recipeIngredient":["1 cup (240 g) water","1 tsp salt"],"recipeInstructions":[{"@type":"HowToStep","text":"Add 1 cup (240 g) water; cut into 3cm cubes, then bake at 365 degrees F for 20 minutes."}]}</script>"#;
-    let source = serde_json::to_value(recipe_scraper::scrape(
-        html,
-        "https://example.com/weeknight-soup",
-    )?)?;
-    let web_recipe = food_app::backend::scale_web_recipe(source.clone(), 1.0)?;
-    let scaled_web_recipe = food_app::backend::scale_web_recipe(source, 2.0)?;
-    let all_inputs: std::collections::BTreeSet<String> = inputs
-        .into_iter()
-        .map(str::to_owned)
-        .chain(
-            extraction
-                .cookbook
-                .recipes()
-                .flat_map(|r| r.sections.iter())
-                .flat_map(|s| s.ingredients.iter())
-                .map(|line| line.raw.clone()),
-        )
-        .chain(corpus.cases.iter().map(|case| case.input.clone()))
-        .collect();
-    let mut inspections = serde_json::Map::new();
-    for input in all_inputs {
-        let value = food_app::backend::inspect_ingredient(input.clone())?;
-        inspections.insert(input, serde_json::to_value(value)?);
-    }
-
-    let bundle = food_app::backend::export_bundle(summary.path.clone(), book_string)?;
+    let recipe_page = output.join("weeknight-soup.html");
+    std::fs::write(
+        &recipe_page,
+        r#"<script type="application/ld+json">{"name":"Weeknight soup","recipeIngredient":["1 cup (240 g) water","1 tsp salt"],"recipeInstructions":[{"@type":"HowToStep","text":"Add 1 cup (240 g) water; cut into 3cm cubes, then bake at 365 degrees F for 20 minutes."}]}</script>"#,
+    )?;
+    let bundle = food_app::backend::export_bundle(summary.path.clone(), book_string.clone())?;
+    // Native-only answers. Portable commands run for real in the browser's
+    // WASM worker against these files, preloaded under their native paths.
+    let files: serde_json::Map<String, serde_json::Value> = [
+        (book_string.clone(), epub_path.clone()),
+        (summary.path.clone(), PathBuf::from(&summary.path)),
+        (
+            corpus_path.to_string_lossy().into_owned(),
+            corpus_path.clone(),
+        ),
+    ]
+    .into_iter()
+    .map(|(key, path)| -> Result<_> {
+        use base64::Engine;
+        let bytes = std::fs::read(path)?;
+        Ok((
+            key,
+            base64::engine::general_purpose::STANDARD
+                .encode(bytes)
+                .into(),
+        ))
+    })
+    .collect::<Result<_>>()?;
+    // For the tests' expectations only; the app opens the run itself.
+    let extraction = food_app::backend::core(
+        "open_run",
+        serde_json::json!({ "path": summary.path }),
+    )?["extraction"]
+        .take();
     let frontend = serde_json::json!({
-        "book": book,
-        "estimate": estimate,
         "extraction": extraction,
+        "estimate": estimate,
         "bundle": bundle,
         "runs": runs,
         "library": library,
         "gateway": food_app::backend::gateway_status(),
-        "ingredients": ingredients,
-        "inspections": inspections,
-        "corpus": corpus,
-        "webRecipe": web_recipe,
-        "scaledWebRecipe": scaled_web_recipe,
+        "corpusPath": corpus_path,
+        "recipeHtml": std::fs::read_to_string(&recipe_page)?,
+        "recipeUrl": "https://example.com/weeknight-soup",
+        "files": files,
     });
     let frontend_path = output.join("frontend-fixture.json");
     std::fs::write(&frontend_path, serde_json::to_string_pretty(&frontend)?)?;

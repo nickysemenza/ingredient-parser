@@ -4,7 +4,7 @@ use super::{ParseTrace, TraceNode, TraceOutcome};
 
 /// Generate a pseudo-random hex string of the given length using std hashing.
 ///
-/// Uses process ID, thread ID, and a counter as entropy sources.
+/// Uses the clock, process ID (where there is one), and a counter as entropy.
 /// Not cryptographically secure, but sufficient for trace IDs.
 fn random_hex(len: usize) -> String {
     use std::collections::hash_map::DefaultHasher;
@@ -15,8 +15,14 @@ fn random_hex(len: usize) -> String {
     let count = COUNTER.fetch_add(1, Ordering::Relaxed);
 
     let mut hasher = DefaultHasher::new();
+    // `std::process::id` panics on wasm32-unknown-unknown.
+    #[cfg(not(target_arch = "wasm32"))]
     std::process::id().hash(&mut hasher);
-    std::thread::current().id().hash(&mut hasher);
+    web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default()
+        .hash(&mut hasher);
     count.hash(&mut hasher);
     let hash = hasher.finish();
 

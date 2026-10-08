@@ -2,7 +2,7 @@
 
 use super::{ParseTrace, TraceNode};
 use std::cell::RefCell;
-use std::time::Instant;
+use web_time::Instant;
 
 /// Collects trace information during parsing
 #[derive(Debug)]
@@ -18,7 +18,7 @@ pub(crate) struct TraceCollector {
 impl TraceCollector {
     /// Create a new trace collector
     pub(crate) fn new() -> Self {
-        use std::time::{SystemTime, UNIX_EPOCH};
+        use web_time::{SystemTime, UNIX_EPOCH};
         let baseline_instant = Instant::now();
         let baseline_unix_micros = SystemTime::now()
             .duration_since(UNIX_EPOCH)
