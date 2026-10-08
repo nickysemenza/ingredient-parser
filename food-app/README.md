@@ -1,7 +1,10 @@
 # Desktop maintainer toolkit
 
-The macOS application uses Tauri 2 and React. Its Rust command services call the
-same parser, corpus, recipe, and durable cookbook-run APIs as the CLI. The desktop
+The macOS application uses Tauri 2 and the shared React frontend in [`ui/`](../ui).
+Portable commands (parse, inspect, recipes, corpus, opening books and runs) go
+through one `core` command into [`food-core`](../food-core), the same dispatch
+table the website runs as WebAssembly. Native-only commands (library, run store,
+model calls, export, Finder) live in `src/desktop.rs`. The desktop
 shell requires macOS 13.3 or newer; the command service tests remain portable.
 
 ## Development
@@ -10,17 +13,17 @@ Install Rust, the Xcode command-line tools, Node.js, and pnpm, then:
 
 ```sh
 pnpm install
-pnpm --filter @ingredient-parser/desktop-ui desktop:dev
+pnpm --filter @ingredient-parser/ui wasm
+pnpm --filter @ingredient-parser/ui desktop:dev
 ```
 
-The Vite UI runs inside the native Tauri window. `pnpm --filter @ingredient-parser/desktop-ui dev`
-starts only the browser frontend, which requires its test bridge for native
-operations. It is not a separate browser-hosted product.
+The Vite UI runs inside the native Tauri window. `pnpm --filter @ingredient-parser/ui dev`
+serves the same frontend as the website, where desktop-only actions are hidden.
 
 Build an unsigned local application bundle:
 
 ```sh
-pnpm --filter @ingredient-parser/desktop-ui desktop:build
+pnpm --filter @ingredient-parser/ui desktop:build
 ```
 
 The bundle is written beneath `target/release/bundle/macos/`. No signing,
@@ -43,8 +46,8 @@ frontend calls a model.
   **Cancel** stops it. The saved run opens when it finishes.
 - **Run** shows the chapter tree with per-item counts and kind badges, the
   selected recipe (sections, parsed ingredient lines with confidence, steps,
-  notes, photos, provenance), and the ingredient inspector shared with the
-  Parser workspace. Reference chips jump to the item they name. The
+  notes, photos, provenance) or its **Source** lines from the EPUB, and the
+  ingredient inspector shared with the Parser workspace. Reference chips jump to the item they name. The
   **Diagnostics** tab carries the run summary and crosscheck, stage timings,
   usage by model, the chunk table (failed and flagged first), the full call log,
   unresolved references, the ETA trace, and the raw report.
@@ -54,37 +57,44 @@ frontend calls a model.
 - **Run history** lists every saved run, newest first, and can open or delete
   one. Export never modifies a saved run or calls a model.
 
-## Offline fixtures
+## End-to-end tests
 
 ```sh
 cargo run -p food-app --example create_run_fixture -- /tmp/food-app-qa
+pnpm --filter @ingredient-parser/ui exec playwright install chromium webkit
+pnpm --filter @ingredient-parser/ui test:e2e
+cargo run -p food-app --example e2e_artifact -- seal /tmp/food-app-qa ui/test-results
+cargo run -p food-app --example e2e_artifact -- verify /tmp/food-app-qa/e2e-artifact
 ```
 
 The generator writes a real EPUB, extracts it through the production pipeline
 with an in-process oracle transport (no paid model calls), saves the run under
-`/tmp/food-app-qa/runs` by pointing the run store there with `COOKBOOK_RUNS_DIR`,
-and writes `frontend-fixture.json`. The Playwright bridge answers every command
-from that bundle: `book`, `estimate`, `extraction`, `bundle`, `runs`, `library`,
-`gateway`, `ingredients`, `inspections`, `corpus`, `webRecipe`,
-`scaledWebRecipe`.
+`/tmp/food-app-qa/runs` (via `COOKBOOK_RUNS_DIR`), exports its bundle, and writes
+`frontend-fixture.json`: the answers to native-only commands (`library`, `runs`,
+`estimate`, `gateway`, `bundle`, `recipeHtml`) plus the EPUB, run and corpus
+files, base64-encoded under their native paths.
 
-After WebKit E2E, seal its product output and test evidence:
+Playwright runs the production build twice:
 
-```sh
-pnpm --filter @ingredient-parser/desktop-ui test:e2e
-cargo run -p food-app --example e2e_artifact -- seal /tmp/food-app-qa food-app/ui/test-results
-cargo run -p food-app --example e2e_artifact -- verify /tmp/food-app-qa/e2e-artifact
-```
+- **web** (Chromium): the website, with every command answered by the real WASM
+  worker. Expectations come from inputs, not from the implementation — the
+  authored line must round-trip through its segments, and the uploaded corpus
+  must score exactly as many cases as the file has rows.
+- **desktop** (WebKit, as WKWebView): the desktop shell. `__FIXTURE_INVOKE__`
+  answers native-only commands from the fixture and records each call;
+  `__FIXTURE_FILES__` preloads the fixture files into the WASM worker so opening
+  the book and the run, photos and source lines run real Rust.
 
-The artifact contains the source EPUB, saved run, exported `.cookbook.zip`,
-browser report and screenshots, plus SHA-256 evidence. Verification checks each
-file and bundle asset, then re-exports the retained inputs and compares the
-archive bytes. CI uploads the directory as `desktop-e2e-evidence`.
+Sealing copies the EPUB, saved run, exported `.cookbook.zip`, corpus, Playwright
+report and screenshots into `e2e-artifact/` with a SHA-256 manifest
+(`evidence.json`) and the replay command. Verification re-hashes every file,
+checks each bundle asset, re-exports the retained inputs and compares the
+archive bytes. CI uploads the directory as `ui-e2e-evidence`.
 
 ## Command bindings
 
-Application boundary types live in `src/backend.rs`. After changing a DTO,
-regenerate the checked-in frontend declarations:
+Boundary types live in `food-core` (portable) and `src/backend.rs` (native).
+After changing one, regenerate the checked-in `ui/src/api/generated.ts`:
 
 ```sh
 cargo run -p food-app --example export_bindings
@@ -94,33 +104,27 @@ cargo run -p food-app --example export_bindings -- --check
 ## Checks
 
 ```sh
-pnpm --filter @ingredient-parser/desktop-ui lint
-pnpm --filter @ingredient-parser/desktop-ui test
-pnpm --filter @ingredient-parser/desktop-ui build
-cargo run -p food-app --example create_run_fixture -- /tmp/food-app-qa
-pnpm --filter @ingredient-parser/desktop-ui exec playwright install webkit
-pnpm --filter @ingredient-parser/desktop-ui test:e2e
+pnpm --filter @ingredient-parser/ui lint
+pnpm --filter @ingredient-parser/ui test
+pnpm --filter @ingredient-parser/ui build
 cargo run -p food-app --example export_bindings -- --check
-cargo nextest run -p food-app
+cargo nextest run -p food-app -p food-core
+wasm-pack test --node food-wasm
 cargo clippy -p food-app --all-targets -- -D warnings
 ```
 
-Browser tests exercise interaction through a fixture-backed command bridge.
-Native macOS smoke testing separately verifies the actual command boundary,
-file dialogs, clipboard, and preference restoration. Imported source is rendered
-as text and controlled elements rather than executable HTML.
-
-Recipe scale controls and JSON presentation are shared with the WASM demo in
-[`packages/recipe-ui`](../packages/recipe-ui/README.md). Execution remains native
-Rust in this app; the shared package contains presentation only.
+Native macOS smoke testing separately verifies the Tauri command boundary, file
+dialogs, clipboard, and preference restoration. Imported source is rendered as
+text and controlled elements rather than executable HTML.
 
 ## Native shell
 
 - **File → Open…** (Cmd–O) opens an EPUB anywhere on disk in the Cookbooks
   workspace. **View → Parser / Cookbooks** (Cmd–1 / Cmd–2) switches workspaces.
+- **⌘K** opens the command palette: every navigation, appearance and workspace
+  action.
 - **Run actions → Reveal in Finder** locates the saved run file.
-- **Open original recipe in browser** is available in a loaded web recipe's
-  Recipe & source presentation.
+- **Original** in a loaded web recipe opens the page in the browser.
 - The native titlebar tracks the open book and the theme. Quitting or closing
   while an extraction runs asks first; the bottom status bar shows extraction
   progress, cost so far, and the remaining ETA.

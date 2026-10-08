@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "jsx-a11y", "vitest"],
+  "categories": { "correctness": "error" },
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "react/jsx-key": "error",
+    "react-hooks/rules-of-hooks": "error",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/no-autofocus": "off",
+    "react/set-state-in-effect": "off",
+    "react/refs": "off",
+    "react/incompatible-library": "off",
+    "react/use-memo": "off"
+  },
+  "ignorePatterns": ["dist", "src/wasm/pkg"]
+}

@@ -11,7 +11,8 @@ when deciding what a line *should* parse to.
 | Crate | Purpose |
 | --- | --- |
 | `ingredient-parser` | Core parser library (published to crates.io as `ingredient`) |
-| `ingredient-wasm` | WASM bindings |
+| `food-core` | The app service layer: one command table shared by the desktop and the website |
+| `food-wasm` | `food-core` compiled to WebAssembly for the website's worker |
 | `ingredient-corpus` | Accuracy-corpus schema, loader, and scoring (test infrastructure) |
 | `recipe-types` | Plain recipe data shapes shared across crates |
 | `recipe-parsing` | Configured recipe execution shared by ingestion and presentation |
@@ -20,7 +21,7 @@ when deciding what a line *should* parse to.
 | `cookbook-fixtures` | Deterministic EPUB fixtures for cookbook tests |
 | `food-cli` | Command-line tool for parsing/scraping |
 | `food-app` | macOS Tauri + React maintainer toolkit ([setup](food-app/README.md)) |
-| `demo-site` | React + Vite demo frontend |
+| `ui` | The one React frontend: website and desktop window ([design](DESIGN.md)) |
 
 ## Downstream consumers
 

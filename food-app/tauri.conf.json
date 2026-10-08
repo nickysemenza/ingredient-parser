@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.nickysemenza.ingredient-parser",
   "build": {
-    "beforeDevCommand": "pnpm --filter @ingredient-parser/desktop-ui dev",
+    "beforeDevCommand": "pnpm --filter @ingredient-parser/ui dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm --filter @ingredient-parser/desktop-ui build",
-    "frontendDist": "ui/dist"
+    "beforeBuildCommand": "pnpm --filter @ingredient-parser/ui build",
+    "frontendDist": "../ui/dist"
   },
   "app": {
     "windows": [

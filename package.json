@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@11.28.4",
   "scripts": {
-    "build": "make build-demo-wasm && pnpm -r build",
+    "build": "pnpm --filter @ingredient-parser/ui wasm && pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test"
   }

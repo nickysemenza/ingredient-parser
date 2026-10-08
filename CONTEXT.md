@@ -2,7 +2,7 @@
 
 Turns a written ingredient line ("2 cups flour, sifted") into structured data, and the recipes
 that contain them into structured recipes. The parser is the product; the CLI, desktop app and
-demo site are surfaces onto it.
+website are surfaces onto it.
 
 ## Language
 

@@ -69,10 +69,13 @@ jobs:
       - uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
         with:
           tool: wasm-pack
-      - name: Install Chrome for headless wasm tests
-        uses: browser-actions/setup-chrome@2e1d749697dd1612b833dba4a722266286fbefcd # v2
-      - name: Run wasm-bindgen tests
-        run: wasm-pack test --headless --chrome ingredient-wasm
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      # The browser build's command boundary: the same dispatch table the
+      # desktop calls natively, compiled to wasm32 and run under Node.
+      - name: Run food-wasm boundary tests
+        run: wasm-pack test --node food-wasm
       - name: Check the cookbook crate's wasm boundary
         run: >-
           cargo check -p cookbook --target wasm32-unknown-unknown
@@ -90,7 +93,7 @@ jobs:
       - name: Generate code coverage
         run: |
           cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info \
-            --exclude food-cli --exclude food-app --exclude ingredient-wasm
+            --exclude food-cli --exclude food-app --exclude food-wasm
       - name: Upload to codecov.io
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
@@ -151,12 +154,15 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
       - name: Run benchmarks once (criterion --test) so they keep compiling and executing
         run: cargo bench -p ingredient --features bench -- --test
-  demo-site:
-    name: demo-site (build + lint)
+  ui:
+    name: ui (web + desktop shell, E2E)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          target: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       # pnpm version comes from `packageManager` in package.json
       # (Renovate keeps it bumped); a floating spec here would chase brand-new
       # pnpm releases and can break CI on all branches at once.
@@ -168,27 +174,38 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      # jetli/wasm-pack-action targets Node 20, which the runner now forces
-      # onto Node 24, where its "search the latest version" HTTPS call
-      # intermittently dies with a self-signed-certificate error. This repo
-      # already installs its other Rust tools with install-action, which
-      # fetches a pinned release and needs no version lookup.
       - uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
         with:
           tool: wasm-pack
-      # `tsc` (inside the build) typechecks the demo against the freshly
-      # generated wasm `.d.ts`, so a Tsify type change can't merge green and
-      # only fail on the post-merge deploy.
+      - name: Check the generated TypeScript contract
+        run: cargo run -p food-app --example export_bindings -- --check
+      # `tsc` (inside the build) typechecks the app against the freshly
+      # generated wasm `.d.ts` and the ts-rs contract.
       - name: Build site
-        run: make build-demo-site
-      - name: Lint
-        run: pnpm --filter demo-site --filter @ingredient-parser/recipe-ui lint
-      - name: Check shared presentation types
-        run: pnpm --filter @ingredient-parser/recipe-ui build
-      - name: Test shared presentation
-        run: pnpm --filter @ingredient-parser/recipe-ui test
+        run: make build-site
+      - run: pnpm --filter @ingredient-parser/ui lint
+      - run: pnpm --filter @ingredient-parser/ui test
+      - run: pnpm --filter @ingredient-parser/ui exec playwright install --with-deps chromium webkit
+      - run: cargo run -p food-app --example create_run_fixture -- /tmp/food-app-qa
+      - name: E2E (web against WASM, desktop shell against the fixture)
+        run: pnpm --filter @ingredient-parser/ui test:e2e
+      - name: Seal and verify E2E evidence
+        if: always()
+        run: |
+          if [ -f /tmp/food-app-qa/frontend-fixture.json ] && [ -f ui/test-results/results.json ]; then
+            cargo run -p food-app --example e2e_artifact -- seal /tmp/food-app-qa ui/test-results
+          fi
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ui-e2e-evidence
+          path: /tmp/food-app-qa/e2e-artifact
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
   deploy:
-    needs: [build]
+    needs: [build, ui]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -217,15 +234,18 @@ jobs:
       - uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
         with:
           tool: wasm-pack
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          target: wasm32-unknown-unknown
       - name: Build site
-        run: make build-demo-site
+        run: make build-site
       - name: Publish
         uses: cloudflare/pages-action@f0a1cd58cd66095dee69bfa18fa5efd1dde93bca # v1.5.0
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: 9f10f078d35d86c78dedece2300a6b88
           projectName: ingredient
-          directory: demo-site/dist/
+          directory: ui/dist/
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
   desktop-macos:
     name: macOS desktop
@@ -235,6 +255,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
         with:
           components: clippy, rustfmt
+          target: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
@@ -244,29 +265,11 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+      - uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
+        with:
+          tool: wasm-pack
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ingredient-parser/desktop-ui lint
-      - run: pnpm --filter @ingredient-parser/desktop-ui --filter @ingredient-parser/recipe-ui test
-      - run: pnpm --filter @ingredient-parser/desktop-ui build
-      - run: cargo run -p food-app --example export_bindings -- --check
+      - run: pnpm --filter @ingredient-parser/ui wasm
       - run: cargo test -p food-app
       - run: cargo clippy -p food-app --all-targets -- -D warnings
-      - run: pnpm --filter @ingredient-parser/desktop-ui exec playwright install webkit
-      - run: cargo run -p food-app --example create_run_fixture -- /tmp/food-app-qa
-      - run: pnpm --filter @ingredient-parser/desktop-ui test:e2e
-      - name: Seal and verify desktop E2E evidence
-        if: always()
-        run: |
-          if [ -f /tmp/food-app-qa/frontend-fixture.json ] && [ -f food-app/ui/test-results/results.json ]; then
-            cargo run -p food-app --example e2e_artifact -- seal /tmp/food-app-qa food-app/ui/test-results
-          fi
-      - name: Upload desktop E2E evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: desktop-e2e-evidence
-          path: /tmp/food-app-qa/e2e-artifact
-          include-hidden-files: true
-          if-no-files-found: warn
-          retention-days: 14
-      - run: pnpm --filter @ingredient-parser/desktop-ui desktop:build --debug
+      - run: pnpm --filter @ingredient-parser/ui desktop:build --debug
