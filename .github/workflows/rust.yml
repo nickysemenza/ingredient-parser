@@ -206,14 +206,18 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
+  # The website is a Worker serving static assets (ui/wrangler.jsonc).
+  # Wrangler is pinned in the lockfile. Pushes to main deploy production.
   deploy:
     needs: [build, ui]
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      deployments: write
-    name: Deploy to Cloudflare Pages
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    name: Deploy to Cloudflare Workers
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://ingredient.nickysemenza.com
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -243,14 +247,66 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm build
-      - name: Publish
-        uses: cloudflare/pages-action@f0a1cd58cd66095dee69bfa18fa5efd1dde93bca # v1.5.0
+      - name: Deploy
+        working-directory: ui
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 9f10f078d35d86c78dedece2300a6b88
+        run: pnpm exec wrangler deploy --message "${GITHUB_SHA::7}"
+  # Each pull request from this repository gets a Worker Preview named
+  # pr-<number>, updated on every push and deleted when the PR closes
+  # (preview-cleanup.yml). Forks get no secrets, so they skip.
+  preview:
+    needs: [build, ui]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    name: Preview on Cloudflare Workers
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    environment:
+      name: preview
+      url: ${{ steps.preview.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      # pnpm version comes from `packageManager` in package.json
+      # (Renovate keeps it bumped); a floating spec here would chase brand-new
+      # pnpm releases and can break CI on all branches at once.
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: 9f10f078d35d86c78dedece2300a6b88
-          projectName: ingredient
-          directory: ui/dist/
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          package_json_file: package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      # jetli/wasm-pack-action targets Node 20, which the runner now forces
+      # onto Node 24, where its "search the latest version" HTTPS call
+      # intermittently dies with a self-signed-certificate error. This repo
+      # already installs its other Rust tools with install-action, which
+      # fetches a pinned release and needs no version lookup.
+      - uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2
+        with:
+          tool: wasm-pack
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          target: wasm32-unknown-unknown
+      - name: Build site
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Upload preview
+        id: preview
+        working-directory: ui
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 9f10f078d35d86c78dedece2300a6b88
+          NAME: pr-${{ github.event.pull_request.number }}
+        run: |
+          pnpm exec wrangler preview --name "$NAME" --message "${GITHUB_SHA::7}" | tee "$RUNNER_TEMP/preview.log"
+          url=$(grep -oE 'https://[^ "]+\.workers\.dev[^ "]*' "$RUNNER_TEMP/preview.log" | head -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Preview: $url" >> "$GITHUB_STEP_SUMMARY"
   desktop-macos:
     name: macOS desktop
     runs-on: macos-latest

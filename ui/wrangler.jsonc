@@ -1,0 +1,19 @@
+// The website (https://ingredient.nickysemenza.com) as a Worker serving
+// static assets: the Vite build in ./dist, with unknown paths falling back to
+// index.html for the client router. There is no Worker script.
+//
+// CI deploys production on pushes to main (`wrangler deploy`) and a Preview
+// per same-repository pull request (`wrangler preview --name pr-<number>`).
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ingredient",
+  "compatibility_date": "2026-10-08",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  "routes": [{ "pattern": "ingredient.nickysemenza.com", "custom_domain": true }],
+  "workers_dev": true,
+  "preview_urls": true,
+  "previews": {}
+}

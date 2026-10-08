@@ -4,3 +4,4 @@ src/wasm/pkg
 test-results
 playwright-report
 *.tsbuildinfo
+.wrangler
