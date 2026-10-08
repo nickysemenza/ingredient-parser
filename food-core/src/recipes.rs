@@ -149,9 +149,13 @@ pub fn view(recipe: &ScrapedRecipe, factor: f64) -> AppResult<RecipeView> {
         category: recipe.category.clone(),
         times: recipe.times.clone(),
         recipe_yield: recipe.recipe_yield.as_ref().map(|y| {
-            format!("{} {}", ingredient::util::format_quantity(y.value), y.unit)
-                .trim()
-                .to_owned()
+            format!(
+                "{} {}",
+                ingredient::util::format_quantity(y.value * factor),
+                y.unit
+            )
+            .trim()
+            .to_owned()
         }),
         notes: recipe.notes.clone(),
         equipment: recipe.equipment.clone(),
@@ -191,7 +195,7 @@ mod tests {
     use super::*;
     use ingredient::unit::{MeasureKind, Unit};
 
-    const PAGE: &str = r#"<script type="application/ld+json">{"name":"Soup","recipeIngredient":["1 cup (240 g) water","1 tsp salt"],"recipeInstructions":[{"@type":"HowToStep","text":"Add 1 cup (240 g) water; cut into 3cm cubes, then bake at 365 degrees F for 20 minutes."}]}</script>"#;
+    const PAGE: &str = r#"<script type="application/ld+json">{"name":"Soup","recipeYield":"4 servings","recipeIngredient":["1 cup (240 g) water","1 tsp salt"],"recipeInstructions":[{"@type":"HowToStep","text":"Add 1 cup (240 g) water; cut into 3cm cubes, then bake at 365 degrees F for 20 minutes."}]}</script>"#;
 
     fn measures(view: &RecipeView) -> Vec<Measure> {
         view.sections
@@ -216,6 +220,8 @@ mod tests {
 
         let scaled = scale(original.source.clone(), 2.0).unwrap();
         assert_eq!(scaled.source, original.source);
+        assert_eq!(original.recipe_yield.as_deref(), Some("4 serving"));
+        assert_eq!(scaled.recipe_yield.as_deref(), Some("8 serving"));
         let row = &scaled.sections[0].ingredients[0];
         assert_eq!(row.input, first.input);
         assert_eq!(row.segments, first.segments);
