@@ -1,0 +1,19 @@
+.github/workflows/preview-cleanup.yml
+  s_d7a2bc4972862f::t_cb38bcae754885 16-18,36-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "bcbbfb22a9301dd6f733ed12eb8af9c1c02e55df",
+  "prompts": {},
+  "sessions": {
+    "s_d7a2bc4972862f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e04b3aee-7fec-4b0d-b188-ac6b4482af72",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "nicky <nicky@cloudflare.com>"
+    }
+  }
+}
