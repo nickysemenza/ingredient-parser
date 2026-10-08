@@ -182,7 +182,9 @@ jobs:
       # `tsc` (inside the build) typechecks the app against the freshly
       # generated wasm `.d.ts` and the ts-rs contract.
       - name: Build site
-        run: make build-site
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
       - run: pnpm --filter @ingredient-parser/ui lint
       - run: pnpm --filter @ingredient-parser/ui test
       - run: pnpm --filter @ingredient-parser/ui exec playwright install --with-deps chromium webkit
@@ -238,7 +240,9 @@ jobs:
         with:
           target: wasm32-unknown-unknown
       - name: Build site
-        run: make build-site
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
       - name: Publish
         uses: cloudflare/pages-action@f0a1cd58cd66095dee69bfa18fa5efd1dde93bca # v1.5.0
         with:

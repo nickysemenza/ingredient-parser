@@ -65,7 +65,7 @@ TypeScript contract `ui/src/api/generated.ts` is generated from Rust.
 
 Run `pnpm install --frozen-lockfile` at the repository root, then:
 
-- `make dev-web`: build the WASM package and start the website at http://localhost:1420.
+- `pnpm dev`: build the WASM package and start the website at http://localhost:1420.
 - `pnpm --filter @ingredient-parser/ui desktop:dev`: start the macOS app.
 - `pnpm build`: build the WASM package and the frontend (`ui/dist`).
 - `pnpm lint` / `pnpm test`: lint and unit-test the frontend.

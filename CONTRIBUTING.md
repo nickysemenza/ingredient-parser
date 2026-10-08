@@ -53,6 +53,14 @@ cargo run -p food-cli --quiet -- ingredient parse "1 cup flour, sifted"
 # Benchmarks (need the `bench` feature) and fuzzing (need nightly)
 cargo bench -p ingredient --features bench
 cd ingredient-parser/fuzz && cargo +nightly fuzz run from_str
+
+# Dependency audit; unmaintained-crate advisories are informational (deny.toml)
+cargo deny check -A unmaintained
+
+# Frontend (ui/): build the WASM package, then serve or build the site
+pnpm install --frozen-lockfile
+pnpm dev
+pnpm build
 ```
 
 ## The accuracy corpus (most important)

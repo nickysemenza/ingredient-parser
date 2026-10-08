@@ -4,6 +4,7 @@
   "packageManager": "pnpm@11.28.4",
   "scripts": {
     "build": "pnpm --filter @ingredient-parser/ui wasm && pnpm -r build",
+    "dev": "pnpm --filter @ingredient-parser/ui wasm:dev && pnpm --filter @ingredient-parser/ui dev",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test"
   }
