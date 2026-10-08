@@ -23,13 +23,15 @@ native = [
     "dep:walkdir",
     "dep:rayon",
 ]
+# The JavaScript clock, for hosts that run the core in a browser.
+browser = ["jiff/js"]
 wasm = [
+    "browser",
     "dep:wasm-bindgen",
     "dep:wasm-bindgen-futures",
     "dep:js-sys",
     "dep:serde-wasm-bindgen",
     "dep:tsify-next",
-    "jiff/js",
     "ingredient/wasm",
     "recipe-types/wasm",
 ]

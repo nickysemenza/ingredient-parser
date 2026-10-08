@@ -83,43 +83,26 @@ async fn blocking<T: Send + 'static>(
         .map_err(|error| format!("The operation stopped unexpectedly: {error}"))?
 }
 
+/// Every portable command (`food_core::COMMANDS`), answered from the
+/// filesystem. The web build sends the same names to its worker.
 #[tauri::command]
-async fn parse_batch(input: String) -> Result<Vec<service::IngredientResult>, String> {
-    blocking(move || service::parse_batch(input)).await
+async fn core(command: String, args: serde_json::Value) -> Result<serde_json::Value, String> {
+    blocking(move || service::core(&command, args)).await
 }
 #[tauri::command]
-async fn inspect_ingredient(input: String) -> Result<service::IngredientInspection, String> {
-    blocking(move || service::inspect_ingredient(input)).await
-}
-#[tauri::command]
-async fn load_recipe(url: String) -> Result<service::RecipeResult, String> {
-    service::load_recipe(url).await
-}
-#[tauri::command]
-async fn scale_web_recipe(
-    source: serde_json::Value,
-    factor: f64,
-) -> Result<service::RecipeResult, String> {
-    blocking(move || service::scale_web_recipe(source, factor)).await
-}
-#[tauri::command]
-async fn load_corpus(path: Option<String>) -> Result<service::CorpusResult, String> {
-    blocking(move || service::load_corpus(path)).await
+async fn fetch_html(url: String) -> Result<String, String> {
+    service::fetch_html(source_url(url.trim())?.into()).await
 }
 #[tauri::command]
 async fn scan_library(directory: String) -> Result<Vec<service::LibraryBook>, String> {
     blocking(move || service::scan_library(directory)).await
 }
 #[tauri::command]
-async fn open_book(path: String) -> Result<service::OpenedBook, String> {
-    blocking(move || service::open_book(path)).await
-}
-#[tauri::command]
 async fn estimate_book(
     path: String,
     options: Option<cookbook::harness::BackendOptions>,
 ) -> Result<cookbook::Estimate, String> {
-    blocking(move || service::estimate_book_config(path, options.unwrap_or_default())).await
+    blocking(move || service::estimate_book(path, options.unwrap_or_default())).await
 }
 #[tauri::command]
 fn gateway_status() -> service::GatewayStatus {
@@ -128,10 +111,6 @@ fn gateway_status() -> service::GatewayStatus {
 #[tauri::command]
 async fn list_runs() -> Result<Vec<service::RunSummary>, String> {
     blocking(service::list_runs).await
-}
-#[tauri::command]
-async fn open_run(path: String) -> Result<cookbook::Extraction, String> {
-    blocking(move || service::open_run(path)).await
 }
 #[tauri::command]
 async fn export_bundle(
@@ -143,14 +122,6 @@ async fn export_bundle(
 #[tauri::command]
 async fn delete_run(path: String) -> Result<(), String> {
     blocking(move || service::delete_run(path)).await
-}
-#[tauri::command]
-async fn book_image(book: String, image: String) -> Result<service::BookImage, String> {
-    blocking(move || service::book_image(book, image)).await
-}
-#[tauri::command]
-async fn load_cover(path: String) -> Result<Option<service::BookImage>, String> {
-    blocking(move || service::load_cover(path)).await
 }
 
 /// One extraction at a time; the token cancels it.
@@ -194,7 +165,7 @@ async fn extract_book(
             .enable_all()
             .build()
             .map_err(|error| format!("Could not start the extraction runtime: {error}"))?;
-        runtime.block_on(service::extract_book_config(
+        runtime.block_on(service::extract_book(
             path,
             options.unwrap_or_default(),
             worker,
@@ -217,10 +188,6 @@ async fn backend_statuses() -> Vec<cookbook::harness::BackendStatus> {
 #[tauri::command]
 async fn catalog_status(path: String) -> Result<Option<cookbook::catalog::Catalog>, String> {
     blocking(move || service::catalog_status(path)).await
-}
-#[tauri::command]
-async fn catalog_source(path: String, line: usize) -> Result<String, String> {
-    blocking(move || service::catalog_source(path, line)).await
 }
 #[tauri::command]
 async fn catalog_books(
@@ -343,25 +310,17 @@ pub fn run() -> tauri::Result<()> {
             open_source_url,
             set_close_blocked,
             quit_app,
-            parse_batch,
-            inspect_ingredient,
-            load_recipe,
-            scale_web_recipe,
-            load_corpus,
+            core,
+            fetch_html,
             scan_library,
-            open_book,
             estimate_book,
             gateway_status,
             backend_statuses,
             catalog_status,
-            catalog_source,
             catalog_books,
             list_runs,
-            open_run,
             export_bundle,
             delete_run,
-            book_image,
-            load_cover,
             extract_book,
             cancel_extraction
         ])

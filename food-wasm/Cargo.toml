@@ -1,0 +1,33 @@
+[package]
+name = "food-wasm"
+version = "0.1.0"
+authors = ["Nicky Semenza <nicky@nickysemenza.com>"]
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+publish = false
+description = "The web build's backend: food-core behind one JSON dispatch, run in a worker."
+
+# Recent rustc emits WASM using reference-types/bulk-memory (e.g. multiple
+# tables). Older `wasm-opt` builds reject that in MVP mode with "Only 1 table
+# definition allowed in MVP". Enable the features so wasm-opt accepts it.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-O', '--enable-reference-types', '--enable-bulk-memory']
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+food-core.workspace = true
+# `RunSummary` for run files the user opens; no native default.
+cookbook = { path = "../cookbook", default-features = false, features = ["browser"] }
+serde_json.workspace = true
+wasm-bindgen.workspace = true
+console_error_panic_hook = "0.1.7"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+cookbook-fixtures.workspace = true
+
+[lints]
+workspace = true

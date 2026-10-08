@@ -2,9 +2,10 @@
 resolver = "2"
 
 members = [
-    "ingredient-wasm",
+    "food-wasm",
     "ingredient-parser",
     "ingredient-corpus",
+    "food-core",
     "recipe-types",
     "recipe-parsing",
     "recipe-scraper",
@@ -47,6 +48,7 @@ recipe-parsing = { path = "recipe-parsing" }
 recipe-scraper = { path = "recipe-scraper" }
 recipe-scraper-fetcher = { path = "recipe-scraper-fetcher" }
 cookbook = { path = "cookbook" }
+food-core = { path = "food-core" }
 cookbook-fixtures = { path = "cookbook-fixtures" }
 # TypeScript type generation, shared so every crate emits one declaration per
 # type: ts-rs for the Tauri app (`typescript` features), tsify for the wasm-pack

@@ -140,7 +140,7 @@ pub(crate) fn trace_attempt<T>(
 }
 
 use std::fmt;
-use std::time::Instant;
+use web_time::Instant;
 
 /// A node in the parse trace tree
 #[derive(Debug, Clone)]
@@ -240,7 +240,7 @@ pub struct ParseTrace {
 impl ParseTrace {
     /// Create a new parse trace
     pub fn new(input: &str) -> Self {
-        use std::time::{SystemTime, UNIX_EPOCH};
+        use web_time::{SystemTime, UNIX_EPOCH};
         Self {
             input: input.to_string(),
             root: TraceNode::new("parse_ingredient", input),

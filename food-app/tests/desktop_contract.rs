@@ -53,9 +53,16 @@ fn extract_saves_a_run_that_lists_opens_and_deletes() -> Result {
     // environment, and it does so before any other thread reads it.
     unsafe { std::env::set_var(cookbook::native::runs::RUNS_DIR_VAR, fixture.runs_dir()) };
 
-    let opened = backend::open_book(fixture.book())?;
-    assert!(opened.outline.chunks >= 1);
-    assert!(opened.runs.is_empty());
+    let open_book = |path: String| -> Result<serde_json::Value> {
+        Ok(backend::core(
+            "open_book",
+            serde_json::json!({ "path": path }),
+        )?)
+    };
+    let opened = open_book(fixture.book())?;
+    let chunks = opened["outline"]["chunks"].as_u64().ok_or("no chunks")? as usize;
+    assert!(chunks >= 1);
+    assert_eq!(opened["runs"], serde_json::json!([]));
     assert!(backend::list_runs()?.is_empty());
 
     let transport = fixture.oracle()?;
@@ -68,7 +75,7 @@ fn extract_saves_a_run_that_lists_opens_and_deletes() -> Result {
         CancelToken::new(),
         |p| progress.push(p.done),
     ))?;
-    assert_eq!(progress.last(), Some(&opened.outline.chunks));
+    assert_eq!(progress.last(), Some(&chunks));
     assert!(!summary.incomplete);
     assert!(summary.recipes >= 3, "{summary:?}");
     assert!(
@@ -80,17 +87,30 @@ fn extract_saves_a_run_that_lists_opens_and_deletes() -> Result {
     let listed = backend::list_runs()?;
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].run_id, summary.run_id);
-    assert_eq!(backend::open_book(fixture.book())?.runs.len(), 1);
+    assert_eq!(
+        open_book(fixture.book())?["runs"].as_array().map(Vec::len),
+        Some(1)
+    );
 
-    let extraction = backend::open_run(summary.path.clone())?;
+    let opened_run = backend::core("open_run", serde_json::json!({ "path": summary.path }))?;
+    assert_eq!(opened_run["summary"]["run_id"], summary.run_id);
+    let extraction: cookbook::Extraction =
+        serde_json::from_value(opened_run["extraction"].clone())?;
     assert_eq!(extraction.report.run_id, summary.run_id);
     assert_eq!(extraction.cookbook.recipes().count(), summary.recipes);
     assert_eq!(extraction.report.calls.len(), transport.calls());
     let recipe = extraction.cookbook.recipes().next().unwrap();
     assert!(!recipe.sections.is_empty());
     if let Some(photo) = recipe.photos.first() {
-        let image = backend::book_image(fixture.book(), photo.path.clone())?;
-        assert!(image.data_url.starts_with("data:image/"));
+        let image = backend::core(
+            "book_image",
+            serde_json::json!({ "book": fixture.book(), "image": photo.path }),
+        )?;
+        assert!(
+            image["dataUrl"]
+                .as_str()
+                .is_some_and(|u| u.starts_with("data:image/"))
+        );
     }
 
     // A cancelled run is discarded, never saved.
