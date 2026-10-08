@@ -1,0 +1,25 @@
+.github/workflows/rust.yml
+  s_d7a2bc4972862f::t_2169fb21feeb59 185-187,243-245
+CONTRIBUTING.md
+  s_d7a2bc4972862f::t_b39817b9fe2b10 56-63
+README.md
+  s_d7a2bc4972862f::t_8ae3c6da174f81 68
+package.json
+  s_d7a2bc4972862f::t_4fa86773f627f6 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "dcefa62d5d19250f0ad353d70ef32761844feb87",
+  "prompts": {},
+  "sessions": {
+    "s_d7a2bc4972862f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e04b3aee-7fec-4b0d-b188-ac6b4482af72",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "nicky <nicky@cloudflare.com>"
+    }
+  }
+}
