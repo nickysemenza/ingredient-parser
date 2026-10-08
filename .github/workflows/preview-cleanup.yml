@@ -1,0 +1,34 @@
+# Delete a pull request's Worker Preview (created by the `preview` job in
+# rust.yml) once the PR is merged or closed.
+on:
+  pull_request:
+    types: [closed]
+
+name: preview cleanup
+
+jobs:
+  delete-preview:
+    name: Delete Worker Preview
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          package_json_file: package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --filter @ingredient-parser/ui
+      - name: Delete preview
+        working-directory: ui
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 9f10f078d35d86c78dedece2300a6b88
+          NAME: pr-${{ github.event.pull_request.number }}
+        # A PR whose preview never deployed (e.g. CI failed early) has none.
+        run: pnpm exec wrangler preview delete --name "$NAME" || echo "No preview named $NAME"

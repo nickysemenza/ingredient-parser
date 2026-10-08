@@ -75,3 +75,8 @@ Run `pnpm install --frozen-lockfile` at the repository root, then:
 - `cargo run -p food-app --example export_bindings`: regenerate the TypeScript contract.
 
 The WASM build needs the `wasm32-unknown-unknown` target and `wasm-pack`.
+
+The website is a Cloudflare Worker serving `ui/dist` as static assets
+([`ui/wrangler.jsonc`](ui/wrangler.jsonc)). CI deploys it to
+https://ingredient.nickysemenza.com on every push to `main`, and uploads a
+Worker Preview named `pr-<number>` for each pull request from this repository.
