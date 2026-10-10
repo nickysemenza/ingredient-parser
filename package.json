@@ -1,7 +1,7 @@
 {
   "name": "@ingredient-parser/workspace",
   "private": true,
-  "packageManager": "pnpm@11.28.4",
+  "packageManager": "pnpm@12.10.1",
   "scripts": {
     "build": "pnpm --filter @ingredient-parser/ui wasm && pnpm -r build",
     "dev": "pnpm --filter @ingredient-parser/ui wasm:dev && pnpm --filter @ingredient-parser/ui dev",

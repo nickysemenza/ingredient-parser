@@ -1,7 +1,7 @@
 // The public face of the web build: a live parser up front, then what it
 // does and how to use it. Everything on the page runs the real Rust parser,
 // compiled to WebAssembly, in a worker.
-import { ArrowRight, BookOpen, Copy, Cpu, FlaskConical, Github, Globe, Layers, Monitor, Moon, Ruler, Scale, Sparkles, Split as SplitIcon, Sun } from "lucide-react";
+import { ArrowRight, BookOpen, CodeXml, Copy, Cpu, FlaskConical, Globe, Layers, Monitor, Moon, Ruler, Scale, Sparkles, Split as SplitIcon, Sun } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { api, type IngredientRow } from "../../api";
@@ -68,7 +68,7 @@ function Nav() {
         <div className="ml-auto flex items-center gap-1">
           <ThemeButton />
           <a href={GITHUB} aria-label="GitHub repository" className="flex size-8 items-center justify-center rounded-control text-muted hover:bg-hover hover:text-fg">
-            <Github className="size-4" />
+            <CodeXml className="size-4" />
           </a>
           <Link to="parser" className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-control bg-fg px-3 text-[13px] font-medium text-base hover:opacity-90">
             Open workbench
