@@ -166,18 +166,19 @@ fn write_bundle<W: Write + Seek, R: Read + Seek>(
         images: Vec::new(),
     };
     for (source_path, image) in refs {
-        if archive
-            .file_names()
-            .filter(|name| *name == source_path)
-            .count()
-            != 1
-        {
+        let mut matching_entries = Vec::new();
+        for (index, name) in archive.file_names().enumerate() {
+            if name? == source_path {
+                matching_entries.push(index);
+            }
+        }
+        let [index] = matching_entries.as_slice() else {
             return Err(Error::Config(format!(
                 "Source EPUB must contain exactly one referenced image: {source_path}"
             )));
-        }
+        };
         let mut bytes = Vec::new();
-        archive.by_name(source_path)?.read_to_end(&mut bytes)?;
+        archive.by_index(*index)?.read_to_end(&mut bytes)?;
         if bytes.is_empty() {
             return Err(Error::Config(format!(
                 "Referenced image is empty: {source_path}"

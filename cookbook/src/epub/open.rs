@@ -152,21 +152,23 @@ pub fn image_mime(path: &str) -> Option<String> {
 
 fn read_entry<R: Read + Seek>(archive: &mut ZipArchive<R>, path: &str) -> Option<Vec<u8>> {
     let path = path.trim_start_matches('/');
-    let name = if archive.by_name(path).is_ok() {
-        path.to_string()
-    } else {
-        let decoded = percent_decode(path);
-        if archive.by_name(&decoded).is_ok() {
-            decoded
-        } else {
-            let lower = decoded.to_ascii_lowercase();
+    let decoded = percent_decode(path);
+    // zip 9 looks up names by raw bytes. Retain the index when matching a
+    // decoded legacy filename so it is never re-encoded for a second lookup.
+    let index = archive
+        .index_for_name(path)
+        .or_else(|| archive.index_for_name(&decoded))
+        .or_else(|| {
             archive
                 .file_names()
-                .find(|n| n.to_ascii_lowercase() == lower)?
-                .to_string()
-        }
-    };
-    let mut entry = archive.by_name(&name).ok()?;
+                .position(|name| name.is_ok_and(|name| name == decoded))
+        })
+        .or_else(|| {
+            archive
+                .file_names()
+                .position(|name| name.is_ok_and(|name| name.eq_ignore_ascii_case(&decoded)))
+        })?;
+    let mut entry = archive.by_index(index).ok()?;
     let mut out = Vec::with_capacity(entry.size() as usize);
     entry.read_to_end(&mut out).ok()?;
     Some(out)
@@ -444,20 +446,25 @@ mod tests {
 <item id=\"css\" href=\"style.css\" media-type=\"text/css\"/></manifest>\
 <spine toc=\"ncx\"><itemref idref=\"c1\"/><itemref idref=\"css\"/><itemref idref=\"c2\" linear=\"no\"/></spine></package>";
 
-    #[test]
-    fn parses_package_metadata_manifest_and_spine() {
+    #[rstest::rstest]
+    #[case("OEBPS/text/c01.xhtml", "OEBPS/images/cover art.jpg")]
+    #[case("OEBPS/TEXT/C01.XHTML", "OEBPS/IMAGES/COVER ART.JPG")]
+    fn parses_package_metadata_manifest_and_spine(
+        #[case] chapter_path: &str,
+        #[case] cover_path: &str,
+    ) {
         let bytes = mini_epub(
             OPF3,
             &[
                 (
-                    "OEBPS/text/c01.xhtml",
+                    chapter_path,
                     "\u{feff}<html><body><p>Soup</p></body></html>",
                 ),
                 (
                     "OEBPS/text/c02.xhtml",
                     "<html><body><p>Skipped</p></body></html>",
                 ),
-                ("OEBPS/images/cover art.jpg", "jpg"),
+                (cover_path, "jpg"),
             ],
         );
         let package = Package::parse(&bytes).unwrap();
@@ -480,6 +487,25 @@ mod tests {
         assert_eq!(docs[0].index, 0);
         assert!(docs[0].xhtml.starts_with("<html>"), "BOM stripped");
         assert_eq!(sha256_hex(&bytes).len(), 64);
+    }
+
+    #[rstest::rstest]
+    #[case("café.jpg")]
+    #[case("CAFé.JPG")]
+    #[case("caf%C3%A9.jpg")]
+    fn reads_resources_with_legacy_zip_names(#[case] path: &str) {
+        let mut bytes = mini_epub(OPF3, &[("caf~.jpg", "jpg")]);
+        // CP437 é occupies one byte, unlike its decoded UTF-8 name.
+        let offsets: Vec<_> = bytes
+            .windows(b"caf~.jpg".len())
+            .enumerate()
+            .filter_map(|(i, name)| (name == b"caf~.jpg").then_some(i))
+            .collect();
+        assert_eq!(offsets.len(), 2);
+        for offset in offsets {
+            bytes[offset + 3] = 0x82;
+        }
+        assert_eq!(read_resource(&bytes, path).unwrap(), b"jpg");
     }
 
     #[test]

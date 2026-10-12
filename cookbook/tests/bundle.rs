@@ -17,9 +17,10 @@ async fn fixture(dir: &Path) -> Extraction {
     let mut zip = ZipArchive::new(Cursor::new(&bytes)).unwrap();
     let original = zip
         .file_names()
+        .map(Result::unwrap)
         .find(|name| name.ends_with(".jpg"))
         .unwrap()
-        .to_owned();
+        .into_owned();
     let mut photo = Vec::new();
     zip.by_name(&original)
         .unwrap()
@@ -27,10 +28,20 @@ async fn fixture(dir: &Path) -> Extraction {
         .unwrap();
     let mut writer = ZipWriter::new_append(Cursor::new(bytes.clone())).unwrap();
     writer
-        .start_file("alias.jpg", SimpleFileOptions::default())
+        .start_file("caf~.jpg", SimpleFileOptions::default())
         .unwrap();
     writer.write_all(&photo).unwrap();
-    let bytes = writer.finish().unwrap().into_inner();
+    let mut bytes = writer.finish().unwrap().into_inner();
+    // A legacy CP437 image name must survive decoded-name validation and lookup.
+    let offsets: Vec<_> = bytes
+        .windows(b"caf~.jpg".len())
+        .enumerate()
+        .filter_map(|(i, name)| (name == b"caf~.jpg").then_some(i))
+        .collect();
+    assert_eq!(offsets.len(), 2);
+    for offset in offsets {
+        bytes[offset + 3] = 0x82;
+    }
     std::fs::write(dir.join("book.epub"), &bytes).unwrap();
     let book = Book::open(bytes, "fixture").unwrap();
     let transport = oracle_transport(
@@ -59,7 +70,7 @@ async fn fixture(dir: &Path) -> Extraction {
         line: None,
     };
     let mut alias = image.clone();
-    alias.path = "alias.jpg".into();
+    alias.path = "café.jpg".into();
     extraction.cookbook.cover = Some(image.clone());
     let recipe = extraction
         .cookbook
@@ -207,6 +218,7 @@ async fn round_trip_preserves_tree_assets_and_offline_review(
 #[case("source")]
 #[case("missing")]
 #[case("duplicate-id")]
+#[case("duplicate-image-name")]
 #[case("mime")]
 #[tokio::test]
 async fn failed_export_keeps_existing_output_and_cleans_temporary_files(#[case] failure: &str) {
@@ -216,6 +228,19 @@ async fn failed_export_keeps_existing_output_and_cleans_temporary_files(#[case] 
         "source" => extraction.cookbook.source.sha256 = "wrong".into(),
         "missing" => extraction.cookbook.cover.as_mut().unwrap().path = "missing.jpg".into(),
         "mime" => extraction.cookbook.cover.as_mut().unwrap().mime = "text/html".into(),
+        "duplicate-image-name" => {
+            let epub = dir.path().join("book.epub");
+            let mut writer =
+                ZipWriter::new_append(Cursor::new(std::fs::read(&epub).unwrap())).unwrap();
+            writer
+                .start_file("café.jpg", SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"duplicate decoded filename").unwrap();
+            let bytes = writer.finish().unwrap().into_inner();
+            extraction.cookbook.source.sha256 = cookbook::epub::open::sha256_hex(&bytes);
+            extraction.report.book.sha256 = extraction.cookbook.source.sha256.clone();
+            std::fs::write(epub, bytes).unwrap();
+        }
         "duplicate-id" => {
             let duplicate = extraction.cookbook.items().next().unwrap().clone();
             extraction.cookbook.chapters[0].items.push(duplicate);
@@ -233,6 +258,13 @@ async fn failed_export_keeps_existing_output_and_cleans_temporary_files(#[case] 
     )
     .unwrap_err();
     assert!(!error.to_string().is_empty());
+    if failure == "duplicate-image-name" {
+        assert!(
+            error
+                .to_string()
+                .contains("exactly one referenced image: café.jpg")
+        );
+    }
     assert_eq!(std::fs::read_to_string(target).unwrap(), "previous bundle");
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), before);
 }
