@@ -87,9 +87,9 @@ mod tests {
             let bytes = build()?;
             let mut archive = zip::ZipArchive::new(Cursor::new(bytes))?;
             let mut entry = archive.by_index(0)?;
-            assert_eq!(entry.name(), "mimetype", "{name}");
+            assert_eq!(entry.name()?, "mimetype", "{name}");
             assert_eq!(entry.compression(), CompressionMethod::Stored, "{name}");
-            assert_eq!(entry.extra_data(), Some([].as_slice()), "{name}");
+            assert_eq!(entry.extra_data(), None, "{name}");
             let mut text = String::new();
             entry.read_to_string(&mut text)?;
             assert_eq!(text, "application/epub+zip", "{name}");

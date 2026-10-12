@@ -38,7 +38,7 @@ ingredient-corpus.workspace = true
 cookbook-fixtures.workspace = true
 tempfile = "3"
 sha2 = "0.11"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 base64 = "0.23"
 
 [lints]

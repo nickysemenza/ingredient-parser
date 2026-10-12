@@ -46,11 +46,15 @@ pub fn sample(library: &Path, corpus: &Path) -> Result<(Vec<Value>, Value), Box<
         let path = library.join(book["epub"].as_str().ok_or("missing epub")?);
         let bytes = std::fs::read(path)?;
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes))?;
-        let mut names: Vec<_> = archive.file_names().map(str::to_owned).collect();
+        let mut names: Vec<_> = archive
+            .file_names()
+            .enumerate()
+            .map(|(index, name)| name.map(|name| (name.into_owned(), index)))
+            .collect::<zip::result::ZipResult<_>>()?;
         names.sort();
         let classes: HashSet<String> = serde_json::from_value(book["ingredient_classes"].clone())?;
         let mut candidates = BTreeMap::new();
-        for href in names {
+        for (href, index) in names {
             if ![".html", ".htm", ".xhtml"]
                 .iter()
                 .any(|suffix| href.ends_with(suffix))
@@ -58,7 +62,7 @@ pub fn sample(library: &Path, corpus: &Path) -> Result<(Vec<Value>, Value), Box<
                 continue;
             }
             let mut raw = Vec::new();
-            archive.by_name(&href)?.read_to_end(&mut raw)?;
+            archive.by_index(index)?.read_to_end(&mut raw)?;
             let mut stack: Vec<Element> = Vec::new();
             let mut index = 0;
             let mut found = Vec::new();
@@ -192,17 +196,25 @@ mod tests {
 
     #[test]
     fn frozen_python_sampling_parity_on_synthetic_source() {
-        let dir = std::env::temp_dir().join(format!("sampling-parity-{}", std::process::id()));
+        for legacy_name in [false, true] {
+            sampling_parity(legacy_name);
+        }
+    }
+
+    fn sampling_parity(legacy_name: bool) {
+        let dir = std::env::temp_dir().join(format!(
+            "sampling-parity-{}-{legacy_name}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut archive =
-            zip::ZipWriter::new(std::fs::File::create(dir.join("book.epub")).unwrap());
+        let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let options = zip::write::SimpleFileOptions::default();
         // Reverse archive insertion order: source identity must use sorted paths.
         archive.start_file("z.xhtml", options).unwrap();
         archive
             .write_all(b"<html><body><p class='ingredient'>STRASSE</p></body></html>")
             .unwrap();
-        archive.start_file("a.xhtml", options).unwrap();
+        archive.start_file("a-cafe.xhtml", options).unwrap();
         let mut source = "<html><body><p class='ingredient'>Straße</p><p class='ingredient'><span class='underline'>Heading</span></p><p class='ingredient'>excluded</p>".to_owned();
         for i in 0..60 {
             source.push_str(&format!(
@@ -211,7 +223,20 @@ mod tests {
         }
         source.push_str("</body></html>");
         archive.write_all(source.as_bytes()).unwrap();
-        archive.finish().unwrap();
+        let mut bytes = archive.finish().unwrap().into_inner();
+        if legacy_name {
+            // Patch both ZIP headers to a CP437 filename, without changing its length.
+            let offsets: Vec<_> = bytes
+                .windows(b"a-cafe.xhtml".len())
+                .enumerate()
+                .filter_map(|(i, name)| (name == b"a-cafe.xhtml").then_some(i))
+                .collect();
+            assert_eq!(offsets.len(), 2);
+            for offset in offsets {
+                bytes[offset + 5] = 0x82;
+            }
+        }
+        std::fs::write(dir.join("book.epub"), bytes).unwrap();
         std::fs::write(dir.join("excluded-inputs.json"), r#"["excluded"]"#).unwrap();
         // Golden digests generated with the retired Python SHA-256 sampling
         // protocol, independently of this implementation. Both seeds are frozen.
@@ -242,7 +267,14 @@ mod tests {
             assert_eq!(hash(inputs.as_bytes()), digest);
             for (i, row) in rows.iter().enumerate() {
                 assert_eq!(row["id"], format!("synthetic-{:02}", i + 1));
-                assert_eq!(row["source"]["href"], "a.xhtml");
+                assert_eq!(
+                    row["source"]["href"],
+                    if legacy_name {
+                        "a-café.xhtml"
+                    } else {
+                        "a-cafe.xhtml"
+                    }
+                );
                 let input = row["input"].as_str().unwrap();
                 if input == "Straße" {
                     assert_eq!(row["source"]["element_index"], 2);
