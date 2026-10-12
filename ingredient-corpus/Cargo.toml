@@ -15,7 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 sha2 = "0.11"
-xml-rs = "0.8"
+xml-rs = "1.0"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 unicode-casefold = "0.2"
 
