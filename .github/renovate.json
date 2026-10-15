@@ -1,55 +1,56 @@
 {
-  "extends": ["config:recommended"],
+  "extends": ["github>nickysemenza/renovate-config"],
   "schedule": ["before 9am on monday"],
   "prConcurrentLimit": 4,
   "prHourlyLimit": 2,
   "packageRules": [
     {
-      "description": "Automerge dependency updates only through a PR with passing checks",
+      "groupName": "tauri",
+      "matchPackageNames": ["tauri{-,/,}**", "@tauri-apps/**"],
       "matchUpdateTypes": [
         "major",
-        "minor",
-        "patch",
         "pin",
         "digest",
         "pinDigest",
         "lockFileMaintenance"
-      ],
-      "automerge": true
-    },
-    {
-      "groupName": "tauri",
-      "matchPackageNames": ["tauri{-,/,}**", "@tauri-apps/**"]
+      ]
     },
     {
       "groupName": "reqwest",
-      "matchPackageNames": ["reqwest{/,}**"]
+      "matchPackageNames": ["reqwest{/,}**"],
+      "matchUpdateTypes": [
+        "major",
+        "pin",
+        "digest",
+        "pinDigest",
+        "lockFileMaintenance"
+      ]
     },
     {
       "groupName": "github-actions",
-      "matchManagers": ["github-actions"]
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": [
+        "major",
+        "pin",
+        "digest",
+        "pinDigest",
+        "lockFileMaintenance"
+      ]
     },
     {
       "groupName": "frontend js deps",
-      "matchManagers": ["npm"]
-    },
-    {
-      "matchUpdateTypes": ["minor", "pin"],
-      "automergeType": "pr",
-      "automerge": true
-    },
-    {
-      "matchUpdateTypes": ["major"],
-      "automerge": true
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": [
+        "major",
+        "pin",
+        "digest",
+        "pinDigest",
+        "lockFileMaintenance"
+      ]
     },
     {
       "matchUpdateTypes": ["patch", "digest"],
       "enabled": false
     }
-  ],
-  "automerge": false,
-  "automergeType": "pr",
-  "platformAutomerge": false,
-  "ignoreTests": false,
-  "internalChecksAsSuccess": false
+  ]
 }
