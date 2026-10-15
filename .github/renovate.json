@@ -1,58 +1,55 @@
 {
-  "extends": [
-    "config:recommended"
-  ],
-  "schedule": [
-    "before 9am on monday"
-  ],
+  "extends": ["config:recommended"],
+  "schedule": ["before 9am on monday"],
   "prConcurrentLimit": 4,
   "prHourlyLimit": 2,
   "packageRules": [
     {
-      "groupName": "tauri",
-      "matchPackageNames": [
-        "tauri{-,/,}**",
-        "@tauri-apps/**"
-      ]
-    },
-    {
-      "groupName": "reqwest",
-      "matchPackageNames": [
-        "reqwest{/,}**"
-      ]
-    },
-    {
-      "groupName": "github-actions",
-      "matchManagers": [
-        "github-actions"
-      ]
-    },
-    {
-      "groupName": "frontend js deps",
-      "matchManagers": [
-        "npm"
-      ]
-    },
-    {
+      "description": "Automerge dependency updates only through a PR with passing checks",
       "matchUpdateTypes": [
+        "major",
         "minor",
-        "pin"
+        "patch",
+        "pin",
+        "digest",
+        "pinDigest",
+        "lockFileMaintenance"
       ],
-      "automergeType": "branch",
       "automerge": true
     },
     {
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": false
+      "groupName": "tauri",
+      "matchPackageNames": ["tauri{-,/,}**", "@tauri-apps/**"]
     },
     {
-      "matchUpdateTypes": [
-        "patch",
-        "digest"
-      ],
+      "groupName": "reqwest",
+      "matchPackageNames": ["reqwest{/,}**"]
+    },
+    {
+      "groupName": "github-actions",
+      "matchManagers": ["github-actions"]
+    },
+    {
+      "groupName": "frontend js deps",
+      "matchManagers": ["npm"]
+    },
+    {
+      "matchUpdateTypes": ["minor", "pin"],
+      "automergeType": "pr",
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["patch", "digest"],
       "enabled": false
     }
-  ]
+  ],
+  "automerge": false,
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "ignoreTests": false,
+  "internalChecksAsSuccess": false
 }
