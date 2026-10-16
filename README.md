@@ -8,6 +8,10 @@
 
 For full documentation, usage examples, and features, see the detailed [ingredient-parser/readme.md](ingredient-parser/readme.md).
 
+The canonical backlog is [GitHub Issues](https://github.com/nickysemenza/ingredient-parser/issues),
+tracked in the [Ingredient parser Project](https://github.com/users/nickysemenza/projects/3).
+See the [contributor workflow](CONTRIBUTING.md#backlog-and-issue-workflow) before starting work.
+
 ## Maintainer toolkit
 
 Run `pnpm --filter @ingredient-parser/ui desktop:dev` for the macOS Parser and Cookbooks
