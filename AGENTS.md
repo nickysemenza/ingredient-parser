@@ -1,5 +1,11 @@
 # Project Instructions
 
+## Backlog and issue workflow
+
+GitHub Issues is the canonical backlog. Before implementation, follow the
+bounded issue search and PR acceptance review in
+[CONTRIBUTING.md](CONTRIBUTING.md#backlog-and-issue-workflow).
+
 ## Parser Development
 
 - Cover parser changes with tests. Add `from_str` accuracy cases to `tests/corpus/corpus.jsonl` before changing parser code; `tests/accuracy.rs` scores that regression ratchet. `tests/trace.rs` tests the trace *tree*, not parse correctness; `accuracy.rs::trace_path_matches_from_str` covers traced-path accuracy.

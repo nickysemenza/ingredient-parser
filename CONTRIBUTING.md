@@ -6,6 +6,45 @@ multiple units, etc. are handled) lives in the **"Design Decisions"** section of
 [`ingredient-parser/src/lib.rs`](ingredient-parser/src/lib.rs) — read that first
 when deciding what a line *should* parse to.
 
+## Backlog and issue workflow
+
+[GitHub Issues](https://github.com/nickysemenza/ingredient-parser/issues) is the
+canonical backlog. The [Ingredient parser Project](https://github.com/users/nickysemenza/projects/3)
+tracks **Todo**, **In progress**, and **Done**. Keep durable task context,
+constraints, links, and acceptance criteria in the issue body. Small changes
+can proceed without creating an issue.
+
+Before implementation, briefly search for existing issues covering the requested
+outcome and read plausible matches, for example:
+
+```sh
+gh issue list --repo nickysemenza/ingredient-parser --state all --search 'outcome keywords'
+gh issue view ISSUE_NUMBER --repo nickysemenza/ingredient-parser
+```
+
+Reuse an issue when it covers the same outcome. Keep discovery bounded to the
+requested work; finding related issues does not expand scope. When a new issue
+is useful, give each independently finishable task its own issue and add it to
+the Project. Set it to In progress when implementation starts.
+
+Before opening a PR, compare the actual work and validation with the matched
+issues' acceptance criteria. Put `Fixes #123` in the PR body only when the PR
+fully satisfies that issue. Use `Related to #123` for partial or supporting work,
+and state the remaining acceptance criteria.
+
+The Project's native **Item added to project** and **Item closed** workflows are
+enabled. Auto-add for this repository (`is:issue is:open`) and **Item reopened**
+→ Todo still need configuration in the Project's authenticated Workflows UI:
+the setup environment had CLI access but a signed-out browser. Until those are
+configured, add issues explicitly and reset reopened issues to Todo:
+
+```sh
+gh project item-add 3 --owner nickysemenza --url ISSUE_URL
+```
+
+Use the Project's Status cell to reset reopened issues and verify membership
+after adding an issue. Keep issue closure and Project Done aligned.
+
 ## Workspace layout
 
 | Crate | Purpose |
