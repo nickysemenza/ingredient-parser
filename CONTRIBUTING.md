@@ -32,18 +32,17 @@ issues' acceptance criteria. Put `Fixes #123` in the PR body only when the PR
 fully satisfies that issue. Use `Related to #123` for partial or supporting work,
 and state the remaining acceptance criteria.
 
-The Project's native **Item added to project** and **Item closed** workflows are
-enabled. Auto-add for this repository (`is:issue is:open`) and **Item reopened**
-→ Todo still need configuration in the Project's authenticated Workflows UI:
-the setup environment had CLI access but a signed-out browser. Until those are
-configured, add issues explicitly and reset reopened issues to Todo:
+The Project's native workflows automatically add new or updated open issues
+from this repository (`is:issue is:open`), set added items to Todo, move closed
+items to Done, and reset reopened items to Todo. Existing issues can also be
+added explicitly:
 
 ```sh
 gh project item-add 3 --owner nickysemenza --url ISSUE_URL
 ```
 
-Use the Project's Status cell to reset reopened issues and verify membership
-after adding an issue. Keep issue closure and Project Done aligned.
+Verify Project membership after adding an issue. Keep issue closure and Project
+Done aligned.
 
 ## Workspace layout
 
