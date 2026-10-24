@@ -10,8 +10,8 @@ publish = false
 
 [dependencies]
 recipe-parsing.workspace = true
-scraper = "0.27.0"
-html-escape = "0.2"
+scraper = "0.29.0"
+html-escape = "0.3"
 url = "2"
 serde_json.workspace = true
 serde.workspace = true
