@@ -13,10 +13,14 @@ use zip::ZipArchive;
 
 /// Publisher NCX and OPF files carry DOCTYPE declarations, which roxmltree
 /// rejects unless told otherwise.
-const XML_OPTIONS: roxmltree::ParsingOptions = roxmltree::ParsingOptions {
-    allow_dtd: true,
-    nodes_limit: u32::MAX,
-};
+fn xml_options<'input>() -> roxmltree::ParsingOptions<'input> {
+    // Options are invariant in the input lifetime; construct them per parse.
+    roxmltree::ParsingOptions {
+        allow_dtd: true,
+        nodes_limit: u32::MAX,
+        entity_resolver: None,
+    }
+}
 
 use crate::error::{Error, Result};
 use crate::model::ImageRef;
@@ -177,7 +181,7 @@ fn read_entry<R: Read + Seek>(archive: &mut ZipArchive<R>, path: &str) -> Option
 fn rootfile_path(container: &[u8]) -> Result<String> {
     let text = String::from_utf8_lossy(container);
     let doc =
-        roxmltree::Document::parse_with_options(&text, XML_OPTIONS).map_err(|e| Error::Xml {
+        roxmltree::Document::parse_with_options(&text, xml_options()).map_err(|e| Error::Xml {
             path: "META-INF/container.xml".into(),
             message: e.to_string(),
         })?;
@@ -221,7 +225,7 @@ fn declare_undeclared_prefixes(xml: &str) -> std::borrow::Cow<'_, str> {
 fn parse_opf(opf_path: &str, xml: &str) -> Result<Package> {
     let xml = declare_undeclared_prefixes(xml);
     let doc =
-        roxmltree::Document::parse_with_options(&xml, XML_OPTIONS).map_err(|e| Error::Xml {
+        roxmltree::Document::parse_with_options(&xml, xml_options()).map_err(|e| Error::Xml {
             path: opf_path.to_string(),
             message: e.to_string(),
         })?;
@@ -506,6 +510,45 @@ mod tests {
             bytes[offset + 3] = 0x82;
         }
         assert_eq!(read_resource(&bytes, path).unwrap(), b"jpg");
+    }
+
+    // Exercise container and OPF parsing separately: either can carry a DTD,
+    // and neither may resolve an external entity from the filesystem/network.
+    #[rstest]
+    #[case::container("container")]
+    #[case::package("package")]
+    fn xml_dtd_support_does_not_resolve_external_entities(#[case] root: &str) {
+        let body = if root == "container" {
+            "<container><rootfiles><rootfile full-path=\"content.opf\"/></rootfiles></container>"
+                .to_string()
+        } else {
+            OPF3.trim_start_matches("<?xml version=\"1.0\"?>")
+                .to_string()
+        };
+        let parse = |xml: &str| {
+            if root == "container" {
+                rootfile_path(xml.as_bytes()).map(|_| ())
+            } else {
+                parse_opf("content.opf", xml).map(|_| ())
+            }
+        };
+        assert!(
+            parse(&format!(
+                "<!DOCTYPE {root} SYSTEM \"https://example.invalid/book.dtd\">{body}"
+            ))
+            .is_ok()
+        );
+        let body = if root == "container" {
+            body.replace("content.opf", "&external;")
+        } else {
+            body.replace("Test Book", "&external;")
+        };
+        assert!(matches!(
+            parse(&format!(
+                "<!DOCTYPE {root} [<!ENTITY external SYSTEM \"file:///unavailable-epub-entity\">]>{body}"
+            )),
+            Err(Error::Xml { .. })
+        ));
     }
 
     #[test]
