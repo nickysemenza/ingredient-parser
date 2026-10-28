@@ -4,10 +4,14 @@
 
 /// Publisher NCX and OPF files carry DOCTYPE declarations, which roxmltree
 /// rejects unless told otherwise.
-const XML_OPTIONS: roxmltree::ParsingOptions = roxmltree::ParsingOptions {
-    allow_dtd: true,
-    nodes_limit: u32::MAX,
-};
+fn xml_options<'input>() -> roxmltree::ParsingOptions<'input> {
+    // Options are invariant in the input lifetime; construct them per parse.
+    roxmltree::ParsingOptions {
+        allow_dtd: true,
+        nodes_limit: u32::MAX,
+        entity_resolver: None,
+    }
+}
 
 use scraper::{ElementRef, Html};
 use serde::{Deserialize, Serialize};
@@ -158,7 +162,7 @@ fn walk_ol(ol: ElementRef<'_>, depth: u8, base: &str, out: &mut Vec<NavEntry>) {
 
 pub(crate) fn parse_ncx(xml: &str, ncx_path: &str) -> Nav {
     let mut nav = Nav::default();
-    let doc = match roxmltree::Document::parse_with_options(xml, XML_OPTIONS) {
+    let doc = match roxmltree::Document::parse_with_options(xml, xml_options()) {
         Ok(doc) => doc,
         Err(e) => {
             tracing::warn!(path = ncx_path, error = %e, "unreadable toc.ncx");
@@ -276,16 +280,18 @@ mod tests {
         assert_eq!(nav.max_depth(), 2);
     }
 
-    #[test]
-    fn parses_ncx_nav_map_and_page_list() {
-        let nav = parse_ncx(
-            r#"<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>
+    #[rstest::rstest]
+    #[case("")]
+    #[case(r#"<!DOCTYPE ncx SYSTEM "https://example.invalid/ncx.dtd">"#)]
+    fn parses_ncx_nav_map_and_page_list(#[case] doctype: &str) {
+        let xml = format!(
+            r#"{doctype}<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>
               <navPoint id="a" playOrder="1"><navLabel><text>Starchy Dishes</text></navLabel><content src="text/part0011.html"/>
                 <navPoint id="b" playOrder="2"><navLabel><text>Polenta</text></navLabel><content src="text/part0011.html#page190"/></navPoint>
               </navPoint>
-            </navMap><pageList><pageTarget type="normal" value="190"><navLabel><text>190</text></navLabel><content src="text/part0011.html#page190"/></pageTarget></pageList></ncx>"#,
-            "toc.ncx",
+            </navMap><pageList><pageTarget type="normal" value="190"><navLabel><text>190</text></navLabel><content src="text/part0011.html#page190"/></pageTarget></pageList></ncx>"#
         );
+        let nav = parse_ncx(&xml, "toc.ncx");
         assert_eq!(nav.entries.len(), 2);
         assert_eq!(nav.entries[0].depth, 1);
         assert_eq!(nav.entries[1].depth, 2);
