@@ -11,14 +11,6 @@ feature-depth = 1
 # https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
 [advisories]
 yanked = "deny"
-ignore = [
-    # cargo-deny scans all target dependencies, including the Linux clipboard
-    # stack behind our macOS-only Tauri dependency. quick-xml appears only in
-    # wayland-scanner build-time code generation of trusted protocol XML; this
-    # path is not built by food-app on any supported platform.
-    { id = "RUSTSEC-2026-0194", reason = "quick-xml quadratic parsing, build-time-only via wayland-scanner codegen of trusted protocol XML" },
-    { id = "RUSTSEC-2026-0195", reason = "quick-xml unbounded namespace allocation, build-time-only via wayland-scanner codegen of trusted protocol XML" },
-]
 
 # https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
 [licenses]
