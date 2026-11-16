@@ -31,7 +31,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
       - name: Unused dependencies
-        uses: bnjbvr/cargo-machete@ac30a525c0a8d163a92d727b3ff079ee3f6ecb08 # v0.9.2
+        uses: bnjbvr/cargo-machete@431e75731b681a69a4cfdeb1315b505778bb5c70 # v0.10.1
   build:
     runs-on: ubuntu-latest
     steps:
@@ -114,7 +114,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
-          toolchain: "1.99"
+          toolchain: "1.100"
       - name: Check the published crate builds on its declared MSRV
         # 1.88 is the workspace floor: edition 2024 + let-chains (from clippy's
         # collapsible_if) stabilized there. Default features only.
